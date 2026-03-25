@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">🌤️ Meteorologia</h5>
+    <p class="text-muted small mb-3">Previsões meteorológicas por loja e score composto</p>
+
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <a href="{{ url_for('meteorologia.index') }}" class="btn btn-sm btn-primary">🌤️ Previsões</a>
+        <a href="{{ url_for('meteorologia.historico_vendas') }}" class="btn btn-sm btn-outline-secondary">📦 Histórico de Vendas</a>
+        <a href="{{ url_for('meteorologia.historico_meteo') }}" class="btn btn-sm btn-outline-secondary">🗂️ Calibração Histórica</a>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-sm-4">
+                    <label class="form-label small mb-1">Loja</label>
+                    <form method="GET" id="filterForm" class="d-flex gap-2 flex-wrap">
+                        <select name="store_id" class="form-select form-select-sm" onchange="document.getElementById('filterForm').submit()">
+                            {% for s in stores %}
+                            <option value="{{ s.id }}" {% if s.id == sel_store_id %}selected{% endif %}>{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="date" name="data_inicio" class="form-control form-control-sm" value="{{ data_inicio }}" style="width:140px">
+                        <input type="date" name="data_fim" class="form-control form-control-sm" value="{{ data_fim }}" style="width:140px">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Filtrar</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">🔄 Scheduler Bi-Diário</h6>
+                    <p class="small text-muted mb-2">Actualizações automáticas: 07h–08h e 13h–14h (hora de Lisboa)</p>
+                    {% if scheduler_status.running %}
+                    <span class="badge bg-success me-2">✅ Activo</span>
+                    {% else %}
+                    <span class="badge bg-secondary me-2">⏸ Inactivo</span>
+                    {% endif %}
+                    {% if scheduler_status.next_run %}
+                    <span class="small text-muted">Próxima: {{ scheduler_status.next_run[:16] }}</span>
+                    {% endif %}
+                    <form method="POST" class="mt-2" data-no-loading>
+                        <input type="hidden" name="action" value="trigger_update">
+                        <button type="submit" class="btn btn-sm btn-warning">⚡ Actualizar Agora</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% if sel_store %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h6 class="card-title">📍 {{ sel_store.name }}</h6>
+                    {% if sel_store.latitude and sel_store.longitude %}
+                    <p class="small text-muted mb-1">Coords: {{ "%.4f"|format(sel_store.latitude) }}, {{ "%.4f"|format(sel_store.longitude) }}</p>
+                    {% else %}
+                    <p class="small text-warning mb-1">⚠️ Sem coordenadas — configure na gestão de lojas para fetch automático.</p>
+                    {% endif %}
+                    {% if sel_store.address %}
+                    <p class="small text-muted mb-0">{{ sel_store.address }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if weather_composite %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">📊 Score Composto por Dia</h6>
+            <p class="text-muted small">Score 0–100 (maior = melhor para vendas de gelado). Divergência entre fontes em pontos.</p>
+            <div class="table-responsive" style="max-height:400px;overflow-y:auto;">
+                <table class="table table-sm table-striped">
+                    <thead class="sticky-top bg-white">
+                        <tr>
+                            <th>Data</th>
+                            <th>Score Composto</th>
+                            <th>Divergência</th>
+                            <th>Fontes</th>
+                            <th>Temp Max (°C)</th>
+                            <th>Temp Min (°C)</th>
+                            <th>Precip. (mm)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in weather_composite %}
+                        <tr>
+                            <td>{{ r.data }}</td>
+                            <td>
+                                {% if r.composite_score is not none %}
+                                {% set score = r.composite_score %}
+                                <span class="badge {% if score >= 70 %}bg-success{% elif score >= 45 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                    {{ score }}
+                                </span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td>
+                                {% if r.divergencia is not none %}
+                                <span class="{% if r.divergencia > 20 %}text-warning fw-bold{% endif %}">{{ r.divergencia }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td><span class="badge bg-secondary">{{ r.num_fontes }}</span></td>
+                            <td>{{ "%.1f"|format(r.temp_max_media) if r.temp_max_media is not none else "—" }}</td>
+                            <td>{{ "%.1f"|format(r.temp_min_media) if r.temp_min_media is not none else "—" }}</td>
+                            <td>{{ "%.1f"|format(r.precip_media) if r.precip_media is not none else "—" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">🗂️ Detalhe por Fonte</h6>
+            <div class="table-responsive" style="max-height:400px;overflow-y:auto;">
+                <table class="table table-sm">
+                    <thead class="sticky-top bg-white">
+                        <tr>
+                            <th>Data</th>
+                            <th>Fonte</th>
+                            <th>Condição</th>
+                            <th>T Max</th>
+                            <th>T Min</th>
+                            <th>Precip</th>
+                            <th>Vento</th>
+                            <th>Score</th>
+                            <th>Actualizado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in weather_detail %}
+                        <tr>
+                            <td class="small">{{ r.data }}</td>
+                            <td><span class="badge bg-info text-dark">{{ r.fonte }}</span></td>
+                            <td class="small">{{ r.condicao or "—" }}</td>
+                            <td class="small">{{ "%.1f"|format(r.temperatura_max) if r.temperatura_max is not none else "—" }}°</td>
+                            <td class="small">{{ "%.1f"|format(r.temperatura_min) if r.temperatura_min is not none else "—" }}°</td>
+                            <td class="small">{{ "%.1f"|format(r.precipitacao_mm) if r.precipitacao_mm is not none else "—" }} mm</td>
+                            <td class="small">{{ "%.0f"|format(r.vento_kmh) if r.vento_kmh is not none else "—" }} km/h</td>
+                            <td>
+                                {% if r.score is not none %}
+                                <span class="badge {% if r.score >= 70 %}bg-success{% elif r.score >= 45 %}bg-warning text-dark{% else %}bg-danger{% endif %}">{{ r.score }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="small text-muted">{{ r.updated_at.strftime('%d/%m %H:%M') if r.updated_at else "—" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        Sem dados meteorológicos para este período.
+        {% if sel_store and not (sel_store.latitude and sel_store.longitude) %}
+        Configure as coordenadas da loja e clique em <strong>Actualizar Agora</strong>.
+        {% else %}
+        Clique em <strong>Actualizar Agora</strong> para carregar previsões.
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title text-danger">🗑️ Eliminar Dados Meteorológicos</h6>
+            <form method="POST" onsubmit="return confirm('Confirma a eliminação dos dados?')">
+                <input type="hidden" name="action" value="delete_weather">
+                <div class="row g-2 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label small mb-1">Loja</label>
+                        <select name="del_store_id" class="form-select form-select-sm">
+                            {% for s in stores %}
+                            <option value="{{ s.id }}" {% if s.id == sel_store_id %}selected{% endif %}>{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-1">Fonte</label>
+                        <select name="del_fonte" class="form-select form-select-sm">
+                            <option value="">Todas</option>
+                            <option>open-meteo</option>
+                            <option>ipma</option>
+                            <option>accuweather</option>
+                            <option>weather-underground</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-1">Data início</label>
+                        <input type="date" name="del_data_inicio" class="form-control form-control-sm" value="{{ data_inicio }}">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-1">Data fim</label>
+                        <input type="date" name="del_data_fim" class="form-control form-control-sm" value="{{ data_fim }}">
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Eliminar</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

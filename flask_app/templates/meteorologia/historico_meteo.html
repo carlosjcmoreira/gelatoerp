@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% set back_url = url_for("meteorologia.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">🗂️ Calibração Histórica Meteorológica</h5>
+    <p class="text-muted small mb-3">Importar dados históricos Open-Meteo (gratuito, histórico desde 1940) para calibração do motor de previsão</p>
+
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <a href="{{ url_for('meteorologia.index') }}" class="btn btn-sm btn-outline-secondary">🌤️ Previsões</a>
+        <a href="{{ url_for('meteorologia.historico_vendas') }}" class="btn btn-sm btn-outline-secondary">📦 Histórico Vendas</a>
+        <a href="{{ url_for('meteorologia.historico_meteo') }}" class="btn btn-sm btn-primary">🗂️ Calibração Histórica</a>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">⬇️ Importar Dados Históricos Open-Meteo</h6>
+            <p class="text-muted small">
+                Importa dados meteorológicos históricos (temperatura, precipitação, vento, código de tempo) do arquivo Open-Meteo para o período seleccionado.<br>
+                <strong>Pré-requisito:</strong> A loja deve ter coordenadas GPS configuradas em <a href="{{ url_for('gestor.gestao_lojas') }}">Gestão de Lojas</a>.<br>
+                Para calibração YoY, importar o ano anterior completo (1 Jan → 31 Dez).
+            </p>
+            <form method="POST">
+                <div class="row g-2 align-items-end">
+                    <div class="col-sm-4">
+                        <label class="form-label small mb-1">Loja <span class="text-danger">*</span></label>
+                        <select name="store_id" class="form-select form-select-sm" required>
+                            {% for s in stores %}
+                            <option value="{{ s.id }}"
+                                {% if not (s.latitude and s.longitude) %}title="Sem coordenadas GPS"{% endif %}>
+                                {{ s.name }}
+                                {% if not (s.latitude and s.longitude) %} ⚠️{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">Data Início <span class="text-danger">*</span></label>
+                        <input type="date" name="data_inicio" class="form-control form-control-sm"
+                               value="{{ default_inicio }}" required max="{{ hoje }}">
+                    </div>
+                    <div class="col-sm-3">
+                        <label class="form-label small mb-1">Data Fim <span class="text-danger">*</span></label>
+                        <input type="date" name="data_fim" class="form-control form-control-sm"
+                               value="{{ default_fim }}" required max="{{ hoje }}">
+                    </div>
+                    <div class="col-sm-2">
+                        <button type="submit" class="btn btn-primary btn-sm w-100">Importar</button>
+                    </div>
+                </div>
+                <p class="text-muted small mt-2 mb-0">
+                    ℹ️ Períodos longos (ex: ano completo) podem demorar alguns segundos.
+                    Os dados são guardados por loja/data/fonte e são actualizados se re-importados.
+                </p>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

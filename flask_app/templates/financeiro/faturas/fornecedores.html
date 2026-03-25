@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% set back_url = url_for("faturas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">🏢 Fornecedores</h5>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalAdd">
+            + Adicionar
+        </button>
+    </div>
+
+    {% if suppliers %}
+    <div class="list-group">
+        {% for s in suppliers %}
+        <div class="list-group-item py-2 px-3">
+            <div class="d-flex align-items-center justify-content-between gap-2">
+                <div class="flex-grow-1">
+                    <div class="fw-semibold">{{ s.name }}</div>
+                    <div class="small text-muted">
+                        NIF: {{ s.nif }}
+                        {% if s.category %} · {{ s.category }}{% endif %}
+                        {% if s.store_name %} · {{ s.store_name }}{% endif %}
+                        {% if s.payment_method %} · {{ payment_method_labels.get(s.payment_method, s.payment_method) }}{% endif %}
+                        {% if s.payment_terms %} · {{ payment_terms_labels.get(s.payment_terms, s.payment_terms) }}{% endif %}
+                    </div>
+                    {% if s.iban %}<div class="small text-muted">IBAN: {{ s.iban }}</div>{% endif %}
+                    {% if s.notes %}<div class="small text-muted fst-italic">{{ s.notes }}</div>{% endif %}
+                </div>
+                <div class="d-flex gap-1 flex-shrink-0">
+                    <button class="btn btn-outline-secondary btn-sm"
+                            onclick="editSupplier({{ s|tojson }})">
+                        ✏️
+                    </button>
+                    <form method="post" onsubmit="return confirm('Eliminar fornecedor?')">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="supplier_id" value="{{ s.id }}">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">🗑</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-5">
+        <p>Nenhum fornecedor registado.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modal: Add/Edit supplier -->
+<div class="modal fade" id="modalAdd" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="modalAddTitle">Novo Fornecedor</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                <input type="hidden" name="action" value="save">
+                <div class="modal-body">
+                    <div class="row g-2">
+                        <div class="col-12">
+                            <label class="form-label small">Nome <span class="text-danger">*</span></label>
+                            <input type="text" name="name" id="sName" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">NIF <span class="text-danger">*</span></label>
+                            <input type="text" name="nif" id="sNif" class="form-control form-control-sm"
+                                   inputmode="numeric" required>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Categoria</label>
+                            <select name="category" id="sCategory" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat }}">{{ cat }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Loja associada</label>
+                            <select name="store_id" id="sStore" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for s in stores %}
+                                <option value="{{ s.id }}">{{ s.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Método de Pagamento</label>
+                            <select name="payment_method" id="sPaymentMethod" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for val, label in payment_method_labels.items() %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Prazo de Pagamento</label>
+                            <select name="payment_terms" id="sPaymentTerms" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for val, label in payment_terms_labels.items() %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">IBAN</label>
+                            <input type="text" name="iban" id="sIban" class="form-control form-control-sm"
+                                   placeholder="PT50...">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Notas</label>
+                            <textarea name="notes" id="sNotes" class="form-control form-control-sm" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editSupplier(s) {
+    document.getElementById('modalAddTitle').textContent = 'Editar Fornecedor';
+    document.getElementById('sName').value = s.name || '';
+    document.getElementById('sNif').value = s.nif || '';
+    document.getElementById('sCategory').value = s.category || '';
+    document.getElementById('sStore').value = s.store_id || '';
+    document.getElementById('sPaymentMethod').value = s.payment_method || '';
+    document.getElementById('sPaymentTerms').value = s.payment_terms || '';
+    document.getElementById('sIban').value = s.iban || '';
+    document.getElementById('sNotes').value = s.notes || '';
+    var modal = new bootstrap.Modal(document.getElementById('modalAdd'));
+    modal.show();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% set back_url = url_for("producao.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    {% block tab_content %}{% endblock %}
+</div>
+{% endblock %}

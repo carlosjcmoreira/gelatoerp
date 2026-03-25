@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">🛒 Vendas {{ loja_nome }}</h5>
+    
+
+    <h6 class="mb-3">Pesagem de Gelado — Fim do Dia</h6>
+
+    <form method="POST" class="mb-4">
+        <input type="hidden" name="action" value="add">
+
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Sabor</label>
+            <select name="sabor" class="form-select" required>
+                {% for s in sabores %}
+                <option value="{{ s }}">{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label fw-semibold">Pesagem (kg)</label>
+            <input type="text" name="quantidade" class="form-control" placeholder="0,000" inputmode="decimal" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100">Registar Pesagem</button>
+    </form>
+
+    <hr>
+    <h6 class="mb-3">Pesagens Registadas Hoje</h6>
+
+    {% if pesagens_hoje %}
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-bordered align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Sabor</th>
+                    <th class="text-end">Pesagem (kg)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in pesagens_hoje %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td>{{ p.sabor }}</td>
+                    <td class="text-end">{{ p.quantidade_kg }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <form method="POST" class="d-flex gap-2 align-items-end">
+        <input type="hidden" name="action" value="delete">
+        <div>
+            <label class="form-label fw-semibold mb-1" style="font-size:0.85rem;">ID a eliminar</label>
+            <input type="number" name="id" class="form-control form-control-sm" min="1" required style="width:100px;">
+        </div>
+        <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
+    </form>
+    {% else %}
+    <div class="alert alert-info">Sem pesagens registadas para hoje.</div>
+    {% endif %}
+</div>
+{% endblock %}

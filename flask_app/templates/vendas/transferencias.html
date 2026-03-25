@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-2">🛒 Vendas {{ loja_nome }}</h5>
+    <h6 class="mb-1">Receção de Transferências</h6>
+    <p class="text-muted small mb-3">Confirme as transferências enviadas pela produção. Ao confirmar, o stock é atualizado automaticamente.</p>
+
+    {% if grupos_pendentes %}
+    {% for data_prevista, ordens in grupos_pendentes %}
+    <div class="card mb-3">
+        <div class="card-header py-2 px-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="fw-bold">📅 {{ data_prevista.strftime('%d/%m/%Y') }}</span>
+                <span class="badge bg-warning text-dark">{{ ordens|length }} pendente{{ 's' if ordens|length > 1 }}</span>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            {% for o in ordens %}
+            <div class="px-3 py-2 {% if not loop.last %}border-bottom{% endif %}">
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <div>
+                        <span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.7rem;">{{ o.area_origem }}</span>
+                        <span class="fw-bold small ms-1">{{ o.produto }}</span>
+                    </div>
+                    <span class="text-muted" style="font-size:0.72rem;">criado {{ o.data.strftime('%d/%m') }}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="small">
+                        <span class="fw-bold">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</span>
+                        {% if o.criado_por %}
+                        <span class="text-muted ms-1" style="font-size:0.72rem;">por {{ o.criado_por }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex gap-1">
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="confirmar">
+                            <input type="hidden" name="ordem_id" value="{{ o.id }}">
+                            <button type="submit" class="btn btn-success btn-sm" style="padding:2px 10px;font-size:0.78rem;">Confirmar</button>
+                        </form>
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="rejeitar">
+                            <input type="hidden" name="ordem_id" value="{{ o.id }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm" style="padding:2px 10px;font-size:0.78rem;">Rejeitar</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="alert alert-info small">Sem transferências pendentes para {{ loja_nome }}.</div>
+    {% endif %}
+
+    {% if confirmadas %}
+    <h6 class="mt-4 mb-2">Histórico Recente</h6>
+    <div class="table-responsive">
+        <table class="table table-sm" style="font-size:0.82rem;">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Área</th>
+                    <th>Produto</th>
+                    <th class="text-center">Qty</th>
+                    <th class="text-center">Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for o in confirmadas %}
+                <tr>
+                    <td>{{ o.data.strftime('%d/%m') }}</td>
+                    <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.65rem;">{{ o.area_origem }}</span></td>
+                    <td>{{ o.produto }}</td>
+                    <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
+                    <td class="text-center">
+                        {% if o.status == 'confirmada' %}
+                        <span class="badge bg-success" style="font-size:0.65rem;">Confirmada</span>
+                        {% else %}
+                        <span class="badge bg-danger" style="font-size:0.65rem;">Rejeitada</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

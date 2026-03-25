@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-4">⚙️ Configurações</h5>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'success' if category == 'success' else 'warning' if category == 'warning' else 'danger' }} py-2">{{ message }}</div>
+    {% endfor %}
+    {% endwith %}
+
+    <div class="card mb-4" style="max-width:680px;">
+        <div class="card-header d-flex align-items-center gap-2">
+            <span style="font-size:1.2rem;">☁️</span>
+            <strong>Arquivo OneDrive</strong>
+            {% if onedrive_connected %}
+            <span class="badge bg-success ms-auto">Ligado</span>
+            {% else %}
+            <span class="badge bg-secondary ms-auto">Por configurar</span>
+            {% endif %}
+        </div>
+        <div class="card-body">
+
+            {% if onedrive_connected %}
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <span class="text-success fw-semibold">✅ Ligado{% if onedrive_user %} — {{ onedrive_user }}{% endif %}</span>
+            </div>
+
+            <form method="POST" class="mb-3">
+                <label class="form-label fw-semibold small">Pasta de destino no OneDrive</label>
+                <input type="text" name="onedrive_folder" class="form-control font-monospace"
+                       value="{{ onedrive_folder }}"
+                       placeholder="Niva Porto/2. Contabilidade/Registo de Faturas">
+                <div class="form-text">Caminho relativo à raiz do OneDrive. Subpastas criadas automaticamente: /Ano/MêsAA/Faturas/Subcategoria/</div>
+                <button type="submit" class="btn btn-primary btn-sm mt-2">Guardar pasta</button>
+            </form>
+
+            <div class="d-flex gap-2 flex-wrap">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-testar">
+                    Testar ligação
+                </button>
+                <form method="POST" action="{{ url_for('gestor.onedrive_desligar') }}"
+                      onsubmit="return confirm('Remover autorização OneDrive?')">
+                    <button type="submit" class="btn btn-outline-danger btn-sm">Desligar</button>
+                </form>
+            </div>
+
+            <div id="teste-resultado" class="mt-3" style="display:none;"></div>
+
+            {% else %}
+            <p class="text-muted small mb-3">
+                Autorize o acesso ao OneDrive para arquivar faturas automaticamente.
+                O processo demora menos de 1 minuto e só é necessário uma vez.
+            </p>
+
+            <div class="alert alert-info py-2 small mb-3">
+                <strong>Antes de autorizar, confirme no portal Azure que:</strong>
+                <ol class="mb-0 mt-1">
+                    <li>A app <strong>niva-erp-onedrive</strong> suporta contas pessoais Microsoft
+                        ("Accounts in any organizational directory and personal Microsoft accounts")</li>
+                    <li>Existe uma permissão delegada <strong>Files.ReadWrite</strong> (Microsoft Graph)</li>
+                    <li>O Redirect URI registado é:
+                        <code class="d-block mt-1 text-break">{{ redirect_uri }}</code>
+                    </li>
+                </ol>
+            </div>
+
+            <a href="{{ url_for('gestor.onedrive_autorizar') }}" class="btn btn-primary btn-sm">
+                🔐 Autorizar OneDrive
+            </a>
+            {% endif %}
+
+        </div>
+    </div>
+</div>
+
+{% if onedrive_connected %}
+<script>
+document.getElementById('btn-testar').addEventListener('click', function () {
+    const btn = this;
+    const result = document.getElementById('teste-resultado');
+    btn.disabled = true;
+    btn.textContent = 'A testar…';
+    result.style.display = 'none';
+
+    fetch('{{ url_for("gestor.testar_onedrive") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        result.style.display = 'block';
+        if (data.ok) {
+            result.innerHTML = '<div class="alert alert-success py-2">✅ Ligação bem-sucedida! Ficheiro de teste criado na pasta OneDrive.</div>';
+        } else {
+            result.innerHTML = '<div class="alert alert-danger py-2">❌ Erro: ' + (data.error || 'Falha desconhecida') + '</div>';
+        }
+    })
+    .catch(err => {
+        result.style.display = 'block';
+        result.innerHTML = '<div class="alert alert-danger py-2">❌ Erro de rede: ' + err + '</div>';
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.textContent = 'Testar ligação';
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

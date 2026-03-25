@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.gerir_produtos") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">📋 Lista de Produtos</h5>
+
+    {% if produtos_past %}
+    <form method="POST" id="bulkDeleteForm">
+        <input type="hidden" name="action" value="delete_bulk_produtos_past">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="text-muted small">{{ produtos_past|length }} produto(s)</span>
+            <button type="submit" class="btn btn-outline-danger btn-sm" id="btnDeleteSelected" disabled onclick="return confirm('Eliminar os produtos selecionados?')">Eliminar selecionados</button>
+        </div>
+        <div class="table-responsive mb-3">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th style="width:40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
+                        <th>Tipologia</th>
+                        <th>Sabor</th>
+                        <th>Cobertura</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in produtos_past %}
+                    <tr>
+                        <td><input type="checkbox" name="produto_ids" value="{{ p.id }}" class="form-check-input produto-check"></td>
+                        <td>{{ p.tipologia }}</td>
+                        <td>{{ p.sabor or '—' }}</td>
+                        <td>{{ p.cobertura or '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </form>
+    {% else %}
+    <p class="text-muted small">Sem produtos registados.</p>
+    {% endif %}
+
+    <hr>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">Adicionar Novo Produto</h6>
+            <form method="POST">
+                <input type="hidden" name="action" value="add_produto_past">
+                <div class="row g-2 mb-2">
+                    <div class="col-4">
+                        <label class="form-label small">Tipologia</label>
+                        <select name="novo_tipologia" class="form-select form-select-sm">
+                            {% for t in tipologias_list %}
+                            <option value="{{ t }}">{{ t }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label small">Sabor</label>
+                        <select name="novo_sabor_past" class="form-select form-select-sm">
+                            <option value="">—</option>
+                            {% for s in sabores_list %}
+                            <option value="{{ s }}">{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label small">Cobertura</label>
+                        <select name="novo_cob_past" class="form-select form-select-sm">
+                            <option value="">—</option>
+                            {% for c in coberturas_list %}
+                            <option value="{{ c }}">{{ c }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Adicionar Produto</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var selectAll = document.getElementById('selectAll');
+    var checks = document.querySelectorAll('.produto-check');
+    var btnDel = document.getElementById('btnDeleteSelected');
+
+    function updateBtn() {
+        var any = false;
+        checks.forEach(function(c) { if (c.checked) any = true; });
+        if (btnDel) btnDel.disabled = !any;
+    }
+
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            checks.forEach(function(c) { c.checked = selectAll.checked; });
+            updateBtn();
+        });
+    }
+    checks.forEach(function(c) {
+        c.addEventListener('change', updateBtn);
+    });
+
+});
+</script>
+{% endblock %}

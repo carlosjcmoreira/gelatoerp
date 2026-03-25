@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eventos.index") %}
+
+{% block content %}
+<div class="container-fluid px-0">
+    {% if tabs %}
+    <div class="overflow-auto border-bottom mb-0" style="white-space:nowrap;">
+        <div class="d-flex px-2 pt-2 gap-1" style="flex-wrap:nowrap;">
+            {% for tab in tabs %}
+            <a href="{{ tab.url }}" class="btn btn-sm {{ 'btn-dark' if active_tab == tab.id else 'btn-outline-secondary' }} mb-2">
+                {{ tab.icon }} {{ tab.label }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    <div class="px-3 py-3">
+        {% block tab_content %}{% endblock %}
+    </div>
+</div>
+{% endblock %}

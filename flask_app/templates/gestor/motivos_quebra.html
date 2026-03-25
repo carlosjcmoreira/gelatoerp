@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">⚠️ Motivos de Quebra</h5>
+    {% include "gestor/_motivos_quebra.html" %}
+</div>
+{% endblock %}

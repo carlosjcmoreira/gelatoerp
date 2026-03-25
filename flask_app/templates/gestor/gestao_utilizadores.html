@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">👥 Gestão de Utilizadores</h5>
+    {% include "gestor/_gestao_utilizadores.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,54 @@
+modules = ["nodejs-20", "python-3.11", "postgresql-16"]
+[deployment]
+deploymentTarget = "autoscale"
+run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "--preload", "--timeout", "120", "flask_app.app:create_app()"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["cargo", "freetype", "glibcLocales", "lcms2", "libiconv", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "rustc", "tcl", "tk", "xcodebuild", "zlib"]
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "gunicorn 'flask_app.app:create_app()' -c gunicorn.conf.py"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 5904
+externalPort = 3000
+
+[agent]
+expertMode = true
+integrations = ["python_openai_ai_integrations:1.0.0", "google-sheet:1.0.0", "python_anthropic_ai_integrations:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+DEV_AUTO_LOGIN_TOKEN = "nivadev2026"
+FLASK_SECRET_KEY = "niva-porto-flask-secret-key-2026-fixed"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 60000

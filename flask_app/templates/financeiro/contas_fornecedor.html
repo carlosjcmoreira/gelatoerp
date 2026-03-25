@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <h5 class="mb-1">🏦 Contas por Fornecedor</h5>
+    <p class="text-muted small mb-3">Documentos pendentes/agendados agrupados por fornecedor. Selecione um ou vários documentos para liquidar com um único movimento.</p>
+
+    {% if grupos %}
+
+    <!-- Liquidar modal (shared) -->
+    <div class="modal fade" id="modalLiquidar" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title">Liquidar documentos selecionados</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="post" action="{{ url_for('financeiro.liquidar_fornecedor') }}" id="formLiquidar">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label small">Data de pagamento *</label>
+                            <input type="date" name="paid_date" class="form-control form-control-sm"
+                                   value="{{ today.isoformat() }}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small">Método de pagamento *</label>
+                            <select name="payment_method" class="form-select form-select-sm" required>
+                                {% for val, label in payment_methods %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div id="liquidar-summary" class="small text-muted"></div>
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button type="submit" class="btn btn-success btn-sm">Liquidar</button>
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    {% for grupo in grupos %}
+    {% set gid = loop.index %}
+    <div class="card mb-3">
+        <div class="card-header py-2 d-flex align-items-center justify-content-between gap-2">
+            <div>
+                <span class="fw-semibold">{{ grupo.supplier_name }}</span>
+                {% if grupo.supplier_nif %}
+                <span class="text-muted small ms-1">NIF {{ grupo.supplier_nif }}</span>
+                {% endif %}
+                <span class="badge bg-secondary ms-1">{{ grupo.n_docs }} doc.</span>
+            </div>
+            <div class="text-end">
+                {% if grupo.total_nc > 0 %}
+                <span class="small text-success me-2">NC: +{{ '%.2f €'|format(grupo.total_nc) }}</span>
+                {% endif %}
+                <span class="small text-danger me-2">Fat: -{{ '%.2f €'|format(grupo.total_faturas) }}</span>
+                <span class="fw-bold {% if grupo.saldo_liquido >= 0 %}text-success{% else %}text-danger{% endif %}">
+                    Saldo: {% if grupo.saldo_liquido >= 0 %}+{% endif %}{{ '%.2f €'|format(grupo.saldo_liquido) }}
+                </span>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:36px">
+                                <input type="checkbox" class="form-check-input cb-group" data-group="{{ gid }}">
+                            </th>
+                            <th>Nº Documento</th>
+                            <th>Tipo</th>
+                            <th class="text-end">Valor</th>
+                            <th>Vencimento</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for inv in grupo.invoices %}
+                        {% set overdue = inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}
+                        <tr class="{{ 'table-danger' if overdue else '' }}">
+                            <td>
+                                <input type="checkbox" class="form-check-input cb-invoice inv-cb-{{ gid }}"
+                                       name="invoice_ids_{{ gid }}" value="{{ inv.id }}"
+                                       data-group="{{ gid }}"
+                                       data-amount="{{ inv.amount_eur or 0 }}"
+                                       data-type="{{ inv.document_type }}">
+                            </td>
+                            <td class="small">
+                                <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}"
+                                   class="text-decoration-none" data-no-loading>
+                                    {{ inv.invoice_number or '(sem nº)' }}
+                                </a>
+                            </td>
+                            <td>
+                                {% if inv.document_type == 'nota_credito' %}
+                                <span class="badge bg-success-subtle text-success-emphasis">NC</span>
+                                {% else %}
+                                <span class="badge bg-light text-dark border">FT</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end text-nowrap small fw-semibold
+                                {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}">
+                                {% if inv.amount_eur is not none %}
+                                    {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f €'|format(inv.amount_eur) }}
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="small {{ 'text-danger fw-bold' if overdue else '' }}">
+                                {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                            </td>
+                            <td>
+                                <span class="badge
+                                    {% if overdue %}bg-danger
+                                    {% elif inv.status == 'pending_review' %}bg-warning text-dark
+                                    {% elif inv.status == 'scheduled' %}bg-info text-dark
+                                    {% else %}bg-secondary{% endif %}">
+                                    {{ 'Vencida' if overdue else inv.status_label }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="p-2 d-flex justify-content-end gap-2 border-top">
+                <button type="button" class="btn btn-outline-primary btn-sm btn-sel-all" data-group="{{ gid }}">
+                    Selecionar tudo
+                </button>
+                <button type="button" class="btn btn-success btn-sm btn-liquidar" data-group="{{ gid }}" disabled>
+                    Liquidar selecionados
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% else %}
+    <div class="text-center text-muted py-5">
+        <div style="font-size:2rem;">🏦</div>
+        <p class="mt-2">Nenhum documento pendente ou agendado.</p>
+        <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-primary btn-sm">Ver faturas</a>
+    </div>
+    {% endif %}
+</div>
+
+{% if grupos %}
+<script>
+(function () {
+    const form = document.getElementById('formLiquidar');
+
+    function getCheckedForGroup(gid) {
+        return document.querySelectorAll('.inv-cb-' + gid + ':checked');
+    }
+
+    function updateGroupButton(gid) {
+        const checked = getCheckedForGroup(gid);
+        const btn = document.querySelector('.btn-liquidar[data-group="' + gid + '"]');
+        btn.disabled = checked.length === 0;
+    }
+
+    document.querySelectorAll('.cb-invoice').forEach(cb => {
+        cb.addEventListener('change', function () {
+            const gid = this.dataset.group;
+            updateGroupButton(gid);
+        });
+    });
+
+    document.querySelectorAll('.btn-sel-all').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const gid = this.dataset.group;
+            const cbs = document.querySelectorAll('.inv-cb-' + gid);
+            const allChecked = Array.from(cbs).every(c => c.checked);
+            cbs.forEach(cb => { cb.checked = !allChecked; });
+            updateGroupButton(gid);
+        });
+    });
+
+    document.querySelectorAll('.btn-liquidar').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const gid = this.dataset.group;
+            const checked = getCheckedForGroup(gid);
+            if (checked.length === 0) return;
+
+            // Build hidden inputs in the form
+            form.querySelectorAll('input[name="invoice_ids"]').forEach(el => el.remove());
+            let totalFat = 0, totalNC = 0;
+            checked.forEach(cb => {
+                const inp = document.createElement('input');
+                inp.type = 'hidden';
+                inp.name = 'invoice_ids';
+                inp.value = cb.value;
+                form.appendChild(inp);
+                const amt = parseFloat(cb.dataset.amount) || 0;
+                if (cb.dataset.type === 'nota_credito') totalNC += amt;
+                else totalFat += amt;
+            });
+
+            const saldo = totalNC - totalFat;
+            const saldoStr = (saldo >= 0 ? '+' : '') + saldo.toFixed(2) + ' €';
+            document.getElementById('liquidar-summary').innerHTML =
+                '<strong>' + checked.length + ' documento(s) selecionado(s)</strong><br>' +
+                'Faturas: -' + totalFat.toFixed(2) + ' € | NC: +' + totalNC.toFixed(2) + ' €<br>' +
+                'Saldo líquido: <strong>' + saldoStr + '</strong>';
+
+            const modal = new bootstrap.Modal(document.getElementById('modalLiquidar'));
+            modal.show();
+        });
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

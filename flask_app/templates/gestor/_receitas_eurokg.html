@@ -1,0 +1,122 @@
+<div class="alert alert-info small py-2 mb-3">
+    Receitas com <strong>Sabor</strong> preenchido e <strong>Euro/kg</strong> marcado contam para o cálculo Euro/kg.
+</div>
+
+<form method="POST">
+    <input type="hidden" name="action" value="save_receitas">
+    <input type="hidden" name="section" value="receitas_eurokg">
+
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center py-2">
+            <h6 class="mb-0">Receitas com Sabor ({{ receitas_com_sabor|length }})</h6>
+            <button type="submit" class="btn btn-primary btn-sm">Guardar Alterações</button>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead>
+                        <tr>
+                            <th class="px-2">Receita</th>
+                            <th class="px-2">Sabor</th>
+                            <th class="px-2 text-center" style="width:70px">Euro/kg</th>
+                            <th class="px-2 text-center" style="width:60px">Ativo</th>
+                            <th class="px-2 text-center" style="width:50px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in receitas_com_sabor %}
+                        <tr>
+                            <td class="px-2 small align-middle">{{ r.nome }}</td>
+                            <td class="px-2">
+                                <input type="text" name="sabor_{{ r.id }}" value="{{ r.nome_corrente or '' }}" class="form-control form-control-sm">
+                            </td>
+                            <td class="px-2 text-center align-middle">
+                                <input type="checkbox" name="conta_eurokg_{{ r.id }}" class="form-check-input" {{ 'checked' if r.conta_eurokg }}>
+                            </td>
+                            <td class="px-2 text-center align-middle">
+                                <input type="checkbox" name="ativo_{{ r.id }}" class="form-check-input" {{ 'checked' if r.ativo }}>
+                            </td>
+                            <td class="px-2 text-center align-middle">
+                                <button type="submit" form="delete_{{ r.id }}" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="return confirm('Eliminar receita?')">✕</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if receitas_sem_sabor %}
+    <div class="card mb-3">
+        <div class="card-header py-2">
+            <h6 class="mb-0">Receitas sem Sabor Mapeado ({{ receitas_sem_sabor|length }})</h6>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead>
+                        <tr>
+                            <th class="px-2">Receita</th>
+                            <th class="px-2">Sabor</th>
+                            <th class="px-2 text-center" style="width:70px">Euro/kg</th>
+                            <th class="px-2 text-center" style="width:60px">Ativo</th>
+                            <th class="px-2 text-center" style="width:50px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in receitas_sem_sabor %}
+                        <tr>
+                            <td class="px-2 small align-middle text-muted">{{ r.nome }}</td>
+                            <td class="px-2">
+                                <input type="text" name="sabor_{{ r.id }}" value="" class="form-control form-control-sm" placeholder="Atribuir sabor...">
+                            </td>
+                            <td class="px-2 text-center align-middle">
+                                <input type="checkbox" name="conta_eurokg_{{ r.id }}" class="form-check-input" {{ 'checked' if r.conta_eurokg }}>
+                            </td>
+                            <td class="px-2 text-center align-middle">
+                                <input type="checkbox" name="ativo_{{ r.id }}" class="form-check-input" {{ 'checked' if r.ativo }}>
+                            </td>
+                            <td class="px-2 text-center align-middle">
+                                <button type="submit" form="delete_{{ r.id }}" class="btn btn-outline-danger btn-sm py-0 px-1" onclick="return confirm('Eliminar receita?')">✕</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="d-grid mb-3">
+        <button type="submit" class="btn btn-primary btn-sm">Guardar Alterações</button>
+    </div>
+</form>
+
+{% for r in receitas_com_sabor + receitas_sem_sabor %}
+<form id="delete_{{ r.id }}" method="POST" class="d-none">
+    <input type="hidden" name="action" value="delete_receita">
+    <input type="hidden" name="section" value="receitas_eurokg">
+    <input type="hidden" name="receita_id" value="{{ r.id }}">
+</form>
+{% endfor %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Adicionar Nova Receita</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="add_receita">
+            <input type="hidden" name="section" value="receitas_eurokg">
+            <div class="row g-2 mb-2">
+                <div class="col">
+                    <input type="text" name="nova_receita" class="form-control form-control-sm" placeholder="Nome da receita (técnico)">
+                </div>
+                <div class="col">
+                    <input type="text" name="novo_sabor" class="form-control form-control-sm" placeholder="Sabor (nome comum)">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar Receita</button>
+        </form>
+    </div>
+</div>

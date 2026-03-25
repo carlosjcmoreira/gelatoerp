@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% set back_url = back_url %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">⚖️ Peso de Gelado por Tipologia</h5>
+    <p class="text-muted small mb-3">Defina o peso de gelado (gramas) utilizado em cada tipologia de pastelaria. As tipologias são geridas em <a href="{{ url_for('pastelaria.tipologias') }}">Tipologias</a>.</p>
+
+    {% if tipologias %}
+    <form method="POST">
+        <input type="hidden" name="action" value="save_gelado_tip">
+        <div class="table-responsive mb-3">
+            <table class="table table-sm">
+                <thead><tr><th>Tipologia</th><th>Peso de Gelado (g)</th></tr></thead>
+                <tbody>
+                    {% for t in tipologias %}
+                    <tr>
+                        <td>{{ t.nome }}</td>
+                        <td><input type="number" name="gelado_tip_qtd_{{ t.nome }}" class="form-control form-control-sm" value="{{ t.quantidade_gelado_g|int }}" min="0"></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Guardar Alterações</button>
+    </form>
+    {% else %}
+    <p class="text-muted small">Nenhuma tipologia registada. Crie primeiro tipologias em <a href="{{ url_for('pastelaria.tipologias') }}">Tipologias</a>.</p>
+    {% endif %}
+</div>
+{% endblock %}

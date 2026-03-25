@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eurokg.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="fw-bold mb-1">📊 Euro/kg - Rentabilidade</h5>
+    <p class="text-muted small mb-3">Análise de performance das gelatarias Nivà no Porto</p>
+
+    {% if is_gestor %}
+    <div class="d-flex gap-2 mb-3">
+        <a href="{{ url_for('eurokg.consumo_teorico', loja='Global Porto') }}"
+           class="btn btn-sm {% if loja_filter == 'Global Porto' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            🌍 Global Porto
+        </a>
+        <a href="{{ url_for('eurokg.consumo_teorico', loja='Matosinhos') }}"
+           class="btn btn-sm {% if loja_filter == 'Matosinhos' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            🏭 Matosinhos
+        </a>
+        <a href="{{ url_for('eurokg.consumo_teorico', loja='Bolhão') }}"
+           class="btn btn-sm {% if loja_filter == 'Bolhão' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            🛒 Bolhão
+        </a>
+    </div>
+    {% endif %}
+
+    
+
+    <h6 class="fw-bold mb-1">🍦 Consumo Teórico de Gelado por Produto</h6>
+    <p class="text-muted small mb-3">Quantidade vendida por mês e estimativa de gelado consumido com base nas gramas configuradas por artigo.</p>
+
+    {% if consumo_data %}
+    <div class="table-responsive">
+        <table class="table table-sm table-striped">
+            <thead>
+                <tr>
+                    <th>Produto</th>
+                    <th>Gramas/Un.</th>
+                    {% for mes in meses_labels %}
+                    <th>Qty {{ mes }}</th>
+                    <th>Kg {{ mes }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in consumo_data %}
+                <tr>
+                    <td>{{ item.produto }}</td>
+                    <td>{{ item.gramas }}</td>
+                    {% for m in item.months %}
+                    <td>{{ m.qty }}</td>
+                    <td>{{ m.kg }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                <tr class="fw-bold table-secondary">
+                    <td>TOTAL</td>
+                    <td></td>
+                    {% for i in range(meses_labels|length) %}
+                    <td>{{ totals_qty[i] }}</td>
+                    <td>{{ totals_kg[i] }}</td>
+                    {% endfor %}
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        Sem dados de vendas de produtos com base de gelado. Adicione vendas detalhadas na página do Vendedor.
+    </div>
+    {% endif %}
+
+    <hr>
+    <h6 class="fw-bold mb-3">Configuração de Gramas por Artigo</h6>
+
+    {% if gramas_list %}
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped">
+            <thead>
+                <tr>
+                    <th>Artigo</th>
+                    <th>Gramas</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for g in gramas_list %}
+                <tr>
+                    <td>{{ g.artigo }}</td>
+                    <td>{{ g.gramas }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% if is_gestor %}
+    <div class="card mb-3">
+        <div class="card-header py-2">
+            <h6 class="mb-0 small">Adicionar/Editar Artigo</h6>
+        </div>
+        <div class="card-body py-2">
+            <form method="POST" action="{{ url_for('eurokg.add_gramas') }}">
+                <input type="hidden" name="loja_filter" value="{{ loja_filter }}">
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-sm-5">
+                        <label class="form-label small mb-1">Nome do Artigo</label>
+                        <input type="text" class="form-control form-control-sm" name="artigo" required>
+                    </div>
+                    <div class="col-8 col-sm-4">
+                        <label class="form-label small mb-1">Gramas de Gelado</label>
+                        <input type="text" class="form-control form-control-sm" name="gramas" inputmode="decimal" required>
+                    </div>
+                    <div class="col-4 col-sm-3">
+                        <button type="submit" class="btn btn-primary btn-sm w-100">Adicionar</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

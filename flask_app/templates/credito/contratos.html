@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% set back_url = url_for("credito.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">📄 Contratos de Crédito</h5>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">{{ '✏️ Editar Contrato' if edit_contract else '➕ Novo Contrato' }}</h6>
+            <form method="POST" action="{{ url_for('credito.guardar_contrato') }}">
+                {% if edit_contract %}
+                <input type="hidden" name="contract_id" value="{{ edit_contract.id }}">
+                {% endif %}
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Tipo <span class="text-danger">*</span></label>
+                        <select name="tipo" id="tipoSelect" class="form-select form-select-sm" required onchange="toggleFields()">
+                            {% for val, lbl in tipos %}
+                            <option value="{{ val }}" {% if edit_contract and edit_contract.tipo == val %}selected{% elif not edit_contract and val == 'leasing' %}selected{% endif %}>{{ lbl }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Label / Nome <span class="text-danger">*</span></label>
+                        <input type="text" name="label" class="form-control form-control-sm"
+                               value="{{ edit_contract.label if edit_contract else '' }}"
+                               placeholder="ex: Leasing Carrinha Bolhão" required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Banco / Entidade</label>
+                        <input type="text" name="banco" class="form-control form-control-sm"
+                               value="{{ edit_contract.banco or '' if edit_contract else '' }}"
+                               placeholder="ex: BPI, Credibom">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Loja Associada</label>
+                        <select name="loja_associada" class="form-select form-select-sm">
+                            <option value="">—</option>
+                            {% for l in lojas %}
+                            <option value="{{ l }}" {% if edit_contract and edit_contract.loja_associada == l %}selected{% endif %}>{{ l }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-2" id="fieldCapitalInicial">
+                        <label class="form-label small mb-1">Capital Inicial (€)</label>
+                        <input type="number" step="0.01" min="0" name="capital_inicial" class="form-control form-control-sm"
+                               value="{{ edit_contract.capital_inicial if edit_contract and edit_contract.capital_inicial is not none else '' }}"
+                               placeholder="0.00">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Saldo em Dívida (€)</label>
+                        <input type="number" step="0.01" min="0" name="saldo_divida" class="form-control form-control-sm"
+                               value="{{ edit_contract.saldo_divida if edit_contract and edit_contract.saldo_divida is not none else '' }}"
+                               placeholder="0.00">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">TAN (%)</label>
+                        <input type="number" step="0.0001" min="0" name="tan" class="form-control form-control-sm"
+                               value="{{ edit_contract.tan if edit_contract and edit_contract.tan is not none else '' }}"
+                               placeholder="ex: 3.5">
+                    </div>
+                    <div class="col-md-2" id="fieldPrestacao">
+                        <label class="form-label small mb-1">Prestação Mensal (€)</label>
+                        <input type="number" step="0.01" min="0" name="prestacao_mensal" class="form-control form-control-sm"
+                               value="{{ edit_contract.prestacao_mensal if edit_contract and edit_contract.prestacao_mensal is not none else '' }}"
+                               placeholder="0.00">
+                    </div>
+                    <div class="col-md-1" id="fieldDiaDebito">
+                        <label class="form-label small mb-1">Dia Débito</label>
+                        <input type="number" min="1" max="31" name="dia_debito" class="form-control form-control-sm"
+                               value="{{ edit_contract.dia_debito if edit_contract and edit_contract.dia_debito is not none else '' }}"
+                               placeholder="ex: 5">
+                    </div>
+                    <div class="col-md-2" id="fieldPlafond">
+                        <label class="form-label small mb-1">Plafond (€)</label>
+                        <input type="number" step="0.01" min="0" name="plafond" class="form-control form-control-sm"
+                               value="{{ edit_contract.plafond if edit_contract and edit_contract.plafond is not none else '' }}"
+                               placeholder="0.00">
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Data Início</label>
+                        <input type="date" name="data_inicio" class="form-control form-control-sm"
+                               value="{{ edit_contract.data_inicio.strftime('%Y-%m-%d') if edit_contract and edit_contract.data_inicio else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Data Fim</label>
+                        <input type="date" name="data_fim" class="form-control form-control-sm"
+                               value="{{ edit_contract.data_fim.strftime('%Y-%m-%d') if edit_contract and edit_contract.data_fim else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Estado</label>
+                        <select name="estado" class="form-select form-select-sm">
+                            <option value="ativo" {% if not edit_contract or edit_contract.estado == 'ativo' %}selected{% endif %}>Ativo</option>
+                            <option value="inativo" {% if edit_contract and edit_contract.estado == 'inativo' %}selected{% endif %}>Inativo</option>
+                            <option value="liquidado" {% if edit_contract and edit_contract.estado == 'liquidado' %}selected{% endif %}>Liquidado</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small mb-1">Notas</label>
+                        <input type="text" name="notas" class="form-control form-control-sm"
+                               value="{{ edit_contract.notas or '' if edit_contract else '' }}"
+                               placeholder="Observações opcionais">
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        {{ '💾 Guardar Alterações' if edit_contract else '➕ Adicionar Contrato' }}
+                    </button>
+                    {% if edit_contract %}
+                    <a href="{{ url_for('credito.contratos') }}" class="btn btn-outline-secondary btn-sm">Cancelar</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="d-flex align-items-center gap-2 mb-3">
+        <span class="small text-muted">Filtrar:</span>
+        <a href="{{ url_for('credito.contratos', estado='ativo') }}"
+           class="btn btn-sm {{ 'btn-primary' if estado_filtro == 'ativo' else 'btn-outline-secondary' }}">Ativos</a>
+        <a href="{{ url_for('credito.contratos', estado='inativo') }}"
+           class="btn btn-sm {{ 'btn-primary' if estado_filtro == 'inativo' else 'btn-outline-secondary' }}">Inativos</a>
+        <a href="{{ url_for('credito.contratos', estado='todos') }}"
+           class="btn btn-sm {{ 'btn-primary' if estado_filtro == 'todos' else 'btn-outline-secondary' }}">Todos</a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            {% if contracts %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Label</th>
+                            <th>Tipo</th>
+                            <th>Banco</th>
+                            <th>Loja</th>
+                            <th class="text-end">Saldo Dívida</th>
+                            <th class="text-end">Prestação</th>
+                            <th class="text-center">Dia Deb.</th>
+                            <th>TAN %</th>
+                            <th>Plafond</th>
+                            <th>Fim</th>
+                            <th>Estado</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in contracts %}
+                        <tr class="{{ '' if c.estado == 'ativo' else 'text-muted' }}">
+                            <td class="small fw-semibold">{{ c.label }}</td>
+                            <td class="small">{{ c.tipo|replace('_', ' ')|title }}</td>
+                            <td class="small">{{ c.banco or '—' }}</td>
+                            <td class="small">{{ c.loja_associada or '—' }}</td>
+                            <td class="small text-end">{{ "%.2f €"|format(c.saldo_divida|float) if c.saldo_divida else '—' }}</td>
+                            <td class="small text-end">
+                                {% if c.tipo == 'overdraft' %}
+                                <span class="text-muted fst-italic">Estimada</span>
+                                {% else %}
+                                {{ "%.2f €"|format(c.prestacao_mensal|float) if c.prestacao_mensal else '—' }}
+                                {% endif %}
+                            </td>
+                            <td class="small text-center">{{ c.dia_debito or '—' }}</td>
+                            <td class="small">{{ "%.4f"|format(c.tan|float) if c.tan else '—' }}</td>
+                            <td class="small">{{ "%.2f €"|format(c.plafond|float) if c.plafond else '—' }}</td>
+                            <td class="small">{{ c.data_fim.strftime('%d/%m/%Y') if c.data_fim else '—' }}</td>
+                            <td>
+                                {% if c.estado == 'ativo' %}
+                                <span class="badge bg-success-subtle text-success-emphasis">Ativo</span>
+                                {% elif c.estado == 'liquidado' %}
+                                <span class="badge bg-secondary-subtle text-secondary-emphasis">Liquidado</span>
+                                {% else %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis">Inativo</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-nowrap">
+                                <a href="{{ url_for('credito.contrato_detalhe', contract_id=c.id) }}"
+                                   class="btn btn-outline-primary btn-sm py-0 px-1 me-1">Ver detalhe</a>
+                                <a href="{{ url_for('credito.contratos', edit=c.id, estado=estado_filtro) }}"
+                                   class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Editar">✏️</a>
+                                {% if c.estado == 'ativo' %}
+                                <form method="POST" action="{{ url_for('credito.desativar_contrato', contract_id=c.id) }}" class="d-inline">
+                                    <button type="submit" class="btn btn-outline-warning btn-sm py-0 px-1 me-1"
+                                            title="Desativar" onclick="return confirm('Desativar «{{ c.label }}»?')">⏸️</button>
+                                </form>
+                                {% endif %}
+                                <form method="POST" action="{{ url_for('credito.eliminar_contrato', contract_id=c.id) }}" class="d-inline">
+                                    <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                                            title="Eliminar" onclick="return confirm('Eliminar definitivamente «{{ c.label }}»? Esta acção é irreversível.')">🗑️</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-muted small mb-0">{{ contracts|length }} contrato(s)</p>
+            {% else %}
+            <p class="text-muted small mb-0">Sem contratos{% if estado_filtro != 'todos' %} {{ estado_filtro }}s{% endif %}.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleFields() {
+    var tipo = document.getElementById('tipoSelect').value;
+    var isOverdraft = tipo === 'overdraft';
+    document.getElementById('fieldPrestacao').style.display = isOverdraft ? 'none' : '';
+    document.getElementById('fieldDiaDebito').style.display = isOverdraft ? 'none' : '';
+    document.getElementById('fieldPlafond').style.display = isOverdraft ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', toggleFields);
+</script>
+{% endblock %}

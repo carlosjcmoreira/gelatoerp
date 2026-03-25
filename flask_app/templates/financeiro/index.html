@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% set back_url = url_for("home.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-4">💰 Financeiro</h5>
+    <div class="nav-grid nav-grid-fill" data-items="{{ modules|length }}">
+        {% for m in modules %}
+        {% if m.active and m.url %}
+        <a href="{{ m.url }}" class="nav-card">
+            <span class="nav-card-icon">{{ m.icon }}</span>
+            <span class="nav-card-label">{{ m.label }}</span>
+        </a>
+        {% else %}
+        <div class="nav-card opacity-50" style="cursor:default;" title="Em breve">
+            <span class="nav-card-icon">{{ m.icon }}</span>
+            <span class="nav-card-label">{{ m.label }}</span>
+            <small class="text-muted d-block" style="font-size:0.65rem;">Em breve</small>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

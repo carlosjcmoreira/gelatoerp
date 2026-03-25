@@ -1,0 +1,16 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-2">Criar plano de produção</h5>
+<p class="text-muted small mb-3">Selecione um sabor</p>
+
+<div class="row g-2">
+    {% for s in sabores %}
+    <div class="col-6">
+        <a href="{{ url_for('producao.criar_plano_sabor', sabor=s.nome) }}" class="btn btn-outline-secondary w-100 py-2">
+            {{ s.icon }} {{ s.nome }}
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

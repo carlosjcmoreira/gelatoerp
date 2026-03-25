@@ -1,0 +1,54 @@
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Ajustes de Produção</h6>
+        <p class="text-muted small">Kg a subtrair da produção mensal no cálculo do Euro/kg.</p>
+
+        {% if ajustes %}
+        {% for aj in ajustes %}
+        <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+            <div class="small">
+                {{ meses_nomes[aj.mes - 1] }} {{ aj.ano }}: <strong>-{{ "%.2f"|format(aj.quantidade_kg) }} kg</strong>
+                {% if aj.descricao %} — {{ aj.descricao }}{% endif %}
+            </div>
+            <form method="POST" class="d-inline">
+                <input type="hidden" name="action" value="delete_ajuste">
+                <input type="hidden" name="section" value="ajustes_producao">
+                <input type="hidden" name="ajuste_id" value="{{ aj.id }}">
+                <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminar?')">✕</button>
+            </form>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted small">Sem ajustes registados para o ano corrente.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Adicionar Novo Ajuste</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="add_ajuste">
+            <input type="hidden" name="section" value="ajustes_producao">
+            <div class="row g-2 mb-2">
+                <div class="col-6">
+                    <label class="form-label small">Mês</label>
+                    <select name="ajuste_mes" class="form-select form-select-sm">
+                        {% for i in range(12) %}
+                        <option value="{{ i + 1 }}">{{ meses_nomes[i] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Quantidade (kg)</label>
+                    <input type="text" name="ajuste_kg" class="form-control form-control-sm" value="0" inputmode="decimal">
+                </div>
+            </div>
+            <div class="mb-2">
+                <label class="form-label small">Descrição</label>
+                <input type="text" name="ajuste_desc" class="form-control form-control-sm" placeholder="Ex: Vendido fora de loja">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar Ajuste</button>
+        </form>
+    </div>
+</div>

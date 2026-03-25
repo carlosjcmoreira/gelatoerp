@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">📈 Liquidez Semanal — 8 Semanas</h5>
+
+    {% set critical_weeks = weekly | selectattr('is_critical') | list %}
+    {% if critical_weeks %}
+    <div class="alert alert-danger py-2 mb-3">
+        <strong>⚠️ Semanas críticas detectadas:</strong>
+        {% for w in critical_weeks %}
+        Semana {{ w.week_start.strftime('%d/%m') }}–{{ w.week_end.strftime('%d/%m') }} (saldo: {{ "%.0f €"|format(w.balance) }}){% if not loop.last %},{% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="row g-2 mb-3">
+        {% for w in weekly %}
+        <div class="col-12 col-md-6">
+            <div class="card h-100 {% if w.is_critical %}border-danger{% endif %}">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <div class="fw-semibold small">Semana {{ w.week }}</div>
+                            <div class="text-muted" style="font-size:0.75rem;">{{ w.week_start.strftime('%d/%m') }} – {{ w.week_end.strftime('%d/%m/%Y') }}</div>
+                        </div>
+                        <div class="text-end">
+                            <div class="fw-bold {% if w.balance < 0 %}text-danger{% else %}text-success{% endif %}">
+                                {{ "%.0f €"|format(w.balance) }}
+                            </div>
+                            <div style="font-size:0.7rem;" class="text-muted">saldo sem.</div>
+                        </div>
+                    </div>
+
+                    <div class="row g-1 small">
+                        <div class="col-6">
+                            <div class="text-muted" style="font-size:0.7rem;">ENTRADAS</div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">POS est.</span>
+                                <span class="text-success">+{{ "%.0f €"|format(w.inflows_pos) }}</span>
+                            </div>
+                            {% if w.inflows_events > 0 %}
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Eventos</span>
+                                <span class="text-success">+{{ "%.0f €"|format(w.inflows_events) }}</span>
+                            </div>
+                            {% endif %}
+                            <div class="d-flex justify-content-between fw-semibold border-top mt-1 pt-1">
+                                <span>Total</span>
+                                <span class="text-success">+{{ "%.0f €"|format(w.total_in) }}</span>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="text-muted" style="font-size:0.7rem;">SAÍDAS</div>
+                            {% if w.outflows_invoices > 0 %}
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Faturas</span>
+                                <span class="text-danger">-{{ "%.0f €"|format(w.outflows_invoices) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if w.outflows_credit > 0 %}
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">Crédito</span>
+                                <span class="text-danger">-{{ "%.0f €"|format(w.outflows_credit) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if w.outflows_vat > 0 %}
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted">IVA</span>
+                                <span class="text-danger">-{{ "%.0f €"|format(w.outflows_vat) }}</span>
+                            </div>
+                            {% endif %}
+                            {% if w.total_out == 0 %}
+                            <div class="text-muted" style="font-size:0.75rem;">Sem saídas previstas</div>
+                            {% endif %}
+                            <div class="d-flex justify-content-between fw-semibold border-top mt-1 pt-1">
+                                <span>Total</span>
+                                <span class="text-danger">-{{ "%.0f €"|format(w.total_out) }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-2 pt-2 border-top d-flex justify-content-between align-items-center">
+                        <span class="small text-muted">Saldo acumulado</span>
+                        <span class="fw-bold {% if w.running_balance < 0 %}text-danger{% else %}text-primary{% endif %}">
+                            {{ "%.0f €"|format(w.running_balance) }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <h6 class="card-title">ℹ️ Legenda</h6>
+            <ul class="small text-muted mb-0">
+                <li><strong>POS est.</strong>: Estimativa baseada na média dos últimos 28 dias de vendas POS</li>
+                <li><strong>Eventos</strong>: Pagamentos de eventos com data esperada na semana</li>
+                <li><strong>Faturas</strong>: Pagamentos de faturas de fornecedores agendados/confirmados</li>
+                <li><strong>Crédito</strong>: Prestações de contratos de crédito com débito previsto na semana</li>
+                <li><strong>IVA</strong>: Pagamentos de IVA com data prevista na semana</li>
+                <li class="text-danger"><strong>Semana crítica</strong>: saldo semanal negativo</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

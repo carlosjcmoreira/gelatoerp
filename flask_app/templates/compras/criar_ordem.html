@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+<h5 class="mb-2">Criar Ordem de Transferência</h5>
+<p class="text-muted small mb-3">Selecione os artigos e quantidades a transferir para Bolhão.</p>
+
+{% if artigos %}
+<form method="post" id="ordemForm">
+    <input type="hidden" name="loja_destino" value="Bolhão">
+    <div class="card mb-3">
+        <div class="card-body p-2">
+            <label class="form-label small mb-1">Data prevista de entrega</label>
+            <input type="date" name="data_prevista" class="form-control form-control-sm" value="{{ today }}">
+        </div>
+    </div>
+
+    {% set counter = namespace(n=0) %}
+    {% for forn in fornecedores %}
+    <div class="card mb-3">
+        <div class="card-header py-1 px-2">
+            <strong class="small">{{ forn }}</strong>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0" style="font-size:0.82rem;">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-center" style="width:80px;">Qty</th>
+                        <th class="text-center" style="width:70px;">Und</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in artigos_by_fornecedor.get(forn, []) %}
+                    <tr>
+                        <td>
+                            {{ a.produto }}
+                            <input type="hidden" name="produto_{{ counter.n }}" value="{{ a.produto }}">
+                        </td>
+                        <td class="text-center">
+                            <input type="text" name="qty_{{ counter.n }}"
+                                   class="form-control form-control-sm text-center"
+                                   placeholder="—" inputmode="decimal"
+                                   style="max-width:70px;margin:0 auto;">
+                        </td>
+                        <td class="text-center">
+                            <select name="unidade_{{ counter.n }}" class="form-select form-select-sm" style="max-width:65px;margin:0 auto;font-size:0.75rem;">
+                                <option value="und">und</option>
+                                <option value="kg">kg</option>
+                                <option value="l">l</option>
+                                <option value="cx">cx</option>
+                                <option value="pct">pct</option>
+                                <option value="rolo">rolo</option>
+                            </select>
+                        </td>
+                    </tr>
+                    {% set counter.n = counter.n + 1 %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+</form>
+
+<div class="save-bar-spacer"></div>
+<div class="save-bar">
+    <button type="submit" form="ordemForm" class="btn btn-primary w-100">Criar ordem de transferência</button>
+</div>
+{% else %}
+<div class="alert alert-info">Sem artigos ativos. Ative artigos no botão "Artigos" primeiro.</div>
+{% endif %}
+</div>
+{% endblock %}

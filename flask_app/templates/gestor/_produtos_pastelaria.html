@@ -1,0 +1,167 @@
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Produtos de Pastelaria</h6>
+        {% if produtos_past %}
+        <form method="POST">
+            <input type="hidden" name="action" value="save_produtos_past">
+            <input type="hidden" name="section" value="produtos_pastelaria">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr><th>ID</th><th>Tipologia</th><th>Sabor</th><th>Cobertura</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for p in produtos_past %}
+                        <tr>
+                            <td class="small">{{ p.id }}</td>
+                            <td>
+                                <select name="tipologia_{{ p.id }}" class="form-select form-select-sm">
+                                    {% for t in tipologias_list %}
+                                    <option value="{{ t }}" {% if p.tipologia == t %}selected{% endif %}>{{ t }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <select name="sabor_{{ p.id }}" class="form-select form-select-sm">
+                                    <option value="">—</option>
+                                    {% for s in sabores_list %}
+                                    <option value="{{ s }}" {% if (p.sabor or '') == s %}selected{% endif %}>{{ s }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td>
+                                <select name="cobertura_{{ p.id }}" class="form-select form-select-sm">
+                                    <option value="">—</option>
+                                    {% for c in coberturas_list %}
+                                    <option value="{{ c }}" {% if (p.cobertura or '') == c %}selected{% endif %}>{{ c }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Guardar Alterações</button>
+        </form>
+
+        <div class="mt-3">
+            <h6>Eliminar Produto</h6>
+            {% for p in produtos_past %}
+            <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+                <span class="small">ID {{ p.id }}: {{ p.tipologia }} {% if p.sabor %}/ {{ p.sabor }}{% endif %} {% if p.cobertura %}/ {{ p.cobertura }}{% endif %}</span>
+                <form method="POST" class="d-inline">
+                    <input type="hidden" name="action" value="delete_produto_past">
+                    <input type="hidden" name="section" value="produtos_pastelaria">
+                    <input type="hidden" name="produto_past_id" value="{{ p.id }}">
+                    <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminar?')">✕</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small">Sem produtos registados.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Adicionar Novo Produto</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="add_produto_past">
+            <input type="hidden" name="section" value="produtos_pastelaria">
+            <div class="row g-2 mb-2">
+                <div class="col-4">
+                    <label class="form-label small">Tipologia</label>
+                    <select name="novo_tipologia" class="form-select form-select-sm">
+                        {% for t in tipologias_list %}
+                        <option value="{{ t }}">{{ t }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-4">
+                    <label class="form-label small">Sabor</label>
+                    <select name="novo_sabor_past" class="form-select form-select-sm">
+                        <option value="">—</option>
+                        {% for s in sabores_list %}
+                        <option value="{{ s }}">{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-4">
+                    <label class="form-label small">Cobertura</label>
+                    <select name="novo_cob_past" class="form-select form-select-sm">
+                        <option value="">—</option>
+                        {% for c in coberturas_list %}
+                        <option value="{{ c }}">{{ c }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar Produto</button>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Gelado por Tipologia</h6>
+        <p class="text-muted small">Defina a quantidade de gelado (gramas) usada por cada tipologia.</p>
+
+        {% if gelado_tip %}
+        <form method="POST">
+            <input type="hidden" name="action" value="save_gelado_tip">
+            <input type="hidden" name="section" value="produtos_pastelaria">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead><tr><th>ID</th><th>Tipologia</th><th>Gelado (g)</th></tr></thead>
+                    <tbody>
+                        {% for g in gelado_tip %}
+                        <tr>
+                            <td class="small">{{ g.id }}</td>
+                            <td><input type="text" name="gelado_tip_nome_{{ g.id }}" class="form-control form-control-sm" value="{{ g.tipologia }}"></td>
+                            <td><input type="number" name="gelado_tip_qtd_{{ g.id }}" class="form-control form-control-sm" value="{{ g.quantidade_gelado_g|int }}" min="0"></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Guardar Alterações</button>
+        </form>
+
+        <div class="mt-3">
+            <h6>Eliminar Tipologia</h6>
+            {% for g in gelado_tip %}
+            <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+                <span class="small">• {{ g.tipologia }} — {{ g.quantidade_gelado_g|int }}g</span>
+                <form method="POST" class="d-inline">
+                    <input type="hidden" name="action" value="delete_gelado_tip">
+                    <input type="hidden" name="section" value="produtos_pastelaria">
+                    <input type="hidden" name="gelado_tip_id" value="{{ g.id }}">
+                    <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminar?')">✕</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small">Sem tipologias registadas.</p>
+        {% endif %}
+
+        <hr>
+        <h6>Adicionar Tipologia</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="add_gelado_tip">
+            <input type="hidden" name="section" value="produtos_pastelaria">
+            <div class="row g-2 mb-2">
+                <div class="col-6">
+                    <input type="text" name="nova_tip_gelado" class="form-control form-control-sm" placeholder="Ex: Palito">
+                </div>
+                <div class="col-6">
+                    <input type="number" name="nova_qtd_gelado" class="form-control form-control-sm" value="0" min="0">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar</button>
+        </form>
+    </div>
+</div>

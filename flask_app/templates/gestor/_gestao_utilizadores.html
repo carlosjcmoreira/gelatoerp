@@ -1,0 +1,101 @@
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Gestão de Utilizadores</h6>
+        <p class="text-muted small">Gerir acessos dos utilizadores. Marque as áreas a que cada utilizador tem acesso.</p>
+
+        {% if users %}
+        <form method="POST">
+            <input type="hidden" name="action" value="save_users_perms">
+            <input type="hidden" name="section" value="gestao_utilizadores">
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Utilizador</th>
+                            <th class="text-center">€/kg</th>
+                            <th class="text-center">Prod.</th>
+                            {% for loja in lojas_venda %}
+                            <th class="text-center">Vend. {{ loja.name }}</th>
+                            {% endfor %}
+                            <th class="text-center">Past.</th>
+                            <th class="text-center">Conf.</th>
+                            <th class="text-center">Comp./Log.</th>
+                            <th class="text-center">Gest.</th>
+                            <th class="text-center">Financ.</th>
+                            <th class="text-center">Eventos</th>
+                            <th class="text-center">Ativo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td class="small">{{ u.username }}</td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_eurokg_{{ u.id }}" {% if u.acesso_eurokg %}checked{% endif %}></td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_producao_{{ u.id }}" {% if u.acesso_producao %}checked{% endif %}></td>
+                            {% for loja in lojas_venda %}
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="venda_loja_{{ loja.id }}_{{ u.id }}" {% if loja.id in u.vendas_store_ids %}checked{% endif %}></td>
+                            {% endfor %}
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_pastelaria_{{ u.id }}" {% if u.acesso_pastelaria %}checked{% endif %}></td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_confeitaria_{{ u.id }}" {% if u.acesso_confeitaria %}checked{% endif %}></td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_administrativo_{{ u.id }}" {% if u.acesso_administrativo %}checked{% endif %}></td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_gestor_{{ u.id }}" {% if u.acesso_gestor %}checked{% endif %}></td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_financeiro_{{ u.id }}" {% if u.acesso_financeiro %}checked{% endif %}></td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_eventos_{{ u.id }}" {% if u.acesso_eventos %}checked{% endif %}></td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="ativo_{{ u.id }}" {% if u.ativo %}checked{% endif %}></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Guardar Alterações</button>
+            <p class="text-muted small mt-1">{{ users|length }} utilizadores | {{ users|selectattr('ativo')|list|length }} ativos</p>
+        </form>
+        {% else %}
+        <p class="text-muted small">Sem utilizadores registados.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Adicionar Novo Utilizador</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="add_user">
+            <input type="hidden" name="section" value="gestao_utilizadores">
+            <div class="row g-2 mb-2">
+                <div class="col-6">
+                    <input type="text" name="novo_username" class="form-control form-control-sm" placeholder="Utilizador">
+                </div>
+                <div class="col-6">
+                    <input type="password" name="nova_password" class="form-control form-control-sm" placeholder="Password">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar Utilizador</button>
+        </form>
+    </div>
+</div>
+
+{% if users %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Alterar Password</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="change_password">
+            <input type="hidden" name="section" value="gestao_utilizadores">
+            <div class="row g-2 mb-2">
+                <div class="col-6">
+                    <select name="user_id" class="form-select form-select-sm">
+                        {% for u in users %}
+                        <option value="{{ u.id }}">{{ u.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6">
+                    <input type="password" name="new_password" class="form-control form-control-sm" placeholder="Nova Password">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Alterar Password</button>
+        </form>
+    </div>
+</div>
+{% endif %}

@@ -1,0 +1,47 @@
+{% extends "eventos/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-3">💶 Registar Pagamento</h5>
+
+<div class="card mb-3">
+    <div class="card-body p-3 small">
+        <div class="fw-bold">{{ evento.cliente }}</div>
+        <div class="text-muted">{{ evento.event_date.strftime('%d/%m/%Y') if evento.event_date else '—' }}</div>
+        {% if evento.invoice_amount_eur %}
+        <div class="mt-1">Valor faturado: <strong>{{ "%.2f"|format(evento.invoice_amount_eur | float) }} €</strong></div>
+        {% endif %}
+    </div>
+</div>
+
+<form method="post">
+    <div class="mb-3">
+        <label class="form-label fw-bold">Valor Recebido (€)</label>
+        <input type="text" name="payment_amount_eur" class="form-control" inputmode="decimal"
+               value="{{ '%.2f'|format(evento.payment_amount_eur | float) if evento.payment_amount_eur else '' }}"
+               placeholder="0,00">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label fw-bold">Data de Recebimento</label>
+        <input type="date" name="payment_date" class="form-control"
+               value="{{ evento.payment_date.strftime('%Y-%m-%d') if evento.payment_date else today }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label fw-bold">Estado</label>
+        <select name="payment_status" class="form-select">
+            {% for key, (label, badge) in PAYMENT_STATUS_LABELS.items() %}
+            <option value="{{ key }}" {{ 'selected' if evento.payment_status == key else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="save-bar-spacer"></div>
+    <div class="save-bar">
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('eventos.recebimentos') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
+            <button type="submit" class="btn btn-success flex-fill">Guardar</button>
+        </div>
+    </div>
+</form>
+{% endblock %}

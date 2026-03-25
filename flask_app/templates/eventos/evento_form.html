@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% from "eventos/_macros.html" import time_select, event_type_radio with context %}
+{% set back_url = url_for("eventos.pipeline") %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+    <h5 class="fw-bold mb-3">➕ Novo Evento</h5>
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label small">Nome do evento</label>
+                        <input type="text" name="event_name" class="form-control form-control-sm" placeholder="Ex: Casamento João e Maria">
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label small">Tipo de evento <span class="text-danger">*</span></label>
+                        {{ event_type_radio() }}
+                    </div>
+                    <div class="col-6 col-sm-4">
+                        <label class="form-label small">Data</label>
+                        <input type="date" name="event_date" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-6 col-sm-2">
+                        <label class="form-label small">Hora inicio</label>
+                        {{ time_select('event_time') }}
+                    </div>
+                    <div class="col-6 col-sm-2">
+                        <label class="form-label small">Hora fim</label>
+                        {{ time_select('event_end_time') }}
+                    </div>
+                    <div class="col-6 col-sm-4">
+                        <label class="form-label small">Convidados</label>
+                        <input type="number" name="estimated_guests" class="form-control form-control-sm" min="0">
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label small">Local</label>
+                        <input type="text" name="venue" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label small">Morada</label>
+                        <input type="text" name="venue_address" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12"><hr class="my-0"></div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold">Cliente</label>
+                        <div class="input-group input-group-sm mb-2">
+                            <input type="text" id="client-search-input" class="form-control form-control-sm" placeholder="Pesquisar cliente existente por nome ou email…" autocomplete="off">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearClientSearch()">✕</button>
+                        </div>
+                        <div id="client-search-results" class="list-group small mb-2" style="display:none; max-height:150px; overflow-y:auto; position:absolute; z-index:100; width:60%;"></div>
+                        <input type="hidden" name="client_id" id="client-id-field">
+                    </div>
+                    <div class="col-12 col-sm-4">
+                        <label class="form-label small">Nome do cliente</label>
+                        <input type="text" name="client_name" id="client-name-field" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12 col-sm-4">
+                        <label class="form-label small">Email</label>
+                        <input type="email" name="client_email" id="client-email-field" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12 col-sm-4">
+                        <label class="form-label small">Telefone</label>
+                        <input type="tel" name="client_phone" id="client-phone-field" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">Notas internas</label>
+                        <textarea name="internal_notes" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="mt-3 d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary">💾 Criar Evento</button>
+                    <a href="{{ url_for('eventos.pipeline') }}" class="btn btn-sm btn-outline-secondary">Cancelar</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function handleEventTypeChange(radio) {
+    var inp = document.getElementById('event_type_other_input');
+    if (inp) inp.style.display = (radio.value === 'Outro') ? 'block' : 'none';
+}
+
+var _searchTimer = null;
+document.getElementById('client-search-input').addEventListener('input', function() {
+    clearTimeout(_searchTimer);
+    var q = this.value.trim();
+    if (q.length < 2) { hideResults(); return; }
+    _searchTimer = setTimeout(function() { searchClients(q); }, 300);
+});
+
+function searchClients(q) {
+    fetch('/eventos/clientes/search?q=' + encodeURIComponent(q))
+        .then(r => r.json()).then(data => {
+            var box = document.getElementById('client-search-results');
+            box.innerHTML = '';
+            if (!data.length) { hideResults(); return; }
+            data.forEach(function(c) {
+                var a = document.createElement('a');
+                a.href = '#';
+                a.className = 'list-group-item list-group-item-action py-1 px-2';
+                a.innerHTML = '<strong>' + c.name + '</strong> <span class="text-muted">' + (c.email || '') + '</span>';
+                a.onclick = function(e) { e.preventDefault(); selectClient(c); };
+                box.appendChild(a);
+            });
+            box.style.display = 'block';
+        });
+}
+
+function selectClient(c) {
+    document.getElementById('client-id-field').value = c.id;
+    document.getElementById('client-name-field').value = c.name || '';
+    document.getElementById('client-email-field').value = c.email || '';
+    document.getElementById('client-phone-field').value = c.phone || '';
+    document.getElementById('client-search-input').value = c.name + (c.email ? ' <' + c.email + '>' : '');
+    hideResults();
+}
+
+function clearClientSearch() {
+    document.getElementById('client-search-input').value = '';
+    document.getElementById('client-id-field').value = '';
+    hideResults();
+}
+
+function hideResults() {
+    document.getElementById('client-search-results').style.display = 'none';
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#client-search-input') && !e.target.closest('#client-search-results'))
+        hideResults();
+});
+</script>
+{% endblock %}

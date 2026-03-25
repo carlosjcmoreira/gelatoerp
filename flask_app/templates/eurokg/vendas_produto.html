@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eurokg.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="fw-bold mb-1">💶 Vendas por Produto — Euro/kg</h5>
+    <p class="text-muted small mb-3">Valor de vendas (€) por produto elegível para Euro/kg, por mês.</p>
+
+    {% if is_gestor %}
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        <a href="{{ url_for('eurokg.vendas_produto', loja='Global Porto', year=year) }}"
+           class="btn btn-sm {{ 'btn-primary' if loja_filter == 'Global Porto' else 'btn-outline-secondary' }}">🌍 Global Porto</a>
+        <a href="{{ url_for('eurokg.vendas_produto', loja='Matosinhos', year=year) }}"
+           class="btn btn-sm {{ 'btn-primary' if loja_filter == 'Matosinhos' else 'btn-outline-secondary' }}">🏭 Matosinhos</a>
+        <a href="{{ url_for('eurokg.vendas_produto', loja='Bolhão', year=year) }}"
+           class="btn btn-sm {{ 'btn-primary' if loja_filter == 'Bolhão' else 'btn-outline-secondary' }}">🛒 Bolhão</a>
+        <span class="vr"></span>
+        {% for y in available_years %}
+        <a href="{{ url_for('eurokg.vendas_produto', loja=loja_filter, year=y) }}"
+           class="btn btn-sm {{ 'btn-dark' if y == year else 'btn-outline-secondary' }}">{{ y }}</a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="d-flex gap-2 mb-3">
+        {% for y in available_years %}
+        <a href="{{ url_for('eurokg.vendas_produto', year=y) }}"
+           class="btn btn-sm {{ 'btn-dark' if y == year else 'btn-outline-secondary' }}">{{ y }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if table.products %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3" style="min-width:180px;">Produto</th>
+                            {% for m in table.months %}
+                            <th class="text-end {{ 'fw-bold' if m == current_month and year == available_years[0] else '' }}"
+                                style="min-width:80px; white-space:nowrap;">
+                                {{ meses_abrev[m - 1] }}
+                            </th>
+                            {% endfor %}
+                            <th class="text-end fw-bold pe-3" style="min-width:90px;">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for produto in table.products %}
+                        {% set row = table.data[produto] %}
+                        {% set total_p = table.totais_produto[produto] %}
+                        <tr>
+                            <td class="ps-3 small fw-semibold">{{ produto }}</td>
+                            {% for m in table.months %}
+                            {% set val = row[m] %}
+                            <td class="text-end small {{ 'text-muted' if val == 0 else '' }}">
+                                {% if val > 0 %}{{ "%.0f"|format(val) }}{% else %}—{% endif %}
+                            </td>
+                            {% endfor %}
+                            <td class="text-end small fw-bold pe-3">{{ "%.0f €"|format(total_p) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-secondary">
+                        <tr class="fw-bold">
+                            <td class="ps-3 small">TOTAL</td>
+                            {% for m in table.months %}
+                            {% set tm = table.totais_mes[m] %}
+                            <td class="text-end small {{ 'fw-bold' if m == current_month and year == available_years[0] else '' }}">
+                                {% if tm > 0 %}{{ "%.0f"|format(tm) }}{% else %}—{% endif %}
+                            </td>
+                            {% endfor %}
+                            <td class="text-end small pe-3">{{ "%.0f €"|format(table.grand_total) }}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+    <p class="text-muted small mt-2">
+        {{ table.products|length }} produto(s) · Valores em euros (€), arredondados à unidade.
+        Apenas produtos com flag Euro/kg activa.
+    </p>
+    {% else %}
+    <div class="alert alert-info">
+        Sem dados de vendas por produto para {{ year }}{% if loja_filter and loja_filter != 'Global Porto' %} — {{ loja_filter }}{% endif %}.
+        Os dados aparecem após importação de vendas detalhadas com produtos elegíveis para Euro/kg.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

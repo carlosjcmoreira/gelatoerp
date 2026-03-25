@@ -1,0 +1,477 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.index", loja_id=loja_id) %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">💵 Fecho de Caixa — {{ loja_nome }}</h5>
+    <p class="text-muted small mb-3">Digitalização e reconciliação diária do fecho</p>
+
+    {% include 'components/flash_messages.html' ignore missing %}
+
+
+    <div class="mb-3 d-flex align-items-center gap-2">
+        <label class="form-label mb-0 fw-semibold">Data:</label>
+        <input type="date" id="data_picker" class="form-control form-control-sm" style="width:160px"
+               value="{{ data_str }}" max="{{ today }}"
+               onchange="window.location.href='{{ url_for('vendas.fecho_caixa', loja_id=loja_id) }}&data='+this.value">
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+
+            <div class="card shadow-sm mb-3">
+                <div class="card-header fw-semibold">📷 Processar via Foto (OCR)</div>
+                <div class="card-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Foto do talão POS, relatório de caixa ou TPA</label>
+                        <input type="file" id="ocr-file-input" class="form-control form-control-sm"
+                               accept="image/*" capture="environment">
+                    </div>
+                    <button type="button" class="btn btn-info btn-sm w-100" id="ocr-btn"
+                            onclick="submitOCR()">
+                        🤖 Extrair valores com IA
+                    </button>
+                    <div id="ocr-status" class="mt-2 text-muted small"></div>
+                    {% if registo and registo.ocr_confianca %}
+                    <div class="mt-1 text-muted small">
+                        Última leitura OCR: confiança {{ "%.0f"|format(registo.ocr_confianca * 100) }}%
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card shadow-sm">
+                <div class="card-header fw-semibold">✏️ Registar / Confirmar Valores</div>
+                <div class="card-body">
+                    <form method="POST">
+                        <input type="hidden" name="action" value="save">
+                        <input type="hidden" name="data" value="{{ data_str }}">
+
+                        <div class="mb-3">
+                            <label class="form-label small">Colaborador</label>
+                            <input type="text" name="colaborador" id="f_colaborador" class="form-control form-control-sm"
+                                   placeholder="Nome do colaborador"
+                                   value="{{ registo.colaborador or '' if registo else '' }}">
+                        </div>
+
+                        <h6 class="text-muted small text-uppercase mb-2">📄 Papel Fecho de Caixa — Numerário</h6>
+                        <div class="table-responsive mb-2">
+                            <table class="table table-sm table-bordered mb-1 small">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Denominação</th>
+                                        <th style="width:80px">Qt.</th>
+                                        <th class="text-end" style="width:90px">Valor</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="moedas-tbody">
+                                    {% set denominacoes = [('0.01','1 cêntimo'),('0.02','2 cêntimos'),('0.05','5 cêntimos'),('0.10','10 cêntimos'),('0.20','20 cêntimos'),('0.50','50 cêntimos'),('1.00','1 euro'),('2.00','2 euros')] %}
+                                    {% set moedas_saved = registo.moedas_json if registo and registo.moedas_json else {} %}
+                                    {% for val, label in denominacoes %}
+                                    {% set key = 'moeda_' + val.replace('.','_') %}
+                                    {% set qty = moedas_saved.get(val, 0)|int %}
+                                    <tr>
+                                        <td>{{ label }} ({{ val }}€)</td>
+                                        <td>
+                                            <input type="number" name="{{ key }}" class="form-control form-control-sm moeda-qty"
+                                                   min="0" step="1" value="{{ qty }}"
+                                                   data-val="{{ val }}" oninput="recalcMoedas()">
+                                        </td>
+                                        <td class="text-end moeda-total" id="val_{{ key }}">
+                                            {{ '%.2f'|format(qty * val|float) }}€
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot class="fw-bold">
+                                    <tr>
+                                        <td colspan="2">Total Moedas</td>
+                                        <td class="text-end" id="total-moedas-calc">
+                                            {{ '%.2f'|format(registo.total_moedas or 0) if registo else '0.00' }}€
+                                        </td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label small">Total Moedas (€) <span class="text-muted">(auto)</span></label>
+                                <input type="text" name="total_moedas" id="f_total_moedas" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.total_moedas) if registo and registo.total_moedas is not none else '' }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Valor Notas (€)</label>
+                                <input type="text" name="valor_notas" id="f_valor_notas" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.valor_notas) if registo and registo.valor_notas is not none else '' }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Total Caixa (€) <span class="text-muted">(auto)</span></label>
+                                <input type="text" name="total_caixa" id="f_total_caixa" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.total_caixa) if registo and registo.total_caixa is not none else '' }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Envelope / Sobra (€)</label>
+                                <input type="text" name="envelope_sobra" id="f_envelope_sobra" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.envelope_sobra) if registo and registo.envelope_sobra is not none else '' }}">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small">Somatório TPA Getnet (€)</label>
+                                <input type="text" name="tpa_getnet" id="f_tpa_getnet" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.tpa_getnet) if registo and registo.tpa_getnet is not none else '' }}">
+                            </div>
+                        </div>
+
+                        <h6 class="text-muted small text-uppercase mb-2">🖥️ Talão POS (ZSRest / Niva)</h6>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label small">Total Vendas POS (€)</label>
+                                <input type="text" name="total_vendas_pos" id="f_total_vendas_pos" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.total_vendas_pos) if registo and registo.total_vendas_pos is not none else '' }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Dinheiro POS (€)</label>
+                                <input type="text" name="dinheiro_pos" id="f_dinheiro_pos" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.dinheiro_pos) if registo and registo.dinheiro_pos is not none else '' }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Cartão Débito POS (€)</label>
+                                <input type="text" name="cartao_pos" id="f_cartao_pos" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.cartao_pos) if registo and registo.cartao_pos is not none else '' }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small">Uber Eats POS (€)</label>
+                                <input type="text" name="ubereats_pos" id="f_ubereats_pos" class="form-control form-control-sm"
+                                       inputmode="decimal" placeholder="0.00"
+                                       value="{{ '%.2f'|format(registo.ubereats_pos) if registo and registo.ubereats_pos is not none else '' }}">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-sm w-100">💾 Guardar Fecho</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            {% if registo and not registo._empty %}
+            <div class="card shadow-sm mb-3">
+                <div class="card-header fw-semibold">📊 Desvios — {{ data_sel.strftime('%d/%m/%Y') }}</div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            {% set dn = registo.desvio_numerario %}
+                            <div class="kpi-card {% if dn is not none and dn|abs >= 1 %}border-danger{% elif dn is not none %}border-success{% endif %}">
+                                <div class="kpi-card-title">Desvio Numerário</div>
+                                <div class="kpi-card-value {% if dn is not none %}{% if dn|abs < 1 %}text-success{% else %}text-danger{% endif %}{% endif %}">
+                                    {% if dn is not none %}{% if dn >= 0 %}+{% endif %}{{ '%.2f'|format(dn) }}€{% else %}—{% endif %}
+                                </div>
+                                <div class="kpi-card-title small">POS {{ '%.2f'|format(registo.dinheiro_pos or 0) }}€ − Contado {{ '%.2f'|format((registo.total_moedas or 0) + (registo.valor_notas or 0)) }}€</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            {% set dt = registo.desvio_tpa %}
+                            <div class="kpi-card {% if dt is not none and dt|abs >= 1 %}border-danger{% elif dt is not none %}border-success{% endif %}">
+                                <div class="kpi-card-title">Desvio TPA</div>
+                                <div class="kpi-card-value {% if dt is not none %}{% if dt|abs < 1 %}text-success{% else %}text-danger{% endif %}{% endif %}">
+                                    {% if dt is not none %}{% if dt >= 0 %}+{% endif %}{{ '%.2f'|format(dt) }}€{% else %}—{% endif %}
+                                </div>
+                                <div class="kpi-card-title small">Cartão POS {{ '%.2f'|format(registo.cartao_pos or 0) }}€ − TPA {{ '%.2f'|format(registo.tpa_getnet or 0) }}€</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% set tem_desvio = (registo.desvio_numerario is not none and registo.desvio_numerario|abs >= 1) or (registo.desvio_tpa is not none and registo.desvio_tpa|abs >= 1) %}
+                    {% if tem_desvio %}
+                    <div class="mt-3">
+                        <label class="form-label fw-semibold small">💬 Justificação do Desvio</label>
+                        <textarea id="justificacao_texto" class="form-control form-control-sm" rows="2"
+                                  placeholder="Ex: Terminal com falha de comunicação, gorjeta não registada no POS...">{{ registo.justificacao_desvio or '' }}</textarea>
+                        <button class="btn btn-sm btn-outline-primary mt-1"
+                                onclick="guardarJustificacao({{ registo.id }}, this)">
+                            💾 Guardar Justificação
+                        </button>
+                    </div>
+                    {% elif registo.justificacao_desvio %}
+                    <div class="mt-2">
+                        <span class="badge bg-secondary">📝 Justificado</span>
+                        <span class="text-muted small ms-1">{{ registo.justificacao_desvio }}</span>
+                    </div>
+                    {% endif %}
+
+                    {% if registo.colaborador %}
+                    <div class="mt-2 text-muted small">Colaborador: <strong>{{ registo.colaborador }}</strong></div>
+                    {% endif %}
+                    {% if registo.registado_por %}
+                    <div class="text-muted small">Registado por: {{ registo.registado_por }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <div class="alert alert-secondary">Sem registo para {{ data_sel.strftime('%d/%m/%Y') }}. Preenche o formulário ao lado.</div>
+            {% endif %}
+
+            <div class="card shadow-sm">
+                <div class="card-header fw-semibold">📅 Reconciliação — {{ mes_nome }} {{ ano }}</div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 small">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Colab.</th>
+                                    <th class="text-end">Vds POS</th>
+                                    <th class="text-end">Numerário</th>
+                                    <th class="text-end">Dinheiro</th>
+                                    <th class="text-end">Cartão</th>
+                                    <th class="text-end">UberEats</th>
+                                    <th class="text-end">TPA</th>
+                                    <th class="text-end">Envelope</th>
+                                    <th class="text-end">Desv.Num.</th>
+                                    <th class="text-end">Desv.TPA</th>
+                                    <th class="text-center">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for r in registos_mes %}
+                                {% if r._empty %}
+                                <tr class="text-muted">
+                                    <td>{{ r.data.strftime('%d/%m') }}</td>
+                                    <td colspan="10" class="text-center fst-italic small">sem registo</td>
+                                    <td></td>
+                                </tr>
+                                {% else %}
+                                {% set dn = r.desvio_numerario %}
+                                {% set dt = r.desvio_tpa %}
+                                {% set tem_desvio_r = (dn is not none and dn|abs >= 1) or (dt is not none and dt|abs >= 1) %}
+                                {% set justificado = r.justificacao_desvio %}
+                                {% set numerario_contado = (r.total_moedas or 0) + (r.valor_notas or 0) %}
+                                <tr id="row-{{ r.id }}"
+                                    class="{% if tem_desvio_r and not justificado %}table-warning{% elif tem_desvio_r and justificado %}table-info{% endif %}">
+                                    <td>{{ r.data.strftime('%d/%m') if r.data else r.data_str }}</td>
+                                    <td class="text-truncate" style="max-width:60px" title="{{ r.colaborador or '' }}">{{ r.colaborador or '—' }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(r.total_vendas_pos or 0) }}</td>
+                                    <td class="text-end fw-semibold">{{ '%.2f'|format(numerario_contado) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(r.dinheiro_pos or 0) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(r.cartao_pos or 0) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(r.ubereats_pos or 0) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(r.tpa_getnet or 0) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(r.envelope_sobra or 0) }}</td>
+                                    <td class="text-end {% if dn is not none %}{% if dn|abs < 1 %}text-success{% else %}text-danger fw-bold{% endif %}{% endif %}">
+                                        {% if dn is not none %}{% if dn >= 0 %}+{% endif %}{{ '%.2f'|format(dn) }}{% else %}—{% endif %}
+                                    </td>
+                                    <td class="text-end {% if dt is not none %}{% if dt|abs < 1 %}text-success{% else %}text-danger fw-bold{% endif %}{% endif %}">
+                                        {% if dt is not none %}{% if dt >= 0 %}+{% endif %}{{ '%.2f'|format(dt) }}{% else %}—{% endif %}
+                                    </td>
+                                    <td class="text-center" id="estado-{{ r.id }}">
+                                        {% if tem_desvio_r and not justificado %}
+                                        <span class="badge bg-warning text-dark" style="cursor:pointer"
+                                              onclick="toggleJustificar({{ r.id }})" title="Clica para justificar">⚠️</span>
+                                        {% elif tem_desvio_r and justificado %}
+                                        <span class="badge bg-info text-dark" title="{{ justificado }}">📝</span>
+                                        {% else %}
+                                        <span class="text-success">✅</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                <tr id="justificar-row-{{ r.id }}" style="display:none">
+                                    <td colspan="12" class="bg-light px-3 py-2">
+                                        <div class="d-flex gap-2 align-items-start">
+                                            <textarea class="form-control form-control-sm" rows="2" id="just-text-{{ r.id }}"
+                                                      placeholder="Ex: Terminal com falha, gorjeta não registada...">{{ justificado or '' }}</textarea>
+                                            <button class="btn btn-sm btn-primary text-nowrap"
+                                                    onclick="guardarJustificacaoLinha({{ r.id }}, this)">💾</button>
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    onclick="toggleJustificar({{ r.id }})">✕</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% endfor %}
+                            </tbody>
+                            <tfoot class="table-secondary fw-bold small">
+                                <tr>
+                                    <td colspan="2">Total mês</td>
+                                    <td class="text-end">{{ '%.2f'|format(totais_mes.total_vendas_pos) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(totais_mes.total_moedas + totais_mes.valor_notas) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(totais_mes.dinheiro_pos) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(totais_mes.cartao_pos) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(totais_mes.ubereats_pos) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(totais_mes.tpa_getnet) }}</td>
+                                    <td class="text-end">{{ '%.2f'|format(totais_mes.envelope_sobra) }}</td>
+                                    <td class="text-end {% if totais_mes.desvio_numerario|abs < 1 %}text-success{% else %}text-danger{% endif %}">
+                                        {% if totais_mes.desvio_numerario >= 0 %}+{% endif %}{{ '%.2f'|format(totais_mes.desvio_numerario) }}
+                                    </td>
+                                    <td class="text-end {% if totais_mes.desvio_tpa|abs < 1 %}text-success{% else %}text-danger{% endif %}">
+                                        {% if totais_mes.desvio_tpa >= 0 %}+{% endif %}{{ '%.2f'|format(totais_mes.desvio_tpa) }}
+                                    </td>
+                                    <td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const OCR_URL = '{{ url_for("vendas.fecho_caixa_ocr") }}';
+const DATA_VAL = '{{ data_str }}';
+const LOJA_ID = {{ loja_id or 'null' }};
+
+function recalcMoedas() {
+    let total = 0;
+    document.querySelectorAll('.moeda-qty').forEach(inp => {
+        const val = parseFloat(inp.dataset.val);
+        const qty = parseInt(inp.value) || 0;
+        const subtotal = val * qty;
+        total += subtotal;
+        const cell = document.getElementById('val_' + inp.name);
+        if (cell) cell.textContent = subtotal.toFixed(2) + '€';
+    });
+    const calcEl = document.getElementById('total-moedas-calc');
+    if (calcEl) calcEl.textContent = total.toFixed(2) + '€';
+    const inp = document.getElementById('f_total_moedas');
+    if (inp && !inp._userEdited) {
+        inp.value = total.toFixed(2);
+        recalcTotalCaixa();
+    }
+}
+
+const tmInp = document.getElementById('f_total_moedas');
+if (tmInp) tmInp.addEventListener('input', () => { tmInp._userEdited = true; recalcTotalCaixa(); });
+const notasInp = document.getElementById('f_valor_notas');
+if (notasInp) notasInp.addEventListener('input', recalcTotalCaixa);
+
+function recalcTotalCaixa() {
+    const moedas = parseFloat(document.getElementById('f_total_moedas')?.value) || 0;
+    const notas = parseFloat(document.getElementById('f_valor_notas')?.value) || 0;
+    const tc = document.getElementById('f_total_caixa');
+    if (tc && !tc._userEdited) tc.value = (moedas + notas).toFixed(2);
+}
+const tcInp = document.getElementById('f_total_caixa');
+if (tcInp) tcInp.addEventListener('input', () => { tcInp._userEdited = true; });
+
+function _setField(id, val) {
+    const el = document.getElementById(id);
+    if (!el || val === null || val === undefined) return;
+    const num = parseFloat(val);
+    el.value = isNaN(num) ? String(val) : num.toFixed(2);
+}
+
+function submitOCR() {
+    const fileInp = document.getElementById('ocr-file-input');
+    if (!fileInp.files.length) {
+        alert('Seleciona uma imagem primeiro.');
+        return;
+    }
+    const btn = document.getElementById('ocr-btn');
+    const status = document.getElementById('ocr-status');
+    btn.disabled = true;
+    btn.textContent = '⏳ A processar…';
+    status.textContent = 'A enviar imagem para IA, aguarda…';
+
+    const fd = new FormData();
+    fd.append('imagem_caixa', fileInp.files[0]);
+    fd.append('data', DATA_VAL);
+    if (LOJA_ID) fd.append('_loja_id', LOJA_ID);
+
+    fetch(OCR_URL, { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+            btn.disabled = false;
+            btn.textContent = '🤖 Extrair valores com IA';
+            if (!d.ok) {
+                status.textContent = '❌ Erro: ' + (d.error || 'desconhecido');
+                return;
+            }
+            const f = d.fields || {};
+            if (f.data) {
+                const parts = f.data.split('-');
+                if (parts.length === 3) {
+                    const iso = parts[2] + '-' + parts[1] + '-' + parts[0];
+                    const dateEl = document.getElementById('data_picker');
+                    if (dateEl) dateEl.value = iso;
+                }
+            }
+            _setField('f_colaborador', f.colaborador !== null && f.colaborador !== undefined ? f.colaborador : null);
+            if (f.colaborador) document.getElementById('f_colaborador').value = f.colaborador;
+            _setField('f_total_moedas', f.total_moedas);
+            _setField('f_valor_notas', f.valor_notas);
+            if (f.total_caixa !== null && f.total_caixa !== undefined) {
+                _setField('f_total_caixa', f.total_caixa);
+                const tcEl = document.getElementById('f_total_caixa');
+                if (tcEl) tcEl._userEdited = true;
+            }
+            _setField('f_envelope_sobra', f.envelope_sobra);
+            _setField('f_total_vendas_pos', f.total_vendas_pos);
+            _setField('f_dinheiro_pos', f.dinheiro_pos);
+            _setField('f_cartao_pos', f.cartao_pos);
+            _setField('f_ubereats_pos', f.ubereats_pos);
+            _setField('f_tpa_getnet', f.tpa_getnet);
+            const pct = Math.round((d.confianca || 0) * 100);
+            status.innerHTML = `✅ OCR concluído com <strong>${pct}%</strong> de confiança. Confirma os valores e guarda.`;
+        })
+        .catch(e => {
+            btn.disabled = false;
+            btn.textContent = '🤖 Extrair valores com IA';
+            status.textContent = '❌ Erro de rede: ' + e;
+        });
+}
+
+function toggleJustificar(id) {
+    const row = document.getElementById('justificar-row-' + id);
+    if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+function guardarJustificacao(fechoId, btn) {
+    const texto = document.getElementById('justificacao_texto').value.trim();
+    _postJustificacao(fechoId, texto, btn, () => {});
+}
+
+function guardarJustificacaoLinha(fechoId, btn) {
+    const texto = document.getElementById('just-text-' + fechoId).value.trim();
+    _postJustificacao(fechoId, texto, btn, () => {
+        const estadoEl = document.getElementById('estado-' + fechoId);
+        if (estadoEl) {
+            estadoEl.innerHTML = '<span class="badge bg-info text-dark" title="' + texto.replace(/"/g,'&quot;') + '">📝</span>';
+        }
+        const row = document.getElementById('row-' + fechoId);
+        if (row) { row.classList.remove('table-warning'); row.classList.add('table-info'); }
+        toggleJustificar(fechoId);
+    });
+}
+
+function _postJustificacao(fechoId, texto, btn, onSuccess) {
+    fetch('{{ url_for("vendas.fecho_caixa_justificar") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({fecho_id: fechoId, justificacao: texto, loja_id: LOJA_ID})
+    }).then(r => r.json()).then(d => {
+        if (d.ok) {
+            const orig = btn.textContent;
+            btn.textContent = '✅';
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-primary', 'btn-outline-primary');
+            setTimeout(() => {
+                btn.textContent = orig;
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-outline-primary');
+            }, 2000);
+            onSuccess();
+        } else {
+            alert('Erro: ' + (d.error || 'desconhecido'));
+        }
+    }).catch(e => alert('Erro de rede: ' + e));
+}
+</script>
+{% endblock %}

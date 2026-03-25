@@ -1,0 +1,317 @@
+:root {
+    --niva-bg: #ffffff;
+    --niva-bg-secondary: #f8f9fa;
+    --niva-bg-card: #fafafa;
+    --niva-text: #2C3E50;
+    --niva-text-muted: #7F8C8D;
+    --niva-text-secondary: #555;
+    --niva-text-tertiary: #888;
+    --niva-text-dim: #666;
+    --niva-border: #e0e0e0;
+    --niva-border-light: #eee;
+    --niva-border-dark: #ddd;
+    --niva-accent: #667eea;
+    --niva-green: #27AE60;
+    --niva-green-bg: #e8f5e9;
+    --niva-green-text: #2e7d32;
+    --niva-green-border: #4caf50;
+    --niva-red: #E74C3C;
+    --niva-red-text: #c62828;
+    --niva-blue: #1a73e8;
+    --niva-saved-bg: #28a745;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --niva-bg: #0e1117;
+        --niva-bg-secondary: #1a1d24;
+        --niva-bg-card: #1e2128;
+        --niva-text: #e0e0e0;
+        --niva-text-muted: #9e9e9e;
+        --niva-text-secondary: #bdbdbd;
+        --niva-text-tertiary: #9e9e9e;
+        --niva-text-dim: #aaa;
+        --niva-border: #333;
+        --niva-border-light: #2a2a2a;
+        --niva-border-dark: #444;
+        --niva-accent: #667eea;
+        --niva-green: #4caf50;
+        --niva-green-bg: #1b3a1e;
+        --niva-green-text: #81c784;
+        --niva-green-border: #4caf50;
+        --niva-red: #ef5350;
+        --niva-red-text: #ef5350;
+        --niva-blue: #5b9bf5;
+        --niva-saved-bg: #2e7d32;
+    }
+
+    .stApp {
+        background-color: var(--niva-bg) !important;
+        color: var(--niva-text) !important;
+    }
+
+    [data-testid="stAppViewContainer"] {
+        background-color: var(--niva-bg) !important;
+    }
+
+    [data-testid="stHeader"] {
+        background-color: var(--niva-bg) !important;
+    }
+
+    .stMainBlockContainer {
+        background-color: var(--niva-bg) !important;
+    }
+
+    [data-testid="stForm"] {
+        background-color: var(--niva-bg-secondary) !important;
+        border-color: var(--niva-border) !important;
+    }
+
+    .stTextInput > div > div > input,
+    .stSelectbox > div > div,
+    .stDateInput > div > div > input,
+    .stNumberInput > div > div > input {
+        background-color: var(--niva-bg-secondary) !important;
+        color: var(--niva-text) !important;
+        border-color: var(--niva-border) !important;
+    }
+
+    .stButton > button:not([disabled]) {
+        color: var(--niva-text) !important;
+    }
+
+    .stButton > button[kind="secondary"]:not([disabled]),
+    .stButton > button[data-testid="baseButton-secondary"]:not([disabled]) {
+        background-color: var(--niva-bg-secondary) !important;
+        border-color: var(--niva-border) !important;
+        color: var(--niva-text) !important;
+    }
+
+    [data-testid="stMetric"] {
+        background-color: var(--niva-bg-secondary) !important;
+        border-color: var(--niva-border) !important;
+    }
+
+    [data-testid="stMetric"] label {
+        color: var(--niva-text-muted) !important;
+    }
+
+    [data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: var(--niva-text) !important;
+    }
+
+    .stMarkdown, .stMarkdown p, .stMarkdown span, .stMarkdown h1,
+    .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stCaption {
+        color: var(--niva-text) !important;
+    }
+
+    hr {
+        border-color: var(--niva-border) !important;
+    }
+
+    [data-testid="stExpander"] {
+        border-color: var(--niva-border) !important;
+        background-color: var(--niva-bg-secondary) !important;
+    }
+
+    div[data-testid="stDataFrame"] {
+        background-color: var(--niva-bg-secondary) !important;
+    }
+
+    .stAlert {
+        background-color: var(--niva-bg-secondary) !important;
+        color: var(--niva-text) !important;
+    }
+}
+
+.main-header {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: var(--niva-text);
+    margin-bottom: 0.5rem;
+}
+.sub-header {
+    font-size: 1.2rem;
+    color: var(--niva-text-muted);
+    margin-bottom: 2rem;
+}
+.stMetric {
+    background-color: var(--niva-bg-secondary);
+    padding: 1rem;
+    border-radius: 10px;
+    border-left: 4px solid var(--niva-accent);
+}
+div[data-testid="stSidebar"] {
+    background-color: #2C3E50;
+}
+div[data-testid="stSidebar"] .stRadio label {
+    color: #2C3E50 !important;
+}
+div[data-testid="stSidebar"] .stRadio label span {
+    color: #2C3E50 !important;
+}
+div[data-testid="stSidebar"] h1, div[data-testid="stSidebar"] h2, div[data-testid="stSidebar"] h3 {
+    color: white;
+}
+div[data-testid="stSidebar"] p, div[data-testid="stSidebar"] span {
+    color: white;
+}
+.filter-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1rem;
+    border-radius: 10px;
+    text-align: center;
+    cursor: pointer;
+    margin-bottom: 0.5rem;
+}
+.filter-card-selected {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    color: white;
+    padding: 1rem;
+    border-radius: 10px;
+    text-align: center;
+    cursor: pointer;
+    margin-bottom: 0.5rem;
+    box-shadow: 0 4px 15px rgba(17, 153, 142, 0.4);
+}
+.kpi-card {
+    background-color: var(--niva-bg-secondary);
+    padding: 1rem;
+    border-radius: 10px;
+    border-left: 4px solid var(--niva-accent);
+    margin-bottom: 0.5rem;
+}
+.kpi-card-title {
+    font-size: 0.85rem;
+    color: var(--niva-text-muted);
+    margin-bottom: 0.3rem;
+}
+.kpi-card-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--niva-text);
+}
+.kpi-card-delta-positive {
+    color: var(--niva-green);
+    font-size: 0.9rem;
+}
+.kpi-card-delta-negative {
+    color: var(--niva-red);
+    font-size: 0.9rem;
+}
+button[disabled][kind="primary"],
+button[disabled][data-testid="baseButton-primary"],
+.stButton button[disabled] {
+    background-color: var(--niva-green) !important;
+    border-color: var(--niva-green) !important;
+    color: white !important;
+    opacity: 1 !important;
+    cursor: default !important;
+}
+
+section[data-testid="stSidebar"] { display: none !important; }
+.stApp > header { display: none !important; }
+#MainMenu { display: none !important; }
+[data-testid="stToolbar"] { display: none !important; }
+[data-testid="stDecoration"] { display: none !important; }
+[data-testid="stStatusWidget"] { display: none !important; }
+
+.stMainBlockContainer,
+.stMainBlockContainer > div,
+.stMainBlockContainer > div > div,
+.stMainBlockContainer > div > div > div,
+[data-testid="stAppViewBlockContainer"],
+[data-testid="stAppViewBlockContainer"] > div,
+.block-container {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+.stMainBlockContainer {
+    padding-top: 2.5rem !important;
+    padding-bottom: 0 !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+[data-testid="stAppViewBlockContainer"] {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+.block-container {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+[data-testid="stMain"] {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+[data-testid="stMain"] > div {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+[data-testid="stAppViewContainer"] {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+[data-testid="stAppViewContainer"] > div {
+    max-width: 100% !important;
+    width: 100% !important;
+}
+.stApp { margin-top: 0 !important; }
+
+@keyframes slideInFromLeft {
+    from { transform: translateX(-40px); opacity: 0.2; }
+    to   { transform: translateX(0);     opacity: 1; }
+}
+.nav-slide-in {
+    animation: slideInFromLeft 0.25s ease-out;
+}
+
+.stApp, .stMainBlockContainer, .stMain {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+}
+
+.stButton {
+    min-width: 0 !important;
+    width: 100% !important;
+    overflow: hidden !important;
+}
+.stButton > button {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.2 !important;
+}
+
+.nav-grid {
+    gap: 0.5rem !important;
+}
+.nav-grid .stButton > button {
+    aspect-ratio: 1 / 1 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    padding: 0.5rem !important;
+    border-radius: 0.75rem !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    line-height: 1.3 !important;
+}
+
+@media (max-width: 768px) {
+    .stButton > button {
+        font-size: 0.82rem !important;
+        padding: 0.4rem 0.3rem !important;
+        min-height: 2.6rem !important;
+    }
+    .nav-grid .stButton > button {
+        font-size: 0.8rem !important;
+        padding: 0.35rem !important;
+        min-height: unset !important;
+    }
+}

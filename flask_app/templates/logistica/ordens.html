@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% set back_url = url_for("logistica.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+<h5 class="mb-2">Ordens de Transferência</h5>
+<p class="text-muted small mb-3">Todas as ordens de transferência de todas as áreas.</p>
+
+{% if ordens %}
+{% set current_date = namespace(val='') %}
+{% for o in ordens %}
+{% set data_str = o.data.strftime('%d/%m/%Y') %}
+{% if data_str != current_date.val %}
+{% if current_date.val != '' %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% set current_date.val = data_str %}
+<div class="card mb-3">
+    <div class="card-header py-1 px-2">
+        <strong class="small">{{ data_str }}</strong>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0" style="font-size:0.82rem;">
+            <thead>
+                <tr>
+                    <th>Área</th>
+                    <th>Produto</th>
+                    <th class="text-center">Qty</th>
+                    <th class="text-center">Destino</th>
+                    <th class="text-center">Entrega</th>
+                    <th class="text-center">Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+{% endif %}
+                <tr>
+                    <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.7rem;">{{ o.area_origem }}</span></td>
+                    <td>{{ o.produto }}</td>
+                    <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
+                    <td class="text-center">{{ o.loja_destino }}</td>
+                    <td class="text-center">{% if o.data_prevista %}{{ o.data_prevista.strftime('%d/%m') }}{% else %}—{% endif %}</td>
+                    <td class="text-center">
+                        {% if o.status == 'pendente' %}
+                        <span class="badge bg-warning text-dark" style="font-size:0.7rem;">Pendente</span>
+                        {% elif o.status == 'confirmada' %}
+                        <span class="badge bg-success" style="font-size:0.7rem;">Confirmada</span>
+                        {% else %}
+                        <span class="badge bg-danger" style="font-size:0.7rem;">Rejeitada</span>
+                        {% endif %}
+                    </td>
+                </tr>
+{% endfor %}
+{% if current_date.val != '' %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% else %}
+<div class="alert alert-info">Sem ordens de transferência.</div>
+{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,139 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-2">Ajustar Plano de Produção</h5>
+
+<form method="get" class="mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-7">
+            <label class="form-label small">📅 Dia do plano</label>
+            <input type="date" name="data" class="form-control form-control-sm" value="{{ data_plano }}">
+        </div>
+        <div class="col-3">
+            <button type="submit" class="btn btn-primary btn-sm w-100">Ver</button>
+        </div>
+        <div class="col-2">
+            <a href="{{ url_for('producao.ajustar_plano') }}" class="btn btn-outline-secondary btn-sm w-100" title="Ir para hoje">📅</a>
+        </div>
+    </div>
+</form>
+
+{% if data_plano != today %}
+<div class="alert alert-warning py-2 px-3 small mb-2">
+    ⚠️ A ver dados de <strong>{{ data_plano }}</strong>. <a href="{{ url_for('producao.ajustar_plano') }}" class="alert-link">Ir para hoje →</a>
+</div>
+{% endif %}
+
+<hr>
+
+{% if entradas %}
+<p class="text-muted small mb-2">{{ entradas|length }} sabor(es) no plano</p>
+
+<form method="post" id="ajusteForm">
+    <input type="hidden" name="data" value="{{ data_plano }}">
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0" style="font-size:0.78rem;">
+            <thead>
+                <tr>
+                    <th style="min-width:80px;">Sabor</th>
+                    <th class="text-center" style="min-width:62px;">Pes. Mat</th>
+                    <th class="text-center" style="min-width:62px;">Est. Bol</th>
+                    <th class="text-center" style="min-width:62px;">Est. Mat</th>
+                    <th class="text-center" style="min-width:62px;">Est. Mou</th>
+                    <th class="text-center" style="min-width:62px;">Est. Outros</th>
+                    <th class="text-center" style="min-width:55px;">Total Est.</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in entradas %}
+                <tr data-sabor="{{ item.sabor }}">
+                    <td class="fw-semibold text-nowrap">
+                        <span class="me-1">{{ item.icon }}</span>{{ item.sabor }}
+                        {% if item.no_plano %}<span class="badge bg-success ms-1" style="font-size:0.6rem;">✓</span>{% endif %}
+                    </td>
+                    <td>
+                        <input type="text" name="pesagem_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center ajuste-input"
+                               data-field="pesagem"
+                               placeholder="0,000"
+                               value="{{ '%.3f'|format(item.pesagem_matosinhos)|replace('.', ',') if item.pesagem_matosinhos > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                    <td>
+                        <input type="text" name="est_bol_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center ajuste-input"
+                               data-field="est_bol"
+                               placeholder="0,000"
+                               value="{{ '%.3f'|format(item.estimado_bolhao)|replace('.', ',') if item.estimado_bolhao > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                    <td>
+                        <input type="text" name="est_mat_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center ajuste-input"
+                               data-field="est_mat"
+                               placeholder="0,000"
+                               value="{{ '%.3f'|format(item.estimado_matosinhos)|replace('.', ',') if item.estimado_matosinhos > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                    <td>
+                        <input type="text" name="est_mou_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center ajuste-input"
+                               data-field="est_mou"
+                               placeholder="0,000"
+                               value="{{ '%.3f'|format(item.estimado_mouzinho)|replace('.', ',') if item.estimado_mouzinho > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                    <td>
+                        <input type="text" name="est_outros_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center ajuste-input"
+                               data-field="est_outros"
+                               placeholder="0,000"
+                               value="{{ '%.3f'|format(item.estimado_outros)|replace('.', ',') if item.estimado_outros > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                    <td class="text-center fw-bold total-cell" id="total-{{ loop.index }}">
+                        {% set total = item.estimado_bolhao + item.estimado_matosinhos + item.estimado_mouzinho + item.estimado_outros %}
+                        {{ "%.1f"|format(total) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</form>
+
+<div class="save-bar-spacer"></div>
+<div class="save-bar">
+    <button type="submit" form="ajusteForm" class="btn btn-primary w-100">💾 Guardar Ajustes</button>
+</div>
+
+{% else %}
+<div class="alert alert-info">Nenhum sabor no plano para este dia.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    function parseDec(s) {
+        try { return parseFloat((s || '0').replace(',', '.')) || 0; } catch(e) { return 0; }
+    }
+
+    var rows = document.querySelectorAll('tr[data-sabor]');
+    rows.forEach(function(row, idx) {
+        var inputs = row.querySelectorAll('.ajuste-input');
+        var totalCell = document.getElementById('total-' + (idx + 1));
+        function updateTotal() {
+            var estBol = parseDec(row.querySelector('[data-field="est_bol"]').value);
+            var estMat = parseDec(row.querySelector('[data-field="est_mat"]').value);
+            var estMou = parseDec(row.querySelector('[data-field="est_mou"]').value);
+            var estOutros = parseDec(row.querySelector('[data-field="est_outros"]').value);
+            totalCell.textContent = (estBol + estMat + estMou + estOutros).toFixed(1);
+        }
+        inputs.forEach(function(inp) {
+            inp.addEventListener('input', updateTotal);
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,35 @@
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Tipologias de Pastelaria</h6>
+        <p class="text-muted small">Lista fechada de tipologias disponíveis para produtos de pastelaria.</p>
+        {% if tipologias %}
+        {% for t in tipologias %}
+        <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+            <span class="small">{% if t.ativo %}✅{% else %}❌{% endif %} {{ t.nome }}</span>
+            <form method="POST" class="d-inline">
+                <input type="hidden" name="action" value="delete_tipologia">
+                <input type="hidden" name="section" value="tipologias_pastelaria">
+                <input type="hidden" name="tipologia_id" value="{{ t.id }}">
+                <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminar?')">✕</button>
+            </form>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted small">Sem tipologias registadas.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Adicionar Nova Tipologia</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="add_tipologia">
+            <input type="hidden" name="section" value="tipologias_pastelaria">
+            <div class="mb-2">
+                <input type="text" name="nova_tipologia" class="form-control form-control-sm" placeholder="Ex: Palito">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar Tipologia</button>
+        </form>
+    </div>
+</div>

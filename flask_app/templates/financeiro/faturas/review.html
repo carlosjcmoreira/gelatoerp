@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% set back_url = url_for("faturas.upload") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <h5 class="mb-1">🔍 Revisão de Fatura</h5>
+    {% if ocr.error %}
+    <div class="alert alert-warning py-2 small">
+        OCR não disponível: {{ ocr.error }}. Preenche os campos manualmente.
+    </div>
+    {% elif ocr.ocr_confidence is not none %}
+    <div class="alert alert-info py-2 small">
+        Extracção automática com confiança média de <strong>{{ (ocr.ocr_confidence * 100)|int }}%</strong>.
+        Verifica os campos assinalados.
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('faturas.save') }}">
+        <input type="hidden" name="invoice_id" value="{{ inv.id }}">
+        <input type="hidden" name="is_new_supplier" value="{{ '0' if supplier else '1' }}">
+
+        <!-- Fornecedor card -->
+        <div class="card mb-3">
+            <div class="card-body">
+                {% if supplier %}
+                {# Existing supplier — show locked fields #}
+                <h6 class="card-title d-flex align-items-center gap-2">
+                    Fornecedor
+                    <span class="badge bg-success-subtle text-success-emphasis small">Existente</span>
+                    <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm ms-auto" data-no-loading>
+                        Editar fornecedor
+                    </a>
+                </h6>
+                <div class="alert alert-light border py-2 small mb-2">
+                    Os dados do fornecedor são geridos no tile de Fornecedores e não podem ser editados aqui.
+                </div>
+                <input type="hidden" name="supplier_name" value="{{ supplier.name }}">
+                <input type="hidden" name="supplier_nif" value="{{ supplier.nif }}">
+                <div class="row g-2">
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small">Nome do fornecedor</label>
+                        <input type="text" class="form-control form-control-sm bg-light" value="{{ supplier.name }}" disabled>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small">NIF</label>
+                        <input type="text" class="form-control form-control-sm bg-light" value="{{ supplier.nif }}" disabled>
+                    </div>
+                    {% if supplier.payment_method or supplier.payment_terms %}
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label small">Método de Pagamento</label>
+                        <input type="text" class="form-control form-control-sm bg-light"
+                               value="{{ payment_method_labels.get(supplier.payment_method, supplier.payment_method or '—') }}" disabled>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label small">Prazo de Pagamento</label>
+                        <input type="text" class="form-control form-control-sm bg-light"
+                               value="{{ payment_terms_labels.get(supplier.payment_terms, supplier.payment_terms or '—') }}" disabled>
+                    </div>
+                    {% endif %}
+                    {% if supplier.iban %}
+                    <div class="col-12">
+                        <label class="form-label small">IBAN</label>
+                        <input type="text" class="form-control form-control-sm bg-light" value="{{ supplier.iban }}" disabled>
+                    </div>
+                    {% endif %}
+                </div>
+                {% else %}
+                {# New supplier — show editable fields with OCR hints #}
+                {% set pm_hint = ocr.confidence.get('payment_method_hint') if ocr.confidence else '' %}
+                {% set pt_hint = ocr.confidence.get('payment_terms_hint') if ocr.confidence else '' %}
+                {% set iban_hint = ocr.confidence.get('supplier_iban') if ocr.confidence else '' %}
+                <h6 class="card-title d-flex align-items-center gap-2">
+                    Fornecedor
+                    <span class="badge bg-warning-subtle text-warning-emphasis small">Novo — confirme os dados</span>
+                </h6>
+                <div class="alert alert-warning py-2 small mb-2">
+                    Fornecedor não encontrado na base de dados. Preenche e confirma os dados antes de guardar.
+                </div>
+                <div class="row g-2">
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small">Nome do fornecedor <span class="text-danger">*</span></label>
+                        <input type="text" name="supplier_name" class="form-control form-control-sm
+                            {% if ocr.confidence.get('supplier_name', 1) < 0.7 %}border-warning{% endif %}"
+                            value="{{ ocr.supplier_name or '' }}" required>
+                        {% if ocr.confidence.get('supplier_name', 1) < 0.7 %}
+                        <div class="form-text text-warning">Confiança baixa – verifica</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small">NIF <span class="text-danger">*</span></label>
+                        <input type="text" name="supplier_nif" class="form-control form-control-sm
+                            {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}border-warning{% endif %}"
+                            value="{{ ocr.supplier_nif or '' }}"
+                            pattern="[0-9]*" inputmode="numeric" required>
+                        {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}
+                        <div class="form-text text-warning">Confiança baixa – verifica</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label small">Método de Pagamento <span class="text-danger">*</span></label>
+                        <select name="supplier_payment_method" class="form-select form-select-sm" required>
+                            <option value="">— Seleccionar —</option>
+                            {% for val, label in payment_method_labels.items() %}
+                            <option value="{{ val }}" {% if pm_hint == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label small">Prazo de Pagamento <span class="text-danger">*</span></label>
+                        <select name="supplier_payment_terms" class="form-select form-select-sm" required>
+                            <option value="">— Seleccionar —</option>
+                            {% for val, label in payment_terms_labels.items() %}
+                            <option value="{{ val }}" {% if pt_hint == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">IBAN</label>
+                        <input type="text" name="supplier_iban" class="form-control form-control-sm"
+                               placeholder="PT50..." value="{{ iban_hint or '' }}">
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title">Dados da Fatura</h6>
+                <div class="row g-2">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small">Tipo de documento</label>
+                        <select name="document_type" class="form-select form-select-sm">
+                            {% for val, label in document_type_labels.items() %}
+                            <option value="{{ val }}" {% if inv.document_type == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small">Número da fatura</label>
+                        <input type="text" name="invoice_number" class="form-control form-control-sm
+                            {% if ocr.confidence.get('invoice_number', 1) < 0.7 %}border-warning{% endif %}"
+                            value="{{ ocr.invoice_number or '' }}">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">Valor total (€)</label>
+                        <input type="number" step="0.01" name="amount_eur" class="form-control form-control-sm
+                            {% if ocr.confidence.get('amount_eur', 1) < 0.7 %}border-warning{% endif %}"
+                            value="{{ '%.2f'|format(ocr.amount_eur) if ocr.amount_eur is not none else '' }}">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">Valor IVA (€)</label>
+                        <input type="number" step="0.01" name="vat_amount_eur" class="form-control form-control-sm
+                            {% if ocr.confidence.get('vat_amount_eur', 1) < 0.7 %}border-warning{% endif %}"
+                            value="{{ '%.2f'|format(ocr.vat_amount_eur) if ocr.vat_amount_eur is not none else '' }}">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">Data emissão</label>
+                        <input type="date" name="issue_date" id="issue_date" class="form-control form-control-sm
+                            {% if ocr.confidence.get('issue_date', 1) < 0.7 %}border-warning{% endif %}"
+                            value="{{ ocr.issue_date or '' }}">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small">Data vencimento
+                            {% if supplier and supplier.payment_terms %}
+                            <span class="text-info" title="Calculado pelo prazo do fornecedor">⚡</span>
+                            {% endif %}
+                        </label>
+                        <input type="date" name="due_date" id="due_date" class="form-control form-control-sm
+                            {% if ocr.confidence.get('due_date', 1) < 0.7 %}border-warning{% endif %}"
+                            value="{{ ocr.due_date or '' }}"
+                            {% if supplier and supplier.payment_terms %}readonly title="Calculado automaticamente pelo prazo do fornecedor"{% endif %}>
+                        {% if supplier and supplier.payment_terms %}
+                        <div class="form-text text-info">Calculado: prazo {{ payment_terms_labels.get(supplier.payment_terms, supplier.payment_terms) }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title">Classificação & Arquivo</h6>
+                <div class="row g-2">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small">Categoria</label>
+                        <select name="category" class="form-select form-select-sm">
+                            <option value="">— Seleccionar —</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small">Loja</label>
+                        <select name="store_id" class="form-select form-select-sm">
+                            <option value="">— Seleccionar —</option>
+                            {% for s in stores %}
+                            <option value="{{ s.id }}" {% if supplier and supplier.store_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small">Subpasta OneDrive</label>
+                        <select name="onedrive_subfolder" class="form-select form-select-sm">
+                            <option value="">— Seleccionar —</option>
+                            {% for sf in subfolders %}
+                            <option value="{{ sf }}" {% if sf == suggested_subfolder %}selected{% endif %}>
+                                {{ sf }}{% if sf == suggested_subfolder %} ✓{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Estrutura: Ano/Mês/Faturas/[Subpasta]/ficheiro.pdf</div>
+                        {% if suggested_subfolder %}
+                        <div class="form-text text-info">Sugestão automática: <strong>{{ suggested_subfolder }}</strong></div>
+                        {% endif %}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">Notas</label>
+                        <textarea name="notes" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1">Guardar fatura</button>
+            <a href="{{ url_for('faturas.cancel_draft', invoice_id=inv.id) }}"
+               class="btn btn-outline-secondary" data-no-loading>Cancelar</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    {% if supplier and supplier.payment_terms %}
+    // Auto-calculate due date from issue date and supplier payment terms
+    var paymentTerms = {{ (supplier.payment_terms)|tojson }};
+    var issueDateInput = document.getElementById('issue_date');
+    var dueDateInput = document.getElementById('due_date');
+
+    function calcDueDate(issueDate, terms) {
+        if (!issueDate) return '';
+        var d = new Date(issueDate);
+        if (isNaN(d.getTime())) return '';
+        if (terms === 'a_pronto') return issueDate;
+        if (terms === '15_dias') { d.setDate(d.getDate() + 15); }
+        else if (terms === '30_dias') { d.setDate(d.getDate() + 30); }
+        else if (terms === '60_dias') { d.setDate(d.getDate() + 60); }
+        else if (terms === 'final_mes') {
+            d = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        } else { return ''; }
+        return d.toISOString().split('T')[0];
+    }
+
+    function updateDueDate() {
+        var v = issueDateInput.value;
+        if (v) dueDateInput.value = calcDueDate(v, paymentTerms);
+    }
+
+    issueDateInput.addEventListener('change', updateDueDate);
+    if (issueDateInput.value) updateDueDate();
+    {% endif %}
+})();
+</script>
+{% endblock %}

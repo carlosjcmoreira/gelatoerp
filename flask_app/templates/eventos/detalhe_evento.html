@@ -1,0 +1,106 @@
+{% extends "eventos/tabs.html" %}
+
+{% block tab_content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h5 class="mb-0">{{ evento.cliente }}</h5>
+    <span class="badge bg-{{ evento.status_badge }}">{{ evento.status_label }}</span>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body p-3">
+        <div class="row g-2 small">
+            <div class="col-6">
+                <div class="text-muted">Data do Evento</div>
+                <div class="fw-bold">{{ evento.event_date.strftime('%d/%m/%Y') if evento.event_date else '—' }}</div>
+            </div>
+            {% if evento.local %}
+            <div class="col-6">
+                <div class="text-muted">Local</div>
+                <div class="fw-bold">{{ evento.local }}</div>
+            </div>
+            {% endif %}
+            {% if evento.descricao %}
+            <div class="col-12">
+                <div class="text-muted">Descrição</div>
+                <div>{{ evento.descricao }}</div>
+            </div>
+            {% endif %}
+            {% if evento.invoice_amount_eur %}
+            <div class="col-6">
+                <div class="text-muted">Valor da Fatura</div>
+                <div class="fw-bold">{{ "%.2f"|format(evento.invoice_amount_eur | float) }} €</div>
+            </div>
+            {% endif %}
+            {% if evento.expected_payment_date %}
+            <div class="col-6">
+                <div class="text-muted">Recebimento Previsto</div>
+                <div class="fw-bold">{{ evento.expected_payment_date.strftime('%d/%m/%Y') }}</div>
+            </div>
+            {% endif %}
+            {% if evento.notas %}
+            <div class="col-12">
+                <div class="text-muted">Notas</div>
+                <div>{{ evento.notas }}</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% if evento.status == 'adjudicado' %}
+<div class="card mb-3 border-{{ evento.payment_status_badge }}">
+    <div class="card-header py-2 small fw-bold">💶 Estado de Pagamento</div>
+    <div class="card-body p-3">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <span class="badge bg-{{ evento.payment_status_badge }}">{{ evento.payment_status_label }}</span>
+                {% if evento.payment_date %}
+                <div class="small text-muted mt-1">Pago em {{ evento.payment_date.strftime('%d/%m/%Y') }}</div>
+                {% endif %}
+                {% if evento.payment_amount_eur %}
+                <div class="small fw-bold mt-1">{{ "%.2f"|format(evento.payment_amount_eur | float) }} €</div>
+                {% endif %}
+            </div>
+            {% if evento.payment_status_computed != 'received' %}
+            <a href="{{ url_for('eventos.registar_pagamento', evento_id=evento.id) }}" class="btn btn-success btn-sm">Registar Pagamento</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if items %}
+<div class="card mb-3">
+    <div class="card-header py-2 small fw-bold">📋 Artigos</div>
+    <div class="card-body p-0">
+        <table class="table table-sm mb-0" style="font-size:0.85rem;">
+            <thead>
+                <tr>
+                    <th>Artigo</th>
+                    <th class="text-center">Qtd</th>
+                    <th class="text-center">Un.</th>
+                    <th class="text-center">Produção</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr {% if item.is_production_item %}class="table-warning"{% endif %}>
+                    <td>{{ item.descricao }}</td>
+                    <td class="text-center">{{ item.quantidade }}</td>
+                    <td class="text-center">{{ item.unidade }}</td>
+                    <td class="text-center">{{ '✅' if item.is_production_item else '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="d-flex gap-2 mt-3">
+    <a href="{{ url_for('eventos.editar_evento', evento_id=evento.id) }}" class="btn btn-outline-primary flex-fill btn-sm">Editar</a>
+    <form method="post" action="{{ url_for('eventos.eliminar_evento', evento_id=evento.id) }}" class="flex-fill" data-no-loading onsubmit="return confirm('Eliminar este evento?')">
+        <button type="submit" class="btn btn-outline-danger w-100 btn-sm">Eliminar</button>
+    </form>
+</div>
+{% endblock %}

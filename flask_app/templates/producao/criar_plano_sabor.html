@@ -1,0 +1,115 @@
+{% extends "producao/tabs.html" %}
+{% set back_url = url_for("producao.criar_plano") %}
+
+{% block tab_content %}
+<h5>{{ icon }} {{ sabor }}</h5>
+
+<div class="kpi-card mb-3 {% if bolhao_days_ago and bolhao_days_ago > 1 %}border border-warning{% endif %}">
+    <div class="kpi-card-title">
+        Stock Bolhão
+        {% if data_bolhao_fmt %}
+            <span class="text-muted">({{ data_bolhao_fmt }}{% if bolhao_days_ago == 1 %} — ontem{% elif bolhao_days_ago and bolhao_days_ago > 1 %} — há {{ bolhao_days_ago }} dias{% endif %})</span>
+        {% else %}
+            <span class="text-muted">(sem dados)</span>
+        {% endif %}
+    </div>
+    <div class="kpi-card-value">{% if kg_bolhao is not none %}{{ "%.3f"|format(kg_bolhao) }} kg{% else %}—{% endif %}</div>
+    {% if bolhao_days_ago and bolhao_days_ago > 1 %}
+    <div class="small text-warning mt-1">⚠️ Dados com {{ bolhao_days_ago }} dias — pesagem recente ainda não foi carregada</div>
+    {% endif %}
+</div>
+
+<hr>
+
+<form method="post" id="planoForm">
+    <input type="hidden" name="action" value="save" id="formAction">
+
+    <div class="mb-3">
+        <label class="form-label small">Pesagem Matosinhos (kg)</label>
+        <input type="text" name="pesagem_matosinhos" class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(plano.pesagem_matosinhos)|replace('.', ',') if plano.pesagem_matosinhos > 0 else '' }}">
+    </div>
+
+    <hr>
+
+    <div class="mb-3">
+        <label class="form-label small">Produção estimada Bolhão (kg)</label>
+        <input type="text" name="estimada_bolhao" class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(plano.producao_estimada_bolhao)|replace('.', ',') if plano.producao_estimada_bolhao > 0 else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label small">Produção estimada Matosinhos (kg)</label>
+        <input type="text" name="estimada_matosinhos" class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(plano.producao_estimada_matosinhos)|replace('.', ',') if plano.producao_estimada_matosinhos > 0 else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label small">Produção estimada Mouzinho (kg)</label>
+        <input type="text" name="estimada_mouzinho" class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(plano.producao_estimada_mouzinho)|replace('.', ',') if plano.producao_estimada_mouzinho > 0 else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label small">Produção estimada outros — eventos, B2B (kg)</label>
+        <input type="text" name="estimada_outros" class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(plano.producao_estimada_outros)|replace('.', ',') if plano.producao_estimada_outros > 0 else '' }}">
+    </div>
+
+    <hr>
+
+    <div class="kpi-card mb-3">
+        <div class="kpi-card-title">Total produção estimada</div>
+        <div class="kpi-card-value" id="total-est">{{ "%.3f"|format(plano.producao_estimada_bolhao + plano.producao_estimada_matosinhos + plano.producao_estimada_mouzinho + plano.producao_estimada_outros) }} kg</div>
+    </div>
+
+    <hr>
+
+    <div class="d-grid gap-2">
+        <button type="submit" class="btn btn-outline-secondary btn-sm">Guardar</button>
+        {% if plano.no_plano %}
+        <button class="btn btn-primary btn-sm" disabled>✅ Adicionado ao plano!</button>
+        {% else %}
+        <button type="button" class="btn btn-primary btn-sm" id="btnAddPlan">Adicionar ao plano de produção</button>
+        {% endif %}
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var eb = document.querySelector('input[name="estimada_bolhao"]');
+    var em = document.querySelector('input[name="estimada_matosinhos"]');
+    var emou = document.querySelector('input[name="estimada_mouzinho"]');
+    var eo = document.querySelector('input[name="estimada_outros"]');
+    var total = document.getElementById('total-est');
+    function parseDec(s) {
+        try { return parseFloat((s || '0').replace(',', '.')) || 0; } catch(e) { return 0; }
+    }
+    function updateTotal() {
+        var t = parseDec(eb.value) + parseDec(em.value) + parseDec(emou ? emou.value : '0') + parseDec(eo ? eo.value : '0');
+        total.textContent = t.toFixed(3) + ' kg';
+    }
+    if (eb && em && total) {
+        eb.addEventListener('input', updateTotal);
+        em.addEventListener('input', updateTotal);
+        if (emou) emou.addEventListener('input', updateTotal);
+        if (eo) eo.addEventListener('input', updateTotal);
+    }
+
+    var btnAdd = document.getElementById('btnAddPlan');
+    if (btnAdd) {
+        btnAdd.addEventListener('click', function() {
+            document.getElementById('formAction').value = 'add_to_plan';
+            var form = document.getElementById('planoForm');
+            if (form.requestSubmit) {
+                form.requestSubmit();
+            } else {
+                form.submit();
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% set back_url = url_for("home.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-4">🎪 Eventos</h5>
+    <div class="nav-grid nav-grid-fill" data-items="{{ tiles|length }}">
+        {% for tile in tiles %}
+        <a href="{{ tile.url }}" class="nav-card">
+            <span class="nav-card-icon">{{ tile.icon }}</span>
+            <span class="nav-card-label">{{ tile.label }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

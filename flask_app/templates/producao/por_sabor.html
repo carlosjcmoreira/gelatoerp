@@ -1,0 +1,64 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-3">Stock Gelado</h5>
+
+{% if rows %}
+<div class="table-responsive">
+    <table class="table table-sm table-striped align-middle">
+        <thead class="table-dark">
+            <tr>
+                <th rowspan="2" class="align-middle px-2">Sabor</th>
+                <th colspan="2" class="text-center px-1 border-start">Produção (kg)</th>
+                <th colspan="2" class="text-center px-1 border-start">Loja (kg)</th>
+                <th rowspan="2" class="text-center align-middle px-2 border-start">Total</th>
+            </tr>
+            <tr>
+                <th class="text-center px-1 border-start small">Mat.</th>
+                <th class="text-center px-1 small">Bol.</th>
+                <th class="text-center px-1 border-start small">Mat.</th>
+                <th class="text-center px-1 small">Bol.</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
+                <td class="text-center px-1 border-start {% if r.prod_mat > 0 %}text-success fw-semibold{% else %}text-muted{% endif %}">
+                    {{ '%.1f'|format(r.prod_mat) if r.prod_mat > 0 else '-' }}
+                </td>
+                <td class="text-center px-1 {% if r.prod_bol > 0 %}text-success fw-semibold{% else %}text-muted{% endif %}">
+                    {{ '%.1f'|format(r.prod_bol) if r.prod_bol > 0 else '-' }}
+                </td>
+                <td class="text-center px-1 border-start {% if r.loja_mat > 0 %}text-primary{% else %}text-muted{% endif %}">
+                    {% if r.loja_mat > 0 %}
+                        {{ '%.1f'|format(r.loja_mat) }}
+                        {% if r.loja_mat_data %}<small class="text-muted">({{ r.loja_mat_data }})</small>{% endif %}
+                    {% else %}-{% endif %}
+                </td>
+                <td class="text-center px-1 {% if r.loja_bol > 0 %}text-primary{% else %}text-muted{% endif %}">
+                    {% if r.loja_bol > 0 %}
+                        {{ '%.1f'|format(r.loja_bol) }}
+                        {% if r.loja_bol_data %}<small class="text-muted">({{ r.loja_bol_data }})</small>{% endif %}
+                    {% else %}-{% endif %}
+                </td>
+                <td class="text-center px-2 fw-bold border-start">{{ '%.1f'|format(r.total) if r.total > 0 else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot class="table-dark">
+            <tr class="fw-bold">
+                <td class="px-2">Total</td>
+                <td class="text-center px-1 border-start">{{ '%.1f'|format(totals.prod_mat) }}</td>
+                <td class="text-center px-1">{{ '%.1f'|format(totals.prod_bol) }}</td>
+                <td class="text-center px-1 border-start">{{ '%.1f'|format(totals.loja_mat) }}</td>
+                <td class="text-center px-1">{{ '%.1f'|format(totals.loja_bol) }}</td>
+                <td class="text-center px-2 border-start">{{ '%.1f'|format(totals.total) }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">Sem dados de stock registados.</div>
+{% endif %}
+{% endblock %}

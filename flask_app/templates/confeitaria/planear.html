@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% set back_url = url_for("confeitaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">Planear Produção</h5>
+    <p class="text-muted small mb-3">Defina as quantidades estimadas para hoje</p>
+
+    {% if plano %}
+    <h6 class="mb-2">Plano do dia</h6>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped">
+            <thead>
+                <tr>
+                    <th>Produto</th>
+                    <th class="text-center">Estimado</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in plano %}
+                <tr>
+                    <td>{{ p.produto }}</td>
+                    <td class="text-center">{{ p.estimado }}</td>
+                    <td class="text-end">
+                        <form method="POST" action="{{ url_for('confeitaria.planear') }}" style="display:inline">
+                            <input type="hidden" name="action" value="remove_from_plan">
+                            <input type="hidden" name="produto" value="{{ p.produto }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size:0.75rem;">✕</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <hr>
+    <h6 class="mb-2">Adicionar ao plano</h6>
+
+    <form method="POST" action="{{ url_for('confeitaria.planear') }}" id="planForm">
+        <input type="hidden" name="action" value="save_plan">
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-center" style="width:100px;">Quantidade</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in produtos %}
+                    <tr{% if p.no_plano %} class="table-success"{% endif %}>
+                        <td>{{ p.nome }}{% if p.no_plano %} <span class="badge bg-success" style="font-size:0.65rem;">no plano</span>{% endif %}</td>
+                        <td class="text-center">
+                            <input type="number" name="qty_{{ p.nome }}" class="form-control form-control-sm text-center"
+                                   value="{{ p.estimado if p.estimado > 0 else '' }}" min="0" step="1"
+                                   placeholder="0" style="max-width:80px;margin:0 auto;">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <div class="save-bar-spacer"></div>
+    <div class="save-bar">
+        <button type="submit" form="planForm" class="btn btn-primary w-100">Guardar Plano</button>
+    </div>
+</div>
+{% endblock %}

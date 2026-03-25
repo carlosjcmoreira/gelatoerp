@@ -1,0 +1,124 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-3">Registar Quebra</h5>
+
+<form method="post" id="formRegistar" class="mb-4">
+    <div class="row g-2">
+        <div class="col-6">
+            <label class="form-label small">Data da Quebra</label>
+            <input type="date" name="data" class="form-control form-control-sm" value="{{ today }}" required>
+        </div>
+        <div class="col-6">
+            <label class="form-label small">Quantidade (kg)</label>
+            <input type="text" name="quantidade" class="form-control form-control-sm" placeholder="0,1" required>
+        </div>
+        <div class="col-6">
+            <label class="form-label small">Sabor</label>
+            <select name="sabor" class="form-select form-select-sm" required>
+                {% for s in sabores %}
+                <option value="{{ s }}">{{ s }}</option>
+                {% else %}
+                <option value="">Sem sabores disponíveis</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6">
+            <label class="form-label small">Lote</label>
+            <input type="text" name="lote" class="form-control form-control-sm" placeholder="Ex: P050226">
+        </div>
+        <div class="col-12">
+            <label class="form-label small">Motivo da Quebra</label>
+            <textarea name="motivo" class="form-control form-control-sm" rows="2" placeholder="Descreva o motivo..."></textarea>
+        </div>
+        <div class="col-12">
+            <button type="submit" id="btnQuebraProducao" class="btn btn-primary btn-sm w-100">Registar Quebra</button>
+        </div>
+    </div>
+</form>
+<script>
+document.getElementById('formRegistar').addEventListener('submit', function() {
+    var btn = document.getElementById('btnQuebraProducao');
+    btn.disabled = true;
+    btn.textContent = 'A registar…';
+});
+</script>
+
+<hr>
+<h6>Histórico de Quebras - Matosinhos</h6>
+
+{% if quebras %}
+<form method="post" action="{{ url_for('producao.eliminar_quebras_bulk') }}" id="formBulk">
+<div class="mb-2">
+    <button type="submit" id="btnBulkDelete" class="btn btn-danger btn-sm" disabled onclick="return confirm('Eliminar os registos selecionados?')">Eliminar selecionados</button>
+</div>
+<div class="table-responsive">
+    <table class="table table-sm table-striped">
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="checkAll" title="Selecionar todos"></th>
+                <th>ID</th>
+                <th>Data</th>
+                <th>Sabor</th>
+                <th>Lote</th>
+                <th>Qtd (kg)</th>
+                <th>Motivo</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for q in quebras %}
+            <tr>
+                <td><input type="checkbox" name="ids" value="{{ q.id }}" class="quebra-check"></td>
+                <td>{{ q.id }}</td>
+                <td>{{ q.data }}</td>
+                <td>{{ q.get('sabor', '-') }}</td>
+                <td>{{ q.get('lote', '-') }}</td>
+                <td>{{ q.quantidade_kg }}</td>
+                <td>{{ q.get('motivo', '-') }}</td>
+                <td>
+                    <button type="submit"
+                            name="id"
+                            value="{{ q.id }}"
+                            formaction="{{ url_for('producao.eliminar_quebra') }}"
+                            class="btn btn-outline-danger btn-sm"
+                            onclick="return confirm('Eliminar?')">🗑</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+</form>
+{% else %}
+<div class="alert alert-info">Sem quebras registadas para Matosinhos.</div>
+{% endif %}
+
+<script>
+(function() {
+    var checkAll = document.getElementById('checkAll');
+    var btnBulk = document.getElementById('btnBulkDelete');
+    var checks = document.querySelectorAll('.quebra-check');
+
+    function updateBulkBtn() {
+        var anyChecked = Array.from(checks).some(function(c) { return c.checked; });
+        btnBulk.disabled = !anyChecked;
+    }
+
+    if (checkAll) {
+        checkAll.addEventListener('change', function() {
+            checks.forEach(function(c) { c.checked = checkAll.checked; });
+            updateBulkBtn();
+        });
+    }
+
+    checks.forEach(function(c) {
+        c.addEventListener('change', function() {
+            if (!this.checked) checkAll.checked = false;
+            else if (Array.from(checks).every(function(x) { return x.checked; })) checkAll.checked = true;
+            updateBulkBtn();
+        });
+    });
+})();
+</script>
+{% endblock %}

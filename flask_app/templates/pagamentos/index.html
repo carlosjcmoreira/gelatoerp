@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">💸 Pagamentos & IVA</h5>
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-5 fw-bold text-warning">{{ "%.0f €"|format(total_pending) }}</div>
+                    <div class="small text-muted">Por confirmar</div>
+                    <div class="small text-muted">({{ invoices_pending|length }} faturas)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-5 fw-bold text-info">{{ "%.0f €"|format(total_scheduled) }}</div>
+                    <div class="small text-muted">Agendado</div>
+                    <div class="small text-muted">({{ invoices_scheduled|length }} faturas)</div>
+                </div>
+            </div>
+        </div>
+        {% if next_vat %}
+        <div class="col-6 col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-5 fw-bold text-danger">{{ "%.0f €"|format(next_vat.vat_due_eur or next_vat.vat_due_estimated or 0) }}</div>
+                    <div class="small text-muted">IVA a pagar</div>
+                    <div class="small text-muted">{{ meses[next_vat.month] }} {{ next_vat.year }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-5 fw-bold {% if next_vat.payment_date %}text-primary{% else %}text-muted{% endif %}">
+                        {% if next_vat.payment_date %}{{ next_vat.payment_date.strftime('%d/%m/%Y') }}{% else %}—{% endif %}
+                    </div>
+                    <div class="small text-muted">Data pagamento IVA</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if invoices_pending %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h6 class="card-title">⏳ Faturas por confirmar</h6>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Fornecedor</th>
+                            <th class="text-end">Valor</th>
+                            <th>Vencimento</th>
+                            <th>Proposta pag.</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for inv in invoices_pending[:10] %}
+                        <tr>
+                            <td class="small fw-semibold">{{ inv.supplier_name }}</td>
+                            <td class="small text-end">{{ "%.2f €"|format(inv.amount_eur|float) }}</td>
+                            <td class="small {% if inv.due_date and inv.due_date < today %}text-danger fw-semibold{% endif %}">
+                                {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                            </td>
+                            <td class="small">
+                                {% if inv.proposed_date %}
+                                    {{ inv.proposed_date.strftime('%d/%m/%Y') }}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="small text-end">
+                                <a href="{{ url_for('pagamentos.detalhe_fatura', invoice_id=inv.id) }}" class="btn btn-xs btn-outline-primary py-0 px-2">Ver</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if invoices_pending|length > 10 %}
+            <div class="mt-2 small text-muted">E mais {{ invoices_pending|length - 10 }} faturas…</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if weekly %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h6 class="card-title">📅 Liquidez — próximas 4 semanas</h6>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Semana</th>
+                            <th class="text-end text-success">Entradas</th>
+                            <th class="text-end text-danger">Saídas</th>
+                            <th class="text-end">Saldo sem.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for w in weekly %}
+                        <tr class="{% if w.is_critical %}table-danger{% endif %}">
+                            <td class="small">{{ w.week_start.strftime('%d/%m') }} – {{ w.week_end.strftime('%d/%m') }}</td>
+                            <td class="small text-end text-success">{{ "%.0f €"|format(w.total_in) }}</td>
+                            <td class="small text-end text-danger">{{ "%.0f €"|format(w.total_out) }}</td>
+                            <td class="small text-end fw-semibold {% if w.balance < 0 %}text-danger{% else %}text-success{% endif %}">
+                                {{ "%.0f €"|format(w.balance) }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="nav-grid nav-grid-fill" data-items="4">
+        <a href="{{ url_for('pagamentos.faturas') }}" class="nav-card">
+            <span class="nav-card-icon">🧾</span>
+            <span class="nav-card-label">Faturas</span>
+        </a>
+        <a href="{{ url_for('pagamentos.nova_fatura') }}" class="nav-card">
+            <span class="nav-card-icon">➕</span>
+            <span class="nav-card-label">Nova Fatura</span>
+        </a>
+        <a href="{{ url_for('pagamentos.iva') }}" class="nav-card">
+            <span class="nav-card-icon">📋</span>
+            <span class="nav-card-label">IVA</span>
+        </a>
+        <a href="{{ url_for('pagamentos.liquidez') }}" class="nav-card">
+            <span class="nav-card-icon">📈</span>
+            <span class="nav-card-label">Liquidez Semanal</span>
+        </a>
+    </div>
+</div>
+{% endblock %}

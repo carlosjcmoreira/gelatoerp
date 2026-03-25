@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% set back_url = url_for("confeitaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">Produzir</h5>
+    <p class="text-muted small mb-3">Registar produção real — {{ today }}</p>
+
+    {% if n_total > 0 %}
+    <div class="mb-3">
+        <span class="badge bg-{{ 'success' if n_done == n_total else 'secondary' }}">{{ n_done }}/{{ n_total }} registados</span>
+    </div>
+
+    <form method="POST" action="{{ url_for('confeitaria.produzir') }}" id="prodForm">
+        <div class="table-responsive">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-center">Estimado</th>
+                        <th class="text-center" style="width:90px;">Real</th>
+                        <th class="text-center">Dif.</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in plano %}
+                    <tr class="{{ 'table-success' if e.has_real else '' }}">
+                        <td>{{ e.produto }}</td>
+                        <td class="text-center">{{ e.estimado }}</td>
+                        <td class="text-center">
+                            {% if e.has_real %}
+                            <strong>{{ e.real }}</strong>
+                            {% else %}
+                            <input type="number" name="real_{{ e.produto }}"
+                                   class="form-control form-control-sm text-center"
+                                   min="0" step="1" placeholder="0"
+                                   style="max-width:80px;margin:0 auto;">
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if e.diferenca is not none %}
+                            <span class="{{ 'text-success' if e.diferenca >= 0 else 'text-danger' }}">
+                                {{ '+' if e.diferenca > 0 else '' }}{{ e.diferenca }}
+                            </span>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <div class="save-bar-spacer"></div>
+    <div class="save-bar">
+        <button type="submit" form="prodForm" class="btn btn-primary w-100">Registar Produção Real</button>
+    </div>
+    {% else %}
+    <div class="alert alert-info">Sem plano de produção para hoje. Defina o plano na página "Planear Produção" primeiro.</div>
+    {% endif %}
+</div>
+{% endblock %}

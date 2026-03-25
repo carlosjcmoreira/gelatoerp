@@ -1,0 +1,7 @@
+<div class="tab-nav mb-3">
+    {% for tab in tabs %}
+    <a href="{{ tab.url }}" class="tab-btn {% if active_tab == tab.id %}active{% endif %}">
+        {{ tab.icon }} {{ tab.label }}
+    </a>
+    {% endfor %}
+</div>

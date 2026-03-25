@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">📋 Área do Gestor</h5>
+    <p class="text-muted small mb-3">Upload de produção, vendas e configurações</p>
+
+    
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">⚖️ Upload de Pesagem</h6>
+            <p class="text-muted small">
+                <strong>Formato esperado:</strong> Excel (.xlsx) com coluna <code>Sabor (Folha)</code> e colunas de datas.<br>
+                Valores em kg (>50 convertidos de gramas). Matosinhos → início do dia | Bolhão → fim do dia.
+            </p>
+            <form method="POST" enctype="multipart/form-data">
+                <div class="mb-2">
+                    <label class="form-label small">Loja</label>
+                    <select name="loja" class="form-select form-select-sm" onchange="window.location.href='{{ url_for('gestor.upload_pesagem') }}?loja='+this.value">
+                        <option value="Matosinhos" {% if loja_pesagem == 'Matosinhos' %}selected{% endif %}>Matosinhos</option>
+                        <option value="Bolhão" {% if loja_pesagem == 'Bolhão' %}selected{% endif %}>Bolhão</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <input type="file" name="pesagem_file" class="form-control form-control-sm" accept=".xlsx,.xls">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Importar Pesagem</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">📋 Última Importação de Pesagem</h6>
+            {% if last_date and last_pesagem %}
+            <p class="small text-muted mb-2">
+                Data: <strong>{{ last_date.strftime('%d/%m/%Y') }}</strong> | Loja: <strong>{{ loja_pesagem }}</strong>
+            </p>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead><tr><th>Sabor</th><th>Pesagem (kg)</th></tr></thead>
+                    <tbody>
+                        {% for row in last_pesagem %}
+                        <tr><td>{{ row.sabor }}</td><td>{{ "%.3f"|format(row.pesagem_kg) }}</td></tr>
+                        {% endfor %}
+                        <tr class="fw-bold"><td>TOTAL</td><td>{{ "%.3f"|format(total_pesagem) }}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted small">Sem pesagens registadas para {{ loja_pesagem }}.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

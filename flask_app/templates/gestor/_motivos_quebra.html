@@ -1,0 +1,34 @@
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Motivos de Quebra</h6>
+        {% if motivos %}
+        {% for m in motivos %}
+        <div class="d-flex justify-content-between align-items-center border-bottom py-1">
+            <span class="small">• {{ m.nome }}</span>
+            <form method="POST" class="d-inline">
+                <input type="hidden" name="action" value="delete_motivo">
+                <input type="hidden" name="section" value="motivos_quebra">
+                <input type="hidden" name="motivo_id" value="{{ m.id }}">
+                <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminar?')">✕</button>
+            </form>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted small">Sem motivos registados.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Adicionar Novo Motivo</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="add_motivo">
+            <input type="hidden" name="section" value="motivos_quebra">
+            <div class="mb-2">
+                <input type="text" name="novo_motivo" class="form-control form-control-sm" placeholder="Ex: Queda acidental">
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar Motivo</button>
+        </form>
+    </div>
+</div>

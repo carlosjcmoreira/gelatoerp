@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eurokg.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="fw-bold mb-1">📊 Euro/kg - Rentabilidade</h5>
+    <p class="text-muted small mb-3">Análise de performance das gelatarias Nivà no Porto</p>
+
+    {% if is_gestor %}
+    <div class="d-flex gap-2 mb-3">
+        <a href="{{ url_for('eurokg.resumo_mensal', loja='Global Porto') }}"
+           class="btn btn-sm {% if loja_filter == 'Global Porto' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            🌍 Global Porto
+        </a>
+        <a href="{{ url_for('eurokg.resumo_mensal', loja='Matosinhos') }}"
+           class="btn btn-sm {% if loja_filter == 'Matosinhos' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            🏭 Matosinhos
+        </a>
+        <a href="{{ url_for('eurokg.resumo_mensal', loja='Bolhão') }}"
+           class="btn btn-sm {% if loja_filter == 'Bolhão' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            🛒 Bolhão
+        </a>
+    </div>
+    {% endif %}
+
+    
+
+    <h6 class="fw-bold mb-1">Resumo Mensal {{ current_year }}</h6>
+    <p class="text-muted small mb-2">Consumo de gelado (kg), vendas de gelado (€) e Euro/kg por mês</p>
+    <div class="alert alert-info small py-2 mb-3">
+        <strong>Fórmula:</strong> {{ formula }}
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped">
+            <thead>
+                <tr>
+                    <th>Mês</th>
+                    <th>Stock Ini (kg)</th>
+                    <th>{{ entrada_label }}</th>
+                    <th>Stock Fim (kg)</th>
+                    <th>Quebras (kg)</th>
+                    <th>Consumo (kg)</th>
+                    <th>Vendas (€)</th>
+                    <th>€/kg</th>
+                    <th>Target (€/kg)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in resumo_rows %}
+                <tr>
+                    <td>{{ row.mes }}</td>
+                    <td>{{ row.stock_ini }}</td>
+                    <td>{{ row.entrada }}</td>
+                    <td>{{ row.stock_final }}</td>
+                    <td>{{ row.quebras }}</td>
+                    <td>{{ row.consumo }}</td>
+                    <td>{{ row.vendas }}</td>
+                    <td class="{{ 'text-success' if row.euro_kg >= row.target else 'text-danger' }}">{{ row.euro_kg }}</td>
+                    <td>{{ row.target }}</td>
+                </tr>
+                {% endfor %}
+                <tr class="fw-bold table-secondary">
+                    <td>TOTAL</td>
+                    <td></td>
+                    <td>{{ total_entrada }}</td>
+                    <td></td>
+                    <td>{{ total_quebras }}</td>
+                    <td>{{ total_consumo }}</td>
+                    <td>{{ total_vendas }}</td>
+                    <td>{{ total_euro_kg }}</td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

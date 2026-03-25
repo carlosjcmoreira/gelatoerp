@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% from "eventos/_macros.html" import time_select, event_type_radio with context %}
+{% set back_url = url_for("eventos.pipeline") %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <span class="badge bg-{{ status_colors[event.status] }} fs-6">{{ status_labels[event.status] }}</span>
+        <h5 class="fw-bold mb-0">{{ event.event_name or event.client_name or 'Evento #' ~ event.id }}</h5>
+    </div>
+
+    {% if event.status == 'won' %}
+    <div class="alert alert-success py-2 small">
+        <strong>✅ Adjudicado</strong> —
+        Faturação: <strong>{{ "%.2f"|format(event.invoice_amount_eur or 0) }} €</strong>
+        {% if event.expected_payment_date %}· Pagamento esperado: <strong>{{ event.expected_payment_date.strftime('%d/%m/%Y') }}</strong>{% endif %}
+        · Estado pagamento: <strong>{{ event.payment_status or 'pending' }}</strong>
+    </div>
+    {% endif %}
+
+    {% if event.status == 'lost' and event.loss_reason %}
+    <div class="alert alert-danger py-2 small">
+        <strong>❌ Perdido</strong> — {{ event.loss_reason }}
+    </div>
+    {% endif %}
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold small">🔄 Alterar Estado</div>
+        <div class="card-body">
+            {% if valid_transitions %}
+            <div class="d-flex flex-wrap gap-2">
+                {% for t in valid_transitions %}
+                <button type="button" class="btn btn-sm btn-outline-{{ status_colors[t] }}"
+                    onclick="confirmTransition('{{ t }}', '{{ status_labels[t] }}', {{ 'true' if t == 'lost' else 'false' }})">
+                    → {{ status_labels[t] }}
+                </button>
+                {% endfor %}
+            </div>
+            {% else %}
+            <small class="text-muted">Nenhuma transição disponível.</small>
+            {% endif %}
+        </div>
+    </div>
+
+    <form method="post" id="transition-form">
+        <input type="hidden" name="action" value="transition">
+        <input type="hidden" name="new_status" id="transition-status">
+        <input type="hidden" name="loss_reason" id="loss-reason-hidden">
+    </form>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold small d-flex align-items-center justify-content-between flex-wrap gap-1">
+            <span>💶 Orçamento</span>
+            <div class="d-flex align-items-center gap-2">
+                {% set total = event.quote_total or 0 %}
+                {% if total > 0 %}
+                {% set h = event.quote_high_cost or 0 %}
+                {% set m = event.quote_medium_cost or 0 %}
+                {% set l = event.quote_low_cost or 0 %}
+                {% set h_pct = ((h / total) * 100) | round(0) | int %}
+                {% set m_pct = ((m / total) * 100) | round(0) | int %}
+                {% set l_pct = 100 - h_pct - m_pct %}
+                <span class="small text-muted" title="Mix de rentabilidade: Alto/Médio/Baixo custo">
+                    Mix: <span class="text-danger fw-semibold">{{ h_pct }}%🔴</span>
+                    <span class="text-warning fw-semibold">{{ m_pct }}%🟡</span>
+                    <span class="text-success fw-semibold">{{ l_pct }}%🟢</span>
+                </span>
+                {% endif %}
+                <span class="fw-bold">Total: {{ "%.2f"|format(total) }} €</span>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            {% if quote_items %}
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Descrição</th>
+                            <th class="text-end">Qtd</th>
+                            <th class="text-end">Preço unit.</th>
+                            <th class="text-end">Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in quote_items %}
+                        <tr id="row-{{ item.id }}">
+                            <td class="item-desc">{{ item.descricao }}</td>
+                            <td class="text-end">{{ item.quantidade }}</td>
+                            <td class="text-end">{{ "%.2f"|format(item.preco_unitario) }}</td>
+                            <td class="text-end fw-semibold">{{ "%.2f"|format(item.total or 0) }} €</td>
+                            <td class="text-end">
+                                <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1" onclick="editItem({{ item.id }}, '{{ item.descricao|replace("'","\\'")|replace('"','\\"') }}', {{ item.quantidade }}, {{ item.preco_unitario }})">✏️</button>
+                                <form method="post" action="{{ url_for('eventos.quote_action', event_id=event.id) }}" class="d-inline" data-no-loading>
+                                    <input type="hidden" name="action" value="delete_item">
+                                    <input type="hidden" name="item_id" value="{{ item.id }}">
+                                    <button type="submit" class="btn btn-xs btn-outline-danger py-0 px-1" onclick="return confirm('Remover artigo?')">🗑️</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted small p-3 mb-0">Ainda sem artigos no orçamento.</p>
+            {% endif %}
+        </div>
+        <div class="card-footer">
+            <form method="post" action="{{ url_for('eventos.quote_action', event_id=event.id) }}" id="add-item-form">
+                <input type="hidden" name="action" value="add_item" id="item-action">
+                <input type="hidden" name="item_id" id="item-id-field">
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-sm-3">
+                        <label class="form-label small mb-1">Artigo</label>
+                        <select name="artigo_codigo" class="form-select form-select-sm" id="artigo-select" onchange="fillFromArtigo(this)">
+                            <option value="">— livre —</option>
+                            {% for a in artigos %}
+                            <option value="{{ a.codigo }}" data-nome="{{ a.nome }}" data-preco="{{ a.preco_base }}" data-unidade="{{ a.unidade }}">{{ a.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-4">
+                        <label class="form-label small mb-1">Descrição</label>
+                        <input type="text" name="descricao" id="item-desc-input" class="form-control form-control-sm" placeholder="Descrição…" required>
+                    </div>
+                    <div class="col-4 col-sm-2">
+                        <label class="form-label small mb-1">Qtd</label>
+                        <input type="number" name="quantidade" id="item-qty" class="form-control form-control-sm" value="1" step="0.001" min="0">
+                    </div>
+                    <div class="col-4 col-sm-2">
+                        <label class="form-label small mb-1">Preço unit.</label>
+                        <input type="number" name="preco_unitario" id="item-price" class="form-control form-control-sm" value="0" step="0.01" min="0">
+                    </div>
+                    <div class="col-4 col-sm-1">
+                        <button type="submit" class="btn btn-sm btn-success w-100" id="item-submit-btn">+</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold small d-flex align-items-center justify-content-between" style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#eventDetailsCollapse">
+            <span>📋 Detalhes do Evento</span>
+            <span class="text-muted small">▼</span>
+        </div>
+        <div class="collapse" id="eventDetailsCollapse">
+            <div class="card-body">
+                <form method="post">
+                    <input type="hidden" name="action" value="save">
+                    <div class="row g-3">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Nome do evento</label>
+                            <input type="text" name="event_name" class="form-control form-control-sm" value="{{ event.event_name or '' }}">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Tipo de evento</label>
+                            {{ event_type_radio(event.event_type or '') }}
+                        </div>
+                        <div class="col-6 col-sm-4">
+                            <label class="form-label small">Data</label>
+                            <input type="date" name="event_date" class="form-control form-control-sm" value="{{ event.event_date.strftime('%Y-%m-%d') if event.event_date else '' }}">
+                        </div>
+                        <div class="col-6 col-sm-2">
+                            <label class="form-label small">Hora inicio</label>
+                            {{ time_select('event_time', event.event_time or '') }}
+                        </div>
+                        <div class="col-6 col-sm-2">
+                            <label class="form-label small">Hora fim</label>
+                            {{ time_select('event_end_time', event.event_end_time or '') }}
+                        </div>
+                        <div class="col-6 col-sm-4">
+                            <label class="form-label small">Convidados</label>
+                            <input type="number" name="estimated_guests" class="form-control form-control-sm" value="{{ event.estimated_guests or '' }}" min="0">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Local</label>
+                            <input type="text" name="venue" class="form-control form-control-sm" value="{{ event.venue or '' }}">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Morada</label>
+                            <input type="text" name="venue_address" class="form-control form-control-sm" value="{{ event.venue_address or '' }}">
+                        </div>
+                        <div class="col-12"><hr class="my-1"></div>
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label small">Nome do cliente</label>
+                            <input type="text" name="client_name" class="form-control form-control-sm" value="{{ event.client_name or '' }}">
+                        </div>
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label small">Email</label>
+                            <input type="email" name="client_email" class="form-control form-control-sm" value="{{ event.client_email or '' }}">
+                        </div>
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label small">Telefone</label>
+                            <input type="tel" name="client_phone" class="form-control form-control-sm" value="{{ event.client_phone or '' }}">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Notas internas</label>
+                            <textarea name="internal_notes" class="form-control form-control-sm" rows="2">{{ event.internal_notes or '' }}</textarea>
+                        </div>
+                    </div>
+                    <div class="mt-3 d-flex gap-2 flex-wrap">
+                        <button type="submit" class="btn btn-sm btn-primary">💾 Guardar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-3 border-danger">
+        <div class="card-body py-2">
+            <form method="post" onsubmit="return confirm('Eliminar este evento permanentemente?')">
+                <input type="hidden" name="action" value="delete">
+                <button type="submit" class="btn btn-sm btn-outline-danger">🗑️ Eliminar Evento</button>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<div class="modal fade" id="lossModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Motivo de perda</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <textarea id="loss-reason-input" class="form-control form-control-sm" rows="3" placeholder="Descreva o motivo…"></textarea>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-sm btn-danger" onclick="submitLoss()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editItemModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" action="{{ url_for('eventos.quote_action', event_id=event.id) }}">
+                <input type="hidden" name="action" value="edit_item">
+                <input type="hidden" name="item_id" id="edit-item-id">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title">Editar artigo</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Descrição</label>
+                        <input type="text" name="descricao" id="edit-desc" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">Quantidade</label>
+                            <input type="number" name="quantidade" id="edit-qty" class="form-control form-control-sm" step="0.001" min="0">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Preço unit.</label>
+                            <input type="number" name="preco_unitario" id="edit-price" class="form-control form-control-sm" step="0.01" min="0">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function handleEventTypeChange(radio) {
+    var inp = document.getElementById('event_type_other_input');
+    if (inp) inp.style.display = (radio.value === 'Outro') ? 'block' : 'none';
+}
+
+function fillFromArtigo(sel) {
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt.value) return;
+    document.getElementById('item-desc-input').value = opt.dataset.nome || '';
+    document.getElementById('item-price').value = opt.dataset.preco || '0';
+}
+
+function editItem(id, desc, qty, price) {
+    document.getElementById('edit-item-id').value = id;
+    document.getElementById('edit-desc').value = desc;
+    document.getElementById('edit-qty').value = qty;
+    document.getElementById('edit-price').value = price;
+    new bootstrap.Modal(document.getElementById('editItemModal')).show();
+}
+
+var _pendingStatus = '';
+
+function confirmTransition(status, label, needsReason) {
+    _pendingStatus = status;
+    if (needsReason) {
+        new bootstrap.Modal(document.getElementById('lossModal')).show();
+    } else {
+        if (!confirm('Alterar estado para «' + label + '»?')) return;
+        document.getElementById('transition-status').value = status;
+        document.getElementById('transition-form').submit();
+    }
+}
+
+function submitLoss() {
+    var reason = document.getElementById('loss-reason-input').value.trim();
+    document.getElementById('transition-status').value = _pendingStatus;
+    document.getElementById('loss-reason-hidden').value = reason;
+    bootstrap.Modal.getInstance(document.getElementById('lossModal')).hide();
+    document.getElementById('transition-form').submit();
+}
+</script>
+{% endblock %}

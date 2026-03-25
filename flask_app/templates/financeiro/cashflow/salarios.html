@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="mb-4">👥 Salários</h5>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }} alert-dismissible py-2 px-3 mb-3" style="font-size:0.85rem;">
+        {{ message }}
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <form method="post">
+
+        <!-- ── BLOCO 1: Dia de pagamento do líquido ───────────────────────── -->
+        <div class="card mb-3">
+            <div class="card-header fw-semibold" style="font-size:0.85rem;">Pagamento de Salários Líquidos</div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-sm-4">
+                        <label class="form-label form-label-sm fw-semibold">Dia de pagamento</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control form-control-sm" name="salarios_liquido_dia"
+                                   value="{{ cfg.get('salarios_liquido_dia', '28') }}" min="1" max="31">
+                            <span class="input-group-text">do mês</span>
+                        </div>
+                        <div class="form-text">Normalmente dia 28 ou início do mês seguinte.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── BLOCO 2: Tabela de colaboradores ──────────────────────────── -->
+        <div class="card mb-3">
+            <div class="card-header fw-semibold d-flex justify-content-between align-items-center" style="font-size:0.85rem;">
+                <span>Colaboradores</span>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="btn-add-colab">+ Adicionar</button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0" id="tabela-colabs">
+                        <thead class="table-light">
+                            <tr style="font-size:0.78rem;">
+                                <th style="width:22%;">Nome</th>
+                                <th style="width:14%;">Salário Bruto (€)</th>
+                                <th style="width:13%;">Prémio Bruto (€)</th>
+                                <th style="width:8%;">IRS (%)</th>
+                                <th class="text-end" style="width:13%;">Líquido (€)</th>
+                                <th class="text-end" style="width:14%;">Impostos dia 15 (€)</th>
+                                <th class="text-end" style="width:12%;">Custo empresa (€)</th>
+                                <th style="width:4%;"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-colabs">
+                            {% for c in colaboradores %}
+                            <tr class="colab-row">
+                                <td>
+                                    <input type="text" class="form-control form-control-sm"
+                                           name="colab_nome[]" value="{{ c.nome }}" placeholder="Nome" required>
+                                </td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm colab-bruto"
+                                           name="colab_bruto[]"
+                                           value="{{ c.salario_bruto if c.salario_bruto is defined else '' }}"
+                                           step="0.01" min="0" placeholder="0.00">
+                                </td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm colab-premio"
+                                           name="colab_premio_bruto[]"
+                                           value="{{ c.premio_bruto if c.premio_bruto is defined else '' }}"
+                                           step="0.01" min="0" placeholder="0.00">
+                                </td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm colab-irs"
+                                           name="colab_irs_taxa[]"
+                                           value="{{ c.irs_taxa if c.irs_taxa is defined else '' }}"
+                                           step="0.1" min="0" max="100" placeholder="0">
+                                </td>
+                                {% set has_bruto = 'salario_bruto' in c %}
+                                <td class="text-end colab-liq align-middle fw-semibold" style="font-size:0.82rem;">
+                                    {% if has_bruto %}{{ "{:,.2f}".format(c.salario_liq | float) }}€{% else %}<span class="text-muted">—</span>{% endif %}
+                                </td>
+                                <td class="text-end colab-imp align-middle text-danger" style="font-size:0.82rem;">
+                                    {% if has_bruto %}{{ "{:,.2f}".format(c.impostos_dia15 | float) }}€{% else %}<span class="text-muted">—</span>{% endif %}
+                                </td>
+                                <td class="text-end colab-custo align-middle text-muted" style="font-size:0.82rem;">
+                                    {% if has_bruto %}{{ "{:,.2f}".format(c.custo_empresa | float) }}€{% else %}<span class="text-muted">—</span>{% endif %}
+                                </td>
+                                <td class="text-center align-middle">
+                                    <button type="button" class="btn btn-link btn-sm text-danger p-0 btn-remove-colab"
+                                            title="Remover">✕</button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot class="table-light fw-semibold" style="font-size:0.82rem;">
+                            <tr>
+                                <td colspan="4">Total</td>
+                                <td class="text-end" id="total-liq">—</td>
+                                <td class="text-end text-danger" id="total-imp">—</td>
+                                <td class="text-end text-muted" id="total-custo">—</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                {% if not colaboradores %}
+                <div class="text-center text-muted py-3" id="empty-msg" style="font-size:0.82rem;">
+                    Nenhum colaborador definido. Clique em "+ Adicionar" para começar.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- ── BLOCO 3: Impostos SS/IRS ──────────────────────────────────── -->
+        <div class="card mb-3">
+            <div class="card-header fw-semibold" style="font-size:0.85rem;">Impostos SS/IRS</div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-sm-4">
+                        <label class="form-label form-label-sm fw-semibold">Total impostos calculado</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control form-control-sm bg-light text-danger fw-semibold"
+                                   id="imp-total-display"
+                                   value="{{ '{:,.2f}'.format(cfg.get('salarios_impostos_eur', '0') | float) }}"
+                                   readonly>
+                            <span class="input-group-text">€</span>
+                        </div>
+                        <div class="form-text">SS patronal (23,75%) + SS trabalhador (11%) + IRS retido.</div>
+                    </div>
+                    <div class="col-sm-4">
+                        <label class="form-label form-label-sm fw-semibold">Dia de cobrança</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control form-control-sm" name="salarios_impostos_dia"
+                                   value="{{ cfg.get('salarios_impostos_dia', '15') }}" min="1" max="31">
+                            <span class="input-group-text">do mês</span>
+                        </div>
+                        <div class="form-text">Normalmente ~dia 15 do mês seguinte ao do vencimento.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+    </form>
+
+    <!-- ── Resumo mensal ────────────────────────────────────────────────── -->
+    {% set ns = namespace(liq=0.0, imp=0.0, custo=0.0) %}
+    {% for c in colaboradores %}
+        {% set ns.liq   = ns.liq   + ((c.salario_liq   if 'salario_liq'   in c else 0) | float) %}
+        {% set ns.imp   = ns.imp   + ((c.impostos_dia15 if 'impostos_dia15' in c else 0) | float) %}
+        {% set ns.custo = ns.custo + ((c.custo_empresa  if 'custo_empresa'  in c else 0) | float) %}
+    {% endfor %}
+    {% if ns.liq > 0 or ns.imp > 0 %}
+    <div class="card mt-3 bg-secondary bg-opacity-10 border-0">
+        <div class="card-body py-2 px-3">
+            <div class="fw-semibold mb-2" style="font-size:0.8rem;">Resumo mensal</div>
+            <div class="d-flex flex-wrap gap-4" style="font-size:0.82rem;">
+                <div>
+                    <span class="text-muted">Líquido total:</span>
+                    <span class="fw-bold ms-1">{{ "{:,.2f}".format(ns.liq) }}€</span>
+                    <span class="text-muted ms-1">(dia {{ cfg.get('salarios_liquido_dia', '28') }})</span>
+                </div>
+                <div>
+                    <span class="text-muted">Impostos (SS + IRS):</span>
+                    <span class="fw-bold text-danger ms-1">{{ "{:,.2f}".format(ns.imp) }}€</span>
+                    <span class="text-muted ms-1">(dia {{ cfg.get('salarios_impostos_dia', '15') }})</span>
+                </div>
+                <div>
+                    <span class="text-muted">Custo total empresa:</span>
+                    <span class="fw-bold ms-1">{{ "{:,.2f}".format(ns.custo) }}€</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ── Tabela detalhe por colaborador ───────────────────────────────── -->
+    {% if colaboradores %}
+    <div class="card mt-3">
+        <div class="card-header fw-semibold" style="font-size:0.85rem;">Detalhe de impostos por colaborador</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0" style="font-size:0.8rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nome</th>
+                            <th class="text-end">Bruto total</th>
+                            <th class="text-end">SS trabalhador (11%)</th>
+                            <th class="text-end">IRS retido</th>
+                            <th class="text-end">Líquido</th>
+                            <th class="text-end">SS patronal (23,75%)</th>
+                            <th class="text-end">Total impostos dia 15</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in colaboradores %}
+                        {% set bruto_t = ((c.salario_bruto if 'salario_bruto' in c else 0) | float) + ((c.premio_bruto if 'premio_bruto' in c else 0) | float) %}
+                        <tr>
+                            <td>{{ c.nome }}</td>
+                            <td class="text-end">{{ "{:,.2f}".format(bruto_t) }}€</td>
+                            <td class="text-end">{{ "{:,.2f}".format((c.ss_trabalhador if 'ss_trabalhador' in c else 0) | float) }}€</td>
+                            <td class="text-end">{{ "{:,.2f}".format((c.irs_retido if 'irs_retido' in c else 0) | float) }}€
+                                <small class="text-muted">({{ c.irs_taxa if 'irs_taxa' in c else 0 }}%)</small>
+                            </td>
+                            <td class="text-end fw-semibold">{{ "{:,.2f}".format((c.salario_liq if 'salario_liq' in c else 0) | float) }}€</td>
+                            <td class="text-end text-muted">{{ "{:,.2f}".format((c.ss_patronal if 'ss_patronal' in c else 0) | float) }}€</td>
+                            <td class="text-end text-danger fw-semibold">{{ "{:,.2f}".format((c.impostos_dia15 if 'impostos_dia15' in c else 0) | float) }}€</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+(function () {
+    const SS_TRAB = {{ SS_TRAB }};
+    const SS_PATR = {{ SS_PATR }};
+
+    const tbody    = document.getElementById('tbody-colabs');
+    const emptyMsg = document.getElementById('empty-msg');
+
+    const ROW_TPL = `
+        <tr class="colab-row">
+            <td><input type="text" class="form-control form-control-sm"
+                       name="colab_nome[]" placeholder="Nome" required></td>
+            <td><input type="number" class="form-control form-control-sm colab-bruto"
+                       name="colab_bruto[]" step="0.01" min="0" placeholder="0.00"></td>
+            <td><input type="number" class="form-control form-control-sm colab-premio"
+                       name="colab_premio_bruto[]" step="0.01" min="0" placeholder="0.00"></td>
+            <td><input type="number" class="form-control form-control-sm colab-irs"
+                       name="colab_irs_taxa[]" step="0.1" min="0" max="100" placeholder="0"></td>
+            <td class="text-end colab-liq align-middle fw-semibold" style="font-size:0.82rem;">0,00€</td>
+            <td class="text-end colab-imp align-middle text-danger" style="font-size:0.82rem;">0,00€</td>
+            <td class="text-end colab-custo align-middle text-muted" style="font-size:0.82rem;">0,00€</td>
+            <td class="text-center align-middle">
+                <button type="button" class="btn btn-link btn-sm text-danger p-0 btn-remove-colab" title="Remover">✕</button>
+            </td>
+        </tr>`;
+
+    function r2(n)  { return Math.round(n * 100) / 100; }
+    function fmt(n) { return n.toLocaleString('pt-PT', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '€'; }
+
+    function recalc() {
+        let totLiq = 0, totImp = 0, totCusto = 0;
+        tbody.querySelectorAll('.colab-row').forEach(function (row) {
+            const bruto  = parseFloat(row.querySelector('.colab-bruto').value)  || 0;
+            const premio = parseFloat(row.querySelector('.colab-premio').value) || 0;
+            const irs    = (parseFloat(row.querySelector('.colab-irs').value)   || 0) / 100;
+            const total  = bruto + premio;
+            const ssTrab = r2(total * SS_TRAB);
+            const ssPatr = r2(total * SS_PATR);
+            const irsRet = r2(total * irs);
+            const liq    = r2(total - ssTrab - irsRet);
+            const imp    = r2(ssTrab + ssPatr + irsRet);
+            const custo  = r2(total * (1 + SS_PATR));
+            row.querySelector('.colab-liq').textContent   = fmt(liq);
+            row.querySelector('.colab-imp').textContent   = fmt(imp);
+            row.querySelector('.colab-custo').textContent = fmt(custo);
+            totLiq   += liq;
+            totImp   += imp;
+            totCusto += custo;
+        });
+        totLiq   = r2(totLiq);
+        totImp   = r2(totImp);
+        totCusto = r2(totCusto);
+        document.getElementById('total-liq').textContent   = fmt(totLiq);
+        document.getElementById('total-imp').textContent   = fmt(totImp);
+        document.getElementById('total-custo').textContent = fmt(totCusto);
+        const dispEl = document.getElementById('imp-total-display');
+        if (dispEl) dispEl.value = totImp.toLocaleString('pt-PT', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        if (emptyMsg) emptyMsg.style.display = tbody.children.length ? 'none' : '';
+    }
+
+    document.getElementById('btn-add-colab').addEventListener('click', function () {
+        tbody.insertAdjacentHTML('beforeend', ROW_TPL);
+        recalc();
+    });
+
+    tbody.addEventListener('input', recalc);
+
+    tbody.addEventListener('click', function (e) {
+        if (e.target.closest('.btn-remove-colab')) {
+            e.target.closest('.colab-row').remove();
+            recalc();
+        }
+    });
+
+    recalc();
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+<h5 class="mb-2">Artigos de Fornecimento</h5>
+<p class="text-muted small mb-3">Gerir artigos disponíveis para encomendas. Desative artigos que não pretende encomendar.</p>
+
+<div class="card mb-3">
+    <div class="card-body p-2">
+        <form method="post">
+            <input type="hidden" name="action" value="add">
+            <div class="row g-2 align-items-end">
+                <div class="col-5">
+                    <input type="text" name="fornecedor" class="form-control form-control-sm" placeholder="Fornecedor" list="fornecedores-list">
+                    <datalist id="fornecedores-list">
+                        {% for f in fornecedores %}
+                        <option value="{{ f }}">
+                        {% endfor %}
+                    </datalist>
+                </div>
+                <div class="col-5">
+                    <input type="text" name="produto" class="form-control form-control-sm" placeholder="Produto">
+                </div>
+                <div class="col-2">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">+</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% set current_forn = namespace(val='') %}
+{% for a in artigos %}
+{% if a.fornecedor != current_forn.val %}
+{% if current_forn.val != '' %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% set current_forn.val = a.fornecedor %}
+<div class="card mb-3">
+    <div class="card-header py-1 px-2">
+        <strong class="small">{{ a.fornecedor }}</strong>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0" style="font-size:0.82rem;">
+            <tbody>
+{% endif %}
+                <tr class="{% if not a.ativo %}text-muted{% endif %}">
+                    <td class="{% if not a.ativo %}text-decoration-line-through{% endif %}">{{ a.produto }}</td>
+                    <td class="text-end" style="width:90px;white-space:nowrap;">
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="toggle">
+                            <input type="hidden" name="artigo_id" value="{{ a.id }}">
+                            <input type="hidden" name="ativo" value="{{ '0' if a.ativo else '1' }}">
+                            <button type="submit" class="btn btn-sm {% if a.ativo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}" style="padding:1px 6px;font-size:0.72rem;">
+                                {{ 'Desativar' if a.ativo else 'Ativar' }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+{% endfor %}
+{% if current_forn.val != '' %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if not artigos %}
+<div class="alert alert-info">Sem artigos registados.</div>
+{% endif %}
+</div>
+{% endblock %}

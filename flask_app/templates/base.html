@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Nivà Porto</title>
+    <script>
+    (function(){
+        var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+    })();
+    </script>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% if user %}
+    <nav class="navbar navbar-dark bg-dark fixed-top px-3">
+        <div class="container-fluid p-0">
+            <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('home.index') }}">
+                🍦 <span class="fw-bold">Nivà Porto</span>
+            </a>
+            <div class="d-flex align-items-center gap-3">
+                <span class="text-light small opacity-75">👤 {{ user.username }}</span>
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light btn-sm">Sair</a>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+
+    <main class="{% if user %}pt-navbar{% endif %} {% if back_url is defined and back_url %}has-back-bar-content{% endif %}">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="container-fluid px-3 mt-2">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category == 'error' else 'success' }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    {% if back_url is defined and back_url %}
+    <a href="{{ back_url }}" class="back-bar" id="backBar">← Voltar</a>
+    {% endif %}
+
+    <div id="loading-overlay" aria-hidden="true">
+        <span class="loading-icon">🍦</span>
+        <span class="loading-text">A carregar…</span>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    (function(){
+        var overlay = document.getElementById('loading-overlay');
+
+        function showLoading() {
+            overlay.classList.add('active');
+        }
+
+        document.addEventListener('submit', function(e) {
+            if (!e.target.hasAttribute('data-no-loading')) {
+                showLoading();
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            var el = e.target.closest('a[href]');
+            if (!el) return;
+            var href = el.getAttribute('href');
+            if (!href || href === '#' || href.startsWith('javascript:')) return;
+            if (el.hasAttribute('data-bs-dismiss') || el.hasAttribute('data-no-loading')) return;
+            if (el.target === '_blank') return;
+            try {
+                var url = new URL(href, window.location.origin);
+                if (url.origin === window.location.origin) showLoading();
+            } catch(err) {}
+        });
+
+        window.addEventListener('pageshow', function(e) {
+            overlay.classList.remove('active');
+        });
+    })();
+    </script>
+
+    {% if user %}
+    <script>
+    (function(){
+        var bar = document.getElementById('backBar');
+        if (!bar) return;
+        var startX = 0, startY = 0, tracking = false;
+        document.addEventListener('touchstart', function(e) {
+            var t = e.touches[0];
+            if (t.clientX < 40) { startX = t.clientX; startY = t.clientY; tracking = true; }
+        }, {passive: true});
+        document.addEventListener('touchend', function(e) {
+            if (!tracking) return;
+            tracking = false;
+            var t = e.changedTouches[0];
+            var dx = t.clientX - startX, dy = Math.abs(t.clientY - startY);
+            if (dx > 80 && dy < 60) { window.location.href = bar.href; }
+        }, {passive: true});
+    })();
+    </script>
+    {% endif %}
+    {% block scripts %}{% endblock %}
+</body>
+</html>

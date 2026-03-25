@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% set back_url = url_for('gestor.index') %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5 section-menu-container">
+    <div class="nav-grid">
+        {% for item in items %}
+        <a href="{{ item.url }}" class="nav-card">
+            <span class="nav-card-icon">{{ item.icon }}</span>
+            <span class="nav-card-label">{{ item.label }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

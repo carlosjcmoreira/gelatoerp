@@ -1,0 +1,85 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5>{{ icon }} {{ sabor }}</h5>
+<p class="text-muted small">Plano de {{ data_plano_fmt }}</p>
+
+{% set est_b = item.estimado_bolhao %}
+{% set est_m = item.estimado_matosinhos %}
+{% set est_mou = item.estimado_mouzinho %}
+{% set real_b = item.real_bolhao if item.real_bolhao is not none else 0 %}
+{% set real_m = item.real_matosinhos if item.real_matosinhos is not none else 0 %}
+{% set real_mou = item.real_mouzinho if item.real_mouzinho is not none else 0 %}
+
+<div class="table-responsive mb-3">
+    <table class="table table-sm">
+        <thead>
+            <tr>
+                <th></th>
+                <th class="text-end">Bolhão</th>
+                <th class="text-end">Mat.</th>
+                <th class="text-end">Mou.</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td class="text-muted small">Estimado</td>
+                <td class="text-end">{{ "%.3f"|format(est_b) }}</td>
+                <td class="text-end">{{ "%.3f"|format(est_m) }}</td>
+                <td class="text-end">{{ "%.3f"|format(est_mou) }}</td>
+            </tr>
+            <tr>
+                <td class="text-muted small">Real</td>
+                <td class="text-end fw-bold">
+                    {% if real_b > 0 %}
+                    {{ "%.3f"|format(real_b) }}
+                    {% set diff_b = real_b - est_b %}
+                    <div class="small {{ 'text-success' if diff_b >= 0 else 'text-danger' }}">
+                        {{ "+%.3f"|format(diff_b) if diff_b >= 0 else "%.3f"|format(diff_b) }}
+                    </div>
+                    {% else %}—{% endif %}
+                </td>
+                <td class="text-end fw-bold">
+                    {% if real_m > 0 %}
+                    {{ "%.3f"|format(real_m) }}
+                    {% set diff_m = real_m - est_m %}
+                    <div class="small {{ 'text-success' if diff_m >= 0 else 'text-danger' }}">
+                        {{ "+%.3f"|format(diff_m) if diff_m >= 0 else "%.3f"|format(diff_m) }}
+                    </div>
+                    {% else %}—{% endif %}
+                </td>
+                <td class="text-end fw-bold">
+                    {% if real_mou > 0 %}
+                    {{ "%.3f"|format(real_mou) }}
+                    {% set diff_mou = real_mou - est_mou %}
+                    <div class="small {{ 'text-success' if diff_mou >= 0 else 'text-danger' }}">
+                        {{ "+%.3f"|format(diff_mou) if diff_mou >= 0 else "%.3f"|format(diff_mou) }}
+                    </div>
+                    {% else %}—{% endif %}
+                </td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<form method="post">
+    <div class="mb-3">
+        <label class="form-label small">Real Bolhão (kg)</label>
+        <input type="text" name="real_bolhao" class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(real_b)|replace('.', ',') if real_b > 0 else '' }}">
+    </div>
+    <div class="mb-3">
+        <label class="form-label small">Real Matosinhos (kg)</label>
+        <input type="text" name="real_matosinhos" class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(real_m)|replace('.', ',') if real_m > 0 else '' }}">
+    </div>
+    <div class="mb-3">
+        <label class="form-label small">Real Mouzinho (kg)</label>
+        <input type="text" name="real_mouzinho" class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(real_mou)|replace('.', ',') if real_mou > 0 else '' }}">
+    </div>
+    <div class="d-grid">
+        <button type="submit" class="btn btn-primary btn-sm">Registar produção</button>
+    </div>
+</form>
+{% endblock %}

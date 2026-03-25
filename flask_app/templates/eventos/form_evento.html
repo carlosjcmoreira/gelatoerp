@@ -1,0 +1,134 @@
+{% extends "eventos/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-3">{{ title }}</h5>
+
+<form method="post" id="eventoForm">
+    <div class="mb-3">
+        <label class="form-label fw-bold">Cliente *</label>
+        <input type="text" name="cliente" class="form-control" required value="{{ evento.cliente if evento else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label fw-bold">Data do Evento *</label>
+        <input type="date" name="event_date" class="form-control" required
+               value="{{ evento.event_date.strftime('%Y-%m-%d') if evento and evento.event_date else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Descrição</label>
+        <input type="text" name="descricao" class="form-control" value="{{ evento.descricao if evento else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Local</label>
+        <input type="text" name="local" class="form-control" value="{{ evento.local if evento else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label fw-bold">Estado</label>
+        <select name="status" class="form-select">
+            {% for key, (label, badge) in STATUS_LABELS.items() %}
+            <option value="{{ key }}" {{ 'selected' if evento and evento.status == key else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Valor da Fatura (€)</label>
+        <input type="text" name="invoice_amount_eur" class="form-control" inputmode="decimal"
+               value="{{ '%.2f'|format(evento.invoice_amount_eur | float) if evento and evento.invoice_amount_eur else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Data Prevista de Recebimento</label>
+        <input type="date" name="expected_payment_date" class="form-control"
+               value="{{ evento.expected_payment_date.strftime('%Y-%m-%d') if evento and evento.expected_payment_date else '' }}">
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Notas</label>
+        <textarea name="notas" class="form-control" rows="2">{{ evento.notas if evento else '' }}</textarea>
+    </div>
+
+    <hr>
+    <h6 class="mb-2">Artigos / Necessidades de Produção</h6>
+    <p class="text-muted small mb-2">Marque "Produção" nos artigos que precisam de ser preparados em Matosinhos.</p>
+
+    <div id="itemsContainer">
+        {% for item in items %}
+        {% set i = loop.index0 %}
+        <div class="card mb-2 item-row" data-idx="{{ i }}">
+            <div class="card-body p-2">
+                <div class="row g-2 align-items-center">
+                    <div class="col-12">
+                        <input type="text" name="item_descricao_{{ i }}" class="form-control form-control-sm"
+                               placeholder="Descrição do artigo" value="{{ item.descricao }}" required>
+                    </div>
+                    <div class="col-4">
+                        <input type="text" name="item_quantidade_{{ i }}" class="form-control form-control-sm"
+                               placeholder="Qtd" value="{{ item.quantidade }}" inputmode="decimal">
+                    </div>
+                    <div class="col-4">
+                        <input type="text" name="item_unidade_{{ i }}" class="form-control form-control-sm"
+                               placeholder="Unidade" value="{{ item.unidade or 'un' }}">
+                    </div>
+                    <div class="col-4 d-flex align-items-center gap-1">
+                        <input type="checkbox" name="item_prod_{{ i }}" id="prod_{{ i }}"
+                               class="form-check-input" {{ 'checked' if item.is_production_item else '' }}>
+                        <label for="prod_{{ i }}" class="form-check-label small">Produção</label>
+                    </div>
+                </div>
+                <div class="text-end mt-1">
+                    <button type="button" class="btn btn-outline-danger btn-sm remove-item" data-idx="{{ i }}">Remover</button>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <button type="button" id="addItemBtn" class="btn btn-outline-secondary btn-sm w-100 mb-3">+ Adicionar artigo</button>
+
+    <div class="save-bar-spacer"></div>
+    <div class="save-bar">
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('eventos.index') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
+            <button type="submit" class="btn btn-primary flex-fill">Guardar</button>
+        </div>
+    </div>
+</form>
+
+<script>
+(function() {
+    var itemCount = {{ items | length }};
+    var container = document.getElementById('itemsContainer');
+
+    function addItemRow(idx) {
+        var div = document.createElement('div');
+        div.className = 'card mb-2 item-row';
+        div.dataset.idx = idx;
+        div.innerHTML = '<div class="card-body p-2">' +
+            '<div class="row g-2 align-items-center">' +
+            '<div class="col-12"><input type="text" name="item_descricao_' + idx + '" class="form-control form-control-sm" placeholder="Descrição do artigo" required></div>' +
+            '<div class="col-4"><input type="text" name="item_quantidade_' + idx + '" class="form-control form-control-sm" placeholder="Qtd" value="1" inputmode="decimal"></div>' +
+            '<div class="col-4"><input type="text" name="item_unidade_' + idx + '" class="form-control form-control-sm" placeholder="Unidade" value="un"></div>' +
+            '<div class="col-4 d-flex align-items-center gap-1"><input type="checkbox" name="item_prod_' + idx + '" id="prod_' + idx + '" class="form-check-input"><label for="prod_' + idx + '" class="form-check-label small">Produção</label></div>' +
+            '</div>' +
+            '<div class="text-end mt-1"><button type="button" class="btn btn-outline-danger btn-sm remove-item" data-idx="' + idx + '">Remover</button></div>' +
+            '</div>';
+        container.appendChild(div);
+    }
+
+    document.getElementById('addItemBtn').addEventListener('click', function() {
+        addItemRow(itemCount++);
+    });
+
+    container.addEventListener('click', function(e) {
+        var btn = e.target.closest('.remove-item');
+        if (!btn) return;
+        var row = btn.closest('.item-row');
+        if (row) row.remove();
+    });
+})();
+</script>
+{% endblock %}

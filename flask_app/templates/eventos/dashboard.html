@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eventos.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+        <h5 class="fw-bold mb-0">📊 Dashboard de Eventos</h5>
+        <a href="{{ url_for('eventos.pipeline') }}" class="btn btn-sm btn-outline-primary">Ver Pipeline →</a>
+    </div>
+
+    {% set by_status = stats.by_status %}
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card border-success h-100 shadow-sm">
+                <div class="card-body text-center py-3">
+                    <div class="text-success fw-bold" style="font-size:1.6rem;">
+                        {{ "%.0f"|format(stats.won_future_value) }} €
+                    </div>
+                    <div class="small text-muted mt-1">Adjudicado (data futura)</div>
+                    <div class="text-success small">{{ stats.won_future_count }} evento{{ 's' if stats.won_future_count != 1 else '' }}</div>
+                </div>
+            </div>
+        </div>
+
+        {% set total_pipeline = namespace(val=0, count=0) %}
+        {% for s in ['lead','contacted','proposal_sent','negotiating'] %}
+            {% if s in by_status %}
+                {% set total_pipeline.val = total_pipeline.val + (by_status[s].total_value | float) %}
+                {% set total_pipeline.count = total_pipeline.count + (by_status[s].count | int) %}
+            {% endif %}
+        {% endfor %}
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card border-primary h-100 shadow-sm">
+                <div class="card-body text-center py-3">
+                    <div class="text-primary fw-bold" style="font-size:1.6rem;">
+                        {{ "%.0f"|format(total_pipeline.val) }} €
+                    </div>
+                    <div class="small text-muted mt-1">Total em Oportunidades</div>
+                    <div class="text-primary small">{{ total_pipeline.count }} evento{{ 's' if total_pipeline.count != 1 else '' }}</div>
+                </div>
+            </div>
+        </div>
+
+        {% set won_data = by_status.get('won', {}) %}
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card border-success h-100 shadow-sm">
+                <div class="card-body text-center py-3">
+                    <div class="text-success fw-bold" style="font-size:1.6rem;">
+                        {{ "%.0f"|format(won_data.get('total_value', 0) | float) }} €
+                    </div>
+                    <div class="small text-muted mt-1">Total Adjudicado</div>
+                    <div class="text-success small">{{ won_data.get('count', 0) }} evento{{ 's' if won_data.get('count', 0) != 1 else '' }}</div>
+                </div>
+            </div>
+        </div>
+
+        {% set total_all = namespace(val=0, count=0) %}
+        {% for s, d in by_status.items() %}
+            {% if s not in ['lost','cancelled'] %}
+                {% set total_all.val = total_all.val + (d.total_value | float) %}
+                {% set total_all.count = total_all.count + (d.count | int) %}
+            {% endif %}
+        {% endfor %}
+        <div class="col-12 col-sm-6 col-lg-3">
+            <div class="card border-secondary h-100 shadow-sm">
+                <div class="card-body text-center py-3">
+                    <div class="text-secondary fw-bold" style="font-size:1.6rem;">
+                        {{ "%.0f"|format(total_all.val) }} €
+                    </div>
+                    <div class="small text-muted mt-1">Total Activo (excl. perdidos)</div>
+                    <div class="text-secondary small">{{ total_all.count }} evento{{ 's' if total_all.count != 1 else '' }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold small">Oportunidades por Estado</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 small align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Estado</th>
+                            <th class="text-end">Nº Eventos</th>
+                            <th class="text-end">Valor Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set grand_total = namespace(val=0) %}
+                        {% for s in all_statuses %}
+                        {% set d = by_status.get(s, {}) %}
+                        {% if d %}
+                        {% set grand_total.val = grand_total.val + (d.total_value | float) %}
+                        <tr>
+                            <td>
+                                <span class="badge bg-{{ status_colors[s] }}">{{ status_labels[s] }}</span>
+                            </td>
+                            <td class="text-end fw-semibold">{{ d.count }}</td>
+                            <td class="text-end fw-semibold">
+                                {% if d.total_value %}
+                                {{ "%.2f"|format(d.total_value | float) }} €
+                                {% else %}
+                                —
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <a href="{{ url_for('eventos.pipeline', status=s) }}" class="btn btn-xs btn-outline-secondary py-0 px-2">Ver</a>
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-light">
+                        <tr>
+                            <th>Total</th>
+                            <th class="text-end">
+                                {% set total_count = namespace(val=0) %}
+                                {% for s, d in by_status.items() %}{% set total_count.val = total_count.val + (d.count | int) %}{% endfor %}
+                                {{ total_count.val }}
+                            </th>
+                            <th class="text-end">{{ "%.2f"|format(grand_total.val) }} €</th>
+                            <th></th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% set won_future = stats.won_future_value %}
+    {% set pipeline_statuses = ['lead','contacted','proposal_sent','negotiating'] %}
+    {% set bar_total = namespace(val=0) %}
+    {% for s in pipeline_statuses %}
+        {% if s in by_status %}
+            {% set bar_total.val = bar_total.val + (by_status[s].total_value | float) %}
+        {% endif %}
+    {% endfor %}
+    {% set bar_total.val = bar_total.val + (by_status.get('won', {}).get('total_value', 0) | float) %}
+
+    {% if bar_total.val > 0 %}
+    <div class="card shadow-sm">
+        <div class="card-header fw-semibold small">Distribuição do Pipeline (€)</div>
+        <div class="card-body">
+            <div class="d-flex rounded overflow-hidden" style="height:28px;">
+                {% for s in all_statuses %}
+                {% if s in by_status and by_status[s].total_value %}
+                {% set pct = ((by_status[s].total_value | float) / bar_total.val * 100) | round(1) %}
+                {% if pct > 0 %}
+                <div class="bg-{{ status_colors[s] }}" style="width:{{ pct }}%;"
+                     title="{{ status_labels[s] }}: {{ '%.0f'|format(by_status[s].total_value | float) }} € ({{ '%.1f'|format(pct) }}%)">
+                </div>
+                {% endif %}
+                {% endif %}
+                {% endfor %}
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-2">
+                {% for s in all_statuses %}
+                {% if s in by_status and by_status[s].total_value %}
+                <span class="small"><span class="badge bg-{{ status_colors[s] }}">{{ status_labels[s] }}</span> {{ "%.0f"|format(by_status[s].total_value | float) }} €</span>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

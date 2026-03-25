@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% set back_url = url_for('home.index') %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5 section-menu-container">
+    <div class="nav-grid">
+        {% for item in items %}
+        <a href="{{ item.url }}" class="nav-card">
+            <span class="nav-card-icon">{{ item.icon }}</span>
+            <span class="nav-card-label">{{ item.label }}</span>
+            {% if item.badge %}
+            <span class="badge {{ item.badge.cls }} mt-1" style="font-size:0.6rem;">{{ item.badge.text }}</span>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

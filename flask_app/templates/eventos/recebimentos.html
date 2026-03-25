@@ -1,0 +1,70 @@
+{% extends "eventos/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-3">💶 Recebimentos de Eventos</h5>
+
+<div class="row g-2 mb-3">
+    <div class="col-4">
+        <div class="card text-center p-2">
+            <div class="small text-muted">Esperado</div>
+            <div class="fw-bold text-primary">{{ "%.0f"|format(total_esperado) }} €</div>
+        </div>
+    </div>
+    <div class="col-4">
+        <div class="card text-center p-2">
+            <div class="small text-muted">Recebido</div>
+            <div class="fw-bold text-success">{{ "%.0f"|format(total_recebido) }} €</div>
+        </div>
+    </div>
+    <div class="col-4">
+        <div class="card text-center p-2">
+            <div class="small text-muted">Pendente</div>
+            <div class="fw-bold text-warning">{{ "%.0f"|format(total_pendente) }} €</div>
+        </div>
+    </div>
+</div>
+
+<div class="mb-3">
+    <div class="btn-group btn-group-sm w-100" role="group">
+        <a href="{{ url_for('eventos.recebimentos') }}" class="btn {{ 'btn-dark' if not payment_filter else 'btn-outline-secondary' }}">Todos</a>
+        {% for key, (label, badge) in PAYMENT_STATUS_LABELS.items() %}
+        <a href="{{ url_for('eventos.recebimentos', payment_status=key) }}" class="btn {{ 'btn-dark' if payment_filter == key else 'btn-outline-secondary' }}">{{ label }}</a>
+        {% endfor %}
+    </div>
+</div>
+
+{% if eventos %}
+<div class="list-group">
+    {% for e in eventos %}
+    <div class="list-group-item py-2 px-3">
+        <div class="d-flex justify-content-between align-items-start">
+            <div class="flex-grow-1 me-2">
+                <div class="fw-bold small">{{ e.cliente }}</div>
+                <div class="text-muted small">📅 {{ e.event_date.strftime('%d/%m/%Y') if e.event_date else '—' }}</div>
+                {% if e.expected_payment_date %}
+                <div class="small text-muted">Previsto: {{ e.expected_payment_date.strftime('%d/%m/%Y') }}</div>
+                {% endif %}
+                {% if e.invoice_amount_eur %}
+                <div class="small fw-bold">{{ "%.2f"|format(e.invoice_amount_eur | float) }} €</div>
+                {% endif %}
+                {% if e.payment_amount_eur %}
+                <div class="small text-success">Recebido: {{ "%.2f"|format(e.payment_amount_eur | float) }} €
+                    {% if e.payment_date %}em {{ e.payment_date.strftime('%d/%m/%Y') }}{% endif %}
+                </div>
+                {% endif %}
+            </div>
+            <div class="text-end">
+                <span class="badge bg-{{ e.payment_status_badge }} mb-1">{{ e.payment_status_label }}</span>
+                {% if e.payment_status_computed != 'received' %}
+                <br>
+                <a href="{{ url_for('eventos.registar_pagamento', evento_id=e.id) }}" class="btn btn-success btn-sm mt-1" style="font-size:0.75rem;">Registar</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">Nenhum recebimento encontrado.</div>
+{% endif %}
+{% endblock %}

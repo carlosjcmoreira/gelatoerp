@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% set back_url = url_for("faturas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+
+    {% set overdue = inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}
+
+    <div class="d-flex align-items-start justify-content-between mb-3 gap-2">
+        <div>
+            <h5 class="mb-0">{{ inv.supplier_name or '(sem fornecedor)' }}</h5>
+            {% if inv.invoice_number %}<div class="text-muted small">Nº {{ inv.invoice_number }}</div>{% endif %}
+        </div>
+        <div class="d-flex flex-column align-items-end gap-1">
+            {% if inv.document_type == 'nota_credito' %}
+            <span class="badge bg-success-subtle text-success-emphasis">Nota de Crédito</span>
+            {% else %}
+            <span class="badge bg-light text-dark border">Fatura</span>
+            {% endif %}
+            <span class="badge fs-6
+                {% if overdue %}bg-danger
+                {% elif inv.status == 'pending_review' %}bg-warning text-dark
+                {% elif inv.status == 'scheduled' %}bg-info text-dark
+                {% elif inv.status == 'paid' %}bg-success
+                {% elif inv.status == 'cancelled' %}bg-secondary
+                {% else %}bg-secondary{% endif %}">
+                {{ 'Vencida' if overdue else inv.status_label }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Quick actions -->
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        {% if inv.status == 'pending_review' %}
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalConfirmar">
+            ✅ Confirmar data
+        </button>
+        {% endif %}
+        {% if inv.status in ['pending_review', 'scheduled'] or overdue %}
+        <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#modalPagar">
+            💰 Marcar como paga
+        </button>
+        {% endif %}
+        {% if inv.pdf_filename %}
+        <a href="{{ url_for('faturas.download_pdf', invoice_id=inv.id) }}"
+           class="btn btn-outline-secondary btn-sm" target="_blank" data-no-loading>
+            📄 Ver PDF
+        </a>
+        {% endif %}
+        {% if not inv.onedrive_path %}
+        <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalOneDrive">
+            ☁️ Arquivar OneDrive
+        </button>
+        {% endif %}
+    </div>
+
+    <!-- Key info cards -->
+    <div class="row g-2 mb-3">
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-body py-2 px-3">
+                    <div class="small text-muted">Total</div>
+                    <div class="fw-bold fs-5 {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}">
+                        {% if inv.amount_eur is not none %}
+                            {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f €'|format(inv.amount_eur) }}
+                        {% else %}—{% endif %}
+                    </div>
+                    {% if inv.vat_amount_eur is not none %}
+                    <div class="small text-muted">IVA: {{ '%.2f €'|format(inv.vat_amount_eur) }}</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-body py-2 px-3">
+                    <div class="small text-muted">Vencimento</div>
+                    <div class="fw-bold {{ 'text-danger' if overdue else '' }}">
+                        {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                    </div>
+                    <div class="small text-muted">Emissão: {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">Detalhes</h6>
+            <dl class="row mb-0 small">
+                <dt class="col-5 text-muted">Tipo de documento</dt>
+                <dd class="col-7">{{ inv.document_type_label or 'Fatura' }}</dd>
+                <dt class="col-5 text-muted">Fornecedor</dt>
+                <dd class="col-7">{{ inv.supplier_name or '—' }}</dd>
+                <dt class="col-5 text-muted">NIF</dt>
+                <dd class="col-7">{{ inv.supplier_nif or '—' }}</dd>
+                <dt class="col-5 text-muted">Nº Fatura</dt>
+                <dd class="col-7">{{ inv.invoice_number or '—' }}</dd>
+                <dt class="col-5 text-muted">Categoria</dt>
+                <dd class="col-7">{{ inv.category or '—' }}</dd>
+                <dt class="col-5 text-muted">Loja</dt>
+                <dd class="col-7">{{ inv.store_name or '—' }}</dd>
+                <dt class="col-5 text-muted">Subpasta OneDrive</dt>
+                <dd class="col-7">{{ inv.onedrive_subfolder or '—' }}</dd>
+                {% if inv.onedrive_path %}
+                <dt class="col-5 text-muted">Caminho OneDrive</dt>
+                <dd class="col-7 text-break">
+                    {% if inv.onedrive_web_url %}
+                    <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener"
+                       class="text-decoration-none" data-no-loading>
+                        ☁️ Abrir no OneDrive
+                    </a>
+                    <div class="small text-muted">{{ inv.onedrive_path }}</div>
+                    {% else %}
+                    {{ inv.onedrive_path }}
+                    {% endif %}
+                </dd>
+                {% endif %}
+                {% set confirm_dt = inv.payment_confirmed_date or inv.cfo_confirmed_date %}
+                {% if confirm_dt %}
+                <dt class="col-5 text-muted">Data confirmação</dt>
+                <dd class="col-7">{{ confirm_dt.strftime('%d/%m/%Y') }}</dd>
+                {% endif %}
+                {% if inv.paid_date %}
+                <dt class="col-5 text-muted">Data pagamento</dt>
+                <dd class="col-7">{{ inv.paid_date.strftime('%d/%m/%Y') }}</dd>
+                {% endif %}
+                {% if inv.ocr_confidence is not none %}
+                <dt class="col-5 text-muted">Confiança OCR</dt>
+                <dd class="col-7">
+                    <div class="progress" style="height:6px;width:80px;display:inline-block;vertical-align:middle;">
+                        <div class="progress-bar {% if inv.ocr_confidence > 0.8 %}bg-success{% elif inv.ocr_confidence > 0.5 %}bg-warning{% else %}bg-danger{% endif %}"
+                             style="width:{{ (inv.ocr_confidence * 100)|int }}%"></div>
+                    </div>
+                    <span class="ms-1">{{ (inv.ocr_confidence * 100)|int }}%</span>
+                    {% if inv.ocr_raw %}
+                    {% set field_labels = {
+                        'supplier_name': 'Fornecedor',
+                        'supplier_nif': 'NIF',
+                        'invoice_number': 'Nº Fatura',
+                        'amount_eur': 'Total',
+                        'vat_amount_eur': 'IVA',
+                        'issue_date': 'Emissão',
+                        'due_date': 'Vencimento'
+                    } %}
+                    <div class="mt-1">
+                    {% for field, conf_val in inv.ocr_raw.items() %}
+                    {% if conf_val is not none and field in field_labels %}
+                    <span class="badge me-1 mb-1
+                        {% if conf_val >= 0.8 %}bg-success
+                        {% elif conf_val >= 0.5 %}bg-warning text-dark
+                        {% else %}bg-danger{% endif %}"
+                        title="{{ field_labels[field] }}: {{ (conf_val * 100)|int }}%">
+                        {{ field_labels[field] }} {{ (conf_val * 100)|int }}%
+                    </span>
+                    {% endif %}
+                    {% endfor %}
+                    </div>
+                    {% endif %}
+                </dd>
+                {% endif %}
+                <dt class="col-5 text-muted">Criado por</dt>
+                <dd class="col-7">{{ inv.created_by or '—' }}</dd>
+                {% if inv.notes %}
+                <dt class="col-5 text-muted">Notas</dt>
+                <dd class="col-7">{{ inv.notes }}</dd>
+                {% endif %}
+            </dl>
+        </div>
+    </div>
+
+    <!-- Edit form -->
+    <div class="card mb-3">
+        <div class="card-header">
+            <button class="btn btn-link p-0 text-decoration-none" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#editForm">
+                ✏️ Editar fatura
+            </button>
+        </div>
+        <div class="collapse" id="editForm">
+            <div class="card-body">
+                <form method="post" action="{{ url_for('faturas.edit', invoice_id=inv.id) }}">
+                    <div class="row g-2">
+                        <div class="col-12">
+                            <label class="form-label small">Tipo de documento</label>
+                            <select name="document_type" class="form-select form-select-sm">
+                                {% for val, label in document_type_labels.items() %}
+                                <option value="{{ val }}" {% if inv.document_type == val %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-8">
+                            <label class="form-label small">Fornecedor</label>
+                            <input type="text" name="supplier_name" class="form-control form-control-sm"
+                                   value="{{ inv.supplier_name or '' }}">
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small">NIF</label>
+                            <input type="text" name="supplier_nif" class="form-control form-control-sm"
+                                   value="{{ inv.supplier_nif or '' }}" inputmode="numeric">
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">Nº Fatura</label>
+                            <input type="text" name="invoice_number" class="form-control form-control-sm"
+                                   value="{{ inv.invoice_number or '' }}">
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small">Total (€)</label>
+                            <input type="number" step="0.01" name="amount_eur" class="form-control form-control-sm"
+                                   value="{{ '%.2f'|format(inv.amount_eur) if inv.amount_eur is not none else '' }}">
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label small">IVA (€)</label>
+                            <input type="number" step="0.01" name="vat_amount_eur" class="form-control form-control-sm"
+                                   value="{{ '%.2f'|format(inv.vat_amount_eur) if inv.vat_amount_eur is not none else '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Data emissão</label>
+                            <input type="date" name="issue_date" class="form-control form-control-sm"
+                                   value="{{ inv.issue_date.isoformat() if inv.issue_date else '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Data vencimento</label>
+                            <input type="date" name="due_date" class="form-control form-control-sm"
+                                   value="{{ inv.due_date.isoformat() if inv.due_date else '' }}">
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small">Categoria</label>
+                            <select name="category" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat }}" {% if inv.category == cat %}selected{% endif %}>{{ cat }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small">Loja</label>
+                            <select name="store_id" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for s in stores %}
+                                <option value="{{ s.id }}" {% if inv.store_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small">Subpasta OneDrive</label>
+                            <select name="onedrive_subfolder" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for sf in subfolders %}
+                                <option value="{{ sf }}" {% if inv.onedrive_subfolder == sf %}selected{% endif %}>{{ sf }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small">Estado</label>
+                            <select name="status" class="form-select form-select-sm">
+                                {% for k, v in status_labels.items() %}
+                                <option value="{{ k }}" {% if inv.status == k %}selected{% endif %}>{{ v }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Notas</label>
+                            <textarea name="notes" class="form-control form-control-sm" rows="2">{{ inv.notes or '' }}</textarea>
+                        </div>
+                        <div class="col-12 d-flex gap-2">
+                            <button type="submit" class="btn btn-primary btn-sm flex-grow-1">Guardar alterações</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Danger zone -->
+    <div class="card border-danger">
+        <div class="card-body py-2">
+            <form method="post" action="{{ url_for('faturas.eliminar', invoice_id=inv.id) }}"
+                  onsubmit="return confirm('Eliminar esta fatura?')">
+                <button type="submit" class="btn btn-outline-danger btn-sm w-100">Eliminar fatura</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Confirmar data -->
+<div class="modal fade" id="modalConfirmar" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Confirmar data de pagamento</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.confirmar', invoice_id=inv.id) }}">
+                <div class="modal-body">
+                    <label class="form-label small">Data de confirmação</label>
+                    <input type="date" name="confirmed_date" class="form-control form-control-sm"
+                           value="{{ today.isoformat() }}" required>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm">Confirmar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Marcar paga -->
+<div class="modal fade" id="modalPagar" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Marcar como paga</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.pagar', invoice_id=inv.id) }}">
+                <div class="modal-body">
+                    <label class="form-label small">Data efectiva de pagamento</label>
+                    <input type="date" name="paid_date" class="form-control form-control-sm"
+                           value="{{ today.isoformat() }}" required>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-success btn-sm">Marcar paga</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Arquivar OneDrive -->
+<div class="modal fade" id="modalOneDrive" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Arquivar no OneDrive</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.arquivar_onedrive', invoice_id=inv.id) }}">
+                <div class="modal-body">
+                    <label class="form-label small">Subpasta</label>
+                    <select name="onedrive_subfolder" class="form-select form-select-sm">
+                        {% for sf in subfolders %}
+                        <option value="{{ sf }}" {% if inv.onedrive_subfolder == sf %}selected{% endif %}>{{ sf }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text mt-1">Estrutura: {{ today.year }}/{{ '%02d'|format(today.month) }}/Faturas/[Subpasta]/[ficheiro].pdf</div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm">Arquivar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

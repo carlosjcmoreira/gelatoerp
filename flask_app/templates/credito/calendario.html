@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% set back_url = url_for("credito.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">📅 Calendário de Prestações — Próximas 13 Semanas</h5>
+
+    {% if not events %}
+    <div class="alert alert-info py-2">
+        <strong>ℹ️</strong> Sem saídas previstas. <a href="{{ url_for('credito.contratos') }}">Adicione contratos</a> com prestação mensal e dia de débito.
+    </div>
+    {% else %}
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Semana</th>
+                            <th>Contrato</th>
+                            <th>Banco</th>
+                            <th>Tipo</th>
+                            <th class="text-end">Valor</th>
+                            <th>Certeza</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set ns = namespace(total=0) %}
+                        {% for e in events %}
+                        {% set ns.total = ns.total + e.valor %}
+                        <tr>
+                            <td class="small fw-semibold">{{ e.data.strftime('%d/%m/%Y') }}</td>
+                            <td class="small text-muted">Sem. {{ e.data.isocalendar()[1] }}</td>
+                            <td class="small">{{ e.label }}</td>
+                            <td class="small">{{ e.banco or '—' }}</td>
+                            <td class="small">{{ e.tipo|replace('_', ' ')|title }}</td>
+                            <td class="small text-end text-danger fw-semibold">{{ "%.2f €"|format(e.valor) }}</td>
+                            <td>
+                                {% if e.certa %}
+                                <span class="badge bg-danger-subtle text-danger-emphasis">Certa</span>
+                                {% else %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis">Estimada</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="fw-bold">
+                            <td colspan="5" class="text-end small">Total</td>
+                            <td class="text-end small text-danger">{{ "%.2f €"|format(ns.total) }}</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            <p class="text-muted small mb-0">{{ events|length }} saída(s) prevista(s) nas próximas 13 semanas.</p>
+        </div>
+    </div>
+
+    <div class="alert alert-secondary py-2 mt-3 small">
+        <strong>Legenda:</strong>
+        <span class="badge bg-danger-subtle text-danger-emphasis ms-1">Certa</span> — prestação fixa (leasing, crédito automóvel, empréstimo).
+        <span class="badge bg-warning-subtle text-warning-emphasis ms-1">Estimada</span> — juro calculado da conta caucionada (com base no saldo mais recente).
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

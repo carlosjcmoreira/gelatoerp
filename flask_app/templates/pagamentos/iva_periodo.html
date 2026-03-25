@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pagamentos.iva") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    {% set s = status_map.get(period.status, (period.status, 'secondary')) %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">📋 IVA — {{ mes_nome }} {{ year }}</h5>
+        <span class="badge bg-{{ s[1] }}-subtle text-{{ s[1] }}-emphasis fs-6">{{ s[0] }}</span>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-4">
+            <div class="card text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-5 fw-bold text-primary">{{ "%.2f €"|format((period.vat_collected_eur or period.vat_collected_estimated or 0)|float) }}</div>
+                    <div class="small text-muted">IVA Liquidado</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card text-center h-100">
+                <div class="card-body py-3">
+                    <div class="fs-5 fw-bold text-success">{{ "%.2f €"|format((period.vat_deductible_eur or period.vat_deductible_estimated or 0)|float) }}</div>
+                    <div class="small text-muted">IVA Dedutível</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="card text-center h-100 {% if (period.vat_due_eur or period.vat_due_estimated or 0)|float > 0 %}border-danger{% endif %}">
+                <div class="card-body py-3">
+                    <div class="fs-5 fw-bold text-danger">{{ "%.2f €"|format((period.vat_due_eur or period.vat_due_estimated or 0)|float) }}</div>
+                    <div class="small text-muted">IVA a Pagar</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <dl class="row mb-0 small">
+                <dt class="col-6">Data declaração prevista</dt>
+                <dd class="col-6">{{ period.declaration_date.strftime('%d/%m/%Y') if period.declaration_date else '—' }}</dd>
+                <dt class="col-6">Data pagamento prevista</dt>
+                <dd class="col-6">{{ period.payment_date.strftime('%d/%m/%Y') if period.payment_date else '—' }}</dd>
+                {% if period.declaration_submitted_at %}
+                <dt class="col-6">Declaração submetida</dt>
+                <dd class="col-6 text-success">{{ period.declaration_submitted_at.strftime('%d/%m/%Y') }}</dd>
+                {% endif %}
+                {% if period.payment_executed_at %}
+                <dt class="col-6">Pagamento executado</dt>
+                <dd class="col-6 text-success">{{ period.payment_executed_at.strftime('%d/%m/%Y') }}</dd>
+                {% endif %}
+                {% if period.notes %}
+                <dt class="col-6">Notas</dt>
+                <dd class="col-6">{{ period.notes }}</dd>
+                {% endif %}
+            </dl>
+        </div>
+    </div>
+
+    {% if period.status == 'estimated' %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">🔄 Recalcular IVA Estimado</h6>
+            <p class="small text-muted">Recalcula automaticamente com base nas faturas de fornecedores e vendas/eventos. Taxas configuráveis (confirmar com contabilidade).</p>
+            <form method="post" class="row g-2">
+                <input type="hidden" name="action" value="recalculate">
+                <div class="col-6">
+                    <label class="form-label small">Taxa IVA Vendas POS (%)</label>
+                    <select name="rate_pos" class="form-select form-select-sm">
+                        <option value="6" {% if (vat_rates.pos_food * 100)|int == 6 %}selected{% endif %}>6% — Alimentar (gelados)</option>
+                        <option value="13">13% — Intermédio</option>
+                        <option value="23">23% — Normal</option>
+                    </select>
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Taxa IVA Eventos/Catering (%)</label>
+                    <select name="rate_events" class="form-select form-select-sm">
+                        <option value="6">6% — Alimentar</option>
+                        <option value="13" {% if (vat_rates.events_catering * 100)|int == 13 %}selected{% endif %}>13% — Restauração/Catering</option>
+                        <option value="23">23% — Normal</option>
+                    </select>
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">Recalcular</button>
+                    <span class="text-muted small ms-2">IVA dedutível = soma do IVA registado nas faturas de fornecedores</span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">📝 Registar Declaração</h6>
+            <form method="post" class="row g-2">
+                <input type="hidden" name="action" value="declare">
+                <div class="col-6">
+                    <label class="form-label small">IVA Liquidado (€)</label>
+                    <input type="number" name="vat_collected_eur" class="form-control form-control-sm" step="0.01" required
+                           value="{{ "%.2f"|format((period.vat_collected_eur or period.vat_collected_estimated or 0)|float) }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">IVA Dedutível (€)</label>
+                    <input type="number" name="vat_deductible_eur" class="form-control form-control-sm" step="0.01" required
+                           value="{{ "%.2f"|format((period.vat_deductible_eur or period.vat_deductible_estimated or 0)|float) }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Data de Submissão</label>
+                    <input type="date" name="declaration_submitted_at" class="form-control form-control-sm" value="{{ today }}">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary btn-sm">Registar Declaração</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if period.status == 'declared' %}
+    <div class="card mb-3 border-info">
+        <div class="card-body">
+            <h6 class="card-title text-info">💳 Registar Pagamento</h6>
+            <form method="post" class="row g-2">
+                <input type="hidden" name="action" value="pay">
+                <div class="col-6">
+                    <label class="form-label small">Data de Pagamento</label>
+                    <input type="date" name="payment_executed_at" class="form-control form-control-sm" value="{{ today }}">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-success btn-sm">Confirmar Pagamento</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if period.status == 'paid' %}
+    <div class="alert alert-success">
+        <strong>✅ IVA pago</strong> em {{ period.payment_executed_at.strftime('%d/%m/%Y') if period.payment_executed_at else '—' }}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

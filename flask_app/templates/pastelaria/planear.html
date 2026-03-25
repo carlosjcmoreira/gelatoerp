@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">📋 Planear Produção</h5>
+    <p class="text-muted small mb-3">Defina as quantidades estimadas para cada produto por loja</p>
+
+    {% if msg %}
+    <div class="alert alert-{{ msg_type }} alert-dismissible fade show" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    {% if plano %}
+    <h6 class="mb-2">Plano do dia ({{ today }})</h6>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped" style="font-size:0.82rem;">
+            <thead>
+                <tr>
+                    <th>Produto</th>
+                    <th class="text-center">Bol</th>
+                    <th class="text-center">Mat</th>
+                    <th class="text-center">Total</th>
+                    <th class="text-center">Real</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in plano %}
+                <tr>
+                    <td>{{ p.produto }}</td>
+                    <td class="text-center">{{ p.estimado_bolhao }}</td>
+                    <td class="text-center">{{ p.estimado_matosinhos }}</td>
+                    <td class="text-center fw-bold">{{ p.estimado }}</td>
+                    <td class="text-center">{{ p.real if p.real is not none else '—' }}</td>
+                    <td class="text-center">
+                        <form method="POST" style="display:inline;">
+                            <input type="hidden" name="action" value="remover_produto">
+                            <input type="hidden" name="produto" value="{{ p.produto }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Remover">✕</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <hr>
+    {% endif %}
+
+    <h6 class="mb-2">Adicionar ao plano</h6>
+    <form method="POST" id="planoForm">
+        <input type="hidden" name="action" value="save_plano">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle" style="font-size:0.82rem;">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-center" style="width:55px;">St.B</th>
+                        <th class="text-center" style="width:55px;">St.M</th>
+                        <th class="text-center" style="width:65px;">Bol</th>
+                        <th class="text-center" style="width:65px;">Mat</th>
+                        <th class="text-center" style="width:55px;">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in produtos %}
+                    <tr>
+                        <td>{{ p.nome }}</td>
+                        <td class="text-center text-muted">{{ p.stock_bolhao }}</td>
+                        <td class="text-center text-muted">{{ p.stock_matosinhos }}</td>
+                        <td>
+                            <input type="number" name="est_bol_{{ p.nome }}"
+                                   class="form-control form-control-sm text-center est-input"
+                                   data-row="{{ loop.index }}"
+                                   value="{{ p.estimado_bolhao if p.estimado_bolhao > 0 else '' }}"
+                                   min="0" step="1" placeholder="—"
+                                   inputmode="numeric">
+                        </td>
+                        <td>
+                            <input type="number" name="est_mat_{{ p.nome }}"
+                                   class="form-control form-control-sm text-center est-input"
+                                   data-row="{{ loop.index }}"
+                                   value="{{ p.estimado_matosinhos if p.estimado_matosinhos > 0 else '' }}"
+                                   min="0" step="1" placeholder="—"
+                                   inputmode="numeric">
+                        </td>
+                        <td class="text-center fw-bold total-cell" id="total-{{ loop.index }}">
+                            {{ p.estimado if p.estimado > 0 else '—' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <div class="save-bar-spacer"></div>
+    <div class="save-bar">
+        <button type="submit" form="planoForm" class="btn btn-primary w-100">Guardar plano</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.est-input').forEach(function(inp) {
+        inp.addEventListener('input', function() {
+            var rowIdx = this.dataset.row;
+            var rowInputs = document.querySelectorAll('.est-input[data-row="' + rowIdx + '"]');
+            var total = 0;
+            rowInputs.forEach(function(ri) {
+                total += parseInt(ri.value) || 0;
+            });
+            var cell = document.getElementById('total-' + rowIdx);
+            cell.textContent = total > 0 ? total : '—';
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 d-flex flex-column fullpage-container has-back-bar">
+    <div class="nav-grid nav-grid-fill">
+        <a href="{{ url_for('pastelaria.produtos') }}" class="nav-card">
+            <span class="nav-card-icon">📋</span>
+            <span class="nav-card-label">Lista de Produtos</span>
+        </a>
+        <a href="{{ url_for('pastelaria.coberturas') }}" class="nav-card">
+            <span class="nav-card-icon">🍫</span>
+            <span class="nav-card-label">Coberturas</span>
+        </a>
+        <a href="{{ url_for('pastelaria.tipologias') }}" class="nav-card">
+            <span class="nav-card-icon">🏷️</span>
+            <span class="nav-card-label">Tipologias</span>
+        </a>
+        <a href="{{ url_for('pastelaria.gelado_tipologia') }}" class="nav-card">
+            <span class="nav-card-icon">⚖️</span>
+            <span class="nav-card-label">Peso de Gelado por Tipologia</span>
+        </a>
+    </div>
+</div>
+{% endblock %}

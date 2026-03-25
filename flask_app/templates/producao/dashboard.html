@@ -1,0 +1,219 @@
+{% extends "producao/tabs.html" %}
+
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></script>
+{% endblock %}
+
+{% block tab_content %}
+<h5 class="mb-3">Dashboard de Produção</h5>
+
+<div class="row g-2 mb-3">
+    <div class="col-6">
+        <div class="kpi-card">
+            <div class="kpi-card-title">📦 Produção Semana</div>
+            <div class="kpi-card-value">{{ "%.1f"|format(prod_semana) }} kg</div>
+        </div>
+    </div>
+    <div class="col-6">
+        <div class="kpi-card">
+            <div class="kpi-card-title">📦 Produção Mês</div>
+            <div class="kpi-card-value">{{ "%.1f"|format(prod_mes) }} kg</div>
+        </div>
+    </div>
+</div>
+
+<hr>
+<h6 class="mb-2">Plano de Produção — Últimos 7 Dias</h6>
+
+{% if sabores_plano %}
+<div class="table-responsive mb-3">
+    <table class="table table-sm table-bordered align-middle mb-0" style="font-size:0.75rem;min-width:520px;">
+        <thead class="table-dark">
+            <tr>
+                <th style="min-width:90px;">Sabor</th>
+                {% for d in dias_7 %}
+                <th class="text-center" style="min-width:58px;{% if d.is_today %}background:#1a4a7a;{% endif %}">
+                    {{ d.label }}<br>
+                    <span class="fw-normal">{{ d.fmt }}</span>
+                </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for sabor in sabores_plano %}
+            <tr>
+                <td class="fw-bold text-nowrap">{{ sabor }}</td>
+                {% for d in dias_7 %}
+                {% set cell = plano_pivot.get(sabor, {}).get(d.date) %}
+                {% if cell %}
+                    {% if cell.real is not none %}
+                        {% if cell.est > 0 and cell.real >= cell.est * 0.95 %}
+                        <td class="text-center bg-success bg-opacity-10">
+                        {% elif cell.est > 0 %}
+                        <td class="text-center bg-warning bg-opacity-10">
+                        {% else %}
+                        <td class="text-center bg-success bg-opacity-10">
+                        {% endif %}
+                        {% if cell.est > 0 %}
+                        <div class="text-muted" style="font-size:0.65rem;">{{ "%.1f"|format(cell.est) }}</div>
+                        {% endif %}
+                        <div class="fw-bold">{{ "%.1f"|format(cell.real) }}</div>
+                    {% else %}
+                        <td class="text-center">
+                        <div class="text-muted">{{ "%.1f"|format(cell.est) }}</div>
+                        <div class="text-muted" style="font-size:0.65rem;">—</div>
+                    {% endif %}
+                {% else %}
+                    <td class="text-center text-muted">·</td>
+                {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p class="text-muted small mb-3">🟢 Produção registada · 🟡 Produção abaixo do estimado · Estimado (cinza) / Real (bold)</p>
+{% else %}
+<div class="alert alert-info small mb-3">Sem plano de produção nos últimos 7 dias.</div>
+{% endif %}
+
+<hr>
+<h6 class="mb-2">Pesagens — Últimas 3 Datas</h6>
+
+{% for loja_key, loja_icon, loja_label in [('matosinhos', '🏭', 'Matosinhos'), ('bolhao', '🏪', 'Bolhão')] %}
+{% set p = pesagens[loja_key] %}
+{% if p.datas %}
+<p class="small fw-semibold mb-1">{{ loja_icon }} {{ loja_label }}</p>
+<div class="table-responsive mb-3">
+    <table class="table table-sm table-bordered align-middle mb-0" style="font-size:0.75rem;">
+        <thead class="table-secondary">
+            <tr>
+                <th style="min-width:90px;">Sabor</th>
+                {% for d in p.datas %}
+                <th class="text-center" style="min-width:65px;">
+                    {{ d.strftime('%d/%m') }}<br>
+                    <span class="fw-normal text-muted" style="font-size:0.65rem;">{{ ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'][d.weekday()] }}</span>
+                </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% set sabores_p = p.pivot.keys()|sort %}
+            {% for sabor in sabores_p %}
+            <tr>
+                <td class="fw-semibold text-nowrap">{{ sabor }}</td>
+                {% for d in p.datas %}
+                {% set kg = p.pivot.get(sabor, {}).get(d) %}
+                {% if kg is not none %}
+                <td class="text-center">{{ "%.3f"|format(kg) }}</td>
+                {% else %}
+                <td class="text-center text-muted">—</td>
+                {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+            <tr class="table-light fw-bold">
+                <td>Total</td>
+                {% for d in p.datas %}
+                {% set total = namespace(v=0) %}
+                {% for sabor in sabores_p %}
+                    {% set kg = p.pivot.get(sabor, {}).get(d) %}
+                    {% if kg is not none %}{% set total.v = total.v + kg %}{% endif %}
+                {% endfor %}
+                <td class="text-center">{{ "%.2f"|format(total.v) }}</td>
+                {% endfor %}
+            </tr>
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="small fw-semibold mb-1">{{ loja_icon }} {{ loja_label }}</p>
+<div class="alert alert-info small mb-3">Sem pesagens registadas.</div>
+{% endif %}
+{% endfor %}
+
+<hr>
+<h6>Volume de Produção Diário</h6>
+
+<form method="get" class="row g-2 mb-3">
+    <div class="col-6">
+        <label class="form-label small">Data Início</label>
+        <input type="date" name="data_inicio" class="form-control form-control-sm" value="{{ data_inicio }}">
+    </div>
+    <div class="col-6">
+        <label class="form-label small">Data Fim</label>
+        <input type="date" name="data_fim" class="form-control form-control-sm" value="{{ data_fim }}">
+    </div>
+    <div class="col-12">
+        <button type="submit" class="btn btn-primary btn-sm w-100">Filtrar</button>
+    </div>
+</form>
+
+{% if chart_json %}
+<div id="chart-producao" style="width:100%;height:300px;"></div>
+{% else %}
+<div class="alert alert-info">Sem dados de produção para o período selecionado.</div>
+{% endif %}
+
+{% if balanca_sabor %}
+<hr>
+<h6 class="mb-2">Sistema Balança — Produção por Sabor</h6>
+<p class="text-muted small mb-2">Dados importados do sistema Calybrabox para o período selecionado.</p>
+<div class="table-responsive">
+    <table class="table table-sm table-bordered align-middle mb-0" style="font-size:0.78rem;">
+        <thead class="table-dark">
+            <tr>
+                <th style="min-width:75px;">Data</th>
+                <th>Sabor</th>
+                <th class="text-end" style="min-width:65px;">kg</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% set ns = namespace(last_date=none, day_total=0) %}
+            {% for row in balanca_sabor %}
+                {% if ns.last_date is not none and row.data != ns.last_date %}
+                <tr class="table-secondary fw-bold">
+                    <td colspan="2" class="text-end small">Total {{ ns.last_date.strftime('%d/%m') }}</td>
+                    <td class="text-end">{{ "%.1f"|format(ns.day_total) }}</td>
+                </tr>
+                {% set ns.day_total = 0 %}
+                {% endif %}
+                {% set ns.last_date = row.data %}
+                {% set ns.day_total = ns.day_total + row.kg %}
+                <tr>
+                    <td class="text-muted">{{ row.data.strftime('%d/%m/%y') }}</td>
+                    <td>{{ row.sabor }}</td>
+                    <td class="text-end fw-semibold">{{ "%.3f"|format(row.kg) }}</td>
+                </tr>
+            {% endfor %}
+            {% if ns.last_date is not none %}
+            <tr class="table-secondary fw-bold">
+                <td colspan="2" class="text-end small">Total {{ ns.last_date.strftime('%d/%m') }}</td>
+                <td class="text-end">{{ "%.1f"|format(ns.day_total) }}</td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+{% elif data_inicio %}
+<hr>
+<div class="alert alert-info small">Sem dados do sistema balança para o período selecionado.</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if chart_json %}
+<script>
+    var figData = {{ chart_json | safe }};
+    figData.layout.dragmode = false;
+    Plotly.newPlot('chart-producao', figData.data, figData.layout, {
+        responsive: true,
+        displayModeBar: false,
+        scrollZoom: false,
+        staticPlot: false,
+        modeBarButtonsToRemove: ['zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','resetScale2d','select2d','lasso2d']
+    });
+</script>
+{% endif %}
+{% endblock %}

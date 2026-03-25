@@ -1,0 +1,236 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-2">Ordem de produção</h5>
+<p class="text-muted small mb-3">Arraste para reordenar. Use ＋ para inserir e 🗑 para remover.</p>
+
+{% if ordem %}
+<div id="ordem-list">
+    {% for item in ordem %}
+    <div class="ordem-item" data-id="{{ item.id }}">
+        <div class="ordem-row">
+            <span class="ordem-handle">☰</span>
+            <span class="ordem-pos">{{ loop.index }}.</span>
+            <span class="ordem-nome">{{ item.icon }} {{ item.sabor }}</span>
+            <div class="ordem-actions">
+                {% if sabores_disponiveis %}
+                <button type="button" class="btn btn-outline-secondary btn-sm ordem-btn btn-insert-toggle" data-target="insert-{{ item.id }}">＋</button>
+                {% endif %}
+                <form method="post" action="{{ url_for('producao.ordem_remover') }}" class="d-inline">
+                    <input type="hidden" name="sabor_id" value="{{ item.id }}">
+                    <button type="submit" class="btn btn-outline-danger btn-sm ordem-btn" onclick="return confirm('Remover?')">🗑</button>
+                </form>
+            </div>
+        </div>
+        {% if sabores_disponiveis %}
+        <div id="insert-{{ item.id }}" class="ordem-insert-panel" style="display:none;">
+            <form method="post" action="{{ url_for('producao.ordem_adicionar') }}">
+                <input type="hidden" name="after_id" value="{{ item.id }}">
+                <div class="d-flex gap-1">
+                    <select name="sabor" class="form-select form-select-sm flex-fill">
+                        {% for s in sabores_disponiveis %}
+                        <option value="{{ s }}">{{ s }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-primary btn-sm">OK</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm btn-cancel-insert" data-target="insert-{{ item.id }}">✕</button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-info">Nenhum sabor na ordem de produção.</div>
+{% endif %}
+
+{% if sabores_disponiveis %}
+<div class="mt-3">
+    <h6>Adicionar ao final</h6>
+    <form method="post" action="{{ url_for('producao.ordem_adicionar') }}">
+        <div class="d-flex gap-1">
+            <select name="sabor" class="form-select form-select-sm flex-fill">
+                {% for s in sabores_disponiveis %}
+                <option value="{{ s }}">{{ s }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm">Adicionar</button>
+        </div>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var list = document.getElementById('ordem-list');
+    if (!list) return;
+
+    document.querySelectorAll('.btn-insert-toggle').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var t = document.getElementById(this.dataset.target);
+            t.style.display = t.style.display === 'none' ? 'block' : 'none';
+        });
+    });
+    document.querySelectorAll('.btn-cancel-insert').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById(this.dataset.target).style.display = 'none';
+        });
+    });
+
+    var dragItem = null;
+    var placeholder = document.createElement('div');
+    placeholder.className = 'ordem-placeholder';
+    var startY = 0;
+    var startX = 0;
+    var isDragging = false;
+    var itemRect = null;
+
+    function getItemAt(y) {
+        var items = list.querySelectorAll('.ordem-item:not(.dragging)');
+        for (var i = 0; i < items.length; i++) {
+            var rect = items[i].getBoundingClientRect();
+            if (y < rect.top + rect.height / 2) return items[i];
+        }
+        return null;
+    }
+
+    function updateNumbers() {
+        var items = list.querySelectorAll('.ordem-item');
+        items.forEach(function(item, i) {
+            var pos = item.querySelector('.ordem-pos');
+            if (pos) pos.textContent = (i + 1) + '.';
+        });
+    }
+
+    function saveOrder() {
+        var items = list.querySelectorAll('.ordem-item');
+        var order = [];
+        items.forEach(function(item) { order.push(item.dataset.id); });
+        fetch('{{ url_for("producao.ordem_reorder") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({order: order})
+        });
+    }
+
+    list.addEventListener('touchstart', function(e) {
+        var handle = e.target.closest('.ordem-handle');
+        if (!handle) return;
+        dragItem = handle.closest('.ordem-item');
+        if (!dragItem) return;
+        var touch = e.touches[0];
+        startY = touch.clientY;
+        startX = touch.clientX;
+        itemRect = dragItem.getBoundingClientRect();
+        isDragging = false;
+    }, {passive: true});
+
+    list.addEventListener('touchmove', function(e) {
+        if (!dragItem) return;
+        var touch = e.touches[0];
+        var dx = Math.abs(touch.clientX - startX);
+        var dy = Math.abs(touch.clientY - startY);
+
+        if (!isDragging) {
+            if (dy > 8 && dy > dx) {
+                isDragging = true;
+                dragItem.classList.add('dragging');
+                dragItem.style.width = itemRect.width + 'px';
+                dragItem.style.position = 'fixed';
+                dragItem.style.zIndex = '9999';
+                dragItem.style.left = itemRect.left + 'px';
+                list.insertBefore(placeholder, dragItem);
+                placeholder.style.height = itemRect.height + 'px';
+            } else {
+                return;
+            }
+        }
+
+        e.preventDefault();
+        dragItem.style.top = (touch.clientY - (itemRect.height / 2)) + 'px';
+
+        var target = getItemAt(touch.clientY);
+        if (target) {
+            list.insertBefore(placeholder, target);
+        } else {
+            list.appendChild(placeholder);
+        }
+    }, {passive: false});
+
+    function endDrag() {
+        if (!dragItem) return;
+        if (isDragging) {
+            dragItem.classList.remove('dragging');
+            dragItem.style.position = '';
+            dragItem.style.width = '';
+            dragItem.style.zIndex = '';
+            dragItem.style.top = '';
+            dragItem.style.left = '';
+            list.insertBefore(dragItem, placeholder);
+            if (placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+            updateNumbers();
+            saveOrder();
+        }
+        dragItem = null;
+        isDragging = false;
+    }
+
+    list.addEventListener('touchend', endDrag);
+    list.addEventListener('touchcancel', endDrag);
+
+    var mouseItem = null;
+    var mouseIsDragging = false;
+
+    list.addEventListener('mousedown', function(e) {
+        var handle = e.target.closest('.ordem-handle');
+        if (!handle) return;
+        e.preventDefault();
+        mouseItem = handle.closest('.ordem-item');
+        if (!mouseItem) return;
+        dragItem = mouseItem;
+        itemRect = dragItem.getBoundingClientRect();
+        startY = e.clientY;
+        startX = e.clientX;
+        isDragging = false;
+        mouseIsDragging = true;
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!mouseIsDragging || !dragItem) return;
+        var dx = Math.abs(e.clientX - startX);
+        var dy = Math.abs(e.clientY - startY);
+
+        if (!isDragging) {
+            if (dy > 5) {
+                isDragging = true;
+                dragItem.classList.add('dragging');
+                dragItem.style.width = itemRect.width + 'px';
+                dragItem.style.position = 'fixed';
+                dragItem.style.zIndex = '9999';
+                dragItem.style.left = itemRect.left + 'px';
+                list.insertBefore(placeholder, dragItem);
+                placeholder.style.height = itemRect.height + 'px';
+            } else return;
+        }
+
+        dragItem.style.top = (e.clientY - (itemRect.height / 2)) + 'px';
+        var target = getItemAt(e.clientY);
+        if (target) {
+            list.insertBefore(placeholder, target);
+        } else {
+            list.appendChild(placeholder);
+        }
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (mouseIsDragging) {
+            endDrag();
+            mouseIsDragging = false;
+        }
+    });
+})();
+</script>
+{% endblock %}

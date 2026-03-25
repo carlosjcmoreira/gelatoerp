@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% set back_url = url_for("logistica.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+<h5 class="mb-2">Transferências Agendadas</h5>
+<p class="text-muted small mb-3">Vista consolidada das transferências agrupadas por data prevista e loja de destino.</p>
+
+{% if transferencias %}
+{% for t in transferencias %}
+<div class="card mb-3">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center" data-bs-toggle="collapse" data-bs-target="#transf-{{ loop.index }}" role="button">
+        <div>
+            <span class="fw-bold">{{ t.data_prevista.strftime('%d/%m/%Y') if t.data_prevista else '—' }}</span>
+            <span class="text-muted ms-2 small">{{ t.loja_destino }}</span>
+        </div>
+        <div class="d-flex gap-1 align-items-center">
+            {% for area in t.areas %}
+            <span class="badge bg-{% if area == 'Gelado' %}primary{% elif area == 'Pastelaria' %}warning text-dark{% elif area == 'Confeitaria' %}info{% elif area == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.65rem;">{{ area }}</span>
+            {% endfor %}
+            {% if t.n_pendentes > 0 %}
+            <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">{{ t.n_pendentes }} pend.</span>
+            {% endif %}
+            {% if t.n_confirmadas > 0 %}
+            <span class="badge bg-success ms-1" style="font-size:0.65rem;">{{ t.n_confirmadas }} conf.</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="collapse" id="transf-{{ loop.index }}">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0" style="font-size:0.82rem;">
+                <thead>
+                    <tr>
+                        <th>Área</th>
+                        <th>Produto</th>
+                        <th class="text-center">Qty</th>
+                        <th class="text-center">Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in t.ordens %}
+                    <tr>
+                        <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.65rem;">{{ o.area_origem }}</span></td>
+                        <td>{{ o.produto }}</td>
+                        <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
+                        <td class="text-center">
+                            {% if o.status == 'pendente' %}
+                            <span class="badge bg-warning text-dark" style="font-size:0.65rem;">Pendente</span>
+                            {% elif o.status == 'confirmada' %}
+                            <span class="badge bg-success" style="font-size:0.65rem;">Confirmada</span>
+                            {% else %}
+                            <span class="badge bg-danger" style="font-size:0.65rem;">Rejeitada</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="alert alert-info">Sem transferências agendadas.</div>
+{% endif %}
+</div>
+{% endblock %}

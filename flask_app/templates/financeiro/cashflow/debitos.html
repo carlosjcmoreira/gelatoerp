@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="mb-4">🔄 Débitos Diretos</h5>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ category }} alert-dismissible py-2 px-3 mb-3" style="font-size:0.85rem;">
+        {{ message }}
+        <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    {# ── Lista de débitos recorrentes ──────────────────────────────────────── #}
+    <div class="card mb-3">
+        <div class="card-header fw-semibold" style="font-size:0.85rem;">Débitos Recorrentes</div>
+        <div class="card-body">
+            <p class="text-muted mb-3" style="font-size:0.82rem;">
+                Encargos fixos mensais com data de débito conhecida (rendas, seguros, subscrições, etc.).
+            </p>
+            <form method="post" id="formDebitos">
+                <input type="hidden" name="action" value="save_debitos">
+                <div class="row g-2 mb-2 d-none d-sm-flex" style="font-size:0.75rem;">
+                    <div class="col-4 text-muted fw-semibold">Descrição</div>
+                    <div class="col-2 text-muted fw-semibold">Valor (€)</div>
+                    <div class="col-1 text-muted fw-semibold">Dia</div>
+                    <div class="col-4 text-muted fw-semibold">Centro de Custo</div>
+                    <div class="col-1"></div>
+                </div>
+                <div id="debitos-container">
+                    {% for dd in debitos_directos %}
+                    <div class="row g-2 mb-2 debito-row">
+                        <div class="col-4">
+                            <input type="text" class="form-control form-control-sm" name="dd_label"
+                                   placeholder="Descrição" value="{{ dd.label }}">
+                        </div>
+                        <div class="col-2">
+                            <div class="input-group input-group-sm">
+                                <input type="number" class="form-control form-control-sm" name="dd_valor"
+                                       placeholder="0.00" value="{{ dd.valor_eur }}" step="0.01" min="0">
+                                <span class="input-group-text">€</span>
+                            </div>
+                        </div>
+                        <div class="col-1">
+                            <input type="number" class="form-control form-control-sm" name="dd_dia"
+                                   placeholder="Dia" value="{{ dd.dia_debito }}" min="1" max="31">
+                        </div>
+                        <div class="col-4">
+                            <select class="form-select form-select-sm" name="dd_centro_custo">
+                                <option value="">— centro de custo —</option>
+                                {% for sf in onedrive_subfolders %}
+                                <option value="{{ sf }}" {% if dd.get('centro_custo') == sf %}selected{% endif %}>{{ sf }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-1">
+                            <button type="button" class="btn btn-outline-danger btn-sm w-100"
+                                    onclick="this.closest('.debito-row').remove()">✕</button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="d-flex gap-2 mt-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="addDebito">+ Adicionar linha</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar débitos</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# ── Upload de factura de serviço público ─────────────────────────────── #}
+    <div class="card mb-3">
+        <div class="card-header fw-semibold" style="font-size:0.85rem;">📄 Importar factura de serviço público</div>
+        <div class="card-body">
+            <p class="text-muted mb-3" style="font-size:0.82rem;">
+                Carregue uma factura de electricidade, água, gás ou telecomunicações em PDF.
+                O sistema irá extrair o valor e calcular uma estimativa mensal para pré-preencher um novo débito.
+            </p>
+            <div class="mb-3">
+                <label class="form-label form-label-sm fw-semibold">Factura PDF</label>
+                <input type="file" class="form-control form-control-sm" id="invoicePdfInput" accept=".pdf">
+            </div>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="btnAnalisarPdf">
+                🔍 Analisar factura
+            </button>
+
+            <div id="ocrLoading" class="mt-3 d-none">
+                <div class="d-flex align-items-center gap-2 text-muted" style="font-size:0.82rem;">
+                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                    A analisar o PDF com IA...
+                </div>
+            </div>
+
+            <div id="ocrError" class="mt-3 d-none">
+                <div class="alert alert-danger py-2 px-3" style="font-size:0.82rem;" id="ocrErrorMsg"></div>
+            </div>
+
+            <div id="ocrResult" class="mt-3 d-none">
+                <div class="card bg-primary bg-opacity-10 border-primary border-opacity-25">
+                    <div class="card-body py-3 px-3">
+                        <div class="fw-semibold mb-2" style="font-size:0.85rem;">Sugestão extraída</div>
+                        <div class="row g-2 mb-3" style="font-size:0.82rem;">
+                            <div class="col-sm-6">
+                                <span class="text-muted">Fornecedor:</span>
+                                <span class="fw-semibold ms-1" id="ocrFornecedor"></span>
+                            </div>
+                            <div class="col-sm-6">
+                                <span class="text-muted">Valor facturado:</span>
+                                <span class="fw-semibold ms-1" id="ocrValorFact"></span>
+                            </div>
+                            <div class="col-sm-6">
+                                <span class="text-muted">Período:</span>
+                                <span class="ms-1" id="ocrPeriodo"></span>
+                            </div>
+                            <div class="col-sm-6">
+                                <span class="text-muted">Estimativa mensal:</span>
+                                <span class="fw-bold text-primary ms-1" id="ocrEstMensal"></span>
+                            </div>
+                        </div>
+                        <div class="fw-semibold mb-2" style="font-size:0.83rem;">Adicionar como débito directo</div>
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <input type="text" class="form-control form-control-sm" id="suggLabel" placeholder="Descrição">
+                            </div>
+                            <div class="col-2">
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control form-control-sm" id="suggValor"
+                                           placeholder="0.00" step="0.01" min="0">
+                                    <span class="input-group-text">€</span>
+                                </div>
+                            </div>
+                            <div class="col-1">
+                                <input type="number" class="form-control form-control-sm" id="suggDia"
+                                       placeholder="Dia" min="1" max="31" value="1">
+                            </div>
+                            <div class="col-3">
+                                <select class="form-select form-select-sm" id="suggCentro">
+                                    <option value="">— centro de custo —</option>
+                                    {% for sf in onedrive_subfolders %}
+                                    <option value="{{ sf }}">{{ sf }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-2">
+                                <button type="button" class="btn btn-success btn-sm w-100" id="btnAdicionarSugestao">
+                                    ✓ Adicionar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var SUBFOLDERS_OPTIONS = (function() {
+    var opts = '<option value="">— centro de custo —</option>';
+    {% for sf in onedrive_subfolders %}
+    opts += '<option value="{{ sf }}">{{ sf }}</option>';
+    {% endfor %}
+    return opts;
+})();
+
+document.getElementById('addDebito').addEventListener('click', function() {
+    var container = document.getElementById('debitos-container');
+    var row = document.createElement('div');
+    row.className = 'row g-2 mb-2 debito-row';
+    row.innerHTML =
+        '<div class="col-4"><input type="text" class="form-control form-control-sm" name="dd_label" placeholder="Descrição"></div>' +
+        '<div class="col-2"><div class="input-group input-group-sm"><input type="number" class="form-control form-control-sm" name="dd_valor" placeholder="0.00" step="0.01" min="0"><span class="input-group-text">€</span></div></div>' +
+        '<div class="col-1"><input type="number" class="form-control form-control-sm" name="dd_dia" placeholder="Dia" min="1" max="31"></div>' +
+        '<div class="col-4"><select class="form-select form-select-sm" name="dd_centro_custo">' + SUBFOLDERS_OPTIONS + '</select></div>' +
+        '<div class="col-1"><button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="this.closest(\'.debito-row\').remove()">✕</button></div>';
+    container.appendChild(row);
+    row.querySelector('input[name="dd_label"]').focus();
+});
+
+document.getElementById('btnAnalisarPdf').addEventListener('click', function() {
+    var fileInput = document.getElementById('invoicePdfInput');
+    if (!fileInput.files || !fileInput.files[0]) {
+        alert('Por favor seleccione um ficheiro PDF.');
+        return;
+    }
+    var file = fileInput.files[0];
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+        alert('Apenas ficheiros PDF são suportados.');
+        return;
+    }
+
+    document.getElementById('ocrLoading').classList.remove('d-none');
+    document.getElementById('ocrResult').classList.add('d-none');
+    document.getElementById('ocrError').classList.add('d-none');
+
+    var formData = new FormData();
+    formData.append('action', 'upload_invoice');
+    formData.append('invoice_pdf', file);
+
+    fetch('{{ url_for("cashflow.debitos") }}', {
+        method: 'POST',
+        body: formData
+    })
+    .then(function(response) { return response.json(); })
+    .then(function(data) {
+        document.getElementById('ocrLoading').classList.add('d-none');
+        if (data.error) {
+            document.getElementById('ocrErrorMsg').textContent = 'Erro: ' + data.error;
+            document.getElementById('ocrError').classList.remove('d-none');
+            return;
+        }
+        document.getElementById('ocrFornecedor').textContent = data.fornecedor || '—';
+        document.getElementById('ocrValorFact').textContent = data.valor_facturado_eur != null
+            ? data.valor_facturado_eur.toFixed(2) + '€' : '—';
+        var periodo = '';
+        if (data.periodo_inicio && data.periodo_fim) {
+            periodo = data.periodo_inicio + ' → ' + data.periodo_fim;
+            if (data.dias_periodo) periodo += ' (' + data.dias_periodo + ' dias)';
+        }
+        document.getElementById('ocrPeriodo').textContent = periodo || '—';
+        var estMensal = data.estimativa_mensal_eur;
+        document.getElementById('ocrEstMensal').textContent = estMensal != null
+            ? estMensal.toFixed(2) + '€/mês' : '—';
+
+        document.getElementById('suggLabel').value = data.fornecedor || '';
+        document.getElementById('suggValor').value = estMensal != null ? estMensal.toFixed(2) : '';
+
+        document.getElementById('ocrResult').classList.remove('d-none');
+    })
+    .catch(function(err) {
+        document.getElementById('ocrLoading').classList.add('d-none');
+        document.getElementById('ocrErrorMsg').textContent = 'Erro de comunicação: ' + err;
+        document.getElementById('ocrError').classList.remove('d-none');
+    });
+});
+
+document.getElementById('btnAdicionarSugestao').addEventListener('click', function() {
+    var label = document.getElementById('suggLabel').value.trim();
+    var valor = document.getElementById('suggValor').value.trim();
+    var dia = document.getElementById('suggDia').value.trim();
+    var centro = document.getElementById('suggCentro').value;
+    if (!label || !valor) {
+        alert('Preencha a descrição e o valor antes de adicionar.');
+        return;
+    }
+    var container = document.getElementById('debitos-container');
+    var row = document.createElement('div');
+    row.className = 'row g-2 mb-2 debito-row';
+    var selectHtml = '<select class="form-select form-select-sm" name="dd_centro_custo">' + SUBFOLDERS_OPTIONS + '</select>';
+    row.innerHTML =
+        '<div class="col-4"><input type="text" class="form-control form-control-sm" name="dd_label" value="' + label.replace(/"/g, '&quot;') + '"></div>' +
+        '<div class="col-2"><div class="input-group input-group-sm"><input type="number" class="form-control form-control-sm" name="dd_valor" value="' + valor + '" step="0.01" min="0"><span class="input-group-text">€</span></div></div>' +
+        '<div class="col-1"><input type="number" class="form-control form-control-sm" name="dd_dia" value="' + (dia || '1') + '" min="1" max="31"></div>' +
+        '<div class="col-4">' + selectHtml + '</div>' +
+        '<div class="col-1"><button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="this.closest(\'.debito-row\').remove()">✕</button></div>';
+    container.appendChild(row);
+    if (centro) {
+        row.querySelector('select[name="dd_centro_custo"]').value = centro;
+    }
+    document.getElementById('ocrResult').classList.add('d-none');
+    document.getElementById('invoicePdfInput').value = '';
+    row.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+});
+</script>
+{% endblock %}

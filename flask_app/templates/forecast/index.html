@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block head %}
+<style>
+.forecast-card { border-radius: 10px; }
+.band-bar { height: 6px; border-radius: 3px; background: linear-gradient(to right, #ffc107, #198754, #ffc107); }
+.epoch-badge { font-size: 0.7rem; }
+.override-badge { font-size: 0.65rem; background: #6f42c1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">🔮 Previsão de Vendas — 7 Dias</h5>
+        <div class="d-flex gap-2 align-items-center">
+            <span class="badge {% if epoch == 'Alta' %}bg-warning text-dark{% else %}bg-secondary{% endif %} epoch-badge">
+                Época {{ epoch }}
+            </span>
+            {% if avg_yoy is not none %}
+            <span class="badge {% if avg_yoy >= 0 %}bg-success{% else %}bg-danger{% endif %} epoch-badge"
+                  title="Crescimento mês-a-mês vs mesmo período do ano anterior">
+                YoY mês {% if avg_yoy >= 0 %}+{% endif %}{{ avg_yoy }}%
+            </span>
+            {% else %}
+            <span class="badge bg-secondary epoch-badge" title="Sem dados do ano anterior — previsão baseada em 3 semanas recentes">
+                Ref. 3 sem.
+            </span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Store selector -->
+    <div class="mb-3 d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('forecast.index') }}"
+           class="btn btn-sm {% if not selected_loja %}btn-primary{% else %}btn-outline-primary{% endif %}">
+            Todas as lojas
+        </a>
+        {% for s in stores %}
+        <a href="{{ url_for('forecast.index', loja=s.name) }}"
+           class="btn btn-sm {% if selected_loja == s.name %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            {{ s.name }}
+        </a>
+        {% endfor %}
+    </div>
+
+    <!-- Quick nav -->
+    <div class="d-flex gap-2 mb-3 flex-wrap">
+        {% if selected_loja %}
+        <a href="{{ url_for('forecast.index', loja=selected_loja, recalcular=1) }}" class="btn btn-outline-warning btn-sm">🔄 Recalcular</a>
+        <a href="{{ url_for('forecast.precisao', loja=selected_loja) }}" class="btn btn-outline-info btn-sm">📊 Precisão</a>
+        <a href="{{ url_for('forecast.meteo_config', loja=selected_loja) }}" class="btn btn-outline-secondary btn-sm">🌤 Meteo Config</a>
+        {% else %}
+        <a href="{{ url_for('forecast.index', recalcular=1) }}" class="btn btn-outline-warning btn-sm">🔄 Recalcular</a>
+        <a href="{{ url_for('forecast.precisao') }}" class="btn btn-outline-info btn-sm">📊 Precisão</a>
+        {% endif %}
+    </div>
+
+    {% if consolidated %}
+    <!-- Consolidated view -->
+    <h6 class="text-muted small mb-2">Vista Consolidada (todas as lojas)</h6>
+    <div class="row g-2 mb-4">
+        {% for c in consolidated %}
+        <div class="col-6 col-md-4 col-lg-3">
+            <div class="card forecast-card h-100">
+                <div class="card-body py-2 px-2">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="fw-bold" style="font-size:0.85rem;">{{ c.weekday_label }}, {{ c.data.strftime('%d/%m') }}</div>
+                            <div class="text-muted" style="font-size:0.7rem;">{{ c.epoch }}</div>
+                        </div>
+                        <div class="text-end">
+                            <div class="fw-bold text-primary">{{ "%.0f €"|format(c.previsao_eur) }}</div>
+                            <div class="text-muted" style="font-size:0.7rem;">{{ "%.0f"|format(c.banda_min) }}–{{ "%.0f €"|format(c.banda_max) }}</div>
+                        </div>
+                    </div>
+                    {% if c.get('condicao_meteo') %}
+                    <div class="mt-1" style="font-size:0.7rem;">🌤 {{ c.condicao_meteo }}</div>
+                    {% endif %}
+                    {% if c.venda_real %}
+                    <div class="mt-1 text-success" style="font-size:0.7rem;">✓ Real: {{ "%.0f €"|format(c.venda_real) }}</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if selected_loja and forecasts %}
+    <!-- Per-store view -->
+    <h6 class="text-muted small mb-2">{{ selected_loja }}</h6>
+    <div class="row g-2">
+        {% for f in forecasts %}
+        <div class="col-12 col-md-6 col-lg-4">
+            <div class="card forecast-card h-100 {% if f.override_manual %}border-purple{% endif %}">
+                <div class="card-body py-2 px-3">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        <div>
+                            <div class="fw-bold">{{ f.weekday_label }}, {{ f.data.strftime('%d/%m/%Y') }}</div>
+                            <div class="d-flex gap-1 flex-wrap mt-1">
+                                <span class="badge {% if f.epoch == 'Alta' %}bg-warning text-dark{% else %}bg-secondary{% endif %} epoch-badge">{{ f.epoch }}</span>
+                                <span class="badge bg-light text-dark epoch-badge">{{ f.day_group or f.day_type }}</span>
+                                {% if f.override_manual %}
+                                <span class="badge override-badge text-white">Override</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <div class="fw-bold text-primary fs-5">{{ "%.0f €"|format(f.effective_value) }}</div>
+                            <div class="text-muted" style="font-size:0.7rem;">{{ "%.0f"|format(f.banda_min|float) }}–{{ "%.0f €"|format(f.banda_max|float) }}</div>
+                        </div>
+                    </div>
+
+                    <div class="band-bar mb-2"></div>
+
+                    <div class="row g-0 small">
+                        <div class="col-6">
+                            {% if f.condicao_meteo %}
+                            <div style="font-size:0.72rem;">🌤 {{ f.condicao_meteo }}
+                                {% if f.score_meteo is not none %}<span class="text-muted">({{ f.score_meteo }})</span>{% endif %}
+                            </div>
+                            {% endif %}
+                            <div style="font-size:0.72rem;" class="text-muted">
+                                Grupo: {{ f.day_group or f.day_type }}
+                                {% if f.signal_n %}· Ref: {{ f.signal_n }} dias{% endif %}
+                            </div>
+                            {% if f.factor_momentum and f.factor_momentum != 1.0 %}
+                            <div style="font-size:0.72rem;" class="{% if f.factor_momentum > 1 %}text-success{% else %}text-warning{% endif %}">
+                                Impulso: {% if f.factor_momentum > 1 %}+{% endif %}{{ "%.1f"|format((f.factor_momentum|float - 1) * 100) }}%
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="col-6 text-end">
+                            {% if f.homolog_eur %}
+                            <div style="font-size:0.72rem;" class="text-muted">
+                                Homól.: {{ "%.0f €"|format(f.homolog_eur) }}
+                            </div>
+                            {% endif %}
+                            {% if f.venda_real %}
+                            <div style="font-size:0.72rem;" class="text-success">
+                                Real: {{ "%.0f €"|format(f.venda_real|float) }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="mt-2 d-flex justify-content-end">
+                        <a href="{{ url_for('forecast.explicacao', loja=f.loja, data=f.data.isoformat()) }}"
+                           class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:0.72rem;">
+                            Ver detalhe
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if not forecasts and not consolidated %}
+    <div class="alert alert-info">
+        Sem dados históricos suficientes para gerar previsões. Registe vendas diárias para activar o motor de previsão.
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

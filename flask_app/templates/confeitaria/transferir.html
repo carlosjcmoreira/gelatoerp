@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% set back_url = url_for("confeitaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">Transferir Stock</h5>
+    <p class="text-muted small mb-3">Mover stock produzido para loja</p>
+
+    {% if cards %}
+    <form method="POST" id="transferForm">
+    <div class="card mb-3">
+        <div class="card-body p-2">
+            <label class="form-label small mb-1">Loja de destino</label>
+            <select name="loja_destino" class="form-select form-select-sm mb-2">
+                {% for loja in lojas_venda %}
+                <option value="{{ loja.name }}">{{ loja.name }}</option>
+                {% endfor %}
+            </select>
+            <label class="form-label small mb-1">Data prevista de entrega</label>
+            <input type="date" name="data_prevista" class="form-control form-control-sm" value="{{ today }}">
+        </div>
+    </div>
+    {% set counter = namespace(n=0) %}
+    {% for card in cards %}
+    <div class="transfer-card mb-3">
+        <div class="transfer-card-header">
+            <span class="fw-bold" style="font-size:1.05rem;">{{ card.produto }}</span>
+            <span class="badge bg-primary ms-2">{{ card.stock_producao }} und</span>
+        </div>
+        <div class="transfer-card-body">
+            <table class="table table-sm mb-0" style="font-size:0.82rem;">
+                <tbody>
+                    <tr>
+                        <td class="text-muted">Balcão Bolhão</td>
+                        <td class="text-center">{{ card.balcao_bolhao }} <span class="text-muted" style="font-size:0.7rem;">({{ card.data_balcao_bolhao }})</span></td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Qtd. a transferir</td>
+                        <td class="text-center">
+                            <input type="hidden" name="produto_{{ counter.n }}" value="{{ card.produto }}">
+                            <input type="number" name="qty_{{ counter.n }}"
+                                   class="form-control form-control-sm text-center"
+                                   placeholder="—" min="0" step="1"
+                                   style="max-width:70px;margin:0 auto;">
+                            {% set counter.n = counter.n + 1 %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+    </form>
+
+    <div class="save-bar-spacer"></div>
+    <div class="save-bar">
+        <button type="submit" form="transferForm" class="btn btn-primary w-100">Criar ordem de transferência</button>
+    </div>
+    {% else %}
+    <div class="alert alert-info">Sem stock de produção disponível. Registe produção real na página "Produzir" primeiro.</div>
+    {% endif %}
+</div>
+{% endblock %}

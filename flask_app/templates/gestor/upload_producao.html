@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">📋 Área do Gestor</h5>
+    <p class="text-muted small mb-3">Upload de produção, vendas e configurações</p>
+
+    
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">📤 Upload de Produção - CalybraBox</h6>
+            <p class="text-muted small">
+                <strong>Formatos suportados:</strong> CSV CalybraBox exportado do sistema de produção.<br>
+                Colunas esperadas: <code>Date</code>, <code>Description</code>, <code>Expected Quantity</code> ou <code>Effective Quantity</code>
+            </p>
+            <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="upload_csv">
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label small">Loja de Destino</label>
+                        <select name="loja" class="form-select form-select-sm">
+                            <option value="Matosinhos" {% if loja_upload == 'Matosinhos' %}selected{% endif %}>Matosinhos</option>
+                            <option value="Bolhão" {% if loja_upload == 'Bolhão' %}selected{% endif %}>Bolhão</option>
+                        </select>
+                    </div>
+                    <div class="col-6 d-flex align-items-end">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="unit_is_grams" id="unitGrams">
+                            <label class="form-check-label small" for="unitGrams">Gramas → kg</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <input type="file" name="csv_file" class="form-control form-control-sm" accept=".csv">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Importar CSV</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">📊 Histórico de Produção</h6>
+            <div class="mb-2">
+                <a href="{{ url_for('gestor.upload_producao', loja='Matosinhos') }}" class="btn btn-sm {% if loja_upload == 'Matosinhos' %}btn-primary{% else %}btn-outline-secondary{% endif %}">Matosinhos</a>
+                <a href="{{ url_for('gestor.upload_producao', loja='Bolhão') }}" class="btn btn-sm {% if loja_upload == 'Bolhão' %}btn-primary{% else %}btn-outline-secondary{% endif %}">Bolhão</a>
+            </div>
+            {% if prod_totals %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead><tr><th>Data</th><th>Total (kg)</th></tr></thead>
+                    <tbody>
+                        {% for row in prod_totals %}
+                        <tr><td>{{ row.data }}</td><td>{{ "%.2f"|format(row.total_kg) }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <h6 class="mt-3">Eliminar Produção por Período</h6>
+            <form method="POST">
+                <input type="hidden" name="action" value="delete_producao">
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label form-label-sm mb-1 small text-muted">Data início</label>
+                        <input type="date" name="data_del_inicio" class="form-control form-control-sm" value="{{ today }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label form-label-sm mb-1 small text-muted">Data fim</label>
+                        <input type="date" name="data_del_fim" class="form-control form-control-sm" value="{{ today }}">
+                    </div>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <select name="loja_del" class="form-select form-select-sm">
+                            <option value="Matosinhos">Matosinhos</option>
+                            <option value="Bolhão">Bolhão</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Tem a certeza? Todos os registos neste período serão eliminados.')">Eliminar Período</button>
+            </form>
+            {% else %}
+            <p class="text-muted small">Sem dados de produção registados.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">✏️ Registo Manual de Produção</h6>
+            <form method="POST">
+                <input type="hidden" name="action" value="manual_producao">
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label small">Data</label>
+                        <input type="date" name="data_prod" class="form-control form-control-sm" value="{{ today }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Loja</label>
+                        <select name="loja_prod" class="form-select form-select-sm">
+                            <option value="Matosinhos">Matosinhos</option>
+                            <option value="Bolhão">Bolhão</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Quantidade (kg)</label>
+                    <input type="text" name="qtd_prod" class="form-control form-control-sm" value="0,1" inputmode="decimal">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Registar Produção</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

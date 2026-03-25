@@ -1,0 +1,151 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-2">Plano de produção</h5>
+
+<form method="get" class="mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-7">
+            <label class="form-label small">📅 Dia do plano</label>
+            <input type="date" name="data" class="form-control form-control-sm" value="{{ data_plano }}">
+        </div>
+        <div class="col-3">
+            <button type="submit" class="btn btn-primary btn-sm w-100">Ver</button>
+        </div>
+        <div class="col-2">
+            <a href="{{ url_for('producao.executar_plano') }}" class="btn btn-outline-secondary btn-sm w-100" title="Ir para hoje">📅</a>
+        </div>
+    </div>
+</form>
+
+{% if data_plano != today %}
+<div class="alert alert-warning py-2 px-3 small mb-2">
+    ⚠️ Está a ver dados de <strong>{{ data_plano }}</strong>. <a href="{{ url_for('producao.executar_plano') }}" class="alert-link">Ir para hoje →</a>
+</div>
+{% endif %}
+
+{% if eventos_do_dia %}
+<div class="card border-warning mb-3">
+    <div class="card-header bg-warning text-dark py-2 fw-bold">
+        🎪 Eventos amanhã — Necessidades de Produção
+    </div>
+    <div class="card-body p-0">
+        {% for ev in eventos_do_dia %}
+        <div class="px-3 py-2 border-bottom">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="fw-bold small">{{ ev.cliente }}</div>
+                    <div class="text-muted small">📅 {{ ev.event_date.strftime('%d/%m/%Y') if ev.event_date else '—' }}
+                        {% if ev.local %} · 📍 {{ ev.local }}{% endif %}
+                    </div>
+                </div>
+                {% if ev.invoice_amount_eur %}
+                <div class="small text-muted">{{ "%.0f"|format(ev.invoice_amount_eur | float) }} €</div>
+                {% endif %}
+            </div>
+            {% if ev.items %}
+            <ul class="mb-0 mt-1 small" style="padding-left:1.2rem;">
+                {% for item in ev.items %}
+                <li>{{ item.descricao }} — <strong>{{ item.quantidade }} {{ item.unidade }}</strong></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="text-muted small mt-1">Sem artigos de produção definidos.</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<hr>
+
+{% if entradas %}
+<p class="text-muted small mb-2">{{ n_done }} de {{ n_total }} sabores com produção registada</p>
+
+<form method="post" id="planoRealForm">
+    <input type="hidden" name="data" value="{{ data_plano }}">
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0" style="font-size:0.85rem;">
+            <thead>
+                <tr>
+                    <th>Sabor</th>
+                    <th class="text-center" style="width:55px;">Est.B</th>
+                    <th class="text-center" style="width:55px;">Est.M</th>
+                    <th class="text-center" style="width:55px;">Est.Mou</th>
+                    <th class="text-center" style="width:65px;">Real B</th>
+                    <th class="text-center" style="width:65px;">Real M</th>
+                    <th class="text-center" style="width:65px;">Real Mou</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in entradas %}
+                {% set real_b = item.real_bolhao if item.real_bolhao is not none else 0 %}
+                {% set real_m = item.real_matosinhos if item.real_matosinhos is not none else 0 %}
+                {% set real_mou = item.real_mouzinho if item.real_mouzinho is not none else 0 %}
+                <tr data-sabor="{{ item.sabor }}">
+                    <td>
+                        <span class="fw-bold">{{ item.icon }} {{ item.sabor }}</span>
+                    </td>
+                    <td class="text-center text-muted">{{ "%.1f"|format(item.estimado_bolhao) }}</td>
+                    <td class="text-center text-muted">{{ "%.1f"|format(item.estimado_matosinhos) }}</td>
+                    <td class="text-center text-muted">{{ "%.1f"|format(item.estimado_mouzinho) }}</td>
+                    <td>
+                        <input type="text" name="real_b_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center real-input"
+                               data-sabor="{{ item.sabor }}"
+                               data-loja="b"
+                               data-est="{{ item.estimado_bolhao }}"
+                               placeholder="—"
+                               value="{{ '%.1f'|format(real_b)|replace('.', ',') if real_b > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                    <td>
+                        <input type="text" name="real_m_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center real-input"
+                               data-sabor="{{ item.sabor }}"
+                               data-loja="m"
+                               data-est="{{ item.estimado_matosinhos }}"
+                               placeholder="—"
+                               value="{{ '%.1f'|format(real_m)|replace('.', ',') if real_m > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                    <td>
+                        <input type="text" name="real_mou_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center real-input"
+                               data-sabor="{{ item.sabor }}"
+                               data-loja="mou"
+                               data-est="{{ item.estimado_mouzinho }}"
+                               placeholder="—"
+                               value="{{ '%.1f'|format(real_mou)|replace('.', ',') if real_mou > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</form>
+
+<div class="save-bar-spacer"></div>
+<div class="save-bar">
+    <button type="submit" form="planoRealForm" id="btnRegistarProducao" class="btn btn-primary w-100">Registar produção</button>
+</div>
+<script>
+document.getElementById('planoRealForm').addEventListener('submit', function() {
+    var btn = document.getElementById('btnRegistarProducao');
+    btn.disabled = true;
+    btn.textContent = 'A registar…';
+});
+</script>
+{% else %}
+<div class="alert alert-info">Nenhum sabor adicionado ao plano para este dia.</div>
+{% if data_plano == today %}
+<form method="post" action="{{ url_for('producao.copiar_plano') }}">
+    <button type="submit" class="btn btn-outline-primary w-100">
+        📋 Copiar plano do dia anterior
+    </button>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

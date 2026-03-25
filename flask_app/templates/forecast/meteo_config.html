@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% set back_url = url_for("forecast.index", loja=selected_loja) if selected_loja else url_for("forecast.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="mb-3">🌤 Configuração Meteorológica</h5>
+
+    <!-- Store selector -->
+    <div class="mb-3 d-flex gap-2 flex-wrap">
+        {% for s in stores %}
+        <a href="{{ url_for('forecast.meteo_config', loja=s.name) }}"
+           class="btn btn-sm {% if selected_loja == s.name %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            {{ s.name }}
+        </a>
+        {% endfor %}
+    </div>
+
+    {% if selected_loja and config %}
+    <div class="card">
+        <div class="card-header py-2 small fw-semibold">Multiplicadores por Condição — {{ selected_loja }}</div>
+        <div class="card-body py-2">
+            <p class="small text-muted mb-3">
+                O multiplicador ajusta a previsão base em função do score meteorológico (0–100).
+                Um multiplicador de 1.15 significa +15% de vendas esperadas em relação à base.
+            </p>
+            {% for m in config %}
+            <form method="POST" action="{{ url_for('forecast.meteo_config') }}" class="mb-3" data-no-loading>
+                <input type="hidden" name="loja" value="{{ selected_loja }}">
+                <input type="hidden" name="score_min" value="{{ m.score_min }}">
+                <input type="hidden" name="score_max" value="{{ m.score_max }}">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="small fw-semibold" style="min-width:120px;">
+                        {% if m.score_min < 30 %}🌧 Mau tempo
+                        {% elif m.score_min < 60 %}🌥 Tempo incerto
+                        {% elif m.score_min < 85 %}⛅ Bom tempo
+                        {% else %}☀️ Excelente{% endif %}
+                    </div>
+                    <div class="text-muted small" style="min-width:60px;">{{ m.score_min }}–{{ m.score_max }}</div>
+                    <input type="number" name="multiplicador" class="form-control form-control-sm"
+                           value="{{ m.multiplicador }}" step="0.01" min="0.1" max="3.0" style="max-width:90px;" required>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Guardar</button>
+                </div>
+            </form>
+            {% endfor %}
+        </div>
+    </div>
+    {% elif selected_loja %}
+    <div class="alert alert-info small">
+        Sem configuração meteorológica para {{ selected_loja }}. Reinicie a aplicação para gerar os valores por omissão.
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

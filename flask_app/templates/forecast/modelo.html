@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block head %}
+<style>
+.row-real      { background: rgba(108, 117, 125, 0.08); }
+.row-previsao  { background: #ffffff; }
+.row-hoje      { background: #fff3cd !important; font-weight: 700; border-top: 2px solid #ffc107 !important; border-bottom: 2px solid #ffc107 !important; }
+.row-subtotal  { background: #f8f9fa; font-weight: 600; font-size: 0.78rem; }
+.row-sep-hoje  { background: #ffc107; font-weight: 700; text-align: center; font-size: 0.72rem; color: #212529; letter-spacing: 0.05em; }
+.badge-semana  { background: #6c757d; }
+.badge-sexta   { background: #0d6efd; }
+.badge-fds     { background: #198754; }
+.modelo-table  { font-size: 0.8rem; }
+.modelo-table th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: #6c757d; }
+.val-real      { color: #198754; font-weight: 600; }
+.val-prev      { color: #0d6efd; font-weight: 600; }
+.val-banda     { color: #6c757d; font-size: 0.72rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">📊 Modelo de Previsão — 21+21 Dias</h5>
+        <div class="text-muted" style="font-size:0.75rem;">
+            {{ today.strftime('%d/%m/%Y') }}
+        </div>
+    </div>
+
+    <!-- Store selector + Recalcular -->
+    <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+        <a href="{{ url_for('forecast.modelo') }}"
+           class="btn btn-sm {% if not selected_loja %}btn-primary{% else %}btn-outline-primary{% endif %}">
+            Todas as lojas
+        </a>
+        {% for s in stores %}
+        <a href="{{ url_for('forecast.modelo', loja=s.name) }}"
+           class="btn btn-sm {% if selected_loja == s.name %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            {{ s.name }}
+        </a>
+        {% endfor %}
+        <a href="{{ url_for('forecast.modelo', loja=selected_loja, recalcular=1) if selected_loja else url_for('forecast.modelo', recalcular=1) }}"
+           class="btn btn-sm btn-outline-warning ms-auto">🔄 Recalcular</a>
+        <a href="{{ url_for('forecast.index', loja=selected_loja) if selected_loja else url_for('forecast.index') }}"
+           class="btn btn-sm btn-outline-secondary">
+            🔮 Vista 7 dias
+        </a>
+    </div>
+
+    <!-- Summary cards -->
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3">
+            <div class="card text-center py-2 px-2 border-success border-opacity-25">
+                <div style="font-size:0.68rem;" class="text-muted text-uppercase">Real 21 dias</div>
+                <div class="fw-bold text-success" style="font-size:1.1rem;">{{ "%.0f €"|format(total_real) }}</div>
+                <div style="font-size:0.65rem;" class="text-muted">{{ past_rows|length }} dias com dados</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card text-center py-2 px-2 border-primary border-opacity-25">
+                <div style="font-size:0.68rem;" class="text-muted text-uppercase">Prev. 21 dias</div>
+                <div class="fw-bold text-primary" style="font-size:1.1rem;">{{ "%.0f €"|format(total_fc) }}</div>
+                <div style="font-size:0.65rem;" class="text-muted">{{ fc_rows|length }} dias previstos</div>
+            </div>
+        </div>
+        {% if past_rows|length > 0 %}
+        <div class="col-6 col-md-3">
+            <div class="card text-center py-2 px-2">
+                <div style="font-size:0.68rem;" class="text-muted text-uppercase">Média/dia real</div>
+                <div class="fw-bold" style="font-size:1.1rem;">
+                    {{ "%.0f €"|format(total_real / past_rows|length) }}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% if fc_rows|length > 0 %}
+        <div class="col-6 col-md-3">
+            <div class="card text-center py-2 px-2">
+                <div style="font-size:0.68rem;" class="text-muted text-uppercase">Média/dia prev.</div>
+                <div class="fw-bold" style="font-size:1.1rem;">
+                    {{ "%.0f €"|format(total_fc / fc_rows|length) }}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Combined table -->
+    <div class="table-responsive">
+    <table class="table table-sm table-hover modelo-table mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>Data</th>
+                <th>Dia</th>
+                <th>Grupo</th>
+                <th class="text-end">Valor €</th>
+                <th class="text-end d-none d-md-table-cell">Banda min–max</th>
+                <th class="d-none d-md-table-cell">Meteo</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% set ns = namespace(last_week=None) %}
+            {% for r in all_rows %}
+
+                {# Weekly subtotal separator #}
+                {% set iso = r.data.isocalendar() %}
+                {% set wk = (iso[0], iso[1]) %}
+                {% if ns.last_week is not none and ns.last_week != wk %}
+                <tr class="row-subtotal">
+                    <td colspan="2" class="text-muted" style="font-size:0.7rem;">
+                        Semana {{ ns.last_week[1] }}/{{ ns.last_week[0] }}
+                    </td>
+                    <td></td>
+                    <td class="text-end">
+                        {% if week_real.get(ns.last_week) %}
+                        <span class="val-real">{{ "%.0f €"|format(week_real[ns.last_week]) }}</span>
+                        {% endif %}
+                        {% if week_fc.get(ns.last_week) %}
+                        <span class="val-prev">{{ "%.0f €"|format(week_fc[ns.last_week]) }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="d-none d-md-table-cell"></td>
+                    <td class="d-none d-md-table-cell"></td>
+                </tr>
+                {% endif %}
+                {% set ns.last_week = wk %}
+
+                {# "Hoje" separator before today's forecast row #}
+                {% if r.tipo == 'previsao' and r.data == today %}
+                <tr>
+                    <td colspan="6" class="row-sep-hoje py-1">─── HOJE ───</td>
+                </tr>
+                {% endif %}
+
+                <tr class="row-{{ r.tipo }}{% if r.data == today %} row-hoje{% endif %}">
+                    <td>
+                        <span class="fw-semibold">{{ r.data.strftime('%d/%m') }}</span>
+                        {% if r.data == today %}<span class="ms-1 badge bg-warning text-dark" style="font-size:0.6rem;">hoje</span>{% endif %}
+                    </td>
+                    <td>{{ r.weekday_label }}</td>
+                    <td>
+                        <span class="badge rounded-pill text-white badge-{{ r.day_group }}"
+                              style="font-size:0.62rem; padding:2px 5px;">{{ r.day_group }}</span>
+                    </td>
+                    <td class="text-end">
+                        {% if r.tipo == 'real' %}
+                        <span class="val-real">{{ "%.0f"|format(r.valor) }} €</span>
+                        {% else %}
+                        {% set fval = r.get('previsao_eur') or r.get('effective_value') or 0 %}
+                        <span class="val-prev">{{ "%.0f"|format(fval|float) }} €</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end d-none d-md-table-cell">
+                        {% if r.tipo == 'previsao' and r.get('banda_min') %}
+                        <span class="val-banda">
+                            {{ "%.0f"|format(r.banda_min|float) }}–{{ "%.0f €"|format(r.banda_max|float) }}
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="d-none d-md-table-cell" style="font-size:0.72rem;">
+                        {% if r.get('condicao_meteo') %}
+                        🌤 {{ r.condicao_meteo }}
+                        {% if r.get('score_meteo') is not none %}
+                        <span class="text-muted">({{ r.score_meteo }})</span>
+                        {% endif %}
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+
+            {# Last week subtotal #}
+            {% if ns.last_week is not none %}
+            <tr class="row-subtotal">
+                <td colspan="2" class="text-muted" style="font-size:0.7rem;">
+                    Semana {{ ns.last_week[1] }}/{{ ns.last_week[0] }}
+                </td>
+                <td></td>
+                <td class="text-end">
+                    {% if week_real.get(ns.last_week) %}
+                    <span class="val-real">{{ "%.0f €"|format(week_real[ns.last_week]) }}</span>
+                    {% endif %}
+                    {% if week_fc.get(ns.last_week) %}
+                    <span class="val-prev">{{ "%.0f €"|format(week_fc[ns.last_week]) }}</span>
+                    {% endif %}
+                </td>
+                <td class="d-none d-md-table-cell"></td>
+                <td class="d-none d-md-table-cell"></td>
+            </tr>
+            {% endif %}
+        </tbody>
+        <tfoot class="table-light fw-bold">
+            <tr>
+                <td colspan="3">Total</td>
+                <td class="text-end">
+                    {% if total_real %}<span class="val-real">{{ "%.0f €"|format(total_real) }}</span>{% endif %}
+                    {% if total_fc %}<span class="ms-2 val-prev">{{ "%.0f €"|format(total_fc) }}</span>{% endif %}
+                </td>
+                <td class="d-none d-md-table-cell"></td>
+                <td class="d-none d-md-table-cell"></td>
+            </tr>
+        </tfoot>
+    </table>
+    </div>
+
+    {% if not past_rows and not fc_rows %}
+    <div class="alert alert-info mt-3">
+        Sem dados históricos ou previsões disponíveis. Registe vendas diárias para activar o modelo.
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

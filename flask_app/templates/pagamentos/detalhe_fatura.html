@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pagamentos.faturas") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    {% set status_info = status_map.get(inv.status, (inv.status, 'secondary')) %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">
+            {% if inv.document_type == 'nota_credito' %}📄{% else %}🧾{% endif %}
+            {{ 'Nota de Crédito' if inv.document_type == 'nota_credito' else 'Fatura' }} #{{ inv.id }}
+        </h5>
+        <div class="d-flex align-items-center gap-2">
+            {% if inv.document_type == 'nota_credito' %}
+            <span class="badge bg-success-subtle text-success-emphasis">Nota de Crédito</span>
+            {% else %}
+            <span class="badge bg-light text-dark border">Fatura</span>
+            {% endif %}
+            <span class="badge bg-{{ status_info[1] }}-subtle text-{{ status_info[1] }}-emphasis fs-6">{{ status_info[0] }}</span>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <dl class="row mb-0 small">
+                <dt class="col-5">Fornecedor</dt>
+                <dd class="col-7 fw-semibold">{{ inv.supplier_name }}</dd>
+                {% if inv.supplier_nif %}
+                <dt class="col-5">NIF</dt>
+                <dd class="col-7">{{ inv.supplier_nif }}</dd>
+                {% endif %}
+                {% if inv.invoice_number %}
+                <dt class="col-5">Nº Documento</dt>
+                <dd class="col-7">{{ inv.invoice_number }}</dd>
+                {% endif %}
+                <dt class="col-5">Valor Total</dt>
+                <dd class="col-7 fw-bold {{ 'text-success' if inv.document_type == 'nota_credito' else 'text-danger' }}">
+                    {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ "%.2f €"|format(inv.amount_eur|float) }}
+                </dd>
+                {% if inv.vat_amount_eur %}
+                <dt class="col-5">IVA</dt>
+                <dd class="col-7">{{ "%.2f €"|format(inv.vat_amount_eur|float) }}</dd>
+                {% endif %}
+                <dt class="col-5">Emissão</dt>
+                <dd class="col-7">{{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</dd>
+                <dt class="col-5">Vencimento</dt>
+                <dd class="col-7 {% if inv.due_date and inv.due_date.strftime('%Y-%m-%d') < today and inv.status not in ('paid','cancelled') %}text-danger fw-semibold{% endif %}">
+                    {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                </dd>
+                {% if inv.store_name %}
+                <dt class="col-5">Loja</dt>
+                <dd class="col-7">{{ inv.store_name }}</dd>
+                {% endif %}
+                {% if inv.categoria %}
+                <dt class="col-5">Categoria</dt>
+                <dd class="col-7">{{ inv.categoria }}</dd>
+                {% endif %}
+                {% if inv.notes %}
+                <dt class="col-5">Notas</dt>
+                <dd class="col-7">{{ inv.notes }}</dd>
+                {% endif %}
+            </dl>
+        </div>
+    </div>
+
+    {% if inv.status not in ('paid', 'cancelled') %}
+    <div class="card mb-3">
+        <div class="card-body">
+            {% if payment_info %}
+            <div class="mb-2">
+                {% set ps = payment_info.status %}
+                <span class="badge bg-{{ 'warning' if ps == 'proposed' else 'primary' if ps == 'confirmed' else 'success' }}-subtle text-{{ 'warning' if ps == 'proposed' else 'primary' if ps == 'confirmed' else 'success' }}-emphasis">
+                    {{ 'Proposta' if ps == 'proposed' else 'Confirmada' if ps == 'confirmed' else 'Paga' }}
+                </span>
+                <span class="small text-muted ms-1">
+                    {{ payment_info.confirmed_date.strftime('%d/%m/%Y') if payment_info.confirmed_date else (payment_info.proposed_date.strftime('%d/%m/%Y') if payment_info.proposed_date else '—') }}
+                </span>
+            </div>
+            {% endif %}
+
+            <h6 class="card-title">📅 Agendamento de Pagamento</h6>
+
+            {% if suggested_date %}
+            <div class="alert alert-{{ 'warning' if is_fallback else 'info' }} py-2 small mb-3">
+                <strong>💡 Data sugerida pela liquidez:</strong>
+                <strong>{{ suggested_date.strftime('%d/%m/%Y') }}</strong>
+                {% if is_fallback %}<span class="text-muted">(fallback — sem semana com liquidez suficiente)</span>{% endif %}
+                <form method="post" class="d-inline ms-2">
+                    <input type="hidden" name="action" value="suggest_date">
+                    <button type="submit" class="btn btn-{{ 'warning' if is_fallback else 'info' }} btn-sm py-0 px-2">Usar esta data</button>
+                </form>
+            </div>
+            {% endif %}
+
+            <form method="post" class="row g-2">
+                <input type="hidden" name="action" value="confirm_payment">
+                <div class="col-6">
+                    <label class="form-label small">Data de Pagamento *</label>
+                    <input type="date" name="confirmed_date" class="form-control form-control-sm" required
+                           value="{{ inv.confirmed_date.strftime('%Y-%m-%d') if inv.confirmed_date else (inv.proposed_date.strftime('%Y-%m-%d') if inv.proposed_date else (inv.due_date.strftime('%Y-%m-%d') if inv.due_date else today)) }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Valor a pagar (€)</label>
+                    <input type="number" name="payment_amount" class="form-control form-control-sm" step="0.01"
+                           value="{{ "%.2f"|format(inv.amount_eur|float) }}">
+                </div>
+                <div class="col-12">
+                    <label class="form-label small">Notas</label>
+                    <input type="text" name="payment_notes" class="form-control form-control-sm"
+                           value="{{ inv.payment_notes or '' }}" placeholder="Opcional">
+                </div>
+                <div class="col-12 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        {{ 'Actualizar' if inv.payment_status in ('proposed','confirmed') else 'Confirmar' }} Data
+                    </button>
+                    {% if inv.payment_status == 'confirmed' %}
+                    <button type="submit" form="paid-form" class="btn btn-success btn-sm">Marcar como Paga</button>
+                    {% endif %}
+                </div>
+            </form>
+            {% if inv.payment_status == 'confirmed' %}
+            <form id="paid-form" method="post" class="mt-2 row g-2">
+                <input type="hidden" name="action" value="mark_paid">
+                <div class="col-6">
+                    <label class="form-label small">Data de Pagamento Efectivo</label>
+                    <input type="date" name="paid_date" class="form-control form-control-sm" value="{{ today }}">
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if inv.payment_status == 'proposed' and inv.status not in ('paid','cancelled') %}
+    <div class="card mb-3 border-info">
+        <div class="card-body">
+            <h6 class="card-title text-info">💡 Proposta de Pagamento</h6>
+            <p class="small mb-2">Data proposta: <strong>{{ inv.proposed_date.strftime('%d/%m/%Y') if inv.proposed_date else '—' }}</strong></p>
+            <p class="small text-muted mb-0">Confirme ou altere a data acima.</p>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if inv.paid_date %}
+    <div class="card mb-3 border-success">
+        <div class="card-body">
+            <h6 class="card-title text-success">✅ Pagamento Efectuado</h6>
+            <p class="small mb-0">Pago em: <strong>{{ inv.paid_date.strftime('%d/%m/%Y') }}</strong></p>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">✏️ Editar Fatura</h6>
+            <form method="post" class="row g-2">
+                <input type="hidden" name="action" value="edit">
+                <div class="col-6">
+                    <label class="form-label small">Fornecedor</label>
+                    <input type="text" name="supplier_name" class="form-control form-control-sm" value="{{ inv.supplier_name }}" required>
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">NIF</label>
+                    <input type="text" name="supplier_nif" class="form-control form-control-sm" value="{{ inv.supplier_nif or '' }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Nº Fatura</label>
+                    <input type="text" name="invoice_number" class="form-control form-control-sm" value="{{ inv.invoice_number or '' }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Categoria</label>
+                    <input type="text" name="categoria" class="form-control form-control-sm" value="{{ inv.categoria or '' }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Valor Total (€)</label>
+                    <input type="number" name="amount_eur" class="form-control form-control-sm" step="0.01" value="{{ "%.2f"|format(inv.amount_eur|float) }}" required>
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">IVA (€)</label>
+                    <input type="number" name="vat_amount_eur" class="form-control form-control-sm" step="0.01" value="{{ "%.2f"|format(inv.vat_amount_eur|float) if inv.vat_amount_eur else '0.00' }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Emissão</label>
+                    <input type="date" name="issue_date" class="form-control form-control-sm" value="{{ inv.issue_date.strftime('%Y-%m-%d') if inv.issue_date else '' }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Vencimento</label>
+                    <input type="date" name="due_date" class="form-control form-control-sm" value="{{ inv.due_date.strftime('%Y-%m-%d') if inv.due_date else '' }}">
+                </div>
+                <div class="col-12">
+                    <label class="form-label small">Loja</label>
+                    <select name="store_id" class="form-select form-select-sm">
+                        <option value="">— Geral —</option>
+                        {% for s in stores %}
+                        <option value="{{ s.id }}" {% if s.id == inv.store_id %}selected{% endif %}>{{ s.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12">
+                    <label class="form-label small">Notas</label>
+                    <textarea name="notes" class="form-control form-control-sm" rows="2">{{ inv.notes or '' }}</textarea>
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-secondary btn-sm">Guardar Alterações</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-2">
+        {% if inv.status not in ('cancelled', 'paid') %}
+        <form method="post" onsubmit="return confirm('Cancelar esta fatura?')">
+            <input type="hidden" name="action" value="cancel">
+            <button type="submit" class="btn btn-outline-warning btn-sm">Cancelar</button>
+        </form>
+        {% endif %}
+        <form method="post" onsubmit="return confirm('Eliminar esta fatura? Esta acção não pode ser desfeita.')">
+            <input type="hidden" name="action" value="delete">
+            <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% set back_url = url_for("forecast.index", loja=loja) %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h5 class="mb-0">🔍 Detalhe da Previsão</h5>
+            <div class="text-muted small">{{ loja }} — {{ weekday_label }}, {{ target_date.strftime('%d/%m/%Y') }}</div>
+        </div>
+        {% if epoch %}
+        <span class="badge {% if epoch == 'Alta' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">Época {{ epoch }}</span>
+        {% endif %}
+    </div>
+
+    {% if fc %}
+    <!-- Main forecast value -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <div class="small text-muted">Previsão efectiva</div>
+                    <div class="fw-bold fs-4 text-primary">
+                        {{ "%.2f €"|format(fc.effective_value) }}
+                        {% if fc.override_manual %}
+                        <span class="badge bg-purple text-white ms-2" style="font-size:0.65rem;">Override activo</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-muted small">Banda: {{ "%.0f"|format(fc.banda_min|float) }} – {{ "%.0f €"|format(fc.banda_max|float) }}</div>
+                </div>
+                <div class="text-end">
+                    {% if fc.venda_real %}
+                    <div class="small text-muted">Venda real</div>
+                    <div class="fw-bold text-success">{{ "%.2f €"|format(fc.venda_real|float) }}</div>
+                    {% if fc.erro_real_pct is not none %}
+                    <div class="small {% if fc.erro_real_pct|float|abs > 0.15 %}text-danger{% else %}text-muted{% endif %}">
+                        Erro: {{ "%.1f"|format(fc.erro_real_pct|float * 100) }}%
+                    </div>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Decomposition panel -->
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">Decomposição do Modelo</div>
+        <div class="card-body py-2">
+            <div class="table-responsive">
+                <table class="table table-sm table-borderless mb-0 small">
+                    <tbody>
+                        <tr>
+                            <td class="text-muted">Base histórica (8 semanas, ponderada)</td>
+                            <td class="text-end fw-semibold">{{ "%.2f €"|format(fc.base_historica|float) }}</td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">
+                                Factor YoY
+                                <span class="text-muted" style="font-size:0.7rem;">(últimos 60 dias vs. ano anterior)</span>
+                            </td>
+                            <td class="text-end fw-semibold
+                                {% if fc.factor_yoy|float > 1 %}text-success{% elif fc.factor_yoy|float < 1 %}text-danger{% endif %}">
+                                × {{ "%.4f"|format(fc.factor_yoy|float) }}
+                                <span class="text-muted" style="font-size:0.7rem;">
+                                    ({% if (fc.factor_yoy|float - 1) * 100 >= 0 %}+{% endif %}{{ "%.1f"|format((fc.factor_yoy|float - 1) * 100) }}%)
+                                </span>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td class="text-muted">
+                                Multiplicador meteorológico
+                                {% if fc.condicao_meteo %}<span class="badge bg-light text-dark ms-1" style="font-size:0.65rem;">{{ fc.condicao_meteo }}</span>{% endif %}
+                                {% if fc.score_meteo is not none %}<span class="text-muted" style="font-size:0.7rem;">(score {{ fc.score_meteo }})</span>{% endif %}
+                            </td>
+                            <td class="text-end fw-semibold
+                                {% if fc.multiplicador_meteo|float > 1 %}text-success{% elif fc.multiplicador_meteo|float < 1 %}text-warning{% endif %}">
+                                × {{ "%.4f"|format(fc.multiplicador_meteo|float) }}
+                            </td>
+                        </tr>
+                        {% if fc.override_manual %}
+                        <tr class="table-warning">
+                            <td class="text-muted">
+                                Override manual
+                                {% if fc.override_motivo %}<span class="text-muted" style="font-size:0.7rem;">— {{ fc.override_motivo }}</span>{% endif %}
+                            </td>
+                            <td class="text-end fw-bold text-purple">{{ "%.2f €"|format(fc.override_manual|float) }}</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Historical base samples -->
+    {% if history_samples %}
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">Base Histórica — últimas {{ history_samples|length }} semanas (peso 1→8)</div>
+        <div class="card-body py-2">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 small">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Dia</th>
+                            <th class="text-end">Vendas</th>
+                            <th class="text-end">Peso</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in history_samples %}
+                        <tr>
+                            <td>{{ s.data.strftime('%d/%m/%Y') }}</td>
+                            <td class="text-muted">{{ s.weekday_label }}</td>
+                            <td class="text-end">{{ "%.2f €"|format(s.valor) }}</td>
+                            <td class="text-end">
+                                <span class="badge bg-secondary" style="min-width:1.8rem;">{{ s.peso }}</span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Meteo config for this store -->
+    {% if meteo_config %}
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">Multiplicadores Meteorológicos — {{ loja }}</div>
+        <div class="card-body py-2">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 small">
+                    <thead>
+                        <tr>
+                            <th>Score</th>
+                            <th>Condição</th>
+                            <th class="text-end">Multiplicador</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for m in meteo_config %}
+                        <tr {% if fc.score_meteo is not none and m.score_min <= fc.score_meteo|int <= m.score_max %}class="table-info"{% endif %}>
+                            <td>{{ m.score_min }}–{{ m.score_max }}</td>
+                            <td class="text-muted">
+                                {% if m.score_min < 30 %}Mau tempo
+                                {% elif m.score_min < 60 %}Tempo incerto
+                                {% elif m.score_min < 85 %}Bom tempo
+                                {% else %}Excelente{% endif %}
+                            </td>
+                            <td class="text-end fw-semibold">× {{ "%.2f"|format(m.multiplicador) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-2">
+                <a href="{{ url_for('forecast.meteo_config', loja=loja) }}" class="btn btn-outline-secondary btn-sm">Editar multiplicadores</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}{# end if fc #}
+
+    <!-- Override manual form -->
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">Override Manual</div>
+        <div class="card-body py-2">
+            {% if fc and fc.override_manual %}
+            <div class="alert alert-warning py-2 small mb-2">
+                Override activo: <strong>{{ "%.2f €"|format(fc.override_manual|float) }}</strong>
+                {% if fc.override_motivo %} — {{ fc.override_motivo }}{% endif %}
+            </div>
+            <form method="POST" action="{{ url_for('forecast.override') }}" data-no-loading>
+                <input type="hidden" name="loja" value="{{ loja }}">
+                <input type="hidden" name="data" value="{{ target_date.isoformat() }}">
+                <input type="hidden" name="clear" value="1">
+                <button type="submit" class="btn btn-outline-danger btn-sm">Remover override</button>
+            </form>
+            {% else %}
+            <form method="POST" action="{{ url_for('forecast.override') }}">
+                <input type="hidden" name="loja" value="{{ loja }}">
+                <input type="hidden" name="data" value="{{ target_date.isoformat() }}">
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Valor de override (€)</label>
+                    <input type="number" name="override_eur" class="form-control form-control-sm"
+                           placeholder="Ex: 1250.00" step="0.01" min="0" required>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Motivo (opcional)</label>
+                    <input type="text" name="motivo" class="form-control form-control-sm"
+                           placeholder="Ex: Evento especial, feriado...">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Guardar override</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}

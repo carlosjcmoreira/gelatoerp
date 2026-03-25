@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">🛒 Vendas {{ loja_nome }}</h5>
+    
+
+    <h6 class="mb-3">Resumo do Dia</h6>
+
+    {% if rows %}
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-bordered align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Sabor</th>
+                    <th class="text-end">Pesagem Ontem (kg)</th>
+                    <th class="text-end">Recebido Hoje (kg)</th>
+                    <th class="text-end">Pesagem Fim Dia (kg)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td>{{ row.sabor }}</td>
+                    <td class="text-end">{{ row.pesagem_ontem }}</td>
+                    <td class="text-end">{{ row.recebido_hoje }}</td>
+                    <td class="text-end">{{ row.pesagem_fim }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col-4">
+            <div class="kpi-card">
+                <div class="kpi-card-title">Total Pesagem Ontem</div>
+                <div class="kpi-card-value">{{ total_ontem }} kg</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="kpi-card">
+                <div class="kpi-card-title">Total Recebido Hoje</div>
+                <div class="kpi-card-value">{{ total_recebido }} kg</div>
+            </div>
+        </div>
+        <div class="col-4">
+            <div class="kpi-card">
+                <div class="kpi-card-title">Total Pesagem Fim Dia</div>
+                <div class="kpi-card-value">{{ total_fim if total_fim else 'Pendente' }}</div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">Sem pesagens registadas para ontem.</div>
+    {% endif %}
+</div>
+{% endblock %}

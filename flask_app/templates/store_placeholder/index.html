@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% set back_url = url_for("home.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-4 d-flex flex-column align-items-center justify-content-center" style="min-height:60vh;">
+    <div class="text-center">
+        <div style="font-size:3rem;">🏪</div>
+        <h4 class="mt-2 mb-1">{{ store.name }}</h4>
+        <p class="text-muted">O módulo de operações desta loja está em desenvolvimento.</p>
+        <span class="badge bg-secondary">Em breve</span>
+    </div>
+</div>
+{% endblock %}

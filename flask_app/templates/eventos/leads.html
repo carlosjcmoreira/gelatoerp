@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eventos.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+        <h5 class="fw-bold mb-0">📥 Leads do Formulário</h5>
+        <div class="d-flex gap-2">
+            <form method="post" action="{{ url_for('eventos.sync_sheets') }}" data-no-loading>
+                <button type="submit" class="btn btn-sm btn-outline-success">🔄 Sync Google Sheets</button>
+            </form>
+            <a href="{{ url_for('eventos.nova_lead') }}" class="btn btn-sm btn-primary">+ Nova Lead</a>
+        </div>
+    </div>
+
+    <div class="mb-3 d-flex flex-wrap gap-2">
+        <a href="{{ url_for('eventos.leads') }}" class="btn btn-sm {% if not status_filter %}btn-dark{% else %}btn-outline-secondary{% endif %}">Todas</a>
+        {% for s, label in status_labels.items() %}
+        <a href="{{ url_for('eventos.leads', status=s) }}" class="btn btn-sm {% if status_filter == s %}btn-{{ status_colors[s] }}{% else %}btn-outline-{{ status_colors[s] }}{% endif %}">{{ label }}</a>
+        {% endfor %}
+    </div>
+
+    {% if not leads %}
+    <div class="text-center text-muted py-5">
+        <div style="font-size:2.5rem;">📭</div>
+        <p class="mt-2">Nenhuma lead encontrada.</p>
+        <small>Use o botão "Sync Google Sheets" para importar leads do formulário Nivà.</small>
+    </div>
+    {% else %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover small align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Cliente</th>
+                    <th>Evento</th>
+                    <th>Data</th>
+                    <th>Convidados</th>
+                    <th>Estado</th>
+                    <th>Fonte</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lead in leads %}
+                <tr>
+                    <td>
+                        <div class="fw-semibold">{{ lead.client_name or '—' }}</div>
+                        {% if lead.client_email %}<div class="text-muted">{{ lead.client_email }}</div>{% endif %}
+                    </td>
+                    <td>{{ lead.event_type or '—' }}</td>
+                    <td>{{ lead.event_date.strftime('%d/%m/%Y') if lead.event_date else '—' }}</td>
+                    <td>{{ lead.estimated_guests or lead.estimated_guests_raw or '—' }}</td>
+                    <td><span class="badge bg-{{ status_colors[lead.status] }}">{{ status_labels[lead.status] }}</span></td>
+                    <td>
+                        {% if lead.source == 'google_sheet' %}
+                        <span class="badge bg-info text-dark">Sheets</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Manual</span>
+                        {% endif %}
+                    </td>
+                    <td><a href="{{ url_for('eventos.lead_detail', lead_id=lead.id) }}" class="btn btn-xs btn-outline-primary py-0 px-2">Ver</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

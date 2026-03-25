@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eventos.clientes") %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="fw-bold mb-0">👤 {{ client.name }}</h5>
+        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editClientModal">Editar</button>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header small fw-semibold">Dados do Cliente</div>
+                <div class="card-body small">
+                    <dl class="row mb-0">
+                        <dt class="col-4 text-muted">Nome</dt>
+                        <dd class="col-8">{{ client.name }}</dd>
+                        <dt class="col-4 text-muted">Email</dt>
+                        <dd class="col-8">{{ client.email or '—' }}</dd>
+                        <dt class="col-4 text-muted">Telefone</dt>
+                        <dd class="col-8">{{ client.phone or '—' }}</dd>
+                        <dt class="col-4 text-muted">Mkt Consent</dt>
+                        <dd class="col-8">
+                            {% if client.marketing_consent %}<span class="text-success fw-bold">✓ Autorizado</span>
+                            {% else %}<span class="text-muted">Não autorizado</span>{% endif %}
+                        </dd>
+                        <dt class="col-4 text-muted">Eventos</dt>
+                        <dd class="col-8"><span class="badge bg-{{ 'warning text-dark' if client.event_count > 1 else 'light text-dark border' }}">{{ client.event_count }}</span></dd>
+                        <dt class="col-4 text-muted">Registado</dt>
+                        <dd class="col-8">{{ client.created_at.strftime('%d/%m/%Y') if client.created_at else '—' }}</dd>
+                    </dl>
+                    {% if client.notes %}
+                    <hr class="my-2">
+                    <div class="text-muted small">{{ client.notes }}</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header small fw-semibold">Histórico de Eventos ({{ client_events | length }})</div>
+        {% if client_events %}
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover small align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nome</th>
+                            <th>Tipo</th>
+                            <th>Data</th>
+                            <th>Horário</th>
+                            <th>Convidados</th>
+                            <th>Local</th>
+                            <th class="text-end">Faturação</th>
+                            <th>Estado</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ev in client_events %}
+                        <tr>
+                            <td>{{ ev.event_name or '—' }}</td>
+                            <td>{{ ev.event_type or '—' }}</td>
+                            <td>{{ ev.event_date.strftime('%d/%m/%Y') if ev.event_date else '—' }}</td>
+                            <td>
+                                {{ ev.event_time or '' }}
+                                {% if ev.event_end_time %} – {{ ev.event_end_time }}{% endif %}
+                            </td>
+                            <td>{{ ev.estimated_guests or '—' }}</td>
+                            <td>{{ ev.venue or '—' }}</td>
+                            <td class="text-end">
+                                {% if ev.invoice_amount_eur %}{{ '%.2f'|format(ev.invoice_amount_eur) }} €{% else %}—{% endif %}
+                            </td>
+                            <td><span class="badge bg-secondary">{{ ev.status }}</span></td>
+                            <td><a href="{{ url_for('eventos.evento_detail', event_id=ev.id) }}" class="btn btn-sm btn-outline-secondary py-0 px-1">Ver</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="card-body text-muted small">Nenhum evento associado a este cliente.</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Edit client modal -->
+<div class="modal fade" id="editClientModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form method="post" action="{{ url_for('eventos.cliente_detail', client_id=client.id) }}">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Editar Cliente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Nome *</label>
+                        <input type="text" name="name" class="form-control form-control-sm" value="{{ client.name }}" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Email</label>
+                        <input type="email" name="email" class="form-control form-control-sm" value="{{ client.email or '' }}">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Telefone</label>
+                        <input type="text" name="phone" class="form-control form-control-sm" value="{{ client.phone or '' }}">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Notas</label>
+                        <textarea name="notes" rows="2" class="form-control form-control-sm">{{ client.notes or '' }}</textarea>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="marketing_consent" value="1" id="mktEdit"
+                            {% if client.marketing_consent %}checked{% endif %}>
+                        <label class="form-check-label small" for="mktEdit">Autorizou contacto para marketing</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

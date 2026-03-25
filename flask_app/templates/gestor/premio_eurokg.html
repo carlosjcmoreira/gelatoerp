@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+{% set back_url = back_url %}
+{% set page_title = 'Prémio Euro/kg' %}
+
+{% block title %}Prémio Euro/kg{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+  <h5 class="fw-bold mb-3">🏆 Prémio Euro/kg</h5>
+
+  <form method="get" class="row g-2 mb-4">
+    <div class="col-auto">
+      <label class="form-label small fw-semibold mb-1">Ano</label>
+      <input type="number" name="ano" value="{{ ano_sel }}" min="2020" max="2099" class="form-control form-control-sm" style="width: 100px;">
+    </div>
+    <div class="col-auto">
+      <label class="form-label small fw-semibold mb-1">Vista</label>
+      <select name="loja" class="form-select form-select-sm">
+        {% for op in ['Porto (Global)', 'Matosinhos', 'Bolhão'] %}
+        <option value="{{ op }}" {% if op == loja_sel %}selected{% endif %}>{{ op }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto d-flex align-items-end">
+      <button type="submit" class="btn btn-primary btn-sm">Calcular</button>
+    </div>
+  </form>
+
+  {% if erro %}
+  <div class="alert alert-danger">Erro ao calcular: {{ erro }}</div>
+  {% elif dados_meses %}
+
+  <div class="table-responsive mb-3">
+    <table class="table table-sm table-bordered align-middle" style="min-width: 1200px;">
+      <thead class="table-light fw-bold text-center small">
+        <tr>
+          <th style="width: 150px; position: sticky; left: 0; background: #f5f5f5;">Métrica</th>
+          {% for m in dados_meses %}
+          <th style="width: 110px;">{{ m.mes_nome[:3] }}<br><small class="fw-normal text-muted">Mês {{ m.mes }}</small></th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr class="text-center small">
+          <td class="text-start fw-semibold bg-body-secondary" style="position: sticky; left: 0;">Consumo (kg)</td>
+          {% for m in dados_meses %}
+          <td class="{% if m.is_future %}bg-white{% else %}bg-body-tertiary{% endif %} text-end">
+            {% if m.is_future %}
+            <input type="text" data-field="consumo" data-mes="{{ m.mes }}" class="form-control form-control-sm input-estimativa" value="{{ m.consumo }}" placeholder="Estimativa">
+            {% else %}
+            <span data-field="consumo" data-mes="{{ m.mes }}">{{ "%.1f"|format(m.consumo) }}</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr class="text-center small">
+          <td class="text-start fw-semibold bg-body-secondary" style="position: sticky; left: 0;">Vendas Reais (€)</td>
+          {% for m in dados_meses %}
+          <td class="{% if m.is_future %}bg-white{% else %}bg-body-tertiary{% endif %} text-end">
+            {% if m.is_future %}
+            <input type="text" data-field="vendas" data-mes="{{ m.mes }}" class="form-control form-control-sm input-estimativa" value="{{ m.vendas }}" placeholder="Estimativa">
+            {% else %}
+            <span data-field="vendas" data-mes="{{ m.mes }}">{{ "%.2f"|format(m.vendas) }}</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr class="text-center small">
+          <td class="text-start fw-semibold bg-body-secondary" style="position: sticky; left: 0;">Target (€/kg)</td>
+          {% for m in dados_meses %}
+          <td class="bg-white text-end">
+            <input type="number" step="0.01" min="0" data-field="target" data-mes="{{ m.mes }}" class="form-control form-control-sm input-target" value="{{ m.target }}" placeholder="25.00">
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr class="text-center small">
+          <td class="text-start fw-semibold bg-body-secondary" style="position: sticky; left: 0;">Vendas Teóricas (€)</td>
+          {% for m in dados_meses %}
+          <td class="{% if m.is_future %}bg-white{% else %}bg-body-tertiary{% endif %} text-end">
+            <span class="vendas-teoricas" data-mes="{{ m.mes }}">{{ "%.2f"|format(m.vendas_teoricas) }}</span>
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr class="text-center small">
+          <td class="text-start fw-semibold bg-body-secondary" style="position: sticky; left: 0;">Ganho Extra (€)</td>
+          {% for m in dados_meses %}
+          <td class="{% if m.is_future %}bg-white{% else %}bg-body-tertiary{% endif %} text-end {% if m.ganho_extra < 0 %}text-danger{% else %}text-success{% endif %}">
+            <span class="ganho-extra" data-mes="{{ m.mes }}">{{ "%.2f"|format(m.ganho_extra) }}</span>
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr class="text-center small fw-bold" style="background: linear-gradient(to bottom, #fff3cd 0%, #fffbec 100%);">
+          <td class="text-start fw-bold bg-warning-subtle" style="position: sticky; left: 0;">Prémio (€)</td>
+          {% for m in dados_meses %}
+          <td class="text-end">
+            <span class="premio" data-mes="{{ m.mes }}" style="font-size: 1.1rem; {% if m.premio > 0 %}color: var(--bs-success){% else %}color: var(--bs-secondary){% endif %}">{{ "%.2f"|format(m.premio) }}</span>
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr class="text-center small border-top">
+          <td class="text-start fw-semibold bg-body-secondary" style="position: sticky; left: 0;">Colaboradores Elegíveis</td>
+          {% for m in dados_meses %}
+          <td class="bg-white text-end">
+            <input type="number" min="0" data-field="colaboradores" data-mes="{{ m.mes }}" class="form-control form-control-sm input-colaboradores" value="{{ m.colaboradores_elegiveis }}" placeholder="0">
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr class="text-center small fw-semibold" style="background: linear-gradient(to bottom, #d4edda 0%, #f0f9f6 100%);">
+          <td class="text-start fw-bold bg-success-subtle" style="position: sticky; left: 0;">Prémio por Colaborador (€)</td>
+          {% for m in dados_meses %}
+          <td class="text-end">
+            <span class="premio-colaborador" data-mes="{{ m.mes }}" style="font-size: 1rem; color: var(--bs-success);">{{ "%.2f"|format(m.premio_por_colaborador) }}</span>
+          </td>
+          {% endfor %}
+        </tr>
+
+      </tbody>
+    </table>
+  </div>
+
+  <div class="alert alert-info small">
+    <strong>Como usar:</strong> Meses passados/presentes (fundo cinzento claro) mostram dados reais. 
+    Meses futuros (fundo branco) permitem editar o Consumo e Vendas Reais para fazer estimativas.
+    O Prémio atualiza automaticamente conforme editas os valores.
+  </div>
+
+  {% endif %}
+
+</div>
+
+<script>
+function getFieldValue(field, mes) {
+  const elem = document.querySelector('[data-field="' + field + '"][data-mes="' + mes + '"]');
+  if (!elem) {
+    console.warn('Element not found for', field, 'mes', mes);
+    return 0;
+  }
+  let value = 0;
+  if (elem.tagName === 'INPUT') {
+    value = parseFloat(elem.value);
+  } else {
+    value = parseFloat(elem.textContent.trim());
+  }
+  return isNaN(value) ? 0 : value;
+}
+
+function recalculateMes(mes) {
+  try {
+    const consumo = getFieldValue('consumo', mes);
+    const vendas = getFieldValue('vendas', mes);
+    const target = getFieldValue('target', mes);
+    
+    const colaboradoresEl = document.querySelector('input[data-field="colaboradores"][data-mes="' + mes + '"]');
+    const colaboradores = colaboradoresEl ? (parseInt(colaboradoresEl.value) || 0) : 0;
+    
+    const vendas_teoricas = consumo * target;
+    const ganho_extra = vendas - vendas_teoricas;
+    const premio = Math.max(0, ganho_extra * 0.10);
+    const premio_por_colaborador = colaboradores > 0 ? premio / colaboradores : 0;
+
+    const vendasteoEl = document.querySelector('span.vendas-teoricas[data-mes="' + mes + '"]');
+    if (vendasteoEl) vendasteoEl.textContent = vendas_teoricas.toFixed(2);
+    
+    const ganhoEl = document.querySelector('span.ganho-extra[data-mes="' + mes + '"]');
+    if (ganhoEl) {
+      ganhoEl.textContent = ganho_extra.toFixed(2);
+      ganhoEl.className = 'ganho-extra ' + (ganho_extra < 0 ? 'text-danger' : 'text-success');
+    }
+
+    const premioEl = document.querySelector('span.premio[data-mes="' + mes + '"]');
+    if (premioEl) {
+      premioEl.textContent = premio.toFixed(2);
+      premioEl.style.color = premio > 0 ? 'var(--bs-success)' : 'var(--bs-secondary)';
+    }
+
+    const premioColabEl = document.querySelector('span.premio-colaborador[data-mes="' + mes + '"]');
+    if (premioColabEl) premioColabEl.textContent = premio_por_colaborador.toFixed(2);
+  } catch (e) {
+    console.error('Error in recalculateMes:', e);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const inputs = document.querySelectorAll('.input-estimativa, .input-colaboradores, .input-target');
+  
+  inputs.forEach(input => {
+    input.addEventListener('input', function() {
+      const mes = this.dataset.mes;
+      recalculateMes(mes);
+    });
+  });
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,73 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-2">Transferir Stock de Produção</h5>
+<p class="text-muted small mb-3">Preencha a quantidade a enviar para Bolhão.</p>
+
+{% if cards %}
+<form method="post" id="transferForm">
+<div class="card mb-3">
+    <div class="card-body p-2">
+        <label class="form-label small mb-1">Data prevista de entrega</label>
+        <input type="date" name="data_prevista" class="form-control form-control-sm" value="{{ today }}">
+    </div>
+</div>
+{% set counter = namespace(n=0) %}
+{% for card in cards %}
+<div class="transfer-card mb-3">
+    <div class="transfer-card-header">
+        <span class="fw-bold" style="font-size:1.05rem;">{{ card.icon }} {{ card.sabor }}</span>
+    </div>
+    <div class="transfer-card-body">
+        <table class="table table-sm mb-0" style="font-size:0.82rem;">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th class="text-center">Bolhão</th>
+                    <th class="text-center text-muted">Matosinhos</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="text-muted">Balcão</td>
+                    <td class="text-center">{{ "%.1f"|format(card.balcao_bolhao) }} <span class="text-muted" style="font-size:0.7rem;">({{ card.data_pesagem_bolhao }})</span></td>
+                    <td class="text-center text-muted">{{ "%.1f"|format(card.balcao_matosinhos) }} <span style="font-size:0.7rem;">({{ card.data_pesagem_matosinhos }})</span></td>
+                </tr>
+                <tr>
+                    <td class="text-muted">Produção</td>
+                    <td class="text-center fw-bold">{{ "%.1f"|format(card.stock_prod_bolhao) }}</td>
+                    <td class="text-center text-muted">{{ "%.1f"|format(card.stock_prod_matosinhos) }}</td>
+                </tr>
+                <tr>
+                    <td class="text-muted">Transferir</td>
+                    <td class="text-center">
+                        {% set total_stock = card.stock_prod_bolhao + card.stock_prod_matosinhos %}
+                        {% if total_stock > 0 %}
+                        <input type="hidden" name="sabor_{{ counter.n }}" value="{{ card.sabor }}">
+                        <input type="hidden" name="loja_{{ counter.n }}" value="Bolhão">
+                        <input type="text" name="qty_{{ counter.n }}"
+                               class="form-control form-control-sm text-center"
+                               placeholder="—" inputmode="decimal"
+                               style="max-width:70px;margin:0 auto;">
+                        {% set counter.n = counter.n + 1 %}
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center text-muted">—</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endfor %}
+</form>
+
+<div class="save-bar-spacer"></div>
+<div class="save-bar">
+    <button type="submit" form="transferForm" class="btn btn-primary w-100">Criar ordem de transferência</button>
+</div>
+{% else %}
+<div class="alert alert-info">Sem stock de produção disponível. Registe produção real na página "Produzir" primeiro.</div>
+{% endif %}
+{% endblock %}

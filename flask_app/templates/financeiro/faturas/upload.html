@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% set back_url = url_for("faturas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <h5 class="mb-3">📤 Nova Fatura</h5>
+
+    <!-- Canal 1: Email / Upload PDF -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title mb-1">📧 Carregar por Email/Upload</h6>
+            <p class="text-muted small mb-3">PDF recebido por email ou digitalizado</p>
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('faturas.upload') }}">
+                <input type="hidden" name="channel" value="email_upload">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Ficheiro PDF <span class="text-danger">*</span></label>
+                    <input type="file" name="pdf_file" class="form-control"
+                           accept=".pdf,.xlsx,.xls" required>
+                    <div class="form-text">PDF de fatura (extracção OCR automática) ou Excel de histórico para importação em batch.</div>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Processar ficheiro</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Canal 2: Fotografia de Entrega -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title mb-1">📷 Fotografia de Entrega</h6>
+            <p class="text-muted small mb-3">Fotografia tirada com telemóvel na recepção da mercadoria</p>
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('faturas.upload') }}">
+                <input type="hidden" name="channel" value="photo">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Fotografia <span class="text-danger">*</span></label>
+                    <input type="file" name="photo_file" class="form-control"
+                           accept="image/*" capture="environment" required>
+                    <div class="form-text">Imagem JPG, PNG ou HEIC capturada na entrega. O OCR extrai os dados automaticamente.</div>
+                </div>
+                <button type="submit" class="btn btn-success w-100">Processar fotografia</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Formato Excel -->
+    <div class="card">
+        <div class="card-body">
+            <h6 class="card-title">Formato Excel para importação</h6>
+            <p class="text-muted small mb-2">O Excel deve ter colunas (nome aproximado aceite):</p>
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered small mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Coluna</th><th>Exemplo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Fornecedor</td><td>Empresa X Lda</td></tr>
+                        <tr><td>NIF</td><td>500123456</td></tr>
+                        <tr><td>Fatura / Número</td><td>FT2024/001</td></tr>
+                        <tr><td>Valor / Total</td><td>1234.56</td></tr>
+                        <tr><td>IVA</td><td>235.67</td></tr>
+                        <tr><td>Data Emissão</td><td>2024-01-15</td></tr>
+                        <tr><td>Data Vencimento / Vencimento</td><td>2024-02-15</td></tr>
+                        <tr><td>Categoria</td><td>Matérias-primas</td></tr>
+                        <tr><td>Subpasta</td><td>Produção</td></tr>
+                        <tr><td>Estado</td><td>paid</td></tr>
+                        <tr><td>Notas</td><td>(texto livre)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

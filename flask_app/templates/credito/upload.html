@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% set back_url = url_for("credito.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">📤 Upload de Documento Bancário</h5>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title">📄 Carregar Documento</h6>
+            <p class="small text-muted mb-3">
+                Carregue um PDF ou imagem de um documento bancário (contrato de leasing, crédito, empréstimo, etc.)
+                e o sistema extrai automaticamente os dados para criar os contratos.
+            </p>
+            <form method="POST" action="{{ url_for('credito.processar_upload') }}" enctype="multipart/form-data">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-8">
+                        <label class="form-label small mb-1">Documento (PDF, PNG, JPG, WEBP) <span class="text-danger">*</span></label>
+                        <input type="file" name="documento" class="form-control form-control-sm"
+                               accept=".pdf,.png,.jpg,.jpeg,.webp" required>
+                    </div>
+                    <div class="col-md-4">
+                        <button type="submit" class="btn btn-primary btn-sm w-100" id="btnProcessar">
+                            🔍 Analisar Documento
+                        </button>
+                    </div>
+                </div>
+                <div class="small text-muted mt-2">
+                    Formatos aceites: PDF, PNG, JPG, WEBP. Tamanho máximo: 20 MB.
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if extracted %}
+    <form method="POST" action="{{ url_for('credito.confirmar_upload') }}">
+        <input type="hidden" name="contracts_json" value="{{ extracted | tojson | forceescape }}">
+
+        <div class="alert alert-info py-2 mb-3">
+            <strong>ℹ️</strong> Foram extraídos <strong>{{ extracted|length }}</strong> contrato(s).
+            Reveja os dados, corrija o que for necessário e confirme a criação.
+        </div>
+
+        {% for c in extracted %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="card-title mb-0">Contrato {{ loop.index }}: {{ c.label or 'Sem nome' }}</h6>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="skip_{{ loop.index0 }}" value="1" id="skip{{ loop.index0 }}">
+                        <label class="form-check-label small text-muted" for="skip{{ loop.index0 }}">Ignorar</label>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Tipo</label>
+                        <select name="tipo_{{ loop.index0 }}" class="form-select form-select-sm">
+                            {% for val, lbl in tipos %}
+                            <option value="{{ val }}" {% if c.tipo == val %}selected{% endif %}>{{ lbl }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small mb-1">Label / Nome</label>
+                        <input type="text" name="label_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.label or '' }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Banco</label>
+                        <input type="text" name="banco_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.banco or '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Loja Associada</label>
+                        <select name="loja_{{ loop.index0 }}" class="form-select form-select-sm">
+                            <option value="">—</option>
+                            {% for l in lojas %}
+                            <option value="{{ l }}" {% if c.loja_associada == l %}selected{% endif %}>{{ l }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Capital Inicial (€)</label>
+                        <input type="number" step="0.01" name="capital_inicial_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.capital_inicial if c.capital_inicial is not none else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Saldo em Dívida (€)</label>
+                        <input type="number" step="0.01" name="saldo_divida_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.saldo_divida if c.saldo_divida is not none else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">TAN (%)</label>
+                        <input type="number" step="0.0001" name="tan_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.tan if c.tan is not none else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Prestação Mensal (€)</label>
+                        <input type="number" step="0.01" name="prestacao_mensal_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.prestacao_mensal if c.prestacao_mensal is not none else '' }}">
+                    </div>
+                    <div class="col-md-1">
+                        <label class="form-label small mb-1">Dia Déb.</label>
+                        <input type="number" min="1" max="31" name="dia_debito_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.dia_debito if c.dia_debito is not none else '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Plafond (€)</label>
+                        <input type="number" step="0.01" name="plafond_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.plafond if c.plafond is not none else '' }}">
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Data Início</label>
+                        <input type="date" name="data_inicio_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.data_inicio or '' }}">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Data Fim</label>
+                        <input type="date" name="data_fim_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.data_fim or '' }}">
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label small mb-1">Notas</label>
+                        <input type="text" name="notas_{{ loop.index0 }}" class="form-control form-control-sm"
+                               value="{{ c.notas or '' }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <div class="d-flex gap-2 mb-4">
+            <button type="submit" class="btn btn-success btn-sm">
+                ✅ Criar {{ extracted|length }} Contrato(s)
+            </button>
+            <a href="{{ url_for('credito.upload') }}" class="btn btn-outline-secondary btn-sm">Cancelar</a>
+        </div>
+    </form>
+    {% endif %}
+
+    <div class="alert alert-secondary py-2 mt-3 small">
+        <strong>Como funciona:</strong>
+        <ol class="mb-0 ps-3 mt-1">
+            <li>Carregue um documento bancário (PDF ou foto do contrato)</li>
+            <li>O sistema analisa o documento com IA e extrai os dados do(s) contrato(s)</li>
+            <li>Reveja e corrija os dados extraídos</li>
+            <li>Confirme para criar os contratos automaticamente</li>
+        </ol>
+    </div>
+</div>
+{% endblock %}

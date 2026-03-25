@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">▶️ Produzir</h5>
+    <p class="text-muted small mb-3">Registar produção real</p>
+
+    <form method="get" class="mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-8">
+                <label class="form-label small">📅 Dia do plano</label>
+                <input type="date" name="data" class="form-control form-control-sm" value="{{ data_plano }}">
+            </div>
+            <div class="col-4">
+                <button type="submit" class="btn btn-primary btn-sm w-100">Ver</button>
+            </div>
+        </div>
+    </form>
+
+    <hr>
+
+    {% if entradas %}
+    <p class="text-muted small mb-2">{{ n_done }} de {{ n_total }} produtos com produção registada</p>
+
+    <form method="post" id="produzirForm">
+        <input type="hidden" name="data" value="{{ data_plano }}">
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0" style="font-size:0.85rem;">
+                <thead>
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-center" style="width:55px;">Est.</th>
+                        <th class="text-center" style="width:75px;">Real</th>
+                        <th class="text-center" style="width:45px;">Δ</th>
+                        <th class="text-center" style="width:50px;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in entradas %}
+                    {% set real_val = item.real if item.real is not none else 0 %}
+                    {% set status = item.status|default('pendente') %}
+                    <tr id="row-{{ loop.index }}" data-produto="{{ item.produto }}" data-status="{{ status }}">
+                        <td>
+                            <span class="fw-bold">{{ item.produto }}</span>
+                            {% if item.nota %}
+                            <br><span class="text-muted" style="font-size:0.75rem;" id="nota-text-{{ loop.index }}">📝 {{ item.nota }}</span>
+                            {% else %}
+                            <br><span class="text-muted" style="font-size:0.75rem;display:none;" id="nota-text-{{ loop.index }}"></span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center text-muted">{{ item.estimado }}</td>
+                        <td>
+                            <input type="number" name="real_{{ item.produto }}"
+                                   class="form-control form-control-sm text-center real-input"
+                                   data-produto="{{ item.produto }}"
+                                   data-est="{{ item.estimado }}"
+                                   placeholder="—"
+                                   value="{{ real_val if real_val > 0 else '' }}"
+                                   min="0" step="1"
+                                   inputmode="numeric">
+                        </td>
+                        <td class="text-center delta-cell" id="delta-{{ loop.index }}">
+                            {% if item.has_real %}
+                                {% set delta = real_val - item.estimado %}
+                                <span class="{{ 'text-success' if delta >= 0 else 'text-danger' }} fw-bold">
+                                    {{ '+%d'|format(delta) if delta >= 0 else '%d'|format(delta) }}
+                                </span>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if status == 'concluido' %}
+                            <span class="badge bg-success" style="font-size:0.7rem;">✓</span>
+                            {% elif status == 'em_curso' %}
+                            <button type="button" class="btn btn-sm p-0 status-btn" data-row="{{ loop.index }}" data-produto="{{ item.produto }}" title="Em curso">
+                                <span class="badge bg-warning text-dark" style="font-size:0.7rem;">⏳</span>
+                            </button>
+                            {% else %}
+                            <button type="button" class="btn btn-sm p-0 status-btn" data-row="{{ loop.index }}" data-produto="{{ item.produto }}" title="Pendente">
+                                <span class="badge bg-secondary" style="font-size:0.7rem;">○</span>
+                            </button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <div class="save-bar-spacer"></div>
+    <div class="save-bar">
+        <button type="submit" form="produzirForm" class="btn btn-primary w-100">Registar produção</button>
+    </div>
+    {% else %}
+    <div class="alert alert-info">Nenhum produto no plano para este dia. Vá a "Planear Produção" primeiro.</div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="statusModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="statusModalTitle">Status</h6>
+                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                <input type="hidden" id="modal-produto" value="">
+                <input type="hidden" id="modal-row" value="">
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Status</label>
+                    <select id="modal-status" class="form-select form-select-sm">
+                        <option value="pendente">Pendente</option>
+                        <option value="em_curso">Em curso</option>
+                    </select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Nota rápida</label>
+                    <input type="text" id="modal-nota" class="form-control form-control-sm" placeholder="Ex: falta cobertura...">
+                </div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-primary btn-sm w-100" id="btnSaveStatus">Guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var inputs = document.querySelectorAll('.real-input');
+    inputs.forEach(function(inp) {
+        inp.addEventListener('input', function() {
+            var row = this.closest('tr');
+            var est = parseInt(this.dataset.est) || 0;
+            var real = parseInt(this.value) || 0;
+            var deltaCell = row.querySelector('.delta-cell');
+            if (real > 0) {
+                var delta = real - est;
+                var cls = delta >= 0 ? 'text-success' : 'text-danger';
+                var prefix = delta >= 0 ? '+' : '';
+                deltaCell.innerHTML = '<span class="' + cls + ' fw-bold">' + prefix + delta + '</span>';
+            } else {
+                deltaCell.textContent = '—';
+            }
+        });
+    });
+
+    var statusModal = new bootstrap.Modal(document.getElementById('statusModal'));
+    document.querySelectorAll('.status-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var row = document.getElementById('row-' + this.dataset.row);
+            var currentStatus = row.dataset.status;
+            document.getElementById('modal-produto').value = this.dataset.produto;
+            document.getElementById('modal-row').value = this.dataset.row;
+            document.getElementById('modal-status').value = currentStatus === 'em_curso' ? 'em_curso' : 'pendente';
+            var notaEl = document.getElementById('nota-text-' + this.dataset.row);
+            var notaText = notaEl ? notaEl.textContent.replace('📝 ', '').trim() : '';
+            document.getElementById('modal-nota').value = notaText;
+            statusModal.show();
+        });
+    });
+
+    document.getElementById('btnSaveStatus').addEventListener('click', function() {
+        var produto = document.getElementById('modal-produto').value;
+        var rowIdx = document.getElementById('modal-row').value;
+        var status = document.getElementById('modal-status').value;
+        var nota = document.getElementById('modal-nota').value;
+
+        var formData = new FormData();
+        formData.append('data', '{{ data_plano }}');
+        formData.append('produto', produto);
+        formData.append('status', status);
+        formData.append('nota', nota);
+
+        fetch('{{ url_for("pastelaria.produzir_status") }}', {
+            method: 'POST',
+            body: formData
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                var row = document.getElementById('row-' + rowIdx);
+                row.dataset.status = data.status;
+                var statusCell = row.querySelector('td:last-child');
+                if (data.status === 'em_curso') {
+                    statusCell.innerHTML = '<button type="button" class="btn btn-sm p-0 status-btn" data-row="' + rowIdx + '" data-produto="' + produto + '"><span class="badge bg-warning text-dark" style="font-size:0.7rem;">⏳</span></button>';
+                } else {
+                    statusCell.innerHTML = '<button type="button" class="btn btn-sm p-0 status-btn" data-row="' + rowIdx + '" data-produto="' + produto + '"><span class="badge bg-secondary" style="font-size:0.7rem;">○</span></button>';
+                }
+                statusCell.querySelector('.status-btn').addEventListener('click', function() {
+                    document.getElementById('modal-produto').value = this.dataset.produto;
+                    document.getElementById('modal-row').value = this.dataset.row;
+                    document.getElementById('modal-status').value = row.dataset.status;
+                    var ne = document.getElementById('nota-text-' + this.dataset.row);
+                    document.getElementById('modal-nota').value = ne ? ne.textContent.replace('📝 ', '').trim() : '';
+                    statusModal.show();
+                });
+
+                var notaEl = document.getElementById('nota-text-' + rowIdx);
+                if (nota) {
+                    notaEl.textContent = '📝 ' + nota;
+                    notaEl.style.display = '';
+                } else {
+                    notaEl.textContent = '';
+                    notaEl.style.display = 'none';
+                }
+                statusModal.hide();
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,270 @@
+{% if msg %}
+<div class="alert alert-success alert-dismissible fade show py-2" role="alert">
+    {{ msg }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+{% if erro %}
+<div class="alert alert-danger alert-dismissible fade show py-2" role="alert">
+    {{ erro }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">{{ '✏️ Editar Loja' if edit_store else '➕ Nova Loja' }}</h6>
+        <form method="POST">
+            <input type="hidden" name="action" value="upsert_store">
+            {% if edit_store %}
+            <input type="hidden" name="store_id" value="{{ edit_store.id }}">
+            {% endif %}
+            <div class="row g-2 mb-2">
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">
+                        Nome <span class="text-danger">*</span>
+                        <span class="text-muted ms-1" title="Nome da loja tal como aparece em relatórios e registos (ex: Matosinhos, Bolhão)">ⓘ</span>
+                    </label>
+                    <input type="text" name="name" class="form-control form-control-sm"
+                           value="{{ edit_store.name if edit_store else '' }}" required
+                           placeholder="ex: Mouzinho da Silveira">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label small mb-1">
+                        Morada
+                        <span class="text-muted ms-1" title="Morada completa da loja, usada para referência interna">ⓘ</span>
+                    </label>
+                    <input type="text" name="address" class="form-control form-control-sm"
+                           value="{{ edit_store.address or '' if edit_store else '' }}"
+                           placeholder="ex: Rua de Mouzinho da Silveira, Porto">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">
+                        Tipo
+                        <span class="text-muted ms-1" title="Loja: vende ao público. Produção: produz e distribui. Armazém: stockagem apenas.">ⓘ</span>
+                    </label>
+                    <select name="store_type" class="form-select form-select-sm">
+                        {% set cur_type = edit_store.store_type if edit_store else 'loja' %}
+                        <option value="loja" {% if cur_type == 'loja' %}selected{% endif %}>Loja</option>
+                        <option value="producao" {% if cur_type == 'producao' %}selected{% endif %}>Produção</option>
+                        <option value="armazem" {% if cur_type == 'armazem' %}selected{% endif %}>Armazém</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">
+                        ID Zonesoft / POS
+                        <span class="text-muted ms-1" title="ID numérico desta loja no Zonesoft (sistema POS). Aparece nos ficheiros Excel como 'Loja: X - Nome'. Ex: Matosinhos → 1, Bolhão/Niva Porto → 3. Necessário para importação automática de 'Evolução de Vendas'.">ⓘ</span>
+                    </label>
+                    <input type="text" name="pos_store_code" class="form-control form-control-sm"
+                           value="{{ edit_store.pos_store_code or '' if edit_store else '' }}"
+                           placeholder="ex: 3">
+                </div>
+            </div>
+            <div class="row g-2 mb-2">
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">
+                        Latitude
+                        <span class="text-muted ms-1" title="Coordenada geográfica (latitude decimal). Usada para mapas e logística.">ⓘ</span>
+                    </label>
+                    <input type="number" step="any" name="latitude" class="form-control form-control-sm"
+                           value="{{ edit_store.latitude if edit_store and edit_store.latitude is not none else '' }}"
+                           placeholder="ex: 41.1579">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">
+                        Longitude
+                        <span class="text-muted ms-1" title="Coordenada geográfica (longitude decimal). Usada para mapas e logística.">ⓘ</span>
+                    </label>
+                    <input type="number" step="any" name="longitude" class="form-control form-control-sm"
+                           value="{{ edit_store.longitude if edit_store and edit_store.longitude is not none else '' }}"
+                           placeholder="ex: -8.6291">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">
+                        Data de Abertura
+                        <span class="text-muted ms-1" title="Data em que a loja abriu. Usada para filtrar históricos e relatórios por período de operação.">ⓘ</span>
+                    </label>
+                    <input type="date" name="opened_at" class="form-control form-control-sm"
+                           value="{{ edit_store.opened_at.strftime('%Y-%m-%d') if edit_store and edit_store.opened_at else '' }}">
+                </div>
+                <div class="col-md-6 d-flex gap-3 align-items-end pb-1 flex-wrap">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="is_active" value="1" id="chk_active"
+                               {% if not edit_store or edit_store.is_active %}checked{% endif %}>
+                        <label class="form-check-label small" for="chk_active">
+                            Ativa
+                            <span class="text-muted ms-1" title="Loja ativa aparece em todos os formulários e relatórios. Desativar oculta-a sem apagar dados históricos.">ⓘ</span>
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="receives_transfers" value="1" id="chk_recv"
+                               {% if edit_store and edit_store.receives_transfers %}checked{% endif %}>
+                        <label class="form-check-label small" for="chk_recv">
+                            Recebe Transferências
+                            <span class="text-muted ms-1" title="Indica que esta loja pode receber transferências de produto de outras lojas ou da produção.">ⓘ</span>
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="requires_eod_weighing" value="1" id="chk_eod"
+                               {% if edit_store and edit_store.requires_eod_weighing %}checked{% endif %}>
+                        <label class="form-check-label small" for="chk_eod">
+                            Pesagem EOD
+                            <span class="text-muted ms-1" title="Pesagem de fim de dia (End-of-Day) obrigatória. A loja deve registar o peso do gelado restante no final de cada dia.">ⓘ</span>
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="shows_on_landing" value="1" id="chk_landing"
+                               {% if edit_store and edit_store.shows_on_landing %}checked{% endif %}>
+                        <label class="form-check-label small" for="chk_landing">
+                            Mostrar na página inicial
+                            <span class="text-muted ms-1" title="Quando ativa e com esta opção marcada, a loja aparece como tile na página inicial (útil para lojas novas como Mouzinho).">ⓘ</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    {{ '💾 Guardar Alterações' if edit_store else '➕ Adicionar Loja' }}
+                </button>
+                {% if edit_store %}
+                <a href="{{ url_for('gestor.gestao_lojas') }}" class="btn btn-outline-secondary btn-sm">Cancelar</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if edit_store %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">🏷️ Nomes Alternativos (Aliases) — {{ edit_store.name }}</h6>
+        <p class="text-muted small mb-2">
+            Aliases permitem que o sistema mapeie automaticamente nomes ou códigos alternativos usados nos ficheiros de importação para esta loja.
+            Por exemplo, se o ficheiro diz <code>Niva Porto</code> mas a loja se chama <code>Bolhão</code>, adicione <code>Niva Porto</code> como alias de nome.
+        </p>
+        {% if edit_store_aliases %}
+        <table class="table table-sm table-bordered mb-2" style="max-width:600px">
+            <thead>
+                <tr>
+                    <th class="small">Nome alternativo</th>
+                    <th class="small">Código alternativo</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in edit_store_aliases %}
+                <tr>
+                    <td class="small">{{ a.alias_name or '—' }}</td>
+                    <td class="small">{{ a.alias_code or '—' }}</td>
+                    <td>
+                        <form method="POST"
+                              action="{{ url_for('gestor.delete_store_alias', store_id=edit_store.id, alias_id=a.id) }}"
+                              onsubmit="return confirm('Remover este alias?')" class="d-inline">
+                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Remover">🗑️</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted small">Nenhum alias configurado.</p>
+        {% endif %}
+        <form method="POST" action="{{ url_for('gestor.add_store_alias', store_id=edit_store.id) }}" class="row g-2 align-items-end mt-1">
+            <div class="col-auto">
+                <label class="form-label small mb-1">
+                    Nome alternativo
+                    <span class="text-muted ms-1" title="Nome como aparece no ficheiro (ex: Niva Porto). Pode ficar vazio se só precisar de código.">ⓘ</span>
+                </label>
+                <input type="text" name="alias_name" class="form-control form-control-sm" placeholder="ex: Niva Porto" style="width:200px">
+            </div>
+            <div class="col-auto">
+                <label class="form-label small mb-1">
+                    Código alternativo
+                    <span class="text-muted ms-1" title="Código numérico ou string alternativo no ficheiro (ex: 3). Pode ficar vazio.">ⓘ</span>
+                </label>
+                <input type="text" name="alias_code" class="form-control form-control-sm" placeholder="ex: 3" style="width:120px">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-outline-primary btn-sm">➕ Adicionar Alias</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Lojas Registadas</h6>
+        {% if stores %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Tipo</th>
+                        <th>Morada</th>
+                        <th class="text-center">Ativa</th>
+                        <th class="text-center" title="Recebe Transferências">Transf.</th>
+                        <th class="text-center" title="Requer Pesagem de Fim de Dia">EOD</th>
+                        <th class="text-center" title="Mostra na página inicial">Landing</th>
+                        <th title="ID numérico no Zonesoft/POS. Usado no import de 'Evolução de Vendas'.">ID Zonesoft</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in stores %}
+                    <tr class="{{ '' if s.is_active else 'text-muted' }}">
+                        <td class="small fw-semibold">{{ s.name }}</td>
+                        <td class="small">{{ s.store_type }}</td>
+                        <td class="small">{{ s.address or '—' }}</td>
+                        <td class="text-center">
+                            <form method="POST" class="d-inline"
+                                  onsubmit="return confirmToggle(this, '{{ s.name }}', {{ 'true' if s.is_active else 'false' }})">
+                                <input type="hidden" name="action" value="toggle_active">
+                                <input type="hidden" name="store_id" value="{{ s.id }}">
+                                <input type="hidden" name="is_active" value="{{ '0' if s.is_active else '1' }}">
+                                <button type="submit" class="btn btn-link p-0 border-0"
+                                        title="{{ 'Desativar loja' if s.is_active else 'Ativar loja' }}">
+                                    {% if s.is_active %}✅{% else %}⭕{% endif %}
+                                </button>
+                            </form>
+                        </td>
+                        <td class="text-center small">{{ '✓' if s.receives_transfers else '—' }}</td>
+                        <td class="text-center small">{{ '✓' if s.requires_eod_weighing else '—' }}</td>
+                        <td class="text-center small">{{ '✓' if s.shows_on_landing else '—' }}</td>
+                        <td class="small">{{ s.pos_store_code or '—' }}</td>
+                        <td class="text-nowrap">
+                            <a href="{{ url_for('gestor.gestao_lojas', edit=s.id) }}"
+                               class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Editar">✏️</a>
+                            <form method="POST" class="d-inline"
+                                  onsubmit="return confirm('Tem a certeza que quer eliminar a loja «{{ s.name }}»?\n\nEsta acção é irreversível.')">
+                                <input type="hidden" name="action" value="delete_store">
+                                <input type="hidden" name="store_id" value="{{ s.id }}">
+                                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1" title="Eliminar">🗑️</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="text-muted small mb-0">{{ stores|length }} loja(s) | {{ stores|selectattr('is_active')|list|length }} ativa(s)</p>
+        {% else %}
+        <p class="text-muted small">Sem lojas registadas.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function confirmToggle(form, name, isCurrentlyActive) {
+    if (isCurrentlyActive) {
+        return confirm(
+            'Desativar a loja «' + name + '»?\n\n' +
+            'A loja deixará de aparecer nos formulários de registo e produção. ' +
+            'Os dados históricos são preservados.'
+        );
+    }
+    return true;
+}
+</script>

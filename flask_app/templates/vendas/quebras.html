@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">🛒 Vendas {{ loja_nome }}</h5>
+    
+
+    <h6 class="mb-3">Registar Quebra de Balcão</h6>
+
+    <div class="mb-3">
+        <label class="form-label fw-semibold">Tipo de Produto</label>
+        <select id="tipo_quebra" class="form-select" onchange="updateQuebraForm()">
+            <option value="Gelado">Gelado</option>
+            <option value="Pastelaria">Pastelaria</option>
+            <option value="Confeitaria">Confeitaria</option>
+        </select>
+    </div>
+
+    <form method="POST">
+        <input type="hidden" name="action" value="add">
+        <input type="hidden" name="tipo_produto" id="tipo_produto_hidden" value="Gelado">
+
+        <div class="mb-3" id="produto_gelado_group">
+            <label class="form-label fw-semibold">Sabor</label>
+            <select name="produto" id="produto_gelado" class="form-select">
+                {% for s in sabores %}
+                <option value="{{ s }}">{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-3" id="produto_past_group" style="display:none;">
+            <label class="form-label fw-semibold">Produto</label>
+            <select id="produto_past" class="form-select">
+                {% for p in produtos_past %}
+                <option value="{{ p }}">{{ p }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="mb-3" id="produto_conf_group" style="display:none;">
+            <label class="form-label fw-semibold">Produto</label>
+            <select id="produto_conf" class="form-select">
+                {% for p in produtos_conf %}
+                <option value="{{ p }}">{{ p }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-6">
+                <label class="form-label fw-semibold">Data</label>
+                <input type="date" name="data" class="form-control" value="{{ today }}" required>
+            </div>
+            <div class="col-6">
+                <label class="form-label fw-semibold" id="qtd_label">Quantidade (kg)</label>
+                <input type="text" name="quantidade" class="form-control" placeholder="0" inputmode="decimal" required>
+            </div>
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-6">
+                <label class="form-label fw-semibold">Lote</label>
+                <input type="text" name="lote" class="form-control" placeholder="Ex: L050226" required>
+            </div>
+            <div class="col-6">
+                <label class="form-label fw-semibold">Motivo</label>
+                <select name="motivo" class="form-select" required>
+                    {% for m in motivos %}
+                    <option value="{{ m }}">{{ m }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <button type="submit" id="btnQuebraVendas" class="btn btn-primary w-100">Registar Quebra</button>
+    </form>
+    <script>
+    document.querySelector('form[method="POST"]').addEventListener('submit', function() {
+        var btn = document.getElementById('btnQuebraVendas');
+        btn.disabled = true;
+        btn.textContent = 'A registar…';
+    });
+    </script>
+
+    <hr>
+    <h6 class="mb-3">Histórico de Quebras — {{ loja_nome }}</h6>
+
+    {% if historico %}
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-bordered align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>ID</th>
+                    <th>Data</th>
+                    <th>Produto</th>
+                    <th>Lote</th>
+                    <th>Quantidade</th>
+                    <th>Motivo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in historico %}
+                <tr>
+                    <td>{{ r.id }}</td>
+                    <td>{{ r.data }}</td>
+                    <td>{{ r.sabor if r.sabor else '—' }}</td>
+                    <td>{{ r.lote if r.lote else '—' }}</td>
+                    <td>{{ r.quantidade_kg }}</td>
+                    <td>{{ r.motivo if r.motivo else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <form method="POST" class="d-flex gap-2 align-items-end">
+        <input type="hidden" name="action" value="delete">
+        <div>
+            <label class="form-label fw-semibold mb-1" style="font-size:0.85rem;">ID a eliminar</label>
+            <input type="number" name="id" class="form-control form-control-sm" min="1" required style="width:100px;">
+        </div>
+        <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
+    </form>
+    {% else %}
+    <div class="alert alert-info">Sem quebras registadas para {{ loja_nome }}.</div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateQuebraForm() {
+    var tipo = document.getElementById('tipo_quebra').value;
+    document.getElementById('tipo_produto_hidden').value = tipo;
+
+    document.getElementById('produto_gelado_group').style.display = tipo === 'Gelado' ? '' : 'none';
+    document.getElementById('produto_past_group').style.display = tipo === 'Pastelaria' ? '' : 'none';
+    document.getElementById('produto_conf_group').style.display = tipo === 'Confeitaria' ? '' : 'none';
+
+    var geladoSel = document.getElementById('produto_gelado');
+    var pastSel = document.getElementById('produto_past');
+    var confSel = document.getElementById('produto_conf');
+
+    geladoSel.name = tipo === 'Gelado' ? 'produto' : '';
+    pastSel.name = tipo === 'Pastelaria' ? 'produto' : '';
+    confSel.name = tipo === 'Confeitaria' ? 'produto' : '';
+
+    document.getElementById('qtd_label').textContent = tipo === 'Gelado' ? 'Quantidade (kg)' : 'Quantidade (unidades)';
+}
+document.addEventListener('DOMContentLoaded', updateQuebraForm);
+</script>
+{% endblock %}

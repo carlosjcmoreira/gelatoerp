@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+<h5 class="mb-3">Registar Quebra</h5>
+
+<form method="post" class="mb-4">
+    <div class="row g-2">
+        <div class="col-6">
+            <label class="form-label small">Data da Quebra</label>
+            <input type="date" name="data" class="form-control form-control-sm" value="{{ today }}" required>
+        </div>
+        <div class="col-6">
+            <label class="form-label small">Quantidade</label>
+            <input type="text" name="quantidade" class="form-control form-control-sm" placeholder="0,1" required>
+        </div>
+        <div class="col-6">
+            <label class="form-label small">Produto</label>
+            <select name="produto" class="form-select form-select-sm" required>
+                <option value="">Selecionar produto...</option>
+                {% for p in produtos %}
+                <option value="{{ p }}">{{ p }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6">
+            <label class="form-label small">Lote</label>
+            <input type="text" name="lote" class="form-control form-control-sm" placeholder="Ex: P050226">
+        </div>
+        <div class="col-12">
+            <label class="form-label small">Motivo da Quebra</label>
+            <textarea name="motivo" class="form-control form-control-sm" rows="2" placeholder="Descreva o motivo..."></textarea>
+        </div>
+        <div class="col-12">
+            <button type="submit" id="btnQuebraPastelaria" class="btn btn-primary btn-sm w-100">Registar Quebra</button>
+        </div>
+    </div>
+</form>
+<script>
+document.querySelector('form.mb-4').addEventListener('submit', function() {
+    var btn = document.getElementById('btnQuebraPastelaria');
+    btn.disabled = true;
+    btn.textContent = 'A registar…';
+});
+</script>
+
+<hr>
+<h6>Histórico de Quebras - Pastelaria</h6>
+
+{% if quebras %}
+<div class="table-responsive">
+    <table class="table table-sm table-striped">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Data</th>
+                <th>Produto</th>
+                <th>Lote</th>
+                <th>Qtd</th>
+                <th>Motivo</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for q in quebras %}
+            <tr>
+                <td>{{ q.id }}</td>
+                <td>{{ q.data }}</td>
+                <td>{{ q.produto }}</td>
+                <td>{{ q.lote }}</td>
+                <td>{{ q.quantidade }}</td>
+                <td>{{ q.motivo }}</td>
+                <td>
+                    <form method="post" action="{{ url_for('pastelaria.eliminar_quebra') }}" style="display:inline;">
+                        <input type="hidden" name="id" value="{{ q.id }}">
+                        <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminar?')">🗑</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">Sem quebras registadas.</div>
+{% endif %}
+</div>
+{% endblock %}

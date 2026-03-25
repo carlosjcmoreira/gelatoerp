@@ -1,0 +1,31 @@
+{% macro time_select(name, value='', required=False) %}
+<select name="{{ name }}" class="form-select form-select-sm"{% if required %} required{% endif %}>
+    <option value="">—</option>
+    {% for t in time_slots %}
+    <option value="{{ t }}"{% if t == value %} selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+</select>
+{% endmacro %}
+
+{% macro event_type_radio(current_value='') %}
+{% set known = ['Corporativo','Casamento','Privado'] %}
+{% set is_other = current_value not in known and current_value != '' %}
+<div class="d-flex flex-column gap-1">
+    {% for val, label in event_type_options %}
+    <div class="form-check">
+        <input class="form-check-input" type="radio" name="event_type_radio" id="etype_{{ val }}"
+            value="{{ val }}"
+            {% if val == 'Outro' and (is_other or current_value == '') %}checked{% elif val == current_value %}checked{% endif %}
+            onchange="handleEventTypeChange(this)">
+        <label class="form-check-label small" for="etype_{{ val }}">{{ label }}</label>
+        {% if val == 'Outro' %}
+        <input type="text" name="event_type_other" id="event_type_other_input"
+            class="form-control form-control-sm mt-1 ms-4"
+            style="max-width:200px; display:{% if is_other or current_value == '' %}block{% else %}none{% endif %}"
+            value="{{ current_value if is_other else '' }}"
+            placeholder="Descrever…">
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endmacro %}

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eventos.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="fw-bold mb-0">🏷️ Artigos de Evento</h5>
+        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addModal">+ Adicionar</button>
+    </div>
+    <p class="text-muted small mb-3">Lista de artigos padrão utilizados nos orçamentos de eventos. O <strong>nível de custo</strong> (🔴 Alto / 🟡 Médio / 🟢 Baixo) é usado para calcular o mix de rentabilidade do orçamento.</p>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover small align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Código</th>
+                    <th>Nome</th>
+                    <th>Unidade</th>
+                    <th class="text-end">Preço base (€)</th>
+                    <th class="text-center">Nível Custo</th>
+                    <th class="text-center">Ativo</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in artigos %}
+                {% set tier = a.cost_tier or 'medium' %}
+                {% set tier_icon = '🔴' if tier == 'high' else ('🟡' if tier == 'medium' else '🟢') %}
+                {% set tier_label = 'Alto' if tier == 'high' else ('Médio' if tier == 'medium' else 'Baixo') %}
+                <tr class="{% if not a.ativo %}opacity-50{% endif %}">
+                    <td><code>{{ a.codigo }}</code></td>
+                    <td>{{ a.nome }}</td>
+                    <td>{{ a.unidade }}</td>
+                    <td class="text-end">{{ "%.2f"|format(a.preco_base or 0) }}</td>
+                    <td class="text-center"><span title="{{ tier_label }}">{{ tier_icon }}</span></td>
+                    <td class="text-center">
+                        <form method="post" data-no-loading>
+                            <input type="hidden" name="action" value="toggle">
+                            <input type="hidden" name="artigo_id" value="{{ a.id }}">
+                            <input type="hidden" name="ativo" value="{{ '0' if a.ativo else '1' }}">
+                            <button type="submit" class="btn btn-xs {% if a.ativo %}btn-success{% else %}btn-outline-secondary{% endif %} py-0 px-2">
+                                {{ '✓' if a.ativo else '✗' }}
+                            </button>
+                        </form>
+                    </td>
+                    <td>
+                        <button type="button" class="btn btn-xs btn-outline-primary py-0 px-1"
+                            onclick="editArtigo({{ a.id }}, '{{ a.codigo }}', '{{ a.nome|replace("'","\\'")|replace('"','\\"') }}', '{{ a.unidade }}', {{ a.preco_base or 0 }}, {{ 'true' if a.ativo else 'false' }}, '{{ tier }}')">✏️</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% set tier_options %}
+<option value="high">🔴 Alto (gelado, produtos principais)</option>
+<option value="medium">🟡 Médio (pastelaria, confeitaria)</option>
+<option value="low">🟢 Baixo (logística, embalagem)</option>
+{% endset %}
+
+<div class="modal fade" id="addModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post">
+                <input type="hidden" name="action" value="add">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title">Adicionar Artigo</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">Código <span class="text-danger">*</span></label>
+                            <input type="text" name="codigo" class="form-control form-control-sm" placeholder="ex: gelado_kg" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Unidade</label>
+                            <input type="text" name="unidade" class="form-control form-control-sm" value="un">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Nome <span class="text-danger">*</span></label>
+                            <input type="text" name="nome" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Preço base (€)</label>
+                            <input type="number" name="preco_base" class="form-control form-control-sm" value="0" step="0.01" min="0">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Nível de Custo</label>
+                            <select name="cost_tier" class="form-select form-select-sm">
+                                {{ tier_options }}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary">Adicionar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post">
+                <input type="hidden" name="action" value="edit">
+                <input type="hidden" name="artigo_id" id="edit-artigo-id">
+                <input type="hidden" name="ativo" id="edit-artigo-ativo">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title">Editar Artigo</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">Código</label>
+                            <input type="text" name="codigo" id="edit-artigo-codigo" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Unidade</label>
+                            <input type="text" name="unidade" id="edit-artigo-unidade" class="form-control form-control-sm">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Nome</label>
+                            <input type="text" name="nome" id="edit-artigo-nome" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Preço base (€)</label>
+                            <input type="number" name="preco_base" id="edit-artigo-preco" class="form-control form-control-sm" step="0.01" min="0">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Nível de Custo</label>
+                            <select name="cost_tier" id="edit-artigo-tier" class="form-select form-select-sm">
+                                <option value="high">🔴 Alto</option>
+                                <option value="medium">🟡 Médio</option>
+                                <option value="low">🟢 Baixo</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editArtigo(id, codigo, nome, unidade, preco, ativo, tier) {
+    document.getElementById('edit-artigo-id').value = id;
+    document.getElementById('edit-artigo-codigo').value = codigo;
+    document.getElementById('edit-artigo-nome').value = nome;
+    document.getElementById('edit-artigo-unidade').value = unidade;
+    document.getElementById('edit-artigo-preco').value = preco;
+    document.getElementById('edit-artigo-ativo').value = ativo ? '1' : '0';
+    document.getElementById('edit-artigo-tier').value = tier || 'medium';
+    new bootstrap.Modal(document.getElementById('editModal')).show();
+}
+</script>
+{% endblock %}

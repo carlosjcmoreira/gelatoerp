@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eventos.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="fw-bold mb-0">👥 Clientes de Evento</h5>
+        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addClientModal">+ Novo Cliente</button>
+    </div>
+    <p class="text-muted small mb-3">
+        Registe clientes que autorizaram ser contactados no futuro.
+        Os clientes recorrentes estão identificados pelo número de eventos.
+    </p>
+
+    <div class="d-flex gap-2 mb-3">
+        <form method="get" class="d-flex gap-2 flex-grow-1">
+            <input type="text" name="q" value="{{ search_q }}" class="form-control form-control-sm" placeholder="Pesquisar por nome ou email…">
+            <div class="form-check form-switch align-self-center ms-2 text-nowrap">
+                <input class="form-check-input" type="checkbox" id="mktSwitch" name="marketing_only" value="1"
+                    {% if marketing_only %}checked{% endif %} onchange="this.form.submit()">
+                <label class="form-check-label small" for="mktSwitch">Só com contacto autorizado</label>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Filtrar</button>
+            {% if search_q or marketing_only %}
+            <a href="{{ url_for('eventos.clientes') }}" class="btn btn-sm btn-outline-secondary">Limpar</a>
+            {% endif %}
+        </form>
+    </div>
+
+    {% if clients %}
+    {% set recurring = clients | selectattr('event_count', 'gt', 1) | list %}
+    {% if recurring %}
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-warning-subtle small fw-semibold">⭐ Clientes Recorrentes ({{ recurring | length }})</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover small align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nome</th>
+                            <th>Email</th>
+                            <th>Telefone</th>
+                            <th class="text-center">Eventos</th>
+                            <th>Último Evento</th>
+                            <th class="text-center">Mkt</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in recurring %}
+                        <tr>
+                            <td><a href="{{ url_for('eventos.cliente_detail', client_id=c.id) }}" class="fw-semibold text-decoration-none">{{ c.name }}</a></td>
+                            <td>{{ c.email or '—' }}</td>
+                            <td>{{ c.phone or '—' }}</td>
+                            <td class="text-center"><span class="badge bg-warning text-dark">{{ c.event_count }}</span></td>
+                            <td>{{ c.last_event_date.strftime('%d/%m/%Y') if c.last_event_date else '—' }}</td>
+                            <td class="text-center">{% if c.marketing_consent %}<span class="text-success">✓</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                            <td><a href="{{ url_for('eventos.cliente_detail', client_id=c.id) }}" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1">Ver</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header small fw-semibold">Todos os Clientes ({{ clients | length }})</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover small align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Nome</th>
+                            <th>Email</th>
+                            <th>Telefone</th>
+                            <th class="text-center">Eventos</th>
+                            <th>Último Evento</th>
+                            <th class="text-center">Mkt</th>
+                            <th>Registado em</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in clients %}
+                        <tr>
+                            <td><a href="{{ url_for('eventos.cliente_detail', client_id=c.id) }}" class="text-decoration-none">{{ c.name }}</a></td>
+                            <td>{{ c.email or '—' }}</td>
+                            <td>{{ c.phone or '—' }}</td>
+                            <td class="text-center">
+                                {% if c.event_count > 1 %}<span class="badge bg-warning text-dark">{{ c.event_count }}</span>
+                                {% elif c.event_count == 1 %}<span class="badge bg-light text-dark border">1</span>
+                                {% else %}<span class="text-muted">0</span>{% endif %}
+                            </td>
+                            <td>{{ c.last_event_date.strftime('%d/%m/%Y') if c.last_event_date else '—' }}</td>
+                            <td class="text-center">
+                                {% if c.marketing_consent %}<span class="text-success fw-bold">✓</span>{% else %}<span class="text-muted">—</span>{% endif %}
+                            </td>
+                            <td>{{ c.created_at.strftime('%d/%m/%Y') if c.created_at else '—' }}</td>
+                            <td>
+                                <a href="{{ url_for('eventos.cliente_detail', client_id=c.id) }}" class="btn btn-xs btn-outline-secondary btn-sm py-0 px-1">Ver</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="text-center py-5 text-muted">
+        <div class="fs-2 mb-2">👥</div>
+        <p>Nenhum cliente registado{% if search_q %} para "{{ search_q }}"{% endif %}.</p>
+        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addClientModal">+ Novo Cliente</button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add client modal -->
+<div class="modal fade" id="addClientModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form method="post" action="{{ url_for('eventos.clientes') }}">
+            <input type="hidden" name="action" value="create">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Novo Cliente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Nome *</label>
+                        <input type="text" name="name" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Email</label>
+                        <input type="email" name="email" class="form-control form-control-sm">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Telefone</label>
+                        <input type="text" name="phone" class="form-control form-control-sm">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Notas</label>
+                        <textarea name="notes" rows="2" class="form-control form-control-sm"></textarea>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="marketing_consent" value="1" id="mktCreate">
+                        <label class="form-check-label small" for="mktCreate">Autorizou contacto para marketing</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-sm btn-primary">Registar</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

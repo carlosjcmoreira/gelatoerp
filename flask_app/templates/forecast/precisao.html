@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% set back_url = url_for("forecast.index", loja=selected_loja) if selected_loja else url_for("forecast.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="mb-3">📊 Precisão das Previsões</h5>
+
+    <!-- Store selector -->
+    <div class="mb-3 d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('forecast.precisao') }}"
+           class="btn btn-sm {% if not selected_loja %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            Todas as lojas
+        </a>
+        {% for s in stores %}
+        <a href="{{ url_for('forecast.precisao', loja=s.name) }}"
+           class="btn btn-sm {% if selected_loja == s.name %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            {{ s.name }}
+        </a>
+        {% endfor %}
+    </div>
+
+    <!-- MAPE by store -->
+    {% if accuracy.by_loja %}
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">MAPE por Loja (últimas 12 semanas)</div>
+        <div class="card-body py-2">
+            {% for loja_name, mape in accuracy.by_loja.items() %}
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="small fw-semibold">{{ loja_name }}</div>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="progress flex-grow-1" style="width:100px;height:8px;">
+                        <div class="progress-bar {% if mape < 10 %}bg-success{% elif mape < 20 %}bg-warning{% else %}bg-danger{% endif %}"
+                             role="progressbar" style="width:{{ [mape * 2, 100]|min }}%;"></div>
+                    </div>
+                    <span class="small fw-bold {% if mape < 10 %}text-success{% elif mape < 20 %}text-warning{% else %}text-danger{% endif %}">
+                        {{ mape }}%
+                    </span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- MAPE by day type -->
+    <div class="row g-2 mb-3">
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-body py-2 text-center">
+                    <div class="small text-muted">Dias de semana</div>
+                    {% if accuracy.by_day_type.semana is not none %}
+                    <div class="fw-bold fs-4 {% if accuracy.by_day_type.semana < 10 %}text-success{% elif accuracy.by_day_type.semana < 20 %}text-warning{% else %}text-danger{% endif %}">
+                        {{ accuracy.by_day_type.semana }}%
+                    </div>
+                    <div class="small text-muted">MAPE</div>
+                    {% else %}
+                    <div class="text-muted small">Sem dados</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-body py-2 text-center">
+                    <div class="small text-muted">Fim de semana</div>
+                    {% if accuracy.by_day_type['fim-de-semana'] is not none %}
+                    <div class="fw-bold fs-4 {% if accuracy.by_day_type['fim-de-semana'] < 10 %}text-success{% elif accuracy.by_day_type['fim-de-semana'] < 20 %}text-warning{% else %}text-danger{% endif %}">
+                        {{ accuracy.by_day_type['fim-de-semana'] }}%
+                    </div>
+                    <div class="small text-muted">MAPE</div>
+                    {% else %}
+                    <div class="text-muted small">Sem dados</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error trend -->
+    {% if trend %}
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">Evolução do Erro (MAPE semanal)</div>
+        <div class="card-body py-2">
+            <div class="d-flex align-items-end gap-1 flex-wrap">
+                {% for t in trend %}
+                {% set bar_h = [t.mape * 3, 80]|min|int %}
+                <div class="text-center" style="min-width:36px;">
+                    <div class="small text-muted" style="font-size:0.6rem;">{{ t.mape }}%</div>
+                    <div class="{% if t.mape < 10 %}bg-success{% elif t.mape < 20 %}bg-warning{% else %}bg-danger{% endif %} rounded mx-auto"
+                         style="height:{{ bar_h }}px;width:28px;"></div>
+                    <div class="small text-muted" style="font-size:0.6rem;">{{ t.label }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Worst days -->
+    {% if accuracy.worst_days %}
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">Dias com Maior Erro Histórico</div>
+        <div class="card-body py-2 p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 small">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Loja</th>
+                            <th class="text-end">Real</th>
+                            <th class="text-end">Prev.</th>
+                            <th class="text-end">Erro</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for w in accuracy.worst_days %}
+                        <tr>
+                            <td>
+                                {% if w.data_fmt %}{{ w.data_fmt }}{% else %}{{ w.data }}{% endif %}
+                                {% if w.weekday_label %}<span class="text-muted">{{ w.weekday_label }}</span>{% endif %}
+                            </td>
+                            <td>{{ w.loja }}</td>
+                            <td class="text-end">{{ "%.0f €"|format(w.real) }}</td>
+                            <td class="text-end text-muted">{{ "%.0f €"|format(w.previsao) }}</td>
+                            <td class="text-end fw-bold {% if w.erro_pct > 20 %}text-danger{% elif w.erro_pct > 10 %}text-warning{% else %}text-muted{% endif %}">
+                                {{ w.erro_pct }}%
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if not accuracy.by_loja and not accuracy.worst_days %}
+    <div class="alert alert-info small">
+        Ainda não há dados suficientes para calcular a precisão do modelo. As previsões são comparadas com as vendas reais após o fecho do dia.
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}
