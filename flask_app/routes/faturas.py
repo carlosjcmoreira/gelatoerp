@@ -135,6 +135,29 @@ def index():
     )
 
 
+def _generate_bulk_confirming_parcelas(amount, start_date, n, freq='none'):
+    """Generate N equal-split confirming parcelas from start_date.
+    freq='monthly' adds 1 month per parcela; otherwise all on start_date.
+    """
+    from dateutil.relativedelta import relativedelta
+    n = max(1, int(n or 1))
+    unit = round(float(amount or 0) / n, 2)
+    remainder = round(float(amount or 0) - unit * n, 2)
+    parcelas = []
+    for i in range(n):
+        if freq == 'monthly':
+            try:
+                pdate = start_date + relativedelta(months=i)
+            except Exception:
+                pdate = start_date
+        else:
+            pdate = start_date
+        montante = unit + (remainder if i == n - 1 else 0)
+        if montante > 0:
+            parcelas.append({'montante': montante, 'data_pagamento': pdate})
+    return parcelas
+
+
 def _parse_confirming_parcelas():
     """Parse multi-parcela form data. Returns list of {montante, data_pagamento} or empty list."""
     montantes = request.form.getlist('parcela_montante[]')
@@ -193,6 +216,9 @@ def bulk_action():
         bulk_payment_method = request.form.get('bulk_payment_method', '').strip() or None
         bulk_confirming_id_raw = request.form.get('bulk_confirming_contract_id', '').strip()
         bulk_confirming_id = int(bulk_confirming_id_raw) if bulk_confirming_id_raw.isdigit() else None
+        bulk_nparcelas_raw = request.form.get('bulk_nparcelas', '1')
+        bulk_nparcelas = int(bulk_nparcelas_raw) if bulk_nparcelas_raw.isdigit() else 1
+        bulk_freq = request.form.get('bulk_freq', 'none').strip()
 
         label = INVOICE_STATUS_LABELS.get(new_status, new_status)
         current_user = session.get('user', {}).get('username', 'system')
@@ -208,11 +234,10 @@ def bulk_action():
                     if bulk_payment_method == 'confirming' and bulk_confirming_id and inv_data:
                         try:
                             amt = inv_data.get('amount_eur')
-                            create_confirming_parcela(
-                                inv_id, bulk_confirming_id, float(amt or 0), bulk_date,
-                            )
+                            parcelas = _generate_bulk_confirming_parcelas(amt, bulk_date, bulk_nparcelas, bulk_freq)
+                            create_confirming_parcelas_batch(inv_id, bulk_confirming_id, parcelas, estado='paid')
                         except Exception as pe:
-                            logger.warning('create_confirming_parcela paid inv=%s: %s', inv_id, pe)
+                            logger.warning('bulk confirming paid inv=%s: %s', inv_id, pe)
                 elif new_status == 'scheduled':
                     inv_data = get_invoice(inv_id)
                     amt = inv_data.get('amount_eur') if inv_data else None
@@ -221,12 +246,10 @@ def bulk_action():
                                            confirming_contract_id=bulk_confirming_id)
                     if bulk_payment_method == 'confirming' and bulk_confirming_id and inv_data:
                         try:
-                            create_confirming_parcela(
-                                inv_id, bulk_confirming_id,
-                                float(amt or 0), bulk_date,
-                            )
+                            parcelas = _generate_bulk_confirming_parcelas(amt, bulk_date, bulk_nparcelas, bulk_freq)
+                            create_confirming_parcelas_batch(inv_id, bulk_confirming_id, parcelas, estado='confirmed')
                         except Exception as pe:
-                            logger.warning('create_confirming_parcela inv=%s: %s', inv_id, pe)
+                            logger.warning('bulk confirming scheduled inv=%s: %s', inv_id, pe)
                 else:
                     update_invoice(inv_id, {'status': new_status})
                 ok += 1
@@ -581,10 +604,10 @@ def pagar(invoice_id: int):
             try:
                 parcelas = _parse_confirming_parcelas()
                 if parcelas:
-                    create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas, estado='emitido')
+                    create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas, estado='paid')
                 else:
                     create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), paid_date,
-                                              estado='emitido')
+                                              estado='paid')
             except Exception as e:
                 logger.warning('create_confirming_parcela pagar invoice=%s: %s', invoice_id, e)
     flash('Fatura marcada como paga.', 'success')

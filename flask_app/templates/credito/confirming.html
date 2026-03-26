@@ -98,20 +98,24 @@
                             <td class="small text-end fw-semibold text-danger">{{ "%.2f €"|format(p.montante|float) }}</td>
                             <td>
                                 <span class="badge
-                                    {% if p.estado == 'pendente' %}bg-warning text-dark
-                                    {% elif p.estado == 'emitido' %}bg-info text-dark
-                                    {% elif p.estado == 'pago' %}bg-success
+                                    {% if p.estado == 'confirmed' %}bg-warning text-dark
+                                    {% elif p.estado == 'paid' %}bg-info text-dark
+                                    {% elif p.estado == 'settled' %}bg-success
                                     {% else %}bg-secondary{% endif %}">
-                                    {{ p.estado|title }}
+                                    {% if p.estado == 'confirmed' %}Confirmado
+                                    {% elif p.estado == 'paid' %}Pago (banco)
+                                    {% elif p.estado == 'settled' %}Liquidado
+                                    {% elif p.estado == 'cancelled' %}Cancelado
+                                    {% else %}{{ p.estado }}{% endif %}
                                 </span>
                             </td>
                             <td>
                                 <form method="POST" action="{{ url_for('credito.atualizar_parcela_estado', parcela_id=p.id) }}" class="d-flex gap-1">
                                     <select name="estado" class="form-select form-select-sm" style="width:auto">
-                                        <option value="pendente" {% if p.estado == 'pendente' %}selected{% endif %}>Pendente</option>
-                                        <option value="emitido" {% if p.estado == 'emitido' %}selected{% endif %}>Emitido</option>
-                                        <option value="pago" {% if p.estado == 'pago' %}selected{% endif %}>Pago</option>
-                                        <option value="cancelado" {% if p.estado == 'cancelado' %}selected{% endif %}>Cancelado</option>
+                                        <option value="confirmed" {% if p.estado == 'confirmed' %}selected{% endif %}>Confirmado</option>
+                                        <option value="paid" {% if p.estado == 'paid' %}selected{% endif %}>Pago (banco)</option>
+                                        <option value="settled" {% if p.estado == 'settled' %}selected{% endif %}>Liquidado</option>
+                                        <option value="cancelled" {% if p.estado == 'cancelled' %}selected{% endif %}>Cancelado</option>
                                     </select>
                                     <button type="submit" class="btn btn-outline-primary btn-sm py-0 px-2">✓</button>
                                 </form>
@@ -153,7 +157,7 @@
                     </thead>
                     <tbody>
                         {% for p in dash.todas_parcelas %}
-                        <tr class="{{ 'text-muted' if p.estado in ('pago', 'cancelado') else '' }}">
+                        <tr class="{{ 'text-muted' if p.estado in ('settled', 'cancelled') else '' }}">
                             <td class="small">{{ p.supplier_name or '—' }}</td>
                             <td class="small">
                                 <a href="{{ url_for('faturas.detail', invoice_id=p.invoice_id) }}"
@@ -166,11 +170,15 @@
                             <td class="small text-end">{{ "%.2f €"|format(p.montante|float) }}</td>
                             <td>
                                 <span class="badge
-                                    {% if p.estado == 'pendente' %}bg-warning text-dark
-                                    {% elif p.estado == 'emitido' %}bg-info text-dark
-                                    {% elif p.estado == 'pago' %}bg-success
+                                    {% if p.estado == 'confirmed' %}bg-warning text-dark
+                                    {% elif p.estado == 'paid' %}bg-info text-dark
+                                    {% elif p.estado == 'settled' %}bg-success
                                     {% else %}bg-secondary{% endif %}">
-                                    {{ p.estado|title }}
+                                    {% if p.estado == 'confirmed' %}Confirmado
+                                    {% elif p.estado == 'paid' %}Pago (banco)
+                                    {% elif p.estado == 'settled' %}Liquidado
+                                    {% elif p.estado == 'cancelled' %}Cancelado
+                                    {% else %}{{ p.estado }}{% endif %}
                                 </span>
                             </td>
                         </tr>

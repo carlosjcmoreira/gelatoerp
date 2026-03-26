@@ -212,29 +212,22 @@ def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by
 
 def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None,
                           payment_method=None, confirming_contract_id=None):
-    """Mark invoice payment as executed/paid (updates both invoices and invoice_payments)."""
+    """Mark invoice payment as executed/paid (upserts invoice_payments, updates invoices)."""
     with db_connection() as conn:
         cursor = conn.cursor()
-        extra_sets = ""
-        extra_params = []
-        if payment_method is not None:
-            extra_sets += ", payment_method = %s"
-            extra_params.append(payment_method)
-        if confirming_contract_id is not None:
-            extra_sets += ", confirming_contract_id = %s"
-            extra_params.append(confirming_contract_id)
-        if notes is not None:
-            cursor.execute(
-                f"UPDATE invoice_payments SET paid_date = %s, status = 'paid', "
-                f"notes = %s{extra_sets}, updated_at = NOW() WHERE invoice_id = %s",
-                [paid_date, notes] + extra_params + [invoice_id]
-            )
-        else:
-            cursor.execute(
-                f"UPDATE invoice_payments SET paid_date = %s, status = 'paid'{extra_sets}, updated_at = NOW() "
-                f"WHERE invoice_id = %s",
-                [paid_date] + extra_params + [invoice_id]
-            )
+        cursor.execute(
+            """INSERT INTO invoice_payments
+                   (invoice_id, paid_date, status, confirmed_by, notes, payment_method, confirming_contract_id, updated_at)
+               VALUES (%s, %s, 'paid', %s, %s, %s, %s, NOW())
+               ON CONFLICT (invoice_id) DO UPDATE SET
+                   paid_date = EXCLUDED.paid_date,
+                   status = 'paid',
+                   notes = COALESCE(EXCLUDED.notes, invoice_payments.notes),
+                   payment_method = COALESCE(EXCLUDED.payment_method, invoice_payments.payment_method),
+                   confirming_contract_id = COALESCE(EXCLUDED.confirming_contract_id, invoice_payments.confirming_contract_id),
+                   updated_at = NOW()""",
+            (invoice_id, paid_date, confirmed_by, notes, payment_method, confirming_contract_id)
+        )
         cursor.execute(
             "UPDATE invoices SET status = 'paid', paid_date = %s, updated_at = NOW() WHERE id = %s",
             (paid_date, invoice_id)

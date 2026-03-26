@@ -27,6 +27,8 @@
 
     {% if grupos %}
     <form id="bulk-form-forn" action="{{ url_for('faturas.bulk_action') }}" method="post">
+        <input type="hidden" name="bulk_nparcelas" id="forn-nparcelas-hidden" value="1">
+        <input type="hidden" name="bulk_freq" id="forn-freq-hidden" value="none">
         <input type="hidden" name="action" id="forn-action-val" value="">
         <input type="hidden" name="status" id="forn-status-val" value="">
         <input type="hidden" name="bulk_date" id="forn-date-hidden" value="">
@@ -216,6 +218,8 @@
         <input type="hidden" name="bulk_date" id="bulk-date-hidden" value="">
         <input type="hidden" name="bulk_payment_method" id="bulk-pm-hidden" value="">
         <input type="hidden" name="bulk_confirming_contract_id" id="bulk-confirming-hidden" value="">
+        <input type="hidden" name="bulk_nparcelas" id="bulk-nparcelas-hidden" value="1">
+        <input type="hidden" name="bulk_freq" id="bulk-freq-hidden" value="none">
         <input type="hidden" name="return_url" value="{{ request.url }}">
 
         <!-- Bulk action bar (hidden until ≥1 row selected) -->
@@ -553,8 +557,22 @@
                         Plafond: <strong id="pm-plafond-total">–</strong> |
                         Disponível: <strong id="pm-plafond-disp">–</strong>
                     </div>
-                    <div class="small text-info mt-1">
-                        Cada fatura selecionada receberá uma parcela pelo total da fatura à data indicada.
+                    <div class="row g-2 mt-1">
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Nº de parcelas</label>
+                            <input type="number" id="pm-nparcelas" class="form-control form-control-sm"
+                                   min="1" max="24" value="1" placeholder="1">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Periodicidade</label>
+                            <select id="pm-freq" class="form-select form-select-sm">
+                                <option value="none">Parcela única</option>
+                                <option value="monthly">Mensal</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="small text-muted mt-1">
+                        Cada fatura receberá <span id="pm-nparcelas-info">1</span> parcela(s) com valor igual à data(s) indicada(s).
                     </div>
                 </div>
             </div>
@@ -606,6 +624,8 @@ function _openPaymentModal(formId, status) {
 function pmConfirm() {
     const pm = document.getElementById('pm-select').value;
     const ccId = document.getElementById('pm-confirming-select').value;
+    const nparcelas = parseInt(document.getElementById('pm-nparcelas').value || '1', 10);
+    const freq = document.getElementById('pm-freq').value;
     if (pm === 'confirming' && !ccId) {
         alert('Selecione um contrato de confirming.'); return;
     }
@@ -613,12 +633,24 @@ function pmConfirm() {
     if (_pmTargetForm === 'bulk-form') {
         document.getElementById('bulk-pm-hidden').value = pm;
         document.getElementById('bulk-confirming-hidden').value = pm === 'confirming' ? ccId : '';
+        document.getElementById('bulk-nparcelas-hidden').value = pm === 'confirming' ? nparcelas : 1;
+        document.getElementById('bulk-freq-hidden').value = pm === 'confirming' ? freq : 'none';
         document.getElementById('bulk-form').requestSubmit();
     } else if (_pmTargetForm === 'bulk-form-forn') {
         document.getElementById('forn-pm-hidden').value = pm;
         document.getElementById('forn-confirming-hidden').value = pm === 'confirming' ? ccId : '';
+        document.getElementById('forn-nparcelas-hidden').value = pm === 'confirming' ? nparcelas : 1;
+        document.getElementById('forn-freq-hidden').value = pm === 'confirming' ? freq : 'none';
         document.getElementById('bulk-form-forn').requestSubmit();
     }
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    const nEl = document.getElementById('pm-nparcelas');
+    const infoEl = document.getElementById('pm-nparcelas-info');
+    if (nEl && infoEl) {
+        nEl.addEventListener('input', function() { infoEl.textContent = nEl.value || '1'; });
+    }
+});
 </script>
 {% endblock %}
