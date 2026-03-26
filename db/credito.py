@@ -395,8 +395,8 @@ def get_confirming_contracts(estado='ativo'):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             """SELECT c.*,
-                      COALESCE(SUM(cp.montante) FILTER (WHERE cp.estado IN ('confirmed','paid')), 0) AS utilizado,
-                      GREATEST(0, c.plafond - COALESCE(SUM(cp.montante) FILTER (WHERE cp.estado IN ('confirmed','paid')), 0)) AS disponivel
+                      COALESCE(SUM(cp.montante) FILTER (WHERE cp.estado IN ('scheduled','confirmed','paid')), 0) AS utilizado,
+                      GREATEST(0, c.plafond - COALESCE(SUM(cp.montante) FILTER (WHERE cp.estado IN ('scheduled','confirmed','paid')), 0)) AS disponivel
                FROM credit_contracts c
                LEFT JOIN confirming_parcelas cp ON cp.confirming_contract_id = c.id
                WHERE c.tipo = 'confirming' AND c.estado = %s
@@ -422,7 +422,7 @@ def get_confirming_dashboard():
                FROM confirming_parcelas cp
                JOIN invoices i ON i.id = cp.invoice_id
                JOIN credit_contracts c ON c.id = cp.confirming_contract_id
-               WHERE cp.estado IN ('confirmed', 'paid')
+               WHERE cp.estado IN ('scheduled', 'confirmed', 'paid')
                ORDER BY cp.data_pagamento ASC"""
         )
         parcelas_abertas = cursor.fetchall()
@@ -463,7 +463,7 @@ def get_confirming_dashboard():
 
 def get_confirming_utilizacao_por_contrato(confirming_contract_id=None):
     """Return utilization amounts per confirming contract.
-    Utilizado = sum of montante for parcelas with estado IN ('confirmed', 'paid')
+    Utilizado = sum of montante for parcelas with estado IN ('scheduled', 'confirmed', 'paid')
     (active parcelas that are using the plafond but not yet settled).
     """
     with db_connection() as conn:
@@ -474,7 +474,7 @@ def get_confirming_utilizacao_por_contrato(confirming_contract_id=None):
                           SUM(montante) AS utilizado,
                           COUNT(*) AS n_parcelas
                    FROM confirming_parcelas
-                   WHERE estado IN ('confirmed', 'paid')
+                   WHERE estado IN ('scheduled', 'confirmed', 'paid')
                      AND confirming_contract_id = %s
                    GROUP BY confirming_contract_id""",
                 (confirming_contract_id,)
@@ -485,7 +485,7 @@ def get_confirming_utilizacao_por_contrato(confirming_contract_id=None):
                           SUM(montante) AS utilizado,
                           COUNT(*) AS n_parcelas
                    FROM confirming_parcelas
-                   WHERE estado IN ('confirmed', 'paid')
+                   WHERE estado IN ('scheduled', 'confirmed', 'paid')
                    GROUP BY confirming_contract_id"""
             )
         rows = cursor.fetchall()
@@ -523,7 +523,7 @@ def create_confirming_parcelas_batch(invoice_id, confirming_contract_id, parcela
         cursor.execute(
             """DELETE FROM confirming_parcelas
                WHERE invoice_id = %s AND confirming_contract_id = %s
-                 AND estado IN ('confirmed', 'paid')""",
+                 AND estado IN ('scheduled', 'confirmed', 'paid')""",
             (invoice_id, confirming_contract_id)
         )
         ids = []
@@ -550,12 +550,12 @@ def delete_confirming_parcelas_for_invoice(invoice_id, confirming_contract_id=No
             cursor.execute(
                 """DELETE FROM confirming_parcelas
                    WHERE invoice_id = %s AND confirming_contract_id = %s
-                     AND estado IN ('confirmed', 'paid')""",
+                     AND estado IN ('scheduled', 'confirmed', 'paid')""",
                 (invoice_id, confirming_contract_id)
             )
         else:
             cursor.execute(
-                "DELETE FROM confirming_parcelas WHERE invoice_id = %s AND estado IN ('confirmed', 'paid')",
+                "DELETE FROM confirming_parcelas WHERE invoice_id = %s AND estado IN ('scheduled', 'confirmed', 'paid')",
                 (invoice_id,)
             )
         conn.commit()

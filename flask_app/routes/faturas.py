@@ -247,7 +247,7 @@ def bulk_action():
                     if bulk_payment_method == 'confirming' and bulk_confirming_id and inv_data:
                         try:
                             parcelas = _generate_bulk_confirming_parcelas(amt, bulk_date, bulk_nparcelas, bulk_freq)
-                            create_confirming_parcelas_batch(inv_id, bulk_confirming_id, parcelas, estado='confirmed')
+                            create_confirming_parcelas_batch(inv_id, bulk_confirming_id, parcelas, estado='scheduled')
                         except Exception as pe:
                             logger.warning('bulk confirming scheduled inv=%s: %s', inv_id, pe)
                 else:
@@ -570,13 +570,21 @@ def confirmar(invoice_id: int):
     confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, current_user,
                             payment_method=payment_method,
                             confirming_contract_id=confirming_id)
-    if payment_method == 'confirming' and confirming_id:
+    if payment_method == 'confirming':
+        if not confirming_id:
+            flash('Selecione um contrato de confirming.', 'warning')
+            return redirect(url_for('faturas.detail', invoice_id=invoice_id))
         try:
             parcelas = _parse_confirming_parcelas()
             if parcelas:
-                create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas)
+                total = sum(p['montante'] for p in parcelas)
+                if amount_eur and abs(total - float(amount_eur)) > 0.02:
+                    flash(f'Total das parcelas ({total:.2f} €) difere do valor da fatura ({float(amount_eur):.2f} €).', 'warning')
+                    return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+                create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas, estado='scheduled')
             else:
-                create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), confirmed_date)
+                create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), confirmed_date,
+                                          estado='scheduled')
         except Exception as e:
             logger.warning('create_confirming_parcela invoice=%s: %s', invoice_id, e)
     flash('Data confirmada. Fatura agendada.', 'success')
@@ -597,13 +605,20 @@ def pagar(invoice_id: int):
     mark_payment_executed(invoice_id, paid_date, current_user,
                           payment_method=payment_method,
                           confirming_contract_id=confirming_id)
-    if payment_method == 'confirming' and confirming_id:
+    if payment_method == 'confirming':
+        if not confirming_id:
+            flash('Selecione um contrato de confirming.', 'warning')
+            return redirect(url_for('faturas.detail', invoice_id=invoice_id))
         inv = get_invoice(invoice_id)
         if inv:
             amount_eur = inv.get('amount_eur')
             try:
                 parcelas = _parse_confirming_parcelas()
                 if parcelas:
+                    total = sum(p['montante'] for p in parcelas)
+                    if amount_eur and abs(total - float(amount_eur)) > 0.02:
+                        flash(f'Total das parcelas ({total:.2f} €) difere do valor da fatura ({float(amount_eur):.2f} €).', 'warning')
+                        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
                     create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas, estado='paid')
                 else:
                     create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), paid_date,

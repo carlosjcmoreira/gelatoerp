@@ -98,11 +98,13 @@
                             <td class="small text-end fw-semibold text-danger">{{ "%.2f €"|format(p.montante|float) }}</td>
                             <td>
                                 <span class="badge
-                                    {% if p.estado == 'confirmed' %}bg-warning text-dark
+                                    {% if p.estado == 'scheduled' %}bg-secondary
+                                    {% elif p.estado == 'confirmed' %}bg-warning text-dark
                                     {% elif p.estado == 'paid' %}bg-info text-dark
                                     {% elif p.estado == 'settled' %}bg-success
-                                    {% else %}bg-secondary{% endif %}">
-                                    {% if p.estado == 'confirmed' %}Confirmado
+                                    {% else %}bg-danger{% endif %}">
+                                    {% if p.estado == 'scheduled' %}Submetido
+                                    {% elif p.estado == 'confirmed' %}Confirmado
                                     {% elif p.estado == 'paid' %}Pago (banco)
                                     {% elif p.estado == 'settled' %}Liquidado
                                     {% elif p.estado == 'cancelled' %}Cancelado
@@ -112,6 +114,7 @@
                             <td>
                                 <form method="POST" action="{{ url_for('credito.atualizar_parcela_estado', parcela_id=p.id) }}" class="d-flex gap-1">
                                     <select name="estado" class="form-select form-select-sm" style="width:auto">
+                                        <option value="scheduled" {% if p.estado == 'scheduled' %}selected{% endif %}>Submetido</option>
                                         <option value="confirmed" {% if p.estado == 'confirmed' %}selected{% endif %}>Confirmado</option>
                                         <option value="paid" {% if p.estado == 'paid' %}selected{% endif %}>Pago (banco)</option>
                                         <option value="settled" {% if p.estado == 'settled' %}selected{% endif %}>Liquidado</option>
@@ -170,11 +173,13 @@
                             <td class="small text-end">{{ "%.2f €"|format(p.montante|float) }}</td>
                             <td>
                                 <span class="badge
-                                    {% if p.estado == 'confirmed' %}bg-warning text-dark
+                                    {% if p.estado == 'scheduled' %}bg-secondary
+                                    {% elif p.estado == 'confirmed' %}bg-warning text-dark
                                     {% elif p.estado == 'paid' %}bg-info text-dark
                                     {% elif p.estado == 'settled' %}bg-success
-                                    {% else %}bg-secondary{% endif %}">
-                                    {% if p.estado == 'confirmed' %}Confirmado
+                                    {% else %}bg-danger{% endif %}">
+                                    {% if p.estado == 'scheduled' %}Submetido
+                                    {% elif p.estado == 'confirmed' %}Confirmado
                                     {% elif p.estado == 'paid' %}Pago (banco)
                                     {% elif p.estado == 'settled' %}Liquidado
                                     {% elif p.estado == 'cancelled' %}Cancelado

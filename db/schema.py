@@ -1340,7 +1340,7 @@ def run_migrations_credito():
                 confirming_contract_id INTEGER NOT NULL REFERENCES credit_contracts(id) ON DELETE CASCADE,
                 montante NUMERIC(12,2) NOT NULL,
                 data_pagamento DATE NOT NULL,
-                estado VARCHAR(50) NOT NULL DEFAULT 'confirmed',
+                estado VARCHAR(50) NOT NULL DEFAULT 'scheduled',
                 notas TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

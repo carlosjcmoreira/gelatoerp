@@ -40,9 +40,15 @@
                             <td class="text-end small">{{ "%.4f"|format(m.taxa_percentagem|float) if m.taxa_percentagem else '—' }}</td>
                             <td class="text-end small">{{ m.prazo_dias if m.prazo_dias else '—' }}</td>
                             <td class="small text-muted">{{ m.notas or '—' }}</td>
-                            <td>
+                            <td class="d-flex gap-1">
                                 <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
                                         onclick="editMetodo({{ m|tojson }})">✏️</button>
+                                {% if m.metodo == 'confirming' %}
+                                <a href="{{ url_for('credito.confirming') }}"
+                                   class="btn btn-outline-info btn-sm py-0 px-2" title="Gerir contratos confirming">
+                                    Contratos →
+                                </a>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}
