@@ -20,6 +20,7 @@ from database import (
     DOCUMENT_TYPE_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_TERMS_LABELS,
     calculate_due_date,
     get_confirming_contracts, create_confirming_parcela,
+    create_confirming_parcelas_batch,
     get_payment_methods_config,
 )
 
@@ -132,6 +133,22 @@ def index():
         confirming_contracts=confirming_contracts,
         payment_methods=payment_methods,
     )
+
+
+def _parse_confirming_parcelas():
+    """Parse multi-parcela form data. Returns list of {montante, data_pagamento} or empty list."""
+    montantes = request.form.getlist('parcela_montante[]')
+    datas = request.form.getlist('parcela_data[]')
+    parcelas = []
+    for m, d in zip(montantes, datas):
+        try:
+            montante = float(m.replace(',', '.'))
+        except (ValueError, AttributeError):
+            continue
+        data = _parse_date(d)
+        if montante > 0 and data:
+            parcelas.append({'montante': montante, 'data_pagamento': data})
+    return parcelas
 
 
 def _safe_return_url(raw: str) -> str:
@@ -532,7 +549,11 @@ def confirmar(invoice_id: int):
                             confirming_contract_id=confirming_id)
     if payment_method == 'confirming' and confirming_id:
         try:
-            create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), confirmed_date)
+            parcelas = _parse_confirming_parcelas()
+            if parcelas:
+                create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas)
+            else:
+                create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), confirmed_date)
         except Exception as e:
             logger.warning('create_confirming_parcela invoice=%s: %s', invoice_id, e)
     flash('Data confirmada. Fatura agendada.', 'success')
@@ -558,7 +579,11 @@ def pagar(invoice_id: int):
         if inv:
             amount_eur = inv.get('amount_eur')
             try:
-                create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), paid_date)
+                parcelas = _parse_confirming_parcelas()
+                if parcelas:
+                    create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas)
+                else:
+                    create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), paid_date)
             except Exception as e:
                 logger.warning('create_confirming_parcela pagar invoice=%s: %s', invoice_id, e)
     flash('Fatura marcada como paga.', 'success')

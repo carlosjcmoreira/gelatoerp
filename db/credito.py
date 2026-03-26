@@ -485,20 +485,73 @@ def get_confirming_utilizacao_por_contrato(confirming_contract_id=None):
     return {r['confirming_contract_id']: dict(r) for r in rows}
 
 
-def create_confirming_parcela(invoice_id, confirming_contract_id, montante, data_pagamento, notas=None):
-    """Create a new confirming parcela for an invoice."""
+def create_confirming_parcela(invoice_id, confirming_contract_id, montante, data_pagamento,
+                               notas=None, estado='pendente'):
+    """Create a single confirming parcela for an invoice."""
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """INSERT INTO confirming_parcelas
                (invoice_id, confirming_contract_id, montante, data_pagamento, estado, notas)
-               VALUES (%s, %s, %s, %s, 'pendente', %s)
+               VALUES (%s, %s, %s, %s, %s, %s)
                RETURNING id""",
-            (invoice_id, confirming_contract_id, montante, data_pagamento, notas)
+            (invoice_id, confirming_contract_id, montante, data_pagamento, estado, notas)
         )
         parcela_id = cursor.fetchone()[0]
         conn.commit()
     return parcela_id
+
+
+def create_confirming_parcelas_batch(invoice_id, confirming_contract_id, parcelas, estado='pendente'):
+    """Batch insert confirming parcelas for an invoice.
+    `parcelas` is a list of dicts with keys: montante, data_pagamento, notas (optional).
+    Replaces any existing open parcelas for this invoice+contract before inserting.
+    Returns list of inserted ids.
+    """
+    if not parcelas:
+        return []
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        # Remove existing open parcelas for this invoice+contract (pendente/emitido) to avoid duplicates
+        cursor.execute(
+            """DELETE FROM confirming_parcelas
+               WHERE invoice_id = %s AND confirming_contract_id = %s
+                 AND estado IN ('pendente', 'emitido')""",
+            (invoice_id, confirming_contract_id)
+        )
+        ids = []
+        for p in parcelas:
+            cursor.execute(
+                """INSERT INTO confirming_parcelas
+                   (invoice_id, confirming_contract_id, montante, data_pagamento, estado, notas)
+                   VALUES (%s, %s, %s, %s, %s, %s)
+                   RETURNING id""",
+                (invoice_id, confirming_contract_id,
+                 p['montante'], p['data_pagamento'],
+                 estado, p.get('notas'))
+            )
+            ids.append(cursor.fetchone()[0])
+        conn.commit()
+    return ids
+
+
+def delete_confirming_parcelas_for_invoice(invoice_id, confirming_contract_id=None):
+    """Remove open parcelas for an invoice (optionally scoped to a contract)."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        if confirming_contract_id:
+            cursor.execute(
+                """DELETE FROM confirming_parcelas
+                   WHERE invoice_id = %s AND confirming_contract_id = %s
+                     AND estado IN ('pendente', 'emitido')""",
+                (invoice_id, confirming_contract_id)
+            )
+        else:
+            cursor.execute(
+                "DELETE FROM confirming_parcelas WHERE invoice_id = %s AND estado IN ('pendente', 'emitido')",
+                (invoice_id,)
+            )
+        conn.commit()
 
 
 def get_confirming_parcelas(confirming_contract_id=None, invoice_id=None, estado=None):

@@ -311,14 +311,40 @@
                         </select>
                     </div>
                     {% if confirming_contracts %}
-                    <div id="pmConfirmarContratos" class="mb-2" style="display:none">
-                        <label class="form-label small">Contrato Confirming</label>
-                        <select name="confirming_contract_id" class="form-select form-select-sm">
-                            <option value="">— Selecionar contrato —</option>
-                            {% for cc in confirming_contracts %}
-                            <option value="{{ cc.id }}">{{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}</option>
-                            {% endfor %}
-                        </select>
+                    <div id="pmConfirmarDetails" style="display:none">
+                        <div class="mb-2">
+                            <label class="form-label small">Contrato Confirming</label>
+                            <select name="confirming_contract_id" class="form-select form-select-sm" id="pmConfirmarContrato">
+                                <option value="">— Selecionar contrato —</option>
+                                {% for cc in confirming_contracts %}
+                                <option value="{{ cc.id }}" data-plafond="{{ cc.plafond or 0 }}">
+                                    {{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-1">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label small mb-0">Parcelas de Pagamento</label>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                        onclick="addParcelaRow('parcelasConfirmar', 'confirmar')">+ Parcela</button>
+                            </div>
+                            <div id="parcelasConfirmar">
+                                <div class="parcela-row d-flex gap-1 mb-1 align-items-center">
+                                    <input type="number" step="0.01" min="0.01" name="parcela_montante[]"
+                                           class="form-control form-control-sm parcela-amt" placeholder="Valor €"
+                                           oninput="updateParcelaTotal('confirmar')" value="{{ inv.amount_eur or '' }}">
+                                    <input type="date" name="parcela_data[]"
+                                           class="form-control form-control-sm" value="{{ today.isoformat() }}">
+                                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2"
+                                            onclick="removeParcelaRow(this, 'confirmar')">×</button>
+                                </div>
+                            </div>
+                            <div class="small mt-1">
+                                Total parcelas: <strong id="parcelaTotalConfirmar">0.00 €</strong>
+                                <span id="parcelaWarnConfirmar" class="text-danger ms-2 d-none">⚠ diferente do valor da fatura ({{ "%.2f €"|format(inv.amount_eur|float) }})</span>
+                            </div>
+                        </div>
                     </div>
                     {% endif %}
                     {% endif %}
@@ -359,14 +385,40 @@
                         </select>
                     </div>
                     {% if confirming_contracts %}
-                    <div id="pmPagarContratos" class="mb-2" style="display:none">
-                        <label class="form-label small">Contrato Confirming</label>
-                        <select name="confirming_contract_id" class="form-select form-select-sm">
-                            <option value="">— Selecionar contrato —</option>
-                            {% for cc in confirming_contracts %}
-                            <option value="{{ cc.id }}">{{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}</option>
-                            {% endfor %}
-                        </select>
+                    <div id="pmPagarDetails" style="display:none">
+                        <div class="mb-2">
+                            <label class="form-label small">Contrato Confirming</label>
+                            <select name="confirming_contract_id" class="form-select form-select-sm" id="pmPagarContrato">
+                                <option value="">— Selecionar contrato —</option>
+                                {% for cc in confirming_contracts %}
+                                <option value="{{ cc.id }}" data-plafond="{{ cc.plafond or 0 }}">
+                                    {{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-1">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label small mb-0">Parcelas de Pagamento</label>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                        onclick="addParcelaRow('parcelasPagar', 'pagar')">+ Parcela</button>
+                            </div>
+                            <div id="parcelasPagar">
+                                <div class="parcela-row d-flex gap-1 mb-1 align-items-center">
+                                    <input type="number" step="0.01" min="0.01" name="parcela_montante[]"
+                                           class="form-control form-control-sm parcela-amt" placeholder="Valor €"
+                                           oninput="updateParcelaTotal('pagar')" value="{{ inv.amount_eur or '' }}">
+                                    <input type="date" name="parcela_data[]"
+                                           class="form-control form-control-sm" value="{{ today.isoformat() }}">
+                                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2"
+                                            onclick="removeParcelaRow(this, 'pagar')">×</button>
+                                </div>
+                            </div>
+                            <div class="small mt-1">
+                                Total parcelas: <strong id="parcelaTotalPagar">0.00 €</strong>
+                                <span id="parcelaWarnPagar" class="text-danger ms-2 d-none">⚠ diferente do valor da fatura ({{ "%.2f €"|format(inv.amount_eur|float) }})</span>
+                            </div>
+                        </div>
                     </div>
                     {% endif %}
                     {% endif %}
@@ -381,16 +433,68 @@
 </div>
 
 <script>
+var _invoiceTotal = {{ inv.amount_eur|float }};
+
 function pmConfirmarChange() {
     var val = document.getElementById('pmSelectConfirmar').value;
-    var wrap = document.getElementById('pmConfirmarContratos');
-    if (wrap) wrap.style.display = (val === 'confirming') ? '' : 'none';
+    var wrap = document.getElementById('pmConfirmarDetails');
+    if (wrap) {
+        wrap.style.display = (val === 'confirming') ? '' : 'none';
+        if (val === 'confirming') updateParcelaTotal('confirmar');
+    }
 }
 function pmPagarChange() {
     var val = document.getElementById('pmSelectPagar').value;
-    var wrap = document.getElementById('pmPagarContratos');
-    if (wrap) wrap.style.display = (val === 'confirming') ? '' : 'none';
+    var wrap = document.getElementById('pmPagarDetails');
+    if (wrap) {
+        wrap.style.display = (val === 'confirming') ? '' : 'none';
+        if (val === 'confirming') updateParcelaTotal('pagar');
+    }
 }
+
+function addParcelaRow(containerId, ctx) {
+    var container = document.getElementById(containerId);
+    var row = document.createElement('div');
+    row.className = 'parcela-row d-flex gap-1 mb-1 align-items-center';
+    row.innerHTML = '<input type="number" step="0.01" min="0.01" name="parcela_montante[]" class="form-control form-control-sm parcela-amt" placeholder="Valor €" oninput="updateParcelaTotal(\'' + ctx + '\')">'
+                  + '<input type="date" name="parcela_data[]" class="form-control form-control-sm">'
+                  + '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" onclick="removeParcelaRow(this, \'' + ctx + '\')">×</button>';
+    container.appendChild(row);
+    updateParcelaTotal(ctx);
+}
+
+function removeParcelaRow(btn, ctx) {
+    var container = btn.closest('[id^="parcelas"]');
+    if (container && container.querySelectorAll('.parcela-row').length > 1) {
+        btn.closest('.parcela-row').remove();
+    }
+    updateParcelaTotal(ctx);
+}
+
+function updateParcelaTotal(ctx) {
+    var containerId = ctx === 'confirmar' ? 'parcelasConfirmar' : 'parcelasPagar';
+    var totalId = ctx === 'confirmar' ? 'parcelaTotalConfirmar' : 'parcelaTotalPagar';
+    var warnId = ctx === 'confirmar' ? 'parcelaWarnConfirmar' : 'parcelaWarnPagar';
+    var container = document.getElementById(containerId);
+    var totalEl = document.getElementById(totalId);
+    var warnEl = document.getElementById(warnId);
+    if (!container || !totalEl) return;
+    var total = 0;
+    container.querySelectorAll('.parcela-amt').forEach(function(inp) {
+        total += parseFloat(inp.value || 0);
+    });
+    totalEl.textContent = total.toFixed(2) + ' €';
+    if (warnEl) {
+        var diff = Math.abs(total - _invoiceTotal);
+        warnEl.classList.toggle('d-none', diff < 0.01);
+    }
+}
+
+// Initialize totals on load
+document.addEventListener('DOMContentLoaded', function() {
+    updateParcelaTotal('confirmar');
+    updateParcelaTotal('pagar');
+});
 </script>
 
 <!-- Modal: Arquivar OneDrive -->
