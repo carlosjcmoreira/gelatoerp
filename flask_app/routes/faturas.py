@@ -581,9 +581,10 @@ def pagar(invoice_id: int):
             try:
                 parcelas = _parse_confirming_parcelas()
                 if parcelas:
-                    create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas)
+                    create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas, estado='emitido')
                 else:
-                    create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), paid_date)
+                    create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), paid_date,
+                                              estado='emitido')
             except Exception as e:
                 logger.warning('create_confirming_parcela pagar invoice=%s: %s', invoice_id, e)
     flash('Fatura marcada como paga.', 'success')

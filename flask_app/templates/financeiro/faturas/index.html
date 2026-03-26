@@ -539,12 +539,23 @@
                 </div>
                 <div id="pm-confirming-wrap" class="mb-2" style="display:none">
                     <label class="form-label small mb-1">Contrato Confirming</label>
-                    <select id="pm-confirming-select" class="form-select form-select-sm">
+                    <select id="pm-confirming-select" class="form-select form-select-sm" onchange="pmConfirmingChange()">
                         <option value="">— Selecionar contrato —</option>
                         {% for cc in confirming_contracts %}
-                        <option value="{{ cc.id }}">{{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}</option>
+                        <option value="{{ cc.id }}"
+                                data-plafond="{{ cc.plafond or 0 }}"
+                                data-disponivel="{{ cc.disponivel or 0 }}">
+                            {{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}
+                        </option>
                         {% endfor %}
                     </select>
+                    <div id="pm-plafond-info" class="small text-muted mt-1" style="display:none">
+                        Plafond: <strong id="pm-plafond-total">–</strong> |
+                        Disponível: <strong id="pm-plafond-disp">–</strong>
+                    </div>
+                    <div class="small text-info mt-1">
+                        Cada fatura selecionada receberá uma parcela pelo total da fatura à data indicada.
+                    </div>
                 </div>
             </div>
             <div class="modal-footer py-2">
@@ -562,6 +573,24 @@ var _pmModal = null;
 function pmSelectChange() {
     const val = document.getElementById('pm-select').value;
     document.getElementById('pm-confirming-wrap').style.display = (val === 'confirming') ? '' : 'none';
+    if (val !== 'confirming') {
+        document.getElementById('pm-plafond-info').style.display = 'none';
+        document.getElementById('pm-confirming-select').value = '';
+    }
+}
+
+function pmConfirmingChange() {
+    const sel = document.getElementById('pm-confirming-select');
+    const infoDiv = document.getElementById('pm-plafond-info');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) { infoDiv.style.display = 'none'; return; }
+    const plafond = parseFloat(opt.getAttribute('data-plafond') || 0);
+    const disponivel = parseFloat(opt.getAttribute('data-disponivel') || 0);
+    document.getElementById('pm-plafond-total').textContent = plafond.toFixed(2) + ' €';
+    const dispEl = document.getElementById('pm-plafond-disp');
+    dispEl.textContent = disponivel.toFixed(2) + ' €';
+    dispEl.className = disponivel > 0 ? 'text-success' : 'text-danger';
+    infoDiv.style.display = '';
 }
 
 function _openPaymentModal(formId, status) {
@@ -569,6 +598,7 @@ function _openPaymentModal(formId, status) {
     if (!_pmModal) _pmModal = new bootstrap.Modal(document.getElementById('modalPagamento'));
     document.getElementById('pm-select').value = '';
     document.getElementById('pm-confirming-wrap').style.display = 'none';
+    document.getElementById('pm-plafond-info').style.display = 'none';
     document.getElementById('pm-confirming-select').value = '';
     _pmModal.show();
 }

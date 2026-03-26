@@ -314,14 +314,21 @@
                     <div id="pmConfirmarDetails" style="display:none">
                         <div class="mb-2">
                             <label class="form-label small">Contrato Confirming</label>
-                            <select name="confirming_contract_id" class="form-select form-select-sm" id="pmConfirmarContrato">
+                            <select name="confirming_contract_id" class="form-select form-select-sm" id="pmConfirmarContrato"
+                                    onchange="updatePlafondDisplay('confirmar')">
                                 <option value="">— Selecionar contrato —</option>
                                 {% for cc in confirming_contracts %}
-                                <option value="{{ cc.id }}" data-plafond="{{ cc.plafond or 0 }}">
+                                <option value="{{ cc.id }}"
+                                        data-plafond="{{ cc.plafond or 0 }}"
+                                        data-disponivel="{{ cc.disponivel or 0 }}">
                                     {{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
+                            <div id="plafondInfoConfirmar" class="small text-muted mt-1" style="display:none">
+                                Plafond: <strong id="plafondTotalConfirmar">–</strong> |
+                                Disponível: <strong id="plafondDispConfirmar" class="text-success">–</strong>
+                            </div>
                         </div>
                         <div class="mb-1">
                             <div class="d-flex justify-content-between align-items-center mb-1">
@@ -343,6 +350,7 @@
                             <div class="small mt-1">
                                 Total parcelas: <strong id="parcelaTotalConfirmar">0.00 €</strong>
                                 <span id="parcelaWarnConfirmar" class="text-danger ms-2 d-none">⚠ diferente do valor da fatura ({{ "%.2f €"|format(inv.amount_eur|float) }})</span>
+                                <span id="parcelaWarnPlafondConfirmar" class="text-danger ms-2 d-none">⚠ excede plafond disponível</span>
                             </div>
                         </div>
                     </div>
@@ -388,14 +396,21 @@
                     <div id="pmPagarDetails" style="display:none">
                         <div class="mb-2">
                             <label class="form-label small">Contrato Confirming</label>
-                            <select name="confirming_contract_id" class="form-select form-select-sm" id="pmPagarContrato">
+                            <select name="confirming_contract_id" class="form-select form-select-sm" id="pmPagarContrato"
+                                    onchange="updatePlafondDisplay('pagar')">
                                 <option value="">— Selecionar contrato —</option>
                                 {% for cc in confirming_contracts %}
-                                <option value="{{ cc.id }}" data-plafond="{{ cc.plafond or 0 }}">
+                                <option value="{{ cc.id }}"
+                                        data-plafond="{{ cc.plafond or 0 }}"
+                                        data-disponivel="{{ cc.disponivel or 0 }}">
                                     {{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
+                            <div id="plafondInfoPagar" class="small text-muted mt-1" style="display:none">
+                                Plafond: <strong id="plafondTotalPagar">–</strong> |
+                                Disponível: <strong id="plafondDispPagar" class="text-success">–</strong>
+                            </div>
                         </div>
                         <div class="mb-1">
                             <div class="d-flex justify-content-between align-items-center mb-1">
@@ -417,6 +432,7 @@
                             <div class="small mt-1">
                                 Total parcelas: <strong id="parcelaTotalPagar">0.00 €</strong>
                                 <span id="parcelaWarnPagar" class="text-danger ms-2 d-none">⚠ diferente do valor da fatura ({{ "%.2f €"|format(inv.amount_eur|float) }})</span>
+                                <span id="parcelaWarnPlafondPagar" class="text-danger ms-2 d-none">⚠ excede plafond disponível</span>
                             </div>
                         </div>
                     </div>
@@ -440,7 +456,7 @@ function pmConfirmarChange() {
     var wrap = document.getElementById('pmConfirmarDetails');
     if (wrap) {
         wrap.style.display = (val === 'confirming') ? '' : 'none';
-        if (val === 'confirming') updateParcelaTotal('confirmar');
+        if (val === 'confirming') { updateParcelaTotal('confirmar'); updatePlafondDisplay('confirmar'); }
     }
 }
 function pmPagarChange() {
@@ -448,8 +464,28 @@ function pmPagarChange() {
     var wrap = document.getElementById('pmPagarDetails');
     if (wrap) {
         wrap.style.display = (val === 'confirming') ? '' : 'none';
-        if (val === 'confirming') updateParcelaTotal('pagar');
+        if (val === 'confirming') { updateParcelaTotal('pagar'); updatePlafondDisplay('pagar'); }
     }
+}
+
+function updatePlafondDisplay(ctx) {
+    var selId = ctx === 'confirmar' ? 'pmConfirmarContrato' : 'pmPagarContrato';
+    var infoId = ctx === 'confirmar' ? 'plafondInfoConfirmar' : 'plafondInfoPagar';
+    var totalId = ctx === 'confirmar' ? 'plafondTotalConfirmar' : 'plafondTotalPagar';
+    var dispId = ctx === 'confirmar' ? 'plafondDispConfirmar' : 'plafondDispPagar';
+    var sel = document.getElementById(selId);
+    var infoDiv = document.getElementById(infoId);
+    if (!sel || !infoDiv) return;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) { infoDiv.style.display = 'none'; return; }
+    var plafond = parseFloat(opt.getAttribute('data-plafond') || 0);
+    var disponivel = parseFloat(opt.getAttribute('data-disponivel') || 0);
+    document.getElementById(totalId).textContent = plafond.toFixed(2) + ' €';
+    var dispEl = document.getElementById(dispId);
+    dispEl.textContent = disponivel.toFixed(2) + ' €';
+    dispEl.className = disponivel > 0 ? 'text-success' : 'text-danger';
+    infoDiv.style.display = '';
+    updateParcelaTotal(ctx);
 }
 
 function addParcelaRow(containerId, ctx) {
@@ -475,9 +511,12 @@ function updateParcelaTotal(ctx) {
     var containerId = ctx === 'confirmar' ? 'parcelasConfirmar' : 'parcelasPagar';
     var totalId = ctx === 'confirmar' ? 'parcelaTotalConfirmar' : 'parcelaTotalPagar';
     var warnId = ctx === 'confirmar' ? 'parcelaWarnConfirmar' : 'parcelaWarnPagar';
+    var warnPlafondId = ctx === 'confirmar' ? 'parcelaWarnPlafondConfirmar' : 'parcelaWarnPlafondPagar';
+    var selId = ctx === 'confirmar' ? 'pmConfirmarContrato' : 'pmPagarContrato';
     var container = document.getElementById(containerId);
     var totalEl = document.getElementById(totalId);
     var warnEl = document.getElementById(warnId);
+    var warnPlafondEl = document.getElementById(warnPlafondId);
     if (!container || !totalEl) return;
     var total = 0;
     container.querySelectorAll('.parcela-amt').forEach(function(inp) {
@@ -488,9 +527,14 @@ function updateParcelaTotal(ctx) {
         var diff = Math.abs(total - _invoiceTotal);
         warnEl.classList.toggle('d-none', diff < 0.01);
     }
+    if (warnPlafondEl) {
+        var sel = document.getElementById(selId);
+        var disponivel = sel && sel.selectedIndex > 0
+            ? parseFloat(sel.options[sel.selectedIndex].getAttribute('data-disponivel') || 0) : Infinity;
+        warnPlafondEl.classList.toggle('d-none', total <= disponivel + 0.001);
+    }
 }
 
-// Initialize totals on load
 document.addEventListener('DOMContentLoaded', function() {
     updateParcelaTotal('confirmar');
     updateParcelaTotal('pagar');

@@ -390,11 +390,18 @@ def get_prestacoes_calendar(weeks: int = 13):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_confirming_contracts(estado='ativo'):
-    """Return all confirming-type credit contracts."""
+    """Return all confirming-type credit contracts with current plafond utilization."""
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
-            "SELECT * FROM credit_contracts WHERE tipo = 'confirming' AND estado = %s ORDER BY label",
+            """SELECT c.*,
+                      COALESCE(SUM(cp.montante) FILTER (WHERE cp.estado IN ('pendente','emitido')), 0) AS utilizado,
+                      GREATEST(0, c.plafond - COALESCE(SUM(cp.montante) FILTER (WHERE cp.estado IN ('pendente','emitido')), 0)) AS disponivel
+               FROM credit_contracts c
+               LEFT JOIN confirming_parcelas cp ON cp.confirming_contract_id = c.id
+               WHERE c.tipo = 'confirming' AND c.estado = %s
+               GROUP BY c.id
+               ORDER BY c.label""",
             (estado,)
         )
         return cursor.fetchall()
