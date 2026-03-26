@@ -431,15 +431,13 @@ def get_confirming_dashboard():
         )
         todas_parcelas = cursor.fetchall()
 
-    utilizado_por_contrato = {}
-    for p in parcelas_abertas:
-        cid = p['confirming_contract_id']
-        utilizado_por_contrato[cid] = utilizado_por_contrato.get(cid, 0) + float(p['montante'] or 0)
+    utilizado_map = get_confirming_utilizacao_por_contrato()
 
     contracts_info = []
     for c in contracts:
         plafond = float(c['plafond'] or 0)
-        utilizado = utilizado_por_contrato.get(c['id'], 0)
+        util_data = utilizado_map.get(c['id'], {})
+        utilizado = float(util_data.get('utilizado') or 0)
         disponivel = max(0, plafond - utilizado)
         contracts_info.append({
             **dict(c),
@@ -454,6 +452,37 @@ def get_confirming_dashboard():
         'parcelas_abertas': parcelas_abertas,
         'todas_parcelas': todas_parcelas,
     }
+
+
+def get_confirming_utilizacao_por_contrato(confirming_contract_id=None):
+    """Return utilization amounts per confirming contract.
+    Utilizado = sum of montante for parcelas with estado IN ('pendente', 'emitido')
+    (active parcelas that are using the plafond but not yet settled).
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        if confirming_contract_id:
+            cursor.execute(
+                """SELECT confirming_contract_id,
+                          SUM(montante) AS utilizado,
+                          COUNT(*) AS n_parcelas
+                   FROM confirming_parcelas
+                   WHERE estado IN ('pendente', 'emitido')
+                     AND confirming_contract_id = %s
+                   GROUP BY confirming_contract_id""",
+                (confirming_contract_id,)
+            )
+        else:
+            cursor.execute(
+                """SELECT confirming_contract_id,
+                          SUM(montante) AS utilizado,
+                          COUNT(*) AS n_parcelas
+                   FROM confirming_parcelas
+                   WHERE estado IN ('pendente', 'emitido')
+                   GROUP BY confirming_contract_id"""
+            )
+        rows = cursor.fetchall()
+    return {r['confirming_contract_id']: dict(r) for r in rows}
 
 
 def create_confirming_parcela(invoice_id, confirming_contract_id, montante, data_pagamento, notas=None):

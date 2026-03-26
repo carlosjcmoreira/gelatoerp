@@ -184,9 +184,18 @@ def bulk_action():
         for inv_id in ids:
             try:
                 if new_status == 'paid':
+                    inv_data = get_invoice(inv_id)
                     mark_payment_executed(inv_id, bulk_date, current_user,
                                          payment_method=bulk_payment_method,
                                          confirming_contract_id=bulk_confirming_id)
+                    if bulk_payment_method == 'confirming' and bulk_confirming_id and inv_data:
+                        try:
+                            amt = inv_data.get('amount_eur')
+                            create_confirming_parcela(
+                                inv_id, bulk_confirming_id, float(amt or 0), bulk_date,
+                            )
+                        except Exception as pe:
+                            logger.warning('create_confirming_parcela paid inv=%s: %s', inv_id, pe)
                 elif new_status == 'scheduled':
                     inv_data = get_invoice(inv_id)
                     amt = inv_data.get('amount_eur') if inv_data else None
@@ -544,6 +553,14 @@ def pagar(invoice_id: int):
     mark_payment_executed(invoice_id, paid_date, current_user,
                           payment_method=payment_method,
                           confirming_contract_id=confirming_id)
+    if payment_method == 'confirming' and confirming_id:
+        inv = get_invoice(invoice_id)
+        if inv:
+            amount_eur = inv.get('amount_eur')
+            try:
+                create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), paid_date)
+            except Exception as e:
+                logger.warning('create_confirming_parcela pagar invoice=%s: %s', invoice_id, e)
     flash('Fatura marcada como paga.', 'success')
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 
