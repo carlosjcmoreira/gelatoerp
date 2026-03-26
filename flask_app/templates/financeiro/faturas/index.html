@@ -524,11 +524,17 @@
                     <label class="form-label small mb-1">Método de pagamento</label>
                     <select id="pm-select" class="form-select form-select-sm" onchange="pmSelectChange()">
                         <option value="">(não especificado)</option>
+                        {% if payment_methods %}
+                        {% for m in payment_methods %}
+                        <option value="{{ m.metodo }}">{{ m.label }}</option>
+                        {% endfor %}
+                        {% else %}
                         <option value="transferencia">Transferência Bancária</option>
                         <option value="debito_direto">Débito Direto</option>
                         <option value="confirming">Confirming</option>
                         <option value="numerario">Numerário</option>
                         <option value="cheque">Cheque</option>
+                        {% endif %}
                     </select>
                 </div>
                 <div id="pm-confirming-wrap" class="mb-2" style="display:none">

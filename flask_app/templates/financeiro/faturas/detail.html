@@ -286,7 +286,7 @@
 
 <!-- Modal: Confirmar data -->
 <div class="modal fade" id="modalConfirmar" tabindex="-1">
-    <div class="modal-dialog modal-sm">
+    <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header py-2">
                 <h6 class="modal-title">Confirmar data de pagamento</h6>
@@ -294,9 +294,34 @@
             </div>
             <form method="post" action="{{ url_for('faturas.confirmar', invoice_id=inv.id) }}">
                 <div class="modal-body">
-                    <label class="form-label small">Data de confirmação</label>
-                    <input type="date" name="confirmed_date" class="form-control form-control-sm"
-                           value="{{ today.isoformat() }}" required>
+                    <div class="mb-3">
+                        <label class="form-label small">Data de confirmação</label>
+                        <input type="date" name="confirmed_date" class="form-control form-control-sm"
+                               value="{{ today.isoformat() }}" required>
+                    </div>
+                    {% if payment_methods %}
+                    <div class="mb-2">
+                        <label class="form-label small">Método de pagamento <span class="text-muted">(opcional)</span></label>
+                        <select name="payment_method" class="form-select form-select-sm" id="pmSelectConfirmar"
+                                onchange="pmConfirmarChange()">
+                            <option value="">(não especificado)</option>
+                            {% for m in payment_methods %}
+                            <option value="{{ m.metodo }}">{{ m.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% if confirming_contracts %}
+                    <div id="pmConfirmarContratos" class="mb-2" style="display:none">
+                        <label class="form-label small">Contrato Confirming</label>
+                        <select name="confirming_contract_id" class="form-select form-select-sm">
+                            <option value="">— Selecionar contrato —</option>
+                            {% for cc in confirming_contracts %}
+                            <option value="{{ cc.id }}">{{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    {% endif %}
                 </div>
                 <div class="modal-footer py-2">
                     <button type="submit" class="btn btn-primary btn-sm">Confirmar</button>
@@ -309,7 +334,7 @@
 
 <!-- Modal: Marcar paga -->
 <div class="modal fade" id="modalPagar" tabindex="-1">
-    <div class="modal-dialog modal-sm">
+    <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header py-2">
                 <h6 class="modal-title">Marcar como paga</h6>
@@ -317,9 +342,34 @@
             </div>
             <form method="post" action="{{ url_for('faturas.pagar', invoice_id=inv.id) }}">
                 <div class="modal-body">
-                    <label class="form-label small">Data efectiva de pagamento</label>
-                    <input type="date" name="paid_date" class="form-control form-control-sm"
-                           value="{{ today.isoformat() }}" required>
+                    <div class="mb-3">
+                        <label class="form-label small">Data efectiva de pagamento</label>
+                        <input type="date" name="paid_date" class="form-control form-control-sm"
+                               value="{{ today.isoformat() }}" required>
+                    </div>
+                    {% if payment_methods %}
+                    <div class="mb-2">
+                        <label class="form-label small">Método de pagamento <span class="text-muted">(opcional)</span></label>
+                        <select name="payment_method" class="form-select form-select-sm" id="pmSelectPagar"
+                                onchange="pmPagarChange()">
+                            <option value="">(não especificado)</option>
+                            {% for m in payment_methods %}
+                            <option value="{{ m.metodo }}">{{ m.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% if confirming_contracts %}
+                    <div id="pmPagarContratos" class="mb-2" style="display:none">
+                        <label class="form-label small">Contrato Confirming</label>
+                        <select name="confirming_contract_id" class="form-select form-select-sm">
+                            <option value="">— Selecionar contrato —</option>
+                            {% for cc in confirming_contracts %}
+                            <option value="{{ cc.id }}">{{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    {% endif %}
                 </div>
                 <div class="modal-footer py-2">
                     <button type="submit" class="btn btn-success btn-sm">Marcar paga</button>
@@ -329,6 +379,19 @@
         </div>
     </div>
 </div>
+
+<script>
+function pmConfirmarChange() {
+    var val = document.getElementById('pmSelectConfirmar').value;
+    var wrap = document.getElementById('pmConfirmarContratos');
+    if (wrap) wrap.style.display = (val === 'confirming') ? '' : 'none';
+}
+function pmPagarChange() {
+    var val = document.getElementById('pmSelectPagar').value;
+    var wrap = document.getElementById('pmPagarContratos');
+    if (wrap) wrap.style.display = (val === 'confirming') ? '' : 'none';
+}
+</script>
 
 <!-- Modal: Arquivar OneDrive -->
 <div class="modal fade" id="modalOneDrive" tabindex="-1">

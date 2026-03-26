@@ -20,6 +20,7 @@ from database import (
     DOCUMENT_TYPE_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_TERMS_LABELS,
     calculate_due_date,
     get_confirming_contracts, create_confirming_parcela,
+    get_payment_methods_config,
 )
 
 import flask_app.services.faturas as faturas_svc
@@ -67,6 +68,7 @@ def index():
     today = date.today()
 
     confirming_contracts = get_confirming_contracts()
+    payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
 
     if view == 'fornecedor':
         grupos = get_contas_por_fornecedor()
@@ -85,6 +87,7 @@ def index():
             status_labels=INVOICE_STATUS_LABELS,
             invoices=[],
             confirming_contracts=confirming_contracts,
+            payment_methods=payment_methods,
         )
 
     status_filter = request.args.get('status', '')
@@ -127,6 +130,7 @@ def index():
         today=today,
         filter_qs=filter_qs,
         confirming_contracts=confirming_contracts,
+        payment_methods=payment_methods,
     )
 
 
@@ -418,6 +422,8 @@ def detail(invoice_id: int):
     categories = INVOICE_CATEGORIES
     suppliers = get_suppliers()
     today = date.today()
+    payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
+    confirming_contracts = get_confirming_contracts()
     return render_template(
         'financeiro/faturas/detail.html',
         inv=inv,
@@ -428,6 +434,8 @@ def detail(invoice_id: int):
         status_labels=INVOICE_STATUS_LABELS,
         document_type_labels=DOCUMENT_TYPE_LABELS,
         today=today,
+        payment_methods=payment_methods,
+        confirming_contracts=confirming_contracts,
     )
 
 
@@ -507,7 +515,17 @@ def confirmar(invoice_id: int):
         return redirect(url_for('faturas.detail', invoice_id=invoice_id))
     amount_eur = inv.get('amount_eur')
     current_user = session.get('user', {}).get('username', 'system')
-    confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, current_user)
+    payment_method = request.form.get('payment_method', '').strip() or None
+    confirming_id_raw = request.form.get('confirming_contract_id', '').strip()
+    confirming_id = int(confirming_id_raw) if confirming_id_raw.isdigit() else None
+    confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, current_user,
+                            payment_method=payment_method,
+                            confirming_contract_id=confirming_id)
+    if payment_method == 'confirming' and confirming_id:
+        try:
+            create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), confirmed_date)
+        except Exception as e:
+            logger.warning('create_confirming_parcela invoice=%s: %s', invoice_id, e)
     flash('Data confirmada. Fatura agendada.', 'success')
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 
@@ -520,7 +538,12 @@ def pagar(invoice_id: int):
         flash('É obrigatório indicar a data de pagamento.', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id))
     current_user = session.get('user', {}).get('username', 'system')
-    mark_payment_executed(invoice_id, paid_date, current_user)
+    payment_method = request.form.get('payment_method', '').strip() or None
+    confirming_id_raw = request.form.get('confirming_contract_id', '').strip()
+    confirming_id = int(confirming_id_raw) if confirming_id_raw.isdigit() else None
+    mark_payment_executed(invoice_id, paid_date, current_user,
+                          payment_method=payment_method,
+                          confirming_contract_id=confirming_id)
     flash('Fatura marcada como paga.', 'success')
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 
