@@ -18,7 +18,7 @@ def index():
         ('acesso_producao', '🍨', 'Produção Gelado', 'producao.index'),
         ('acesso_pastelaria', '🍡', 'Produção Pastelaria', 'pastelaria.index'),
         ('acesso_confeitaria', '🍪', 'Produção Confeitaria', 'confeitaria.index'),
-        ('acesso_administrativo', '🛍️', 'Compras', 'compras.index'),
+        ('acesso_administrativo', '🛍️', 'Compras e Faturas', 'compras.index'),
         ('acesso_administrativo', '🚚', 'Logística', 'logistica.index'),
         ('acesso_gestor', '👔', 'Gestor', 'gestor.index'),
         ('acesso_financeiro', '💰', 'Financeiro', 'financeiro.index'),

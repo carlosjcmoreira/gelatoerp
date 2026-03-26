@@ -9,8 +9,6 @@ from database import get_contas_por_fornecedor, mark_payment_executed
 financeiro_bp = Blueprint('financeiro', __name__)
 
 FINANCEIRO_MODULES = {
-    'faturas':    {'label': 'Faturas',              'icon': '🧾', 'active': True,  'url_func': 'faturas.index'},
-    'fornecedores': {'label': 'Fornecedores',       'icon': '🏢', 'active': True,  'url_func': 'faturas.fornecedores'},
     'credito':    {'label': 'Crédito',              'icon': '💳', 'active': True,  'url': '/financeiro/credito/'},
     'pagamentos': {'label': 'Pagamentos',           'icon': '💸', 'active': True,  'url': '/financeiro/pagamentos/'},
     'iva':        {'label': 'IVA',                  'icon': '📋', 'active': True,  'url': '/financeiro/pagamentos/iva'},

@@ -13,6 +13,7 @@ from database import (
 compras_bp = Blueprint('compras', __name__)
 
 TABS = [
+    {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'faturas.index'},
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
     {'id': 'criar_ordem', 'label': 'Criar Ordem de Transferência', 'icon': '📦', 'url_endpoint': 'compras.criar_ordem'},
 ]
