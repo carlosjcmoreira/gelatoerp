@@ -214,10 +214,12 @@
 <script>
 function toggleFields() {
     var tipo = document.getElementById('tipoSelect').value;
-    var isOverdraft = tipo === 'overdraft';
-    document.getElementById('fieldPrestacao').style.display = isOverdraft ? 'none' : '';
-    document.getElementById('fieldDiaDebito').style.display = isOverdraft ? 'none' : '';
-    document.getElementById('fieldPlafond').style.display = isOverdraft ? '' : 'none';
+    var isNoPresta = tipo === 'overdraft' || tipo === 'confirming';
+    document.getElementById('fieldPrestacao').style.display = isNoPresta ? 'none' : '';
+    document.getElementById('fieldDiaDebito').style.display = isNoPresta ? 'none' : '';
+    document.getElementById('fieldPlafond').style.display = isNoPresta ? '' : 'none';
+    var capitalField = document.getElementById('fieldCapitalInicial');
+    if (capitalField) capitalField.style.display = tipo === 'confirming' ? 'none' : '';
 }
 document.addEventListener('DOMContentLoaded', toggleFields);
 </script>

@@ -12,6 +12,8 @@ from database import (
     get_bank_balance_entries, insert_bank_balance_entry, delete_bank_balance_entry,
     get_credit_dashboard, get_prestacoes_calendar,
     get_payment_revisions, add_payment_revision,
+    get_confirming_contracts, get_confirming_dashboard,
+    create_confirming_parcela, get_confirming_parcelas, update_confirming_parcela_estado,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,7 @@ TIPOS_CONTRATO = [
     ('credito_automovel', 'Crédito Automóvel'),
     ('emprestimo', 'Empréstimo'),
     ('overdraft', 'Conta Caucionada'),
+    ('confirming', 'Confirming'),
 ]
 
 LOJAS = ['Matosinhos', 'Bolhão', 'Geral']
@@ -33,7 +36,7 @@ Responde APENAS com um JSON válido (sem markdown, sem ```), com os seguintes ca
 {
   "contratos": [
     {
-      "tipo": "leasing" | "credito_automovel" | "emprestimo" | "overdraft",
+      "tipo": "leasing" | "credito_automovel" | "emprestimo" | "overdraft" | "confirming",
       "label": "descrição curta do contrato, ex: Leasing Carrinha BPI",
       "banco": "nome do banco ou entidade financeira",
       "capital_inicial": número ou null,
@@ -51,7 +54,7 @@ Responde APENAS com um JSON válido (sem markdown, sem ```), com os seguintes ca
 
 Regras:
 - Se o documento contiver múltiplos contratos, inclui todos no array.
-- tipo deve ser um dos valores indicados. Usa "leasing" para leasings/renting, "credito_automovel" para crédito auto, "emprestimo" para empréstimos de médio/longo prazo, "overdraft" para contas caucionadas ou linhas de crédito.
+- tipo deve ser um dos valores indicados. Usa "leasing" para leasings/renting, "credito_automovel" para crédito auto, "emprestimo" para empréstimos de médio/longo prazo, "overdraft" para contas caucionadas ou linhas de crédito, "confirming" para linhas de confirming bancário.
 - Valores monetários em euros, sem símbolo (ex: 15000.00).
 - TAN em percentagem (ex: 3.5 para 3.5%).
 - Se não conseguires extrair um campo, usa null.
@@ -316,6 +319,35 @@ def eliminar_saldo(entry_id):
         logger.error('Erro ao eliminar registo de saldo id=%s: %s', entry_id, e, exc_info=True)
         flash('Não foi possível eliminar o registo. Tente novamente.', 'error')
     return redirect(url_for('credito.caucionada'))
+
+
+@credito_bp.route('/confirming')
+@perm_required('acesso_gestor')
+def confirming():
+    from datetime import date
+    dash = get_confirming_dashboard()
+    return render_template(
+        'credito/confirming.html',
+        dash=dash,
+        today=date.today(),
+    )
+
+
+@credito_bp.route('/confirming/parcela/<int:parcela_id>/estado', methods=['POST'])
+@perm_required('acesso_gestor')
+def atualizar_parcela_estado(parcela_id):
+    novo_estado = request.form.get('estado', '').strip()
+    ESTADOS_VALIDOS = ('pendente', 'emitido', 'pago', 'cancelado')
+    if novo_estado not in ESTADOS_VALIDOS:
+        flash('Estado inválido.', 'warning')
+        return redirect(url_for('credito.confirming'))
+    try:
+        update_confirming_parcela_estado(parcela_id, novo_estado)
+        flash(f'Parcela actualizada para «{novo_estado}».', 'success')
+    except Exception as e:
+        logger.error('Erro ao actualizar parcela id=%s: %s', parcela_id, e, exc_info=True)
+        flash('Não foi possível actualizar a parcela. Tente novamente.', 'error')
+    return redirect(url_for('credito.confirming'))
 
 
 @credito_bp.route('/upload')

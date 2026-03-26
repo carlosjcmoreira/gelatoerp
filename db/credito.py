@@ -385,6 +385,163 @@ def get_prestacoes_calendar(weeks: int = 13):
     return events
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONFIRMING BANCÁRIO
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_confirming_contracts(estado='ativo'):
+    """Return all confirming-type credit contracts."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT * FROM credit_contracts WHERE tipo = 'confirming' AND estado = %s ORDER BY label",
+            (estado,)
+        )
+        return cursor.fetchall()
+
+
+def get_confirming_dashboard():
+    """Dashboard data for all active confirming contracts (plafond utilizado/disponível + parcelas)."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT * FROM credit_contracts WHERE tipo = 'confirming' AND estado = 'ativo' ORDER BY label"
+        )
+        contracts = cursor.fetchall()
+
+        cursor.execute(
+            """SELECT cp.*, i.supplier_name, i.invoice_number, i.amount_eur AS invoice_amount,
+                      i.due_date, c.label AS contract_label
+               FROM confirming_parcelas cp
+               JOIN invoices i ON i.id = cp.invoice_id
+               JOIN credit_contracts c ON c.id = cp.confirming_contract_id
+               WHERE cp.estado IN ('pendente', 'emitido')
+               ORDER BY cp.data_pagamento ASC"""
+        )
+        parcelas_abertas = cursor.fetchall()
+
+        cursor.execute(
+            """SELECT cp.*, i.supplier_name, i.invoice_number, i.amount_eur AS invoice_amount,
+                      i.due_date, c.label AS contract_label
+               FROM confirming_parcelas cp
+               JOIN invoices i ON i.id = cp.invoice_id
+               JOIN credit_contracts c ON c.id = cp.confirming_contract_id
+               ORDER BY cp.data_pagamento DESC
+               LIMIT 100"""
+        )
+        todas_parcelas = cursor.fetchall()
+
+    utilizado_por_contrato = {}
+    for p in parcelas_abertas:
+        cid = p['confirming_contract_id']
+        utilizado_por_contrato[cid] = utilizado_por_contrato.get(cid, 0) + float(p['montante'] or 0)
+
+    contracts_info = []
+    for c in contracts:
+        plafond = float(c['plafond'] or 0)
+        utilizado = utilizado_por_contrato.get(c['id'], 0)
+        disponivel = max(0, plafond - utilizado)
+        contracts_info.append({
+            **dict(c),
+            'plafond': plafond,
+            'utilizado': utilizado,
+            'disponivel': disponivel,
+            'pct_utilizado': round(utilizado / plafond * 100, 1) if plafond else 0,
+        })
+
+    return {
+        'contracts': contracts_info,
+        'parcelas_abertas': parcelas_abertas,
+        'todas_parcelas': todas_parcelas,
+    }
+
+
+def create_confirming_parcela(invoice_id, confirming_contract_id, montante, data_pagamento, notas=None):
+    """Create a new confirming parcela for an invoice."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO confirming_parcelas
+               (invoice_id, confirming_contract_id, montante, data_pagamento, estado, notas)
+               VALUES (%s, %s, %s, %s, 'pendente', %s)
+               RETURNING id""",
+            (invoice_id, confirming_contract_id, montante, data_pagamento, notas)
+        )
+        parcela_id = cursor.fetchone()[0]
+        conn.commit()
+    return parcela_id
+
+
+def get_confirming_parcelas(confirming_contract_id=None, invoice_id=None, estado=None):
+    """Get confirming parcelas with optional filters."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        where = []
+        params = []
+        if confirming_contract_id:
+            where.append("cp.confirming_contract_id = %s")
+            params.append(confirming_contract_id)
+        if invoice_id:
+            where.append("cp.invoice_id = %s")
+            params.append(invoice_id)
+        if estado:
+            where.append("cp.estado = %s")
+            params.append(estado)
+        where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+        cursor.execute(
+            f"""SELECT cp.*, i.supplier_name, i.invoice_number, i.amount_eur AS invoice_amount,
+                       i.due_date, c.label AS contract_label
+                FROM confirming_parcelas cp
+                JOIN invoices i ON i.id = cp.invoice_id
+                JOIN credit_contracts c ON c.id = cp.confirming_contract_id
+                {where_sql}
+                ORDER BY cp.data_pagamento DESC""",
+            params
+        )
+        return cursor.fetchall()
+
+
+def update_confirming_parcela_estado(parcela_id, estado):
+    """Update the estado of a confirming parcela."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE confirming_parcelas SET estado = %s, updated_at = NOW() WHERE id = %s",
+            (estado, parcela_id)
+        )
+        conn.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MÉTODOS DE PAGAMENTO CONFIG
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def get_payment_methods_config():
+    """Return all configured payment methods."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM payment_methods_config ORDER BY metodo")
+        return cursor.fetchall()
+
+
+def upsert_payment_method_config(metodo, label, ativo, taxa_percentagem=None, prazo_dias=None, notas=None):
+    """Insert or update a payment method config entry."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO payment_methods_config (metodo, label, ativo, taxa_percentagem, prazo_dias, notas, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s, NOW())
+               ON CONFLICT (metodo) DO UPDATE
+                   SET label = EXCLUDED.label,
+                       ativo = EXCLUDED.ativo,
+                       taxa_percentagem = EXCLUDED.taxa_percentagem,
+                       prazo_dias = EXCLUDED.prazo_dias,
+                       notas = EXCLUDED.notas,
+                       updated_at = NOW()""",
+            (metodo, label, ativo, taxa_percentagem or None, prazo_dias or None, notas or None)
+        )
+        conn.commit()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EVENTOS / CRM

@@ -14,6 +14,7 @@ import database as db
 
 import flask_app.services.gestor as gestor_svc
 from flask_app.services import ServiceError
+from db.credito import get_payment_methods_config, upsert_payment_method_config
 
 gestor_bp = Blueprint('gestor', __name__)
 
@@ -29,6 +30,7 @@ TABS = [
     {'id': 'gestao_utilizadores', 'label': 'Utilizadores', 'icon': '👥', 'url_endpoint': 'gestor.gestao_utilizadores'},
     {'id': 'premio_eurokg', 'label': 'Prémio Euro/kg', 'icon': '🏆', 'url_endpoint': 'gestor.premio_eurokg'},
     {'id': 'gestao_lojas', 'label': 'Lojas', 'icon': '🏪', 'url_endpoint': 'gestor.gestao_lojas'},
+    {'id': 'metodos_pagamento', 'label': 'Métodos de Pagamento', 'icon': '💳', 'url_endpoint': 'gestor.metodos_pagamento'},
     {'id': 'configuracoes', 'label': 'Configurações', 'icon': '⚙️', 'url_endpoint': 'gestor.configuracoes'},
 ]
 
@@ -876,6 +878,41 @@ def delete_store_alias(store_id, alias_id):
     db.delete_store_alias(alias_id, store_id=store_id)
     flash('Alias removido.', 'success')
     return redirect(url_for('gestor.gestao_lojas', edit=store_id))
+
+
+@gestor_bp.route('/metodos-pagamento', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def metodos_pagamento():
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        if action == 'save':
+            metodo = request.form.get('metodo', '').strip()
+            label = request.form.get('label', '').strip()
+            ativo = request.form.get('ativo') == 'on'
+            try:
+                taxa_raw = request.form.get('taxa_percentagem', '').strip()
+                taxa = float(taxa_raw.replace(',', '.')) if taxa_raw else None
+            except ValueError:
+                taxa = None
+            try:
+                prazo_raw = request.form.get('prazo_dias', '').strip()
+                prazo = int(prazo_raw) if prazo_raw else None
+            except ValueError:
+                prazo = None
+            notas = request.form.get('notas', '').strip() or None
+            if not metodo or not label:
+                flash('Método e label são obrigatórios.', 'warning')
+            else:
+                try:
+                    upsert_payment_method_config(metodo, label, ativo, taxa, prazo, notas)
+                    flash(f'Método «{label}» guardado.', 'success')
+                except Exception as e:
+                    logger.error('Erro ao guardar método pagamento: %s', e)
+                    flash('Não foi possível guardar. Tente novamente.', 'error')
+        return redirect(url_for('gestor.metodos_pagamento'))
+
+    metodos = get_payment_methods_config()
+    return render_template('gestor/metodos_pagamento.html', metodos=metodos)
 
 
 @gestor_bp.route('/configuracoes', methods=['GET', 'POST'])

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% set back_url = url_for("credito.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">🏦 Confirming Bancário</h5>
+        <a href="{{ url_for('credito.contratos') }}?tipo=confirming" class="btn btn-outline-primary btn-sm">+ Novo Contrato</a>
+    </div>
+
+    {% if not dash.contracts %}
+    <div class="text-center text-muted py-5">
+        <div style="font-size:2.5rem;">🏦</div>
+        <p class="mt-2">Nenhum contrato de confirming ativo.</p>
+        <a href="{{ url_for('credito.contratos') }}" class="btn btn-primary btn-sm">Adicionar Contrato</a>
+    </div>
+    {% else %}
+
+    <!-- Contracts summary cards -->
+    <div class="row g-3 mb-4">
+        {% for c in dash.contracts %}
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <h6 class="fw-semibold mb-0">{{ c.label }}</h6>
+                        <span class="badge bg-primary-subtle text-primary-emphasis">{{ c.banco or '—' }}</span>
+                    </div>
+                    <div class="row g-2 text-center mb-3">
+                        <div class="col-4">
+                            <div class="small text-muted">Plafond</div>
+                            <div class="fw-bold">{{ "%.0f €"|format(c.plafond) }}</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="small text-muted">Utilizado</div>
+                            <div class="fw-bold text-warning">{{ "%.0f €"|format(c.utilizado) }}</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="small text-muted">Disponível</div>
+                            <div class="fw-bold text-success">{{ "%.0f €"|format(c.disponivel) }}</div>
+                        </div>
+                    </div>
+                    {% if c.plafond > 0 %}
+                    <div class="mb-1">
+                        <div class="d-flex justify-content-between small mb-1">
+                            <span>Utilização</span>
+                            <span class="{{ 'text-danger' if c.pct_utilizado > 80 else 'text-muted' }}">{{ c.pct_utilizado }}%</span>
+                        </div>
+                        <div class="progress" style="height:8px">
+                            <div class="progress-bar {{ 'bg-danger' if c.pct_utilizado > 80 else 'bg-warning' if c.pct_utilizado > 60 else 'bg-success' }}"
+                                 style="width:{{ [c.pct_utilizado, 100]|min }}%"></div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if c.tan %}
+                    <div class="small text-muted mt-2">TAN: {{ "%.4f"|format(c.tan|float) }}%</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Open parcelas -->
+    {% if dash.parcelas_abertas %}
+    <div class="card mb-4">
+        <div class="card-header py-2">
+            <h6 class="mb-0">📋 Parcelas em Aberto</h6>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Fornecedor</th>
+                            <th>Fatura</th>
+                            <th>Contrato</th>
+                            <th>Data Pagamento</th>
+                            <th class="text-end">Montante</th>
+                            <th>Estado</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in dash.parcelas_abertas %}
+                        <tr>
+                            <td class="small fw-semibold">{{ p.supplier_name or '—' }}</td>
+                            <td class="small">
+                                <a href="{{ url_for('faturas.detail', invoice_id=p.invoice_id) }}"
+                                   class="text-decoration-none" data-no-loading>
+                                    {{ p.invoice_number or '(sem nº)' }}
+                                </a>
+                            </td>
+                            <td class="small text-muted">{{ p.contract_label }}</td>
+                            <td class="small {{ 'text-danger fw-bold' if p.data_pagamento < today else '' }}">
+                                {{ p.data_pagamento.strftime('%d/%m/%Y') }}
+                            </td>
+                            <td class="small text-end fw-semibold text-danger">{{ "%.2f €"|format(p.montante|float) }}</td>
+                            <td>
+                                <span class="badge
+                                    {% if p.estado == 'pendente' %}bg-warning text-dark
+                                    {% elif p.estado == 'emitido' %}bg-info text-dark
+                                    {% elif p.estado == 'pago' %}bg-success
+                                    {% else %}bg-secondary{% endif %}">
+                                    {{ p.estado|title }}
+                                </span>
+                            </td>
+                            <td>
+                                <form method="POST" action="{{ url_for('credito.atualizar_parcela_estado', parcela_id=p.id) }}" class="d-flex gap-1">
+                                    <select name="estado" class="form-select form-select-sm" style="width:auto">
+                                        <option value="pendente" {% if p.estado == 'pendente' %}selected{% endif %}>Pendente</option>
+                                        <option value="emitido" {% if p.estado == 'emitido' %}selected{% endif %}>Emitido</option>
+                                        <option value="pago" {% if p.estado == 'pago' %}selected{% endif %}>Pago</option>
+                                        <option value="cancelado" {% if p.estado == 'cancelado' %}selected{% endif %}>Cancelado</option>
+                                    </select>
+                                    <button type="submit" class="btn btn-outline-primary btn-sm py-0 px-2">✓</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info py-2 mb-4">
+        <strong>ℹ️</strong> Não há parcelas de confirming em aberto.
+    </div>
+    {% endif %}
+
+    <!-- All parcelas (last 100) -->
+    {% if dash.todas_parcelas %}
+    <div class="card">
+        <div class="card-header py-2 d-flex align-items-center justify-content-between" style="cursor:pointer"
+             data-bs-toggle="collapse" data-bs-target="#allParcelas">
+            <h6 class="mb-0">📄 Histórico de Parcelas</h6>
+            <span class="text-muted small">{{ dash.todas_parcelas|length }} parcela(s)</span>
+        </div>
+        <div class="collapse" id="allParcelas">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Fornecedor</th>
+                            <th>Fatura</th>
+                            <th>Contrato</th>
+                            <th>Data Pagamento</th>
+                            <th class="text-end">Montante</th>
+                            <th>Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in dash.todas_parcelas %}
+                        <tr class="{{ 'text-muted' if p.estado in ('pago', 'cancelado') else '' }}">
+                            <td class="small">{{ p.supplier_name or '—' }}</td>
+                            <td class="small">
+                                <a href="{{ url_for('faturas.detail', invoice_id=p.invoice_id) }}"
+                                   class="text-decoration-none" data-no-loading>
+                                    {{ p.invoice_number or '(sem nº)' }}
+                                </a>
+                            </td>
+                            <td class="small text-muted">{{ p.contract_label }}</td>
+                            <td class="small">{{ p.data_pagamento.strftime('%d/%m/%Y') }}</td>
+                            <td class="small text-end">{{ "%.2f €"|format(p.montante|float) }}</td>
+                            <td>
+                                <span class="badge
+                                    {% if p.estado == 'pendente' %}bg-warning text-dark
+                                    {% elif p.estado == 'emitido' %}bg-info text-dark
+                                    {% elif p.estado == 'pago' %}bg-success
+                                    {% else %}bg-secondary{% endif %}">
+                                    {{ p.estado|title }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <h5 class="mb-3">💳 Métodos de Pagamento</h5>
+    <p class="text-muted small mb-4">Configure os métodos de pagamento disponíveis para faturas e as respetivas taxas de custo.</p>
+
+    <div class="card mb-4">
+        <div class="card-header py-2">
+            <h6 class="mb-0">Métodos Configurados</h6>
+        </div>
+        <div class="card-body p-0">
+            {% if metodos %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Método (código)</th>
+                            <th>Label</th>
+                            <th class="text-center">Ativo</th>
+                            <th class="text-end">Taxa (%)</th>
+                            <th class="text-end">Prazo (dias)</th>
+                            <th>Notas</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for m in metodos %}
+                        <tr>
+                            <td class="small fw-semibold text-monospace">{{ m.metodo }}</td>
+                            <td class="small">{{ m.label }}</td>
+                            <td class="text-center">
+                                {% if m.ativo %}
+                                <span class="badge bg-success-subtle text-success-emphasis">Sim</span>
+                                {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary-emphasis">Não</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end small">{{ "%.4f"|format(m.taxa_percentagem|float) if m.taxa_percentagem else '—' }}</td>
+                            <td class="text-end small">{{ m.prazo_dias if m.prazo_dias else '—' }}</td>
+                            <td class="small text-muted">{{ m.notas or '—' }}</td>
+                            <td>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                        onclick="editMetodo({{ m|tojson }})">✏️</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-3 text-muted small">Nenhum método configurado.</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header py-2">
+            <h6 class="mb-0" id="formTitle">➕ Adicionar / Editar Método</h6>
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('gestor.metodos_pagamento') }}">
+                <input type="hidden" name="action" value="save">
+                <div class="row g-2 mb-2">
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Código do método <span class="text-danger">*</span></label>
+                        <input type="text" name="metodo" id="fMetodo" class="form-control form-control-sm"
+                               placeholder="ex: transferencia" required>
+                        <div class="form-text small">Use letras minúsculas e underscore.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Label <span class="text-danger">*</span></label>
+                        <input type="text" name="label" id="fLabel" class="form-control form-control-sm"
+                               placeholder="ex: Transferência Bancária" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Taxa (%)</label>
+                        <input type="number" step="0.0001" min="0" name="taxa_percentagem" id="fTaxa"
+                               class="form-control form-control-sm" placeholder="ex: 0.5000">
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small mb-1">Prazo (dias)</label>
+                        <input type="number" min="0" name="prazo_dias" id="fPrazo"
+                               class="form-control form-control-sm" placeholder="ex: 30">
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end pb-1">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="ativo" id="fAtivo" checked>
+                            <label class="form-check-label small" for="fAtivo">Ativo</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-md-8">
+                        <label class="form-label small mb-1">Notas</label>
+                        <input type="text" name="notas" id="fNotas" class="form-control form-control-sm"
+                               placeholder="Observações opcionais">
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm">💾 Guardar</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetForm()">Limpar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function editMetodo(m) {
+    document.getElementById('fMetodo').value = m.metodo || '';
+    document.getElementById('fLabel').value = m.label || '';
+    document.getElementById('fTaxa').value = m.taxa_percentagem != null ? m.taxa_percentagem : '';
+    document.getElementById('fPrazo').value = m.prazo_dias != null ? m.prazo_dias : '';
+    document.getElementById('fAtivo').checked = m.ativo;
+    document.getElementById('fNotas').value = m.notas || '';
+    document.getElementById('formTitle').textContent = '✏️ Editar Método: ' + m.label;
+    window.scrollTo(0, document.getElementById('formTitle').getBoundingClientRect().top + window.scrollY - 80);
+}
+
+function resetForm() {
+    document.getElementById('fMetodo').value = '';
+    document.getElementById('fLabel').value = '';
+    document.getElementById('fTaxa').value = '';
+    document.getElementById('fPrazo').value = '';
+    document.getElementById('fAtivo').checked = true;
+    document.getElementById('fNotas').value = '';
+    document.getElementById('formTitle').textContent = '➕ Adicionar / Editar Método';
+}
+</script>
+{% endblock %}

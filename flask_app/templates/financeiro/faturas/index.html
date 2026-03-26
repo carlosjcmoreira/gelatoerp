@@ -30,6 +30,8 @@
         <input type="hidden" name="action" id="forn-action-val" value="">
         <input type="hidden" name="status" id="forn-status-val" value="">
         <input type="hidden" name="bulk_date" id="forn-date-hidden" value="">
+        <input type="hidden" name="bulk_payment_method" id="forn-pm-hidden" value="">
+        <input type="hidden" name="bulk_confirming_contract_id" id="forn-confirming-hidden" value="">
         <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='fornecedor') }}">
 
         <!-- Bulk action bar -->
@@ -212,6 +214,8 @@
         <input type="hidden" name="action" id="bulk-action-val" value="">
         <input type="hidden" name="status" id="bulk-status-val" value="">
         <input type="hidden" name="bulk_date" id="bulk-date-hidden" value="">
+        <input type="hidden" name="bulk_payment_method" id="bulk-pm-hidden" value="">
+        <input type="hidden" name="bulk_confirming_contract_id" id="bulk-confirming-hidden" value="">
         <input type="hidden" name="return_url" value="{{ request.url }}">
 
         <!-- Bulk action bar (hidden until ≥1 row selected) -->
@@ -401,6 +405,8 @@
         });
     });
 
+    const PM_REQUIRED_FORN = ['scheduled', 'paid'];
+
     window.submitFornBulk = function () {
         const s = statusSelect.value;
         if (!s) { alert('Seleccione um estado antes de aplicar.'); return; }
@@ -413,6 +419,10 @@
             dateHidden.value = d;
         } else {
             dateHidden.value = '';
+        }
+        if (PM_REQUIRED_FORN.includes(s)) {
+            _openPaymentModal('bulk-form-forn', s);
+            return;
         }
         form.requestSubmit();
     };
@@ -432,6 +442,7 @@
     const dateHidden = document.getElementById('bulk-date-hidden');
 
     const DATE_REQUIRED = ['scheduled', 'paid'];
+    const PM_REQUIRED = ['scheduled', 'paid'];
 
     function getCbs() { return document.querySelectorAll('.inv-cb'); }
     function getChecked() { return document.querySelectorAll('.inv-cb:checked'); }
@@ -483,6 +494,10 @@
             } else {
                 dateHidden.value = '';
             }
+            if (PM_REQUIRED.includes(s)) {
+                _openPaymentModal('bulk-form', s);
+                return;
+            }
         }
         document.getElementById('bulk-form').requestSubmit();
     };
@@ -495,4 +510,79 @@
 })();
 </script>
 {% endif %}
+
+<!-- Payment Method Modal (shared for both views) -->
+<div class="modal fade" id="modalPagamento" tabindex="-1" aria-labelledby="modalPagamentoLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="modalPagamentoLabel">Método de Pagamento</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-3">
+                <div class="mb-3">
+                    <label class="form-label small mb-1">Método de pagamento</label>
+                    <select id="pm-select" class="form-select form-select-sm" onchange="pmSelectChange()">
+                        <option value="">(não especificado)</option>
+                        <option value="transferencia">Transferência Bancária</option>
+                        <option value="debito_direto">Débito Direto</option>
+                        <option value="confirming">Confirming</option>
+                        <option value="numerario">Numerário</option>
+                        <option value="cheque">Cheque</option>
+                    </select>
+                </div>
+                <div id="pm-confirming-wrap" class="mb-2" style="display:none">
+                    <label class="form-label small mb-1">Contrato Confirming</label>
+                    <select id="pm-confirming-select" class="form-select form-select-sm">
+                        <option value="">— Selecionar contrato —</option>
+                        {% for cc in confirming_contracts %}
+                        <option value="{{ cc.id }}">{{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="pmConfirm()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var _pmTargetForm = null;
+var _pmModal = null;
+
+function pmSelectChange() {
+    const val = document.getElementById('pm-select').value;
+    document.getElementById('pm-confirming-wrap').style.display = (val === 'confirming') ? '' : 'none';
+}
+
+function _openPaymentModal(formId, status) {
+    _pmTargetForm = formId;
+    if (!_pmModal) _pmModal = new bootstrap.Modal(document.getElementById('modalPagamento'));
+    document.getElementById('pm-select').value = '';
+    document.getElementById('pm-confirming-wrap').style.display = 'none';
+    document.getElementById('pm-confirming-select').value = '';
+    _pmModal.show();
+}
+
+function pmConfirm() {
+    const pm = document.getElementById('pm-select').value;
+    const ccId = document.getElementById('pm-confirming-select').value;
+    if (pm === 'confirming' && !ccId) {
+        alert('Selecione um contrato de confirming.'); return;
+    }
+    if (_pmModal) _pmModal.hide();
+    if (_pmTargetForm === 'bulk-form') {
+        document.getElementById('bulk-pm-hidden').value = pm;
+        document.getElementById('bulk-confirming-hidden').value = pm === 'confirming' ? ccId : '';
+        document.getElementById('bulk-form').requestSubmit();
+    } else if (_pmTargetForm === 'bulk-form-forn') {
+        document.getElementById('forn-pm-hidden').value = pm;
+        document.getElementById('forn-confirming-hidden').value = pm === 'confirming' ? ccId : '';
+        document.getElementById('bulk-form-forn').requestSubmit();
+    }
+}
+</script>
 {% endblock %}

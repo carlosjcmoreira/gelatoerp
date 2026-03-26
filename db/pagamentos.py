@@ -182,14 +182,15 @@ def propose_invoice_payment(invoice_id, proposed_date, amount_eur):
         conn.commit()
 
 
-def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by, notes=None):
+def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by, notes=None,
+                            payment_method=None, confirming_contract_id=None):
     """Confirm payment date for an invoice."""
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO invoice_payments (invoice_id, confirmed_date, amount_eur, status,
-                                          confirmed_by, confirmed_at, notes)
-            VALUES (%s, %s, %s, 'confirmed', %s, NOW(), %s)
+                                          confirmed_by, confirmed_at, notes, payment_method, confirming_contract_id)
+            VALUES (%s, %s, %s, 'confirmed', %s, NOW(), %s, %s, %s)
             ON CONFLICT (invoice_id) DO UPDATE
                 SET confirmed_date = EXCLUDED.confirmed_date,
                     amount_eur = EXCLUDED.amount_eur,
@@ -197,8 +198,11 @@ def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by
                     confirmed_by = EXCLUDED.confirmed_by,
                     confirmed_at = NOW(),
                     notes = EXCLUDED.notes,
+                    payment_method = COALESCE(EXCLUDED.payment_method, invoice_payments.payment_method),
+                    confirming_contract_id = COALESCE(EXCLUDED.confirming_contract_id, invoice_payments.confirming_contract_id),
                     updated_at = NOW()
-        """, (invoice_id, confirmed_date, amount_eur, confirmed_by, notes))
+        """, (invoice_id, confirmed_date, amount_eur, confirmed_by, notes,
+              payment_method or None, confirming_contract_id or None))
         cursor.execute(
             "UPDATE invoices SET status = 'scheduled', updated_at = NOW() WHERE id = %s",
             (invoice_id,)
@@ -206,21 +210,30 @@ def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by
         conn.commit()
 
 
-def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None):
+def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None,
+                          payment_method=None, confirming_contract_id=None):
     """Mark invoice payment as executed/paid (updates both invoices and invoice_payments)."""
     with db_connection() as conn:
         cursor = conn.cursor()
+        extra_sets = ""
+        extra_params = []
+        if payment_method is not None:
+            extra_sets += ", payment_method = %s"
+            extra_params.append(payment_method)
+        if confirming_contract_id is not None:
+            extra_sets += ", confirming_contract_id = %s"
+            extra_params.append(confirming_contract_id)
         if notes is not None:
             cursor.execute(
-                "UPDATE invoice_payments SET paid_date = %s, status = 'paid', "
-                "notes = %s, updated_at = NOW() WHERE invoice_id = %s",
-                (paid_date, notes, invoice_id)
+                f"UPDATE invoice_payments SET paid_date = %s, status = 'paid', "
+                f"notes = %s{extra_sets}, updated_at = NOW() WHERE invoice_id = %s",
+                [paid_date, notes] + extra_params + [invoice_id]
             )
         else:
             cursor.execute(
-                "UPDATE invoice_payments SET paid_date = %s, status = 'paid', updated_at = NOW() "
-                "WHERE invoice_id = %s",
-                (paid_date, invoice_id)
+                f"UPDATE invoice_payments SET paid_date = %s, status = 'paid'{extra_sets}, updated_at = NOW() "
+                f"WHERE invoice_id = %s",
+                [paid_date] + extra_params + [invoice_id]
             )
         cursor.execute(
             "UPDATE invoices SET status = 'paid', paid_date = %s, updated_at = NOW() WHERE id = %s",

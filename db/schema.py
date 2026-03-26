@@ -1274,6 +1274,33 @@ def run_faturas_migrations():
         ''')
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sales_imp_log_created ON sales_historico_import_log(created_at DESC)")
 
+        # Confirming bancário: payment_method + confirming_contract_id on invoice_payments
+        cursor.execute("ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50)")
+        cursor.execute("ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS confirming_contract_id INTEGER REFERENCES credit_contracts(id) ON DELETE SET NULL")
+
+        # payment_methods_config — configurable payment method options
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS payment_methods_config (
+                id SERIAL PRIMARY KEY,
+                metodo VARCHAR(50) NOT NULL UNIQUE,
+                label VARCHAR(100) NOT NULL,
+                ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                taxa_percentagem NUMERIC(6,4),
+                prazo_dias INTEGER,
+                notas TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute("""
+            INSERT INTO payment_methods_config (metodo, label, ativo) VALUES
+                ('transferencia', 'Transferência Bancária', TRUE),
+                ('debito_direto', 'Débito Direto', TRUE),
+                ('confirming', 'Confirming', TRUE),
+                ('numerario', 'Numerário', TRUE),
+                ('cheque', 'Cheque', TRUE)
+            ON CONFLICT (metodo) DO NOTHING
+        """)
+
         conn.commit()
 
 
@@ -1304,6 +1331,25 @@ def run_migrations_credito():
         cursor.execute(
             'CREATE INDEX IF NOT EXISTS idx_cpr_contract_data ON contract_payment_revisions(contract_id, data_inicio DESC)'
         )
+
+        # confirming_parcelas — parcelas de confirming bancário ligadas a faturas
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS confirming_parcelas (
+                id SERIAL PRIMARY KEY,
+                invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                confirming_contract_id INTEGER NOT NULL REFERENCES credit_contracts(id) ON DELETE CASCADE,
+                montante NUMERIC(12,2) NOT NULL,
+                data_pagamento DATE NOT NULL,
+                estado VARCHAR(50) NOT NULL DEFAULT 'pendente',
+                notas TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_confirming_parcelas_invoice ON confirming_parcelas(invoice_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_confirming_parcelas_contract ON confirming_parcelas(confirming_contract_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_confirming_parcelas_estado ON confirming_parcelas(estado)")
+
         conn.commit()
     finally:
         if acquired:

@@ -19,6 +19,7 @@ from database import (
     INVOICE_STATUS_LABELS, ONEDRIVE_SUBFOLDERS, INVOICE_CATEGORIES,
     DOCUMENT_TYPE_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_TERMS_LABELS,
     calculate_due_date,
+    get_confirming_contracts, create_confirming_parcela,
 )
 
 import flask_app.services.faturas as faturas_svc
@@ -65,6 +66,8 @@ def index():
     view = request.args.get('view', 'documento')
     today = date.today()
 
+    confirming_contracts = get_confirming_contracts()
+
     if view == 'fornecedor':
         grupos = get_contas_por_fornecedor()
         for grupo in grupos:
@@ -81,6 +84,7 @@ def index():
             today=today,
             status_labels=INVOICE_STATUS_LABELS,
             invoices=[],
+            confirming_contracts=confirming_contracts,
         )
 
     status_filter = request.args.get('status', '')
@@ -122,6 +126,7 @@ def index():
         status_labels=INVOICE_STATUS_LABELS,
         today=today,
         filter_qs=filter_qs,
+        confirming_contracts=confirming_contracts,
     )
 
 
@@ -163,6 +168,11 @@ def bulk_action():
             flash(f'É obrigatório indicar a data ao alterar para «{label}».', 'warning')
             return redirect(return_url)
 
+        # Payment method (optional, for scheduled/paid)
+        bulk_payment_method = request.form.get('bulk_payment_method', '').strip() or None
+        bulk_confirming_id_raw = request.form.get('bulk_confirming_contract_id', '').strip()
+        bulk_confirming_id = int(bulk_confirming_id_raw) if bulk_confirming_id_raw.isdigit() else None
+
         label = INVOICE_STATUS_LABELS.get(new_status, new_status)
         current_user = session.get('user', {}).get('username', 'system')
         ok = 0
@@ -170,11 +180,23 @@ def bulk_action():
         for inv_id in ids:
             try:
                 if new_status == 'paid':
-                    mark_payment_executed(inv_id, bulk_date, current_user)
+                    mark_payment_executed(inv_id, bulk_date, current_user,
+                                         payment_method=bulk_payment_method,
+                                         confirming_contract_id=bulk_confirming_id)
                 elif new_status == 'scheduled':
                     inv_data = get_invoice(inv_id)
                     amt = inv_data.get('amount_eur') if inv_data else None
-                    confirm_invoice_payment(inv_id, bulk_date, amt, current_user)
+                    confirm_invoice_payment(inv_id, bulk_date, amt, current_user,
+                                           payment_method=bulk_payment_method,
+                                           confirming_contract_id=bulk_confirming_id)
+                    if bulk_payment_method == 'confirming' and bulk_confirming_id and inv_data:
+                        try:
+                            create_confirming_parcela(
+                                inv_id, bulk_confirming_id,
+                                float(amt or 0), bulk_date,
+                            )
+                        except Exception as pe:
+                            logger.warning('create_confirming_parcela inv=%s: %s', inv_id, pe)
                 else:
                     update_invoice(inv_id, {'status': new_status})
                 ok += 1
