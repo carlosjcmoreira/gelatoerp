@@ -337,7 +337,7 @@ def confirming():
 @perm_required('acesso_gestor')
 def atualizar_parcela_estado(parcela_id):
     novo_estado = request.form.get('estado', '').strip()
-    ESTADOS_VALIDOS = ('pendente', 'emitido', 'pago', 'cancelado')
+    ESTADOS_VALIDOS = ('confirmed', 'paid', 'settled', 'cancelled')
     if novo_estado not in ESTADOS_VALIDOS:
         flash('Estado inválido.', 'warning')
         return redirect(url_for('credito.confirming'))
