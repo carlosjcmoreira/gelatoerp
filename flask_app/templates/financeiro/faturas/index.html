@@ -60,7 +60,7 @@
                 <input type="date" id="forn-date-input" class="form-control form-control-sm" style="width:auto"
                        value="{{ today.isoformat() }}">
             </div>
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="submitFornBulk()">Aplicar</button>
+            <button type="button" class="btn btn-sm btn-primary" onclick="submitFornBulk()">Aplicar</button>
         </div>
 
         {% for grupo in grupos %}
@@ -164,7 +164,7 @@
     <div class="text-center text-muted py-5">
         <div style="font-size:2rem;">🏦</div>
         <p class="mt-2">Nenhum documento pendente ou agendado.</p>
-        <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-primary btn-sm">Ver todos os documentos</a>
+        <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm">Ver todos os documentos</a>
     </div>
     {% endif %}
 
@@ -340,7 +340,7 @@
             </div>
             {% endif %}
             <div class="col-6 col-sm-3 col-md-2 d-flex gap-1">
-                <button type="submit" class="btn btn-outline-primary btn-sm flex-grow-1">Filtrar</button>
+                <button type="submit" class="btn btn-primary btn-sm flex-grow-1">Filtrar</button>
                 <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm">✕</a>
             </div>
         </div>
@@ -389,7 +389,7 @@
                 <input type="date" id="bulk-date-input" class="form-control form-control-sm" style="width:auto"
                        value="{{ today.isoformat() }}">
             </div>
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="submitBulk('change_status')">Aplicar</button>
+            <button type="button" class="btn btn-sm btn-primary" onclick="submitBulk('change_status')">Aplicar</button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="submitBulkDelete()">Eliminar selecionadas</button>
         </div>
 

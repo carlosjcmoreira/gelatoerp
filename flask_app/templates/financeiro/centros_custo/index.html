@@ -78,7 +78,7 @@
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="cc_id" value="{{ cc.id }}">
                             <input type="hidden" name="ativo" value="{{ '0' if cc.ativo else '1' }}">
-                            <button type="submit" class="btn btn-sm py-0 px-2 {{ 'btn-outline-warning' if cc.ativo else 'btn-outline-success' }}">
+                            <button type="submit" class="btn btn-sm py-0 px-2 {{ 'btn-outline-secondary' if cc.ativo else 'btn-outline-success' }}">
                                 {{ 'Desactivar' if cc.ativo else 'Activar' }}
                             </button>
                         </form>

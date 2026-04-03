@@ -170,7 +170,7 @@
                             <input type="hidden" name="action" value="toggle_colaborador">
                             <input type="hidden" name="colab_id" value="{{ c.id }}">
                             <input type="hidden" name="ativo" value="{{ '0' if c.ativo else '1' }}">
-                            <button type="submit" class="btn btn-sm py-0 px-1 small {{ 'btn-outline-warning' if c.ativo else 'btn-outline-success' }}">
+                            <button type="submit" class="btn btn-sm py-0 px-1 small {{ 'btn-outline-secondary' if c.ativo else 'btn-outline-success' }}">
                                 {{ 'Desact.' if c.ativo else 'Activ.' }}
                             </button>
                         </form>

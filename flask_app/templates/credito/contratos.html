@@ -184,12 +184,12 @@
                             </td>
                             <td class="text-nowrap">
                                 <a href="{{ url_for('credito.contrato_detalhe', contract_id=c.id) }}"
-                                   class="btn btn-outline-primary btn-sm py-0 px-1 me-1">Ver detalhe</a>
+                                   class="btn btn-outline-secondary btn-sm py-0 px-1 me-1">Ver detalhe</a>
                                 <a href="{{ url_for('credito.contratos', edit=c.id, estado=estado_filtro) }}"
                                    class="btn btn-outline-secondary btn-sm py-0 px-1 me-1" title="Editar">✏️</a>
                                 {% if c.estado == 'ativo' %}
                                 <form method="POST" action="{{ url_for('credito.desativar_contrato', contract_id=c.id) }}" class="d-inline">
-                                    <button type="submit" class="btn btn-outline-warning btn-sm py-0 px-1 me-1"
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
                                             title="Desativar" onclick="return confirm('Desativar «{{ c.label }}»?')">⏸️</button>
                                 </form>
                                 {% endif %}

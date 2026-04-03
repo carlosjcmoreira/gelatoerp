@@ -61,7 +61,7 @@
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="cat_id" value="{{ cat.id }}">
                             <input type="hidden" name="ativo" value="{{ '0' if cat.ativo else '1' }}">
-                            <button type="submit" class="btn btn-sm py-0 px-2 small {{ 'btn-outline-warning' if cat.ativo else 'btn-outline-success' }}">
+                            <button type="submit" class="btn btn-sm py-0 px-2 small {{ 'btn-outline-secondary' if cat.ativo else 'btn-outline-success' }}">
                                 {{ 'Desactivar' if cat.ativo else 'Activar' }}
                             </button>
                         </form>
@@ -85,7 +85,7 @@
                                 <input type="hidden" name="action" value="toggle">
                                 <input type="hidden" name="cat_id" value="{{ sub.id }}">
                                 <input type="hidden" name="ativo" value="{{ '0' if sub.ativo else '1' }}">
-                                <button type="submit" class="btn btn-sm py-0 px-1 small {{ 'btn-outline-warning' if sub.ativo else 'btn-outline-success' }}">
+                                <button type="submit" class="btn btn-sm py-0 px-1 small {{ 'btn-outline-secondary' if sub.ativo else 'btn-outline-success' }}">
                                     {{ 'Desact.' if sub.ativo else 'Activ.' }}
                                 </button>
                             </form>
