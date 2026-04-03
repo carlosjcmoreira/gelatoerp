@@ -166,7 +166,7 @@ def nova_fatura():
         else:
             flash(f'Fatura de {supplier_name} registada com sucesso!', 'success')
 
-        return redirect(url_for('faturas.index'))
+        return redirect(url_for('compras.index'))
 
     suppliers = get_suppliers()
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
