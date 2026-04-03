@@ -2,13 +2,53 @@
 {% set back_url = url_for("pagamentos.faturas") %}
 
 {% block content %}
-<div class="container-fluid px-3 py-3">
+<div class="container-fluid px-3 py-3 pb-5">
     <h5 class="mb-3">➕ Nova Fatura de Fornecedor</h5>
 
-    <form method="post">
-        <div class="card mb-3">
-            <div class="card-body">
-                <h6 class="card-title mb-3">Dados do Fornecedor</h6>
+    <!-- Canal 1: Upload PDF -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title mb-1">📧 Carregar por Email/Upload</h6>
+            <p class="text-muted small mb-3">PDF recebido por email ou digitalizado</p>
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('faturas.upload') }}">
+                <input type="hidden" name="channel" value="email_upload">
+                <input type="hidden" name="return_to" value="pagamentos">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Ficheiro PDF <span class="text-danger">*</span></label>
+                    <input type="file" name="pdf_file" class="form-control"
+                           accept=".pdf" required>
+                    <div class="form-text">PDF de fatura (extracção OCR automática).</div>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Processar ficheiro</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Canal 2: Fotografia -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title mb-1">📷 Fotografia de Entrega</h6>
+            <p class="text-muted small mb-3">Fotografia tirada com telemóvel na recepção da mercadoria</p>
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('faturas.upload') }}">
+                <input type="hidden" name="channel" value="photo">
+                <input type="hidden" name="return_to" value="pagamentos">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Fotografia <span class="text-danger">*</span></label>
+                    <input type="file" name="photo_file" class="form-control"
+                           accept="image/*" capture="environment" required>
+                    <div class="form-text">Imagem JPG, PNG ou HEIC capturada na entrega. O OCR extrai os dados automaticamente.</div>
+                </div>
+                <button type="submit" class="btn btn-success w-100">Processar fotografia</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Canal 3: Entrada manual -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title mb-1">✏️ Entrada Manual</h6>
+            <p class="text-muted small mb-3">Introduzir dados da fatura manualmente</p>
+            <form method="post">
                 <div class="mb-3">
                     <label class="form-label small">Fornecedor *</label>
                     <input type="text" name="supplier_name" class="form-control form-control-sm" required
@@ -23,12 +63,7 @@
                     <label class="form-label small">NIF do Fornecedor</label>
                     <input type="text" name="supplier_nif" class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
                 </div>
-            </div>
-        </div>
 
-        <div class="card mb-3">
-            <div class="card-body">
-                <h6 class="card-title mb-3">Dados da Fatura</h6>
                 <div class="row g-2">
                     <div class="col-12">
                         <label class="form-label small">Tipo de documento</label>
@@ -75,12 +110,12 @@
                         <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="Observações opcionais"></textarea>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <div class="d-grid">
-            <button type="submit" class="btn btn-primary">Guardar Fatura</button>
+                <div class="d-grid mt-3">
+                    <button type="submit" class="btn btn-outline-primary">Guardar Fatura</button>
+                </div>
+            </form>
         </div>
-    </form>
+    </div>
 </div>
 {% endblock %}

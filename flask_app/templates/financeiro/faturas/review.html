@@ -1,5 +1,9 @@
 {% extends "base.html" %}
+{% if return_to == 'pagamentos' %}
+{% set back_url = url_for("pagamentos.nova_fatura") %}
+{% else %}
 {% set back_url = url_for("faturas.upload") %}
+{% endif %}
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
@@ -18,6 +22,7 @@
     <form method="post" action="{{ url_for('faturas.save') }}">
         <input type="hidden" name="invoice_id" value="{{ inv.id }}">
         <input type="hidden" name="is_new_supplier" value="{{ '0' if supplier else '1' }}">
+        <input type="hidden" name="return_to" value="{{ return_to or '' }}">
 
         <!-- Fornecedor card -->
         <div class="card mb-3">

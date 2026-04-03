@@ -292,6 +292,13 @@ def upload():
 
     if request.method == 'POST':
         channel = request.form.get('channel', 'email_upload')
+        return_to = request.form.get('return_to', '').strip()
+
+        # Store return_to context in session so review/save/cancel can use it
+        if return_to:
+            session['faturas_return_to'] = return_to
+        else:
+            session.pop('faturas_return_to', None)
 
         if channel == 'photo':
             file = request.files.get('photo_file')
@@ -381,6 +388,8 @@ def review(invoice_id):
     if inv.get('supplier_nif'):
         supplier = get_supplier_by_nif(inv['supplier_nif'])
 
+    return_to = session.get('faturas_return_to', '')
+
     return render_template(
         'financeiro/faturas/review.html',
         inv=inv,
@@ -395,6 +404,7 @@ def review(invoice_id):
         document_type_labels=DOCUMENT_TYPE_LABELS,
         payment_method_labels=PAYMENT_METHOD_LABELS,
         payment_terms_labels=PAYMENT_TERMS_LABELS,
+        return_to=return_to,
     )
 
 
@@ -413,6 +423,8 @@ def save():
     if not inv:
         flash('Fatura não encontrada.', 'danger')
         return redirect(url_for('faturas.upload'))
+
+    return_to = request.form.get('return_to', '').strip()
 
     form_data = {
         'supplier_name': request.form.get('supplier_name', ''),
@@ -443,6 +455,12 @@ def save():
     else:
         flash('Fatura guardada com sucesso!', 'success')
 
+    # Clear the return_to context from session after save
+    session.pop('faturas_return_to', None)
+
+    if return_to == 'pagamentos':
+        return redirect(url_for('pagamentos.faturas'))
+
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 
 
@@ -454,6 +472,9 @@ def cancel_draft(invoice_id):
     inv = get_invoice(invoice_id)
     if inv and inv.get('status') == 'draft':
         delete_invoice(invoice_id)
+    return_to = session.pop('faturas_return_to', '')
+    if return_to == 'pagamentos':
+        return redirect(url_for('pagamentos.nova_fatura'))
     return redirect(url_for('faturas.upload'))
 
 
