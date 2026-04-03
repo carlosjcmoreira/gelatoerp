@@ -261,39 +261,49 @@ def upsert_invoice_linha(invoice_id: int, descricao: str, quantidade: float,
     if quantidade is None or float(quantidade) <= 0:
         raise ValueError("quantidade deve ser > 0")
     conn = get_connection()
-    cursor = conn.cursor()
-    if linha_id:
-        cursor.execute("""
-            UPDATE invoice_linhas
-            SET material_id = %s, descricao = %s, quantidade = %s,
-                unidade = %s, preco_unitario = %s, updated_at = NOW()
-            WHERE id = %s AND invoice_id = %s
-            RETURNING id
-        """, (material_id or None, descricao, quantidade,
-              unidade, preco_unitario, linha_id, invoice_id))
-    else:
-        cursor.execute("""
-            INSERT INTO invoice_linhas
-                   (invoice_id, material_id, descricao, quantidade, unidade, preco_unitario)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (invoice_id, material_id or None, descricao, quantidade,
-              unidade, preco_unitario))
-    row = cursor.fetchone()
-    conn.commit()
-    release_connection(conn)
-    return row[0] if row else None
+    try:
+        cursor = conn.cursor()
+        if linha_id:
+            cursor.execute("""
+                UPDATE invoice_linhas
+                SET material_id = %s, descricao = %s, quantidade = %s,
+                    unidade = %s, preco_unitario = %s, updated_at = NOW()
+                WHERE id = %s AND invoice_id = %s
+                RETURNING id
+            """, (material_id or None, descricao, quantidade,
+                  unidade, preco_unitario, linha_id, invoice_id))
+        else:
+            cursor.execute("""
+                INSERT INTO invoice_linhas
+                       (invoice_id, material_id, descricao, quantidade, unidade, preco_unitario)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (invoice_id, material_id or None, descricao, quantidade,
+                  unidade, preco_unitario))
+        row = cursor.fetchone()
+        conn.commit()
+        return row[0] if row else None
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_connection(conn)
 
 
 def delete_invoice_linha(linha_id: int, invoice_id: int):
     conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "DELETE FROM invoice_linhas WHERE id = %s AND invoice_id = %s",
-        (linha_id, invoice_id)
-    )
-    conn.commit()
-    release_connection(conn)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM invoice_linhas WHERE id = %s AND invoice_id = %s",
+            (linha_id, invoice_id)
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_connection(conn)
 
 
 _STORE_NAME_TO_LOCAL = {
