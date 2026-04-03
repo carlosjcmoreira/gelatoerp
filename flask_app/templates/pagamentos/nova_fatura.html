@@ -48,7 +48,7 @@
         <div class="card-body">
             <h6 class="card-title mb-1">✏️ Entrada Manual</h6>
             <p class="text-muted small mb-3">Introduzir dados da fatura manualmente</p>
-            <form method="post">
+            <form method="post" enctype="multipart/form-data">
                 <div class="mb-3">
                     <label class="form-label small">Fornecedor *</label>
                     <input type="text" name="supplier_name" class="form-control form-control-sm" required
@@ -109,6 +109,22 @@
                         <label class="form-label small">Notas</label>
                         <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="Observações opcionais"></textarea>
                     </div>
+                    <div class="col-12">
+                        <label class="form-label small">Ficheiro PDF / Imagem <span class="text-muted">(opcional)</span></label>
+                        <input type="file" name="pdf_file" class="form-control form-control-sm"
+                               accept=".pdf,image/*" id="manualPdfFile">
+                        <div class="form-text">Anexa o PDF ou fotografia da fatura para arquivo no OneDrive.</div>
+                    </div>
+                    <div class="col-12" id="onedrive-subfolder-row" style="display:none;">
+                        <label class="form-label small">Subpasta OneDrive</label>
+                        <select name="onedrive_subfolder" class="form-select form-select-sm">
+                            <option value="">— Não arquivar —</option>
+                            {% for sf in subfolders %}
+                            <option value="{{ sf }}">{{ sf }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Pasta de destino no OneDrive onde o ficheiro será guardado.</div>
+                    </div>
                 </div>
 
                 <div class="d-grid mt-3">
@@ -118,4 +134,16 @@
         </div>
     </div>
 </div>
+
+<script>
+(function () {
+    var fileInput = document.getElementById('manualPdfFile');
+    var subfolderRow = document.getElementById('onedrive-subfolder-row');
+    if (fileInput && subfolderRow) {
+        fileInput.addEventListener('change', function () {
+            subfolderRow.style.display = this.files.length > 0 ? '' : 'none';
+        });
+    }
+})();
+</script>
 {% endblock %}

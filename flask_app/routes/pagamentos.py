@@ -16,6 +16,7 @@ from database import (
     get_weekly_liquidity,
     get_all_stores,
 )
+from db.faturas import ONEDRIVE_SUBFOLDERS, update_invoice_onedrive
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,7 @@ def nova_fatura():
         document_type = request.form.get('document_type', 'fatura')
         if document_type not in ('fatura', 'nota_credito'):
             document_type = 'fatura'
+        onedrive_subfolder = request.form.get('onedrive_subfolder', '').strip() or None
 
         if not supplier_name:
             flash('Nome do fornecedor é obrigatório.', 'warning')
@@ -142,6 +144,13 @@ def nova_fatura():
         except ValueError:
             pass
 
+        pdf_file = request.files.get('pdf_file')
+        pdf_data = None
+        pdf_filename = None
+        if pdf_file and pdf_file.filename:
+            pdf_data = pdf_file.read()
+            pdf_filename = pdf_file.filename
+
         store_id_int = int(store_id) if store_id else None
         invoice_id = create_invoice({
             'supplier_id': None,
@@ -154,11 +163,11 @@ def nova_fatura():
             'due_date': due_date,
             'store_id': store_id_int,
             'category': categoria,
-            'onedrive_subfolder': None,
+            'onedrive_subfolder': onedrive_subfolder,
             'onedrive_path': None,
             'onedrive_web_url': None,
-            'pdf_filename': None,
-            'pdf_data': None,
+            'pdf_filename': pdf_filename,
+            'pdf_data': pdf_data,
             'status': 'pending_review',
             'ocr_confidence': None,
             'ocr_raw': None,
@@ -166,6 +175,22 @@ def nova_fatura():
             'notes': notes,
             'document_type': document_type,
         })
+
+        # Archive to OneDrive if a file and subfolder were provided
+        if pdf_data and onedrive_subfolder:
+            try:
+                from flask_app.onedrive_archive import upload_invoice_pdf
+                result = upload_invoice_pdf(pdf_data, pdf_filename or 'fatura.pdf',
+                                            onedrive_subfolder, issue_date)
+                if result.get('onedrive_path'):
+                    update_invoice_onedrive(invoice_id, result['onedrive_path'],
+                                            onedrive_subfolder,
+                                            onedrive_web_url=result.get('web_url'))
+                elif result.get('warning'):
+                    flash(f'Fatura registada. Aviso OneDrive: {result["warning"]}', 'warning')
+            except Exception as exc:
+                logger.warning('OneDrive upload failed for manual invoice %s: %s', invoice_id, exc)
+                flash(f'Fatura registada. Erro ao arquivar no OneDrive: {exc}', 'warning')
 
         # Auto-propose a liquidity-aware payment date
         if due_date:
@@ -185,7 +210,8 @@ def nova_fatura():
     stores = get_all_stores()
     suppliers = get_suppliers()
     return render_template('pagamentos/nova_fatura.html',
-                           stores=stores, suppliers=suppliers, today=str(date.today()))
+                           stores=stores, suppliers=suppliers, today=str(date.today()),
+                           subfolders=ONEDRIVE_SUBFOLDERS)
 
 
 @pagamentos_bp.route('/faturas/<int:invoice_id>', methods=['GET', 'POST'])
