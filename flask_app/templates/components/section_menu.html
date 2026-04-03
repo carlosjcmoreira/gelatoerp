@@ -1,9 +1,12 @@
 {% extends "base.html" %}
 
-{% set back_url = url_for('home.index') %}
+{% set back_url = menu_back_url if menu_back_url is defined else url_for('home.index') %}
 
 {% block content %}
 <div class="container-fluid px-3 pt-3 pb-5 section-menu-container">
+    {% if menu_title is defined and menu_title %}
+    <h5 class="mb-4">{{ menu_title }}</h5>
+    {% endif %}
     <div class="nav-grid">
         {% for item in items %}
         <a href="{{ item.url }}" class="nav-card">

@@ -39,7 +39,8 @@ def _tabs_with_urls():
 @perm_required('acesso_confeitaria')
 def index():
     items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['endpoint'])} for t in TABS]
-    return render_template('components/section_menu.html', items=items)
+    return render_template('components/section_menu.html', items=items,
+                           menu_title='🍪 Produção Confeitaria')
 
 
 @confeitaria_bp.route('/stock-balcao', methods=['GET', 'POST'])

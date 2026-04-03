@@ -84,7 +84,8 @@ def index():
             else:
                 item['badge'] = {'text': 'Por configurar', 'cls': 'bg-secondary'}
         items.append(item)
-    return render_template('components/section_menu.html', items=items)
+    return render_template('components/section_menu.html', items=items,
+                           menu_title='👔 Gestor')
 
 
 @gestor_bp.route('/eurokg/')

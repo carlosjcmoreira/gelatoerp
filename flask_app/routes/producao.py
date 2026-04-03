@@ -93,7 +93,8 @@ def _format_date(val):
 @perm_required('acesso_producao')
 def index():
     items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])} for t in TABS]
-    return render_template('components/section_menu.html', items=items)
+    return render_template('components/section_menu.html', items=items,
+                           menu_title='🍦 Produção Gelado')
 
 
 @producao_bp.route('/dashboard')

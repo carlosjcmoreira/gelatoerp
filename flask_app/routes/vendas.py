@@ -121,7 +121,8 @@ def index():
     loja_id, loja_nome = _get_user_loja()
     kwargs = {'loja_id': loja_id} if loja_id else {}
     items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['endpoint'], **kwargs)} for t in TAB_DEFS]
-    return render_template('components/section_menu.html', items=items)
+    return render_template('components/section_menu.html', items=items,
+                           menu_title='🛍️ Vendas Bolhão')
 
 
 @vendas_bp.route('/dashboard')

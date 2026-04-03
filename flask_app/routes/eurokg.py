@@ -43,7 +43,8 @@ def _build_tabs(loja_filter, is_gestor, active):
 @perm_required('acesso_eurokg')
 def index():
     items = [{'icon': m['icon'], 'label': m['label'], 'url': url_for(m['url_endpoint'])} for m in MENU_ITEMS]
-    return render_template('components/section_menu.html', items=items)
+    return render_template('components/section_menu.html', items=items,
+                           menu_title='📊 Euro/kg')
 
 
 @eurokg_bp.route('/dashboard')
