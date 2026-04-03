@@ -568,15 +568,19 @@ def linha(invoice_id: int):
 
     linha_id = request.form.get('linha_id', type=int)
 
-    upsert_invoice_linha(
-        invoice_id=invoice_id,
-        descricao=descricao,
-        quantidade=quantidade,
-        unidade=unidade,
-        material_id=material_id,
-        preco_unitario=preco_unitario,
-        linha_id=linha_id,
-    )
+    try:
+        upsert_invoice_linha(
+            invoice_id=invoice_id,
+            descricao=descricao,
+            quantidade=quantidade,
+            unidade=unidade,
+            material_id=material_id,
+            preco_unitario=preco_unitario,
+            linha_id=linha_id,
+        )
+    except (ValueError, Exception) as e:
+        flash(f'Erro ao guardar linha: {e}', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
     flash('Linha guardada.', 'success')
     return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
