@@ -395,7 +395,9 @@
                 📦 Registar entradas em stock
             </button>
             {% elif inv.stock_registado_at %}
-            <span class="text-success small">✓ Stock registado — não é possível repetir esta operação</span>
+            <button class="btn btn-success btn-sm" disabled title="Já registado — não é possível repetir esta operação">
+                📦 Registar entradas em stock
+            </button>
             {% endif %}
         </div>
     </div>
