@@ -1565,7 +1565,7 @@ def run_data_fix_pesagem_april2026():
         31:  ('2026-03-02', 'Extra noir'),
         602: ('2026-03-23', 'Extra noir'),
         823: ('2026-03-29', 'Framboesa'),
-        835: ('2026-03-29', 'Noz Pecan e Maple '),
+        835: ('2026-03-29', 'Noz Pecan e Maple'),
         838: ('2026-03-30', 'Coco'),
         866: ('2026-03-30', 'Iogurte'),
     }
@@ -1584,14 +1584,14 @@ def run_data_fix_pesagem_april2026():
 
         confirmed_ids = []
         for row in rows:
-            rid, rdata, rsabor, rpesagem = row[0], str(row[1]), row[2], float(row[3])
+            rid, rdata, rsabor, rpesagem = row[0], str(row[1]), row[2].strip(), float(row[3])
             exp_data, exp_sabor = EXPECTED[rid]
             if rdata == exp_data and rsabor == exp_sabor and rpesagem >= 50:
                 confirmed_ids.append(rid)
             elif rdata != exp_data or rsabor != exp_sabor:
                 logger.warning(
                     "run_data_fix_pesagem_april2026: ID %d fingerprint mismatch"
-                    " — got data=%s sabor=%s, expected data=%s sabor=%s — skipping",
+                    " — got data=%s sabor=%r, expected data=%s sabor=%r — skipping",
                     rid, rdata, rsabor, exp_data, exp_sabor,
                 )
 
@@ -1611,6 +1611,19 @@ def run_data_fix_pesagem_april2026():
             " (divided pesagem_matosinhos by 1000)",
             updated, confirmed_ids,
         )
+
+        cursor.execute(
+            "SELECT id, data, sabor, pesagem_matosinhos"
+            " FROM plano_producao WHERE id = ANY(%s)"
+            " ORDER BY id",
+            (confirmed_ids,)
+        )
+        for vrow in cursor.fetchall():
+            logger.info(
+                "run_data_fix_pesagem_april2026: verification id=%d data=%s sabor=%s"
+                " pesagem_matosinhos=%.4f kg",
+                vrow[0], vrow[1], vrow[2], float(vrow[3]),
+            )
     except Exception as exc:
         logger.error("run_data_fix_pesagem_april2026 failed: %s", exc)
         try:
