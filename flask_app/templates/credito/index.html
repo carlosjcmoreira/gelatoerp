@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-    <h5 class="mb-3">💳 Crédito</h5>
+    <h5 class="mb-4">💳 Crédito</h5>
 
     {% if dash.a_vencer_90 %}
     <div class="alert alert-warning py-2 mb-3">
@@ -18,24 +18,49 @@
     <div class="alert alert-info py-2 mb-3">
         <strong>ℹ️ Dados pendentes:</strong>
         {% for c in dash.overdraft_sem_dados %}
-        Conta caucionada <strong>{{ c.label }}</strong> — TAN e/ou plafond por preencher (aguarda dados de Carlos).
+        Conta caucionada <strong>{{ c.label }}</strong> — TAN e/ou plafond por preencher.
         {% endfor %}
     </div>
     {% endif %}
 
-    <div class="row g-3 mb-4">
+    <div class="nav-grid nav-grid-fill mb-4" data-items="5">
+        <a href="{{ url_for('credito.contratos') }}" class="nav-card">
+            <span class="nav-card-icon">📄</span>
+            <span class="nav-card-label">Contratos</span>
+        </a>
+        <a href="{{ url_for('credito.upload') }}" class="nav-card">
+            <span class="nav-card-icon">📤</span>
+            <span class="nav-card-label">Upload Documento</span>
+        </a>
+        <a href="{{ url_for('credito.calendario') }}" class="nav-card">
+            <span class="nav-card-icon">📅</span>
+            <span class="nav-card-label">Calendário</span>
+        </a>
+        <a href="{{ url_for('credito.caucionada') }}" class="nav-card">
+            <span class="nav-card-icon">🏦</span>
+            <span class="nav-card-label">Caucionada</span>
+        </a>
+        <a href="{{ url_for('credito.confirming') }}" class="nav-card">
+            <span class="nav-card-icon">🏦</span>
+            <span class="nav-card-label">Confirming</span>
+        </a>
+    </div>
+
+    {% if dash.contracts or dash.proximas_saidas_30 %}
+    <h6 class="text-muted fw-semibold mb-2 mt-3" style="font-size:0.78rem;letter-spacing:.04em;text-transform:uppercase;">Resumo</h6>
+    <div class="row g-3 mb-3">
         <div class="col-6 col-md-3">
             <div class="card text-center h-100">
                 <div class="card-body py-3">
-                    <div class="fs-4 fw-bold text-danger">{{ "%.0f €"|format(dash.saldo_total) }}</div>
-                    <div class="small text-muted">Saldo total em dívida</div>
+                    <div class="fs-5 fw-bold text-danger">{{ "%.0f €"|format(dash.saldo_total) }}</div>
+                    <div class="small text-muted">Saldo em dívida</div>
                 </div>
             </div>
         </div>
         <div class="col-6 col-md-3">
             <div class="card text-center h-100">
                 <div class="card-body py-3">
-                    <div class="fs-4 fw-bold text-warning">{{ "%.0f €"|format(dash.custo_mensal_fixo) }}</div>
+                    <div class="fs-5 fw-bold text-warning">{{ "%.0f €"|format(dash.custo_mensal_fixo) }}</div>
                     <div class="small text-muted">Custo mensal fixo</div>
                 </div>
             </div>
@@ -43,7 +68,7 @@
         <div class="col-6 col-md-3">
             <div class="card text-center h-100">
                 <div class="card-body py-3">
-                    <div class="fs-4 fw-bold text-primary">{{ dash.contracts|length }}</div>
+                    <div class="fs-5 fw-bold text-primary">{{ dash.contracts|length }}</div>
                     <div class="small text-muted">Contratos ativos</div>
                 </div>
             </div>
@@ -51,20 +76,21 @@
         <div class="col-6 col-md-3">
             <div class="card text-center h-100">
                 <div class="card-body py-3">
-                    <div class="fs-4 fw-bold text-info">{{ dash.proximas_saidas_30|length }}</div>
-                    <div class="small text-muted">Saídas nos próximos 30 dias</div>
+                    <div class="fs-5 fw-bold text-info">{{ dash.proximas_saidas_30|length }}</div>
+                    <div class="small text-muted">Saídas (30 dias)</div>
                 </div>
             </div>
         </div>
     </div>
+    {% endif %}
 
     {% if dash.proximas_saidas_30 %}
-    <div class="card mb-4">
-        <div class="card-body">
-            <h6 class="card-title">📅 Próximas saídas (30 dias)</h6>
+    <div class="card mb-3">
+        <div class="card-body p-2">
+            <h6 class="card-title mb-2">📅 Próximas saídas (30 dias)</h6>
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
-                    <thead>
+                    <thead class="table-light">
                         <tr>
                             <th>Data</th>
                             <th>Contrato</th>
@@ -94,13 +120,13 @@
     </div>
     {% endif %}
 
-    <div class="card mb-4">
-        <div class="card-body">
-            <h6 class="card-title">📋 Contratos ativos</h6>
+    <div class="card mb-3">
+        <div class="card-body p-2">
+            <h6 class="card-title mb-2">📋 Contratos ativos</h6>
             {% if dash.contracts %}
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
-                    <thead>
+                    <thead class="table-light">
                         <tr>
                             <th>Label</th>
                             <th>Tipo</th>
@@ -113,7 +139,9 @@
                     <tbody>
                         {% for c in dash.contracts %}
                         <tr>
-                            <td class="small fw-semibold">{{ c.label }}</td>
+                            <td class="small fw-semibold">
+                                <a href="{{ url_for('credito.contrato_detalhe', contract_id=c.id) }}" class="text-decoration-none">{{ c.label }}</a>
+                            </td>
                             <td class="small">{{ c.tipo|replace('_', ' ')|title }}</td>
                             <td class="small">{{ c.banco or '—' }}</td>
                             <td class="small text-end">{{ "%.2f €"|format(c.saldo_divida|float) if c.saldo_divida else '—' }}</td>
@@ -134,29 +162,6 @@
             <p class="text-muted small mb-0">Sem contratos ativos. <a href="{{ url_for('credito.contratos') }}">Adicionar contrato</a>.</p>
             {% endif %}
         </div>
-    </div>
-
-    <div class="nav-grid nav-grid-fill" data-items="5">
-        <a href="{{ url_for('credito.contratos') }}" class="nav-card">
-            <span class="nav-card-icon">📄</span>
-            <span class="nav-card-label">Contratos</span>
-        </a>
-        <a href="{{ url_for('credito.upload') }}" class="nav-card">
-            <span class="nav-card-icon">📤</span>
-            <span class="nav-card-label">Upload Documento</span>
-        </a>
-        <a href="{{ url_for('credito.calendario') }}" class="nav-card">
-            <span class="nav-card-icon">📅</span>
-            <span class="nav-card-label">Calendário</span>
-        </a>
-        <a href="{{ url_for('credito.caucionada') }}" class="nav-card">
-            <span class="nav-card-icon">🏦</span>
-            <span class="nav-card-label">Caucionada</span>
-        </a>
-        <a href="{{ url_for('credito.confirming') }}" class="nav-card">
-            <span class="nav-card-icon">🏦</span>
-            <span class="nav-card-label">Confirming</span>
-        </a>
     </div>
 </div>
 {% endblock %}

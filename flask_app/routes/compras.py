@@ -24,6 +24,7 @@ TABS = [
     {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'faturas.index'},
     {'id': 'nova_fatura', 'label': 'Registar Fatura', 'icon': '➕', 'url_endpoint': 'compras.nova_fatura'},
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
+    {'id': 'fornecedores', 'label': 'Fornecedores', 'icon': '🏭', 'url_endpoint': 'faturas.fornecedores'},
     {'id': 'criar_ordem', 'label': 'Criar Ordem de Transferência', 'icon': '📦', 'url_endpoint': 'compras.criar_ordem'},
 ]
 

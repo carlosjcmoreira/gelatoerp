@@ -213,7 +213,7 @@
         {% if inv.status not in ('cancelled', 'paid') %}
         <form method="post" onsubmit="return confirm('Cancelar esta fatura?')">
             <input type="hidden" name="action" value="cancel">
-            <button type="submit" class="btn btn-outline-warning btn-sm">Cancelar</button>
+            <button type="submit" class="btn btn-outline-danger btn-sm">Cancelar</button>
         </form>
         {% endif %}
         <form method="post" onsubmit="return confirm('Eliminar esta fatura? Esta acção não pode ser desfeita.')">
