@@ -95,6 +95,53 @@ def index():
             invoices=[],
             confirming_contracts=confirming_contracts,
             payment_methods=payment_methods,
+            cost_centers=[],
+            cost_categories_tree=[],
+            centro_custo_filter=None,
+            categoria_custo_filter=None,
+        )
+
+    if view == 'centro_custo':
+        # Group all non-draft invoices by centro_custo
+        all_invoices = get_invoices()
+        from collections import defaultdict
+        grupos_cc = defaultdict(lambda: {'label': None, 'total': 0.0, 'count': 0, 'invoices': []})
+        cc_map = {cc['id']: cc for cc in get_cost_centers(ativo_only=False)}
+        for inv in all_invoices:
+            cc_id = inv.get('centro_custo_id')
+            key = cc_id or 'sem_centro'
+            if grupos_cc[key]['label'] is None:
+                if cc_id and cc_id in cc_map:
+                    cc = cc_map[cc_id]
+                    grupos_cc[key]['label'] = f"{cc['code']} — {cc['name']}"
+                else:
+                    grupos_cc[key]['label'] = 'Sem centro de custo'
+            if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+                inv['display_status'] = 'overdue'
+                inv['status_label'] = 'Vencida'
+            else:
+                inv['display_status'] = inv['status']
+            grupos_cc[key]['invoices'].append(inv)
+            grupos_cc[key]['total'] += float(inv.get('amount_eur') or 0)
+            grupos_cc[key]['count'] += 1
+        # Sort: sem_centro last, others alphabetically
+        sorted_grupos = sorted(
+            [{'key': k, **v} for k, v in grupos_cc.items()],
+            key=lambda g: ('z' if g['key'] == 'sem_centro' else g['label'].lower())
+        )
+        return render_template(
+            'financeiro/faturas/index.html',
+            view='centro_custo',
+            grupos_cc=sorted_grupos,
+            invoices=[],
+            today=today,
+            status_labels=INVOICE_STATUS_LABELS,
+            confirming_contracts=confirming_contracts,
+            payment_methods=payment_methods,
+            cost_centers=get_cost_centers(ativo_only=True),
+            cost_categories_tree=[],
+            centro_custo_filter=None,
+            categoria_custo_filter=None,
         )
 
     status_filter = request.args.get('status', '')

@@ -14,6 +14,8 @@ from database import (
     VAT_RATES,
     get_weekly_liquidity,
     get_all_stores,
+    get_cost_centers,
+    get_cost_categories_tree,
 )
 from db.faturas import ONEDRIVE_SUBFOLDERS, update_invoice_onedrive
 
@@ -103,6 +105,10 @@ def nova_fatura():
         if document_type not in ('fatura', 'nota_credito'):
             document_type = 'fatura'
         onedrive_subfolder = request.form.get('onedrive_subfolder', '').strip() or None
+        centro_custo_raw = request.form.get('centro_custo_id', '').strip()
+        centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
+        categoria_custo_raw = request.form.get('categoria_custo_id', '').strip()
+        categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
 
         if not supplier_name:
             flash('Nome do fornecedor é obrigatório.', 'warning')
@@ -163,6 +169,8 @@ def nova_fatura():
             'created_by': _get_username(),
             'notes': notes,
             'document_type': document_type,
+            'centro_custo_id': centro_custo_id,
+            'categoria_custo_id': categoria_custo_id,
         })
 
         # Archive to OneDrive if a file and subfolder were provided
@@ -198,9 +206,13 @@ def nova_fatura():
 
     stores = get_all_stores()
     suppliers = get_suppliers()
+    cost_centers = get_cost_centers(ativo_only=True)
+    cost_categories_tree = get_cost_categories_tree()
     return render_template('pagamentos/nova_fatura.html',
                            stores=stores, suppliers=suppliers, today=str(date.today()),
-                           subfolders=ONEDRIVE_SUBFOLDERS)
+                           subfolders=ONEDRIVE_SUBFOLDERS,
+                           cost_centers=cost_centers,
+                           cost_categories_tree=cost_categories_tree)
 
 
 @pagamentos_bp.route('/faturas/<int:invoice_id>', methods=['GET', 'POST'])

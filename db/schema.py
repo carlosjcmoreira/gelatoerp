@@ -1619,6 +1619,34 @@ def run_migrations_centros_custo():
                     ''', (sub, parent_id))
 
         conn.commit()
+
+        # ── Startup migration: JSON→DB for colaboradores ───────────────────
+        # If colaboradores table is empty but JSON config exists, migrate it now.
+        try:
+            cursor.execute('SELECT COUNT(*) FROM colaboradores')
+            colab_count = cursor.fetchone()[0]
+            if colab_count == 0:
+                # Try to load from cashflow_config JSON
+                cursor.execute(
+                    "SELECT value FROM cashflow_config WHERE key = 'salarios_colaboradores'"
+                )
+                row = cursor.fetchone()
+                if row and row[0] and row[0].strip() not in ('', '[]'):
+                    conn.commit()  # commit schema changes before calling helper
+                    from db.centros_custo import migrate_colaboradores_from_json
+                    n = migrate_colaboradores_from_json(row[0])
+                    if n:
+                        import logging as _logging
+                        _logging.getLogger(__name__).info(
+                            'run_migrations_centros_custo: migrated %d colaboradores from JSON', n
+                        )
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                'run_migrations_centros_custo: JSON->DB colaboradores migration skipped: %s', _exc
+            )
+
+        conn.commit()
     finally:
         if acquired:
             try:

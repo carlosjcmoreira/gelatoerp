@@ -15,6 +15,10 @@
                    class="btn {% if view == 'fornecedor' %}btn-primary{% else %}btn-outline-primary{% endif %}">
                     Por fornecedor
                 </a>
+                <a href="{{ url_for('faturas.index', view='centro_custo') }}"
+                   class="btn {% if view == 'centro_custo' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                    Por centro
+                </a>
             </div>
             <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm">Fornecedores</a>
             <a href="{{ url_for('faturas.upload') }}" class="btn btn-primary btn-sm">+ Nova fatura</a>
@@ -157,6 +161,64 @@
         <div style="font-size:2rem;">🏦</div>
         <p class="mt-2">Nenhum documento pendente ou agendado.</p>
         <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-primary btn-sm">Ver todos os documentos</a>
+    </div>
+    {% endif %}
+
+{% elif view == 'centro_custo' %}
+    <!-- ── Por Centro de Custo view ─────────────────────────────────────── -->
+    <p class="text-muted small mb-3">Todas as faturas agrupadas por centro de custo.</p>
+    {% if grupos_cc %}
+    {% for grupo in grupos_cc %}
+    <div class="card mb-3">
+        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center py-2">
+            <span>{{ grupo.label }}</span>
+            <span class="text-muted small">{{ grupo.count }} fatura{{ 's' if grupo.count != 1 }}
+            — <span class="text-danger fw-semibold">{{ '%.2f €'|format(grupo.total) }}</span></span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
+                <thead class="table-light">
+                    <tr>
+                        <th>Fornecedor</th>
+                        <th>Nº Fatura</th>
+                        <th>Emissão</th>
+                        <th>Vencimento</th>
+                        <th class="text-end">Total</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for inv in grupo.invoices %}
+                <tr>
+                    <td><a href="{{ url_for('pagamentos.detalhe_fatura', invoice_id=inv.id) }}"
+                           class="text-decoration-none">{{ inv.supplier_name }}</a></td>
+                    <td class="text-muted">{{ inv.invoice_number or '—' }}</td>
+                    <td>{{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</td>
+                    <td>{{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}</td>
+                    <td class="text-end {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}">
+                        {% if inv.amount_eur is not none %}
+                        {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f €'|format(inv.amount_eur) }}
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>
+                        <span class="badge {% if inv.display_status == 'overdue' %}bg-danger
+                            {% elif inv.status == 'pending_review' %}bg-warning text-dark
+                            {% elif inv.status == 'scheduled' %}bg-info text-dark
+                            {% elif inv.status == 'paid' %}bg-success
+                            {% else %}bg-secondary{% endif %}">
+                            {{ inv.status_label }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="text-center text-muted py-5">
+        <p>Nenhuma fatura registada.</p>
     </div>
     {% endif %}
 

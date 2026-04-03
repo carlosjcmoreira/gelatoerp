@@ -105,6 +105,33 @@
                             {% endfor %}
                         </select>
                     </div>
+                    {% if cost_centers or cost_categories_tree %}
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small">Centro de Custo</label>
+                        <select name="centro_custo_id" class="form-select form-select-sm">
+                            <option value="">— Não atribuído —</option>
+                            {% for cc in cost_centers %}
+                            <option value="{{ cc.id }}">{{ cc.code }} — {{ cc.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small">Categoria de Custo</label>
+                        <select name="categoria_custo_id" class="form-select form-select-sm">
+                            <option value="">— Não atribuída —</option>
+                            {% for top in cost_categories_tree %}
+                            <optgroup label="{{ top.name }}">
+                                {% for sub in top.children %}
+                                <option value="{{ sub.id }}">{{ sub.name }}</option>
+                                {% endfor %}
+                                {% if not top.children %}
+                                <option value="{{ top.id }}">({{ top.name }})</option>
+                                {% endif %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
                     <div class="col-12">
                         <label class="form-label small">Notas</label>
                         <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="Observações opcionais"></textarea>
