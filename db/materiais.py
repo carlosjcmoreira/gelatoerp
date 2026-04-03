@@ -166,6 +166,12 @@ def add_movimento_stock(material_id: int, local: str, tipo: str,
         raise ValueError(f"tipo inválido: {tipo!r}")
     if local not in LOCAIS_STOCK:
         raise ValueError(f"local inválido: {local!r}")
+    if tipo == 'entrada' and quantidade <= 0:
+        raise ValueError("entrada requer quantidade > 0")
+    if tipo == 'saida' and quantidade <= 0:
+        raise ValueError("saida requer quantidade > 0")
+    if tipo == 'contagem' and quantidade < 0:
+        raise ValueError("contagem requer quantidade >= 0")
 
     data = data or date.today()
     conn = get_connection()

@@ -1131,13 +1131,19 @@ def materiais_post():
             flash(f"Material '{nome}' adicionado com sucesso!", 'success')
 
     elif action == 'edit_material':
-        mid = int(request.form.get('material_id', 0))
+        mid = int(request.form.get('material_id', 0) or 0)
         nome = request.form.get('nome', '').strip()
         unidade = request.form.get('unidade', 'un')
         categoria = request.form.get('categoria', 'Outro')
         fornecedor = request.form.get('fornecedor', '').strip() or None
         if not nome:
             flash('O nome do material é obrigatório.', 'warning')
+        elif not mid:
+            flash('Material inválido.', 'warning')
+        elif unidade not in UNIDADES_MATERIAIS:
+            flash('Unidade inválida.', 'warning')
+        elif categoria not in CATEGORIAS_MATERIAIS:
+            flash('Categoria inválida.', 'warning')
         else:
             upsert_material(nome, unidade, categoria, fornecedor, material_id=mid)
             flash(f"Material '{nome}' atualizado!", 'success')
