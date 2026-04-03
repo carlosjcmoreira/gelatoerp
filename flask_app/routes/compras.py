@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_app.auth import perm_required
 from datetime import date, datetime
-import sys, os
+import sys, os, logging
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_artigos_administrativos, add_artigo_administrativo,
@@ -136,8 +136,9 @@ def nova_fatura():
             try:
                 supplier_id = upsert_supplier(supplier_name, supplier_nif,
                                               payment_method=payment_method)
-            except Exception:
-                pass
+            except Exception as exc:
+                logging.warning('compras.nova_fatura: upsert_supplier failed for nif=%s: %s',
+                                supplier_nif, exc)
 
         invoice_id = create_invoice({
             'supplier_id': supplier_id,
