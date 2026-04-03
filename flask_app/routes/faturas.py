@@ -499,7 +499,7 @@ def detail(invoice_id: int):
     confirming_contracts = get_confirming_contracts()
     linhas = get_invoice_linhas(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
-    stock_local_derivado = derive_local_from_store(inv.get('store_name') or '')
+    stock_local_derivado = derive_local_from_store(store_name=inv.get('store_name'), store_id=inv.get('store_id'))
     return render_template(
         'financeiro/faturas/detail.html',
         inv=inv,
@@ -569,7 +569,7 @@ def linha(invoice_id: int):
     linha_id = request.form.get('linha_id', type=int)
 
     try:
-        upsert_invoice_linha(
+        saved_id = upsert_invoice_linha(
             invoice_id=invoice_id,
             descricao=descricao,
             quantidade=quantidade,
@@ -580,6 +580,9 @@ def linha(invoice_id: int):
         )
     except (ValueError, Exception) as e:
         flash(f'Erro ao guardar linha: {e}', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+    if saved_id is None:
+        flash('Linha não encontrada ou sem permissão para editar.', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
     flash('Linha guardada.', 'success')
     return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
@@ -597,8 +600,8 @@ def registar_stock(invoice_id: int):
         flash('O stock desta fatura já foi registado e não pode ser executado novamente.', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
-    # Derive local from invoice store_name; only fall back to submitted value if no mapping
-    local = derive_local_from_store(inv.get('store_name') or '')
+    # Derive local from invoice store_id (primary) then store_name; only fall back to submitted value if unmapped
+    local = derive_local_from_store(store_name=inv.get('store_name'), store_id=inv.get('store_id'))
     if not local:
         local = request.form.get('local', '').strip()
     if local not in LOCAIS_STOCK:

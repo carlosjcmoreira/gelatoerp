@@ -296,18 +296,32 @@ def delete_invoice_linha(linha_id: int, invoice_id: int):
     release_connection(conn)
 
 
+_STORE_ID_TO_LOCAL = {
+    1: 'Matosinhos',
+    2: 'Bolhão',
+}
+
 _STORE_NAME_TO_LOCAL = {
     'matosinhos': 'Matosinhos',
     'bolhão': 'Bolhão',
     'bolhao': 'Bolhão',
+    'garagem': 'Garagem',
 }
 
 
-def derive_local_from_store(store_name: str) -> str | None:
-    """Map a store name to a LOCAIS_STOCK value, or None if unknown."""
-    if not store_name:
-        return None
-    return _STORE_NAME_TO_LOCAL.get(store_name.lower().strip())
+def derive_local_from_store(store_name: str = None, store_id: int = None) -> str | None:
+    """Map store_id (preferred) or store_name to a LOCAIS_STOCK value.
+    Returns None for unmapped stores (e.g., invoice with no store → manual selection).
+    Note: Garagem is a warehouse location only, not a store in the stores table,
+    so it can only be reached via manual selection (no store maps to it).
+    """
+    if store_id is not None:
+        result = _STORE_ID_TO_LOCAL.get(int(store_id))
+        if result:
+            return result
+    if store_name:
+        return _STORE_NAME_TO_LOCAL.get(store_name.lower().strip())
+    return None
 
 
 def registar_entradas_stock_fatura(invoice_id: int, utilizador: str,
