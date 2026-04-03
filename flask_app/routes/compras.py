@@ -82,6 +82,7 @@ def nova_fatura():
         invoice_number = request.form.get('invoice_number', '').strip() or None
         amount_str = request.form.get('amount_eur', '').replace(',', '.')
         vat_str = request.form.get('vat_amount_eur', '').replace(',', '.') or '0'
+        amount_sem_iva_str = request.form.get('amount_sem_iva', '').replace(',', '.') or ''
         issue_date_str = request.form.get('issue_date', '')
         due_date_str = request.form.get('due_date', '')
         payment_method = request.form.get('payment_method', '').strip() or None
@@ -113,10 +114,18 @@ def nova_fatura():
         except ValueError:
             pass
 
-        # Build notes: prepend the payment method so it's visible in invoice detail
+        # Parse optional net amount (informative)
+        try:
+            amount_sem_iva = float(amount_sem_iva_str) if amount_sem_iva_str else None
+        except ValueError:
+            amount_sem_iva = None
+
+        # Build notes: record payment method and net amount so they're visible in detail
         notes_parts = []
         if payment_method:
             notes_parts.append(f'Método: {payment_method}')
+        if amount_sem_iva is not None:
+            notes_parts.append(f'Valor s/IVA: {amount_sem_iva:.2f}€')
         if notes_raw:
             notes_parts.append(notes_raw)
         notes = ' | '.join(notes_parts) or None
