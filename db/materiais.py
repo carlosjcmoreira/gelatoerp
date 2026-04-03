@@ -256,6 +256,10 @@ def upsert_invoice_linha(invoice_id: int, descricao: str, quantidade: float,
                          unidade: str, material_id: int = None,
                          preco_unitario: float = None,
                          linha_id: int = None) -> int:
+    if not descricao or not descricao.strip():
+        raise ValueError("descricao é obrigatória")
+    if quantidade is None or float(quantidade) <= 0:
+        raise ValueError("quantidade deve ser > 0")
     conn = get_connection()
     cursor = conn.cursor()
     if linha_id:
@@ -331,7 +335,6 @@ def registar_entradas_stock_fatura(invoice_id: int, utilizador: str,
         claimed = cursor.fetchone()
         if not claimed:
             conn.rollback()
-            release_connection(conn)
             raise ValueError("O stock desta fatura já foi registado.")
 
         cursor.execute("""
