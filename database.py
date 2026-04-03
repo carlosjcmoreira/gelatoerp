@@ -12,3 +12,4 @@ from db.meteorologia import *  # noqa: F401,F403 — Fase 6: weather data, histo
 from db.forecast import *   # noqa: F401,F403 — M2b: sales forecast engine
 from db.cashflow import *     # noqa: F401,F403 — Fase 8 M3: Cash Flow 13 semanas
 from db.fecho_caixa import *  # noqa: F401,F403 — Fecho de Caixa diário + reconciliação
+from db.materiais import *    # noqa: F401,F403 — Stock de materiais / consumíveis

@@ -12,3 +12,4 @@ from db.area import *  # noqa: F401,F403
 from db.credito import *  # noqa: F401,F403
 from db.eventos import *  # noqa: F401,F403
 from db.faturas import *  # noqa: F401,F403
+from db.materiais import *  # noqa: F401,F403

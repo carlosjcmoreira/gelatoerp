@@ -31,6 +31,7 @@ TABS = [
     {'id': 'premio_eurokg', 'label': 'Prémio Euro/kg', 'icon': '🏆', 'url_endpoint': 'gestor.premio_eurokg'},
     {'id': 'gestao_lojas', 'label': 'Lojas', 'icon': '🏪', 'url_endpoint': 'gestor.gestao_lojas'},
     {'id': 'metodos_pagamento', 'label': 'Métodos de Pagamento', 'icon': '💳', 'url_endpoint': 'gestor.metodos_pagamento'},
+    {'id': 'materiais', 'label': 'Catálogo de Materiais', 'icon': '🗂️', 'url_endpoint': 'gestor.materiais'},
     {'id': 'configuracoes', 'label': 'Configurações', 'icon': '⚙️', 'url_endpoint': 'gestor.configuracoes'},
 ]
 
@@ -45,6 +46,7 @@ SECTION_ENDPOINT_MAP = {
     'produtos_rececao': 'gestor.produtos_rececao',
     'receitas_eurokg': 'gestor.receitas_eurokg',
     'gestao_utilizadores': 'gestor.gestao_utilizadores',
+    'materiais': 'gestor.materiais',
 }
 
 def get_tabs():
@@ -1082,3 +1084,77 @@ def testar_onedrive():
     from flask_app.onedrive_archive import test_connection
     result = test_connection()
     return jsonify(result)
+
+
+# ── Catálogo de Materiais ──────────────────────────────────────────────────────
+
+@gestor_bp.route('/materiais', methods=['GET'])
+@perm_required('acesso_gestor')
+def materiais():
+    from db.materiais import list_materiais, CATEGORIAS_MATERIAIS, UNIDADES_MATERIAIS
+    lista = list_materiais()
+    por_categoria = {}
+    for m in lista:
+        cat = m['categoria']
+        por_categoria.setdefault(cat, []).append(m)
+    return render_template(
+        'gestor/materiais.html',
+        tabs=get_tabs(),
+        active_tab='materiais',
+        materiais=lista,
+        por_categoria=por_categoria,
+        categorias=CATEGORIAS_MATERIAIS,
+        unidades=UNIDADES_MATERIAIS,
+    )
+
+
+@gestor_bp.route('/materiais', methods=['POST'])
+@perm_required('acesso_gestor')
+def materiais_post():
+    from db.materiais import (upsert_material, toggle_material_ativo,
+                               delete_material, CATEGORIAS_MATERIAIS, UNIDADES_MATERIAIS)
+    action = request.form.get('action', '')
+
+    if action == 'add_material':
+        nome = request.form.get('nome', '').strip()
+        unidade = request.form.get('unidade', 'un')
+        categoria = request.form.get('categoria', 'Outro')
+        fornecedor = request.form.get('fornecedor', '').strip() or None
+        if not nome:
+            flash('O nome do material é obrigatório.', 'warning')
+        elif unidade not in UNIDADES_MATERIAIS:
+            flash('Unidade inválida.', 'warning')
+        elif categoria not in CATEGORIAS_MATERIAIS:
+            flash('Categoria inválida.', 'warning')
+        else:
+            upsert_material(nome, unidade, categoria, fornecedor)
+            flash(f"Material '{nome}' adicionado com sucesso!", 'success')
+
+    elif action == 'edit_material':
+        mid = int(request.form.get('material_id', 0))
+        nome = request.form.get('nome', '').strip()
+        unidade = request.form.get('unidade', 'un')
+        categoria = request.form.get('categoria', 'Outro')
+        fornecedor = request.form.get('fornecedor', '').strip() or None
+        if not nome:
+            flash('O nome do material é obrigatório.', 'warning')
+        else:
+            upsert_material(nome, unidade, categoria, fornecedor, material_id=mid)
+            flash(f"Material '{nome}' atualizado!", 'success')
+
+    elif action == 'toggle_ativo':
+        mid = int(request.form.get('material_id', 0))
+        ativo = request.form.get('ativo') == 'true'
+        toggle_material_ativo(mid, ativo)
+        estado = 'ativado' if ativo else 'desativado'
+        flash(f'Material {estado}.', 'success')
+
+    elif action == 'delete_material':
+        mid = int(request.form.get('material_id', 0))
+        ok = delete_material(mid)
+        if ok:
+            flash('Material eliminado.', 'success')
+        else:
+            flash('Não foi possível eliminar (material em uso?).', 'danger')
+
+    return redirect(url_for('gestor.materiais'))

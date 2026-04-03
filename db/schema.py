@@ -1096,6 +1096,51 @@ def run_migrations():
         FROM stores s WHERE fc.loja_id = s.id AND fc.loja IS NULL
     """)
 
+    # ── Materiais — stock de materiais / consumíveis ───────────────────────
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS materiais (
+            id SERIAL PRIMARY KEY,
+            nome VARCHAR(255) NOT NULL,
+            unidade VARCHAR(20) NOT NULL DEFAULT 'un',
+            categoria VARCHAR(100) NOT NULL DEFAULT 'Outro',
+            fornecedor VARCHAR(255),
+            ativo BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(nome)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS stock_materiais (
+            id SERIAL PRIMARY KEY,
+            material_id INTEGER NOT NULL REFERENCES materiais(id) ON DELETE CASCADE,
+            local VARCHAR(50) NOT NULL,
+            quantidade NUMERIC(12,3) NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(material_id, local)
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS movimentos_stock_materiais (
+            id SERIAL PRIMARY KEY,
+            material_id INTEGER NOT NULL REFERENCES materiais(id) ON DELETE CASCADE,
+            local VARCHAR(50) NOT NULL,
+            tipo VARCHAR(20) NOT NULL,
+            quantidade NUMERIC(12,3) NOT NULL,
+            data DATE NOT NULL DEFAULT CURRENT_DATE,
+            invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+            notas TEXT,
+            utilizador VARCHAR(100),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_movimentos_stock_material_id ON movimentos_stock_materiais(material_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_movimentos_stock_local ON movimentos_stock_materiais(local)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_movimentos_stock_data ON movimentos_stock_materiais(data)")
+
     conn.commit()
     release_connection(conn)
 

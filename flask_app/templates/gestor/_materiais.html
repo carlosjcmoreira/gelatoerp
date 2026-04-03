@@ -1,0 +1,170 @@
+{% set locais = ['Bolhão', 'Matosinhos', 'Garagem'] %}
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Materiais Registados</h6>
+        {% if materiais %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Nome</th>
+                        <th>Categoria</th>
+                        <th>Unid.</th>
+                        <th>Fornecedor</th>
+                        <th>Estado</th>
+                        <th class="text-end">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for m in materiais %}
+                <tr class="{% if not m.ativo %}text-muted{% endif %}">
+                    <td class="small">{{ m.nome }}</td>
+                    <td class="small">{{ m.categoria }}</td>
+                    <td class="small">{{ m.unidade }}</td>
+                    <td class="small">{{ m.fornecedor or '—' }}</td>
+                    <td class="small">
+                        {% if m.ativo %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">Ativo</span>
+                        {% else %}
+                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Inativo</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                                data-bs-toggle="modal"
+                                data-bs-target="#editMaterialModal"
+                                data-id="{{ m.id }}"
+                                data-nome="{{ m.nome }}"
+                                data-unidade="{{ m.unidade }}"
+                                data-categoria="{{ m.categoria }}"
+                                data-fornecedor="{{ m.fornecedor or '' }}">
+                            ✏️
+                        </button>
+                        <form method="POST" action="{{ url_for('gestor.materiais_post') }}" class="d-inline">
+                            <input type="hidden" name="action" value="toggle_ativo">
+                            <input type="hidden" name="material_id" value="{{ m.id }}">
+                            <input type="hidden" name="ativo" value="{{ 'false' if m.ativo else 'true' }}">
+                            <button type="submit" class="btn btn-outline-{% if m.ativo %}warning{% else %}success{% endif %} btn-sm"
+                                    title="{{ 'Desativar' if m.ativo else 'Ativar' }}">
+                                {{ '⏸' if m.ativo else '▶' }}
+                            </button>
+                        </form>
+                        <form method="POST" action="{{ url_for('gestor.materiais_post') }}" class="d-inline">
+                            <input type="hidden" name="action" value="delete_material">
+                            <input type="hidden" name="material_id" value="{{ m.id }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm"
+                                    onclick="return confirm('Eliminar material \'{{ m.nome }}\'? Esta ação não pode ser desfeita.')">
+                                ✕
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">Sem materiais registados. Adicione o primeiro abaixo.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Adicionar Material</h6>
+        <form method="POST" action="{{ url_for('gestor.materiais_post') }}">
+            <input type="hidden" name="action" value="add_material">
+            <div class="row g-2">
+                <div class="col-sm-4">
+                    <input type="text" name="nome" class="form-control form-control-sm"
+                           placeholder="Nome do material *" required>
+                </div>
+                <div class="col-sm-2">
+                    <select name="categoria" class="form-select form-select-sm">
+                        {% for cat in categorias %}
+                        <option value="{{ cat }}">{{ cat }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-sm-2">
+                    <select name="unidade" class="form-select form-select-sm">
+                        {% for un in unidades %}
+                        <option value="{{ un }}">{{ un }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-sm-3">
+                    <input type="text" name="fornecedor" class="form-control form-control-sm"
+                           placeholder="Fornecedor (opcional)">
+                </div>
+                <div class="col-sm-1 d-grid">
+                    <button type="submit" class="btn btn-primary btn-sm">+ Adicionar</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="editMaterialModal" tabindex="-1" aria-labelledby="editMaterialModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="editMaterialModalLabel">Editar Material</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form method="POST" action="{{ url_for('gestor.materiais_post') }}">
+                <input type="hidden" name="action" value="edit_material">
+                <input type="hidden" name="material_id" id="editMaterialId">
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm">Nome *</label>
+                        <input type="text" name="nome" id="editMaterialNome" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm">Categoria</label>
+                        <select name="categoria" id="editMaterialCategoria" class="form-select form-select-sm">
+                            {% for cat in categorias %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm">Unidade</label>
+                        <select name="unidade" id="editMaterialUnidade" class="form-select form-select-sm">
+                            {% for un in unidades %}
+                            <option value="{{ un }}">{{ un }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm">Fornecedor</label>
+                        <input type="text" name="fornecedor" id="editMaterialFornecedor" class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const editModal = document.getElementById('editMaterialModal');
+    if (editModal) {
+        editModal.addEventListener('show.bs.modal', function (event) {
+            const btn = event.relatedTarget;
+            editModal.querySelector('#editMaterialId').value = btn.dataset.id;
+            editModal.querySelector('#editMaterialNome').value = btn.dataset.nome;
+            editModal.querySelector('#editMaterialFornecedor').value = btn.dataset.fornecedor;
+            const catSel = editModal.querySelector('#editMaterialCategoria');
+            const unSel  = editModal.querySelector('#editMaterialUnidade');
+            for (let o of catSel.options) o.selected = (o.value === btn.dataset.categoria);
+            for (let o of unSel.options)  o.selected = (o.value === btn.dataset.unidade);
+        });
+    }
+});
+</script>

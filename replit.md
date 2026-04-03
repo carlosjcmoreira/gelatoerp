@@ -80,7 +80,7 @@ flask_app/
 │   ├── compras/              # 2 templates (artigos, criar_ordem)
 │   ├── logistica/            # 3 templates (index, agendadas, ordens)
 │   ├── forecast/             # 4 templates (index, explicacao, precisao, meteo_config)
-│   └── gestor/               # config pages + partials
+│   └── gestor/               # config pages + partials (inclui Catálogo de Materiais)
 ├── services/
 │   ├── __init__.py
 │   ├── kpi.py                # KPI calculation com caching inteligente (histórico vs corrente)
