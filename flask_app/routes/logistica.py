@@ -152,7 +152,10 @@ def stock_materiais_post():
             flash('Nenhum valor introduzido na contagem.', 'warning')
 
     elif action == 'ajuste':
-        mid = int(request.form.get('material_id', 0) or 0)
+        try:
+            mid = int(request.form.get('material_id', 0) or 0)
+        except (ValueError, TypeError):
+            mid = 0
         tipo = request.form.get('tipo_ajuste', 'entrada')
         notas = request.form.get('notas_ajuste', '').strip()
         val = request.form.get('quantidade_ajuste', '').strip()
@@ -199,10 +202,20 @@ def historico_movimentos():
     if tipo and tipo not in TIPOS_VALIDOS:
         tipo = None
 
-    movimentos = mat_db.get_movimentos_stock(local=local, limit=300)
+    PER_PAGE = 50
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
 
-    if tipo:
-        movimentos = [m for m in movimentos if m['tipo'] == tipo]
+    total = mat_db.get_movimentos_stock_count(local=local, tipo=tipo)
+    total_pages = max(1, -(-total // PER_PAGE))  # ceiling division
+    page = min(page, total_pages)
+    offset = (page - 1) * PER_PAGE
+
+    movimentos = mat_db.get_movimentos_stock(
+        local=local, tipo=tipo, limit=PER_PAGE, offset=offset
+    )
 
     return render_template(
         'logistica/historico_movimentos.html',
@@ -211,4 +224,8 @@ def historico_movimentos():
         tipo=tipo or '',
         locais=mat_db.LOCAIS_STOCK,
         tipos=TIPOS_VALIDOS,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        per_page=PER_PAGE,
     )

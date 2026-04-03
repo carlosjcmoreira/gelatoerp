@@ -202,8 +202,27 @@ def add_movimento_stock(material_id: int, local: str, tipo: str,
     return movimento_id
 
 
+def get_movimentos_stock_count(local: str = None, tipo: str = None) -> int:
+    conn = get_connection()
+    cursor = conn.cursor()
+    where = []
+    params = []
+    if local:
+        where.append("mv.local = %s")
+        params.append(local)
+    if tipo:
+        where.append("mv.tipo = %s")
+        params.append(tipo)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    cursor.execute(f"SELECT COUNT(*) FROM movimentos_stock_materiais mv {clause}", params)
+    count = cursor.fetchone()[0]
+    release_connection(conn)
+    return count
+
+
 def get_movimentos_stock(local: str = None, material_id: int = None,
-                         limit: int = 200) -> list:
+                         tipo: str = None, limit: int = 200,
+                         offset: int = 0) -> list:
     conn = get_connection()
     cursor = conn.cursor()
     where = []
@@ -214,8 +233,11 @@ def get_movimentos_stock(local: str = None, material_id: int = None,
     if material_id:
         where.append("mv.material_id = %s")
         params.append(material_id)
+    if tipo:
+        where.append("mv.tipo = %s")
+        params.append(tipo)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
-    params.append(limit)
+    params.extend([limit, offset])
     cursor.execute(f"""
         SELECT mv.id, mv.data, m.nome, m.unidade, mv.local, mv.tipo,
                mv.quantidade, mv.notas, mv.utilizador, mv.invoice_id
@@ -223,7 +245,7 @@ def get_movimentos_stock(local: str = None, material_id: int = None,
         JOIN materiais m ON m.id = mv.material_id
         {clause}
         ORDER BY mv.created_at DESC
-        LIMIT %s
+        LIMIT %s OFFSET %s
     """, params)
     rows = cursor.fetchall()
     release_connection(conn)
