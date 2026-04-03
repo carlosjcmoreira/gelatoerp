@@ -296,11 +296,6 @@ def delete_invoice_linha(linha_id: int, invoice_id: int):
     release_connection(conn)
 
 
-_STORE_ID_TO_LOCAL = {
-    1: 'Matosinhos',
-    2: 'Bolhão',
-}
-
 _STORE_NAME_TO_LOCAL = {
     'matosinhos': 'Matosinhos',
     'bolhão': 'Bolhão',
@@ -309,16 +304,32 @@ _STORE_NAME_TO_LOCAL = {
 }
 
 
+def _resolve_store_name_from_id(store_id: int) -> str | None:
+    """Look up store name from DB by store_id."""
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM stores WHERE id = %s", (store_id,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+    finally:
+        release_connection(conn)
+
+
 def derive_local_from_store(store_name: str = None, store_id: int = None) -> str | None:
-    """Map store_id (preferred) or store_name to a LOCAIS_STOCK value.
+    """Map store_id (preferred via DB lookup) or store_name to a LOCAIS_STOCK value.
     Returns None for unmapped stores (e.g., invoice with no store → manual selection).
-    Note: Garagem is a warehouse location only, not a store in the stores table,
-    so it can only be reached via manual selection (no store maps to it).
+    Note: Garagem is a warehouse-only location not mapped to any DB store, so it
+    can only be reached via manual selection.
     """
     if store_id is not None:
-        result = _STORE_ID_TO_LOCAL.get(int(store_id))
-        if result:
-            return result
+        db_name = _resolve_store_name_from_id(int(store_id))
+        if db_name:
+            result = _STORE_NAME_TO_LOCAL.get(db_name.lower().strip())
+            if result:
+                return result
     if store_name:
         return _STORE_NAME_TO_LOCAL.get(store_name.lower().strip())
     return None
