@@ -2,14 +2,15 @@
 {% set back_url = url_for("financeiro.index") %}
 
 {% block content %}
-<div class="container-fluid px-3 py-3">
+<div class="container-fluid px-3 py-3 pb-5">
 
-    <h5 class="mb-4">👥 Salários</h5>
+    <h5 class="mb-1">👥 Salários & Colaboradores</h5>
+    <p class="text-muted small mb-3">Gestão de colaboradores e projecção de custos mensais com pessoal.</p>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
     {% for category, message in messages %}
-    <div class="alert alert-{{ category }} alert-dismissible py-2 px-3 mb-3" style="font-size:0.85rem;">
+    <div class="alert alert-{{ category }} alert-dismissible py-2 px-3 mb-3 small" role="alert">
         {{ message }}
         <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
     </div>
@@ -17,152 +18,200 @@
     {% endif %}
     {% endwith %}
 
-    <form method="post">
-
-        <!-- ── BLOCO 1: Dia de pagamento do líquido ───────────────────────── -->
-        <div class="card mb-3">
-            <div class="card-header fw-semibold" style="font-size:0.85rem;">Pagamento de Salários Líquidos</div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-sm-4">
-                        <label class="form-label form-label-sm fw-semibold">Dia de pagamento</label>
-                        <div class="input-group input-group-sm">
-                            <input type="number" class="form-control form-control-sm" name="salarios_liquido_dia"
-                                   value="{{ cfg.get('salarios_liquido_dia', '28') }}" min="1" max="31">
-                            <span class="input-group-text">do mês</span>
-                        </div>
-                        <div class="form-text">Normalmente dia 28 ou início do mês seguinte.</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ── BLOCO 2: Tabela de colaboradores ──────────────────────────── -->
-        <div class="card mb-3">
-            <div class="card-header fw-semibold d-flex justify-content-between align-items-center" style="font-size:0.85rem;">
-                <span>Colaboradores</span>
-                <button type="button" class="btn btn-outline-primary btn-sm" id="btn-add-colab">+ Adicionar</button>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-sm table-hover mb-0" id="tabela-colabs">
-                        <thead class="table-light">
-                            <tr style="font-size:0.78rem;">
-                                <th style="width:22%;">Nome</th>
-                                <th style="width:14%;">Salário Bruto (€)</th>
-                                <th style="width:13%;">Prémio Bruto (€)</th>
-                                <th style="width:8%;">IRS (%)</th>
-                                <th class="text-end" style="width:13%;">Líquido (€)</th>
-                                <th class="text-end" style="width:14%;">Impostos dia 15 (€)</th>
-                                <th class="text-end" style="width:12%;">Custo empresa (€)</th>
-                                <th style="width:4%;"></th>
-                            </tr>
-                        </thead>
-                        <tbody id="tbody-colabs">
-                            {% for c in colaboradores %}
-                            <tr class="colab-row">
-                                <td>
-                                    <input type="text" class="form-control form-control-sm"
-                                           name="colab_nome[]" value="{{ c.nome }}" placeholder="Nome" required>
-                                </td>
-                                <td>
-                                    <input type="number" class="form-control form-control-sm colab-bruto"
-                                           name="colab_bruto[]"
-                                           value="{{ c.salario_bruto if c.salario_bruto is defined else '' }}"
-                                           step="0.01" min="0" placeholder="0.00">
-                                </td>
-                                <td>
-                                    <input type="number" class="form-control form-control-sm colab-premio"
-                                           name="colab_premio_bruto[]"
-                                           value="{{ c.premio_bruto if c.premio_bruto is defined else '' }}"
-                                           step="0.01" min="0" placeholder="0.00">
-                                </td>
-                                <td>
-                                    <input type="number" class="form-control form-control-sm colab-irs"
-                                           name="colab_irs_taxa[]"
-                                           value="{{ c.irs_taxa if c.irs_taxa is defined else '' }}"
-                                           step="0.1" min="0" max="100" placeholder="0">
-                                </td>
-                                {% set has_bruto = 'salario_bruto' in c %}
-                                <td class="text-end colab-liq align-middle fw-semibold" style="font-size:0.82rem;">
-                                    {% if has_bruto %}{{ "{:,.2f}".format(c.salario_liq | float) }}€{% else %}<span class="text-muted">—</span>{% endif %}
-                                </td>
-                                <td class="text-end colab-imp align-middle text-danger" style="font-size:0.82rem;">
-                                    {% if has_bruto %}{{ "{:,.2f}".format(c.impostos_dia15 | float) }}€{% else %}<span class="text-muted">—</span>{% endif %}
-                                </td>
-                                <td class="text-end colab-custo align-middle text-muted" style="font-size:0.82rem;">
-                                    {% if has_bruto %}{{ "{:,.2f}".format(c.custo_empresa | float) }}€{% else %}<span class="text-muted">—</span>{% endif %}
-                                </td>
-                                <td class="text-center align-middle">
-                                    <button type="button" class="btn btn-link btn-sm text-danger p-0 btn-remove-colab"
-                                            title="Remover">✕</button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                        <tfoot class="table-light fw-semibold" style="font-size:0.82rem;">
-                            <tr>
-                                <td colspan="4">Total</td>
-                                <td class="text-end" id="total-liq">—</td>
-                                <td class="text-end text-danger" id="total-imp">—</td>
-                                <td class="text-end text-muted" id="total-custo">—</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-                {% if not colaboradores %}
-                <div class="text-center text-muted py-3" id="empty-msg" style="font-size:0.82rem;">
-                    Nenhum colaborador definido. Clique em "+ Adicionar" para começar.
-                </div>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- ── BLOCO 3: Impostos SS/IRS ──────────────────────────────────── -->
-        <div class="card mb-3">
-            <div class="card-header fw-semibold" style="font-size:0.85rem;">Impostos SS/IRS</div>
-            <div class="card-body">
+    <!-- ── Dias de pagamento ────────────────────────────────────────────────── -->
+    <div class="card mb-3">
+        <div class="card-header small fw-semibold">Configuração de Dias de Pagamento</div>
+        <div class="card-body">
+            <form method="post">
+                <input type="hidden" name="action" value="save_global">
                 <div class="row g-3 align-items-end">
                     <div class="col-sm-4">
-                        <label class="form-label form-label-sm fw-semibold">Total impostos calculado</label>
+                        <label class="form-label small fw-semibold">Dia de pagamento dos salários líquidos</label>
                         <div class="input-group input-group-sm">
-                            <input type="text" class="form-control form-control-sm bg-light text-danger fw-semibold"
-                                   id="imp-total-display"
-                                   value="{{ '{:,.2f}'.format(cfg.get('salarios_impostos_eur', '0') | float) }}"
-                                   readonly>
-                            <span class="input-group-text">€</span>
-                        </div>
-                        <div class="form-text">SS patronal (23,75%) + SS trabalhador (11%) + IRS retido.</div>
-                    </div>
-                    <div class="col-sm-4">
-                        <label class="form-label form-label-sm fw-semibold">Dia de cobrança</label>
-                        <div class="input-group input-group-sm">
-                            <input type="number" class="form-control form-control-sm" name="salarios_impostos_dia"
-                                   value="{{ cfg.get('salarios_impostos_dia', '15') }}" min="1" max="31">
+                            <input type="number" class="form-control form-control-sm"
+                                   name="salarios_liquido_dia"
+                                   value="{{ cfg.get('salarios_liquido_dia', '28') }}"
+                                   min="1" max="31">
                             <span class="input-group-text">do mês</span>
                         </div>
-                        <div class="form-text">Normalmente ~dia 15 do mês seguinte ao do vencimento.</div>
+                        <div class="form-text">Normalmente dia 28.</div>
+                    </div>
+                    <div class="col-sm-4">
+                        <label class="form-label small fw-semibold">Dia de cobrança SS+IRS</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control form-control-sm"
+                                   name="salarios_impostos_dia"
+                                   value="{{ cfg.get('salarios_impostos_dia', '15') }}"
+                                   min="1" max="31">
+                            <span class="input-group-text">do mês seguinte</span>
+                        </div>
+                        <div class="form-text">Normalmente dia 15 do mês seguinte.</div>
+                    </div>
+                    <div class="col-sm-2">
+                        <button type="submit" class="btn btn-primary btn-sm w-100">Guardar</button>
                     </div>
                 </div>
-            </div>
+            </form>
         </div>
+    </div>
 
-        <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
-    </form>
+    <!-- ── Adicionar colaborador ───────────────────────────────────────────── -->
+    <div class="card mb-3">
+        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center">
+            <span>Adicionar Colaborador</span>
+        </div>
+        <div class="card-body">
+            <form method="post">
+                <input type="hidden" name="action" value="upsert_colaborador">
+                <input type="hidden" name="colab_id" value="">
+                <div class="row g-2 mb-2">
+                    <div class="col-sm-4">
+                        <label class="form-label small">Nome</label>
+                        <input type="text" name="nome" class="form-control form-control-sm"
+                               placeholder="Nome completo" required>
+                    </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small">Salário Bruto (€)</label>
+                        <input type="number" name="salario_bruto" class="form-control form-control-sm"
+                               step="0.01" min="0" placeholder="0.00">
+                    </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small">Prémio Bruto (€)</label>
+                        <input type="number" name="premio_bruto" class="form-control form-control-sm"
+                               step="0.01" min="0" placeholder="0.00">
+                    </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small">IRS (%)</label>
+                        <input type="number" name="irs_taxa" class="form-control form-control-sm"
+                               step="0.1" min="0" max="100" placeholder="0">
+                    </div>
+                    <div class="col-sm-2">
+                        <label class="form-label small">Data Início</label>
+                        <input type="date" name="data_inicio" class="form-control form-control-sm">
+                    </div>
+                </div>
+                {% if cost_centers %}
+                <div class="mb-2">
+                    <label class="form-label small">Alocação a centros de custo (opcional)</label>
+                    <div class="row g-2">
+                        {% for cc in cost_centers %}
+                        <div class="col-auto">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">{{ cc.code }}</span>
+                                <input type="hidden" name="cc_id[]" value="{{ cc.id }}">
+                                <input type="number" name="cc_pct[]"
+                                       class="form-control form-control-sm"
+                                       style="width:70px" step="1" min="0" max="100"
+                                       placeholder="%" title="{{ cc.name }}">
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="form-text">Percentagem de cada centro de custo (total deve ser 100% se preenchido).</div>
+                </div>
+                {% endif %}
+                <button type="submit" class="btn btn-primary btn-sm">Adicionar Colaborador</button>
+            </form>
+        </div>
+    </div>
 
-    <!-- ── Resumo mensal ────────────────────────────────────────────────── -->
+    <!-- ── Lista de colaboradores ──────────────────────────────────────────── -->
+    <div class="card mb-3">
+        <div class="card-header small fw-semibold">Colaboradores</div>
+        {% set active = colaboradores | selectattr('ativo') | list %}
+        {% set inactive = colaboradores | rejectattr('ativo') | list %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr style="font-size:0.78rem;">
+                        <th>Nome</th>
+                        <th class="text-end">Bruto (€)</th>
+                        <th class="text-end">Prémio (€)</th>
+                        <th class="text-center">IRS %</th>
+                        <th class="text-end">Líquido (€)</th>
+                        <th class="text-end">Impostos dia 15 (€)</th>
+                        <th class="text-end">Custo empresa (€)</th>
+                        <th>Centros</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for c in colaboradores %}
+                <tr class="{{ 'text-muted' if not c.ativo }}" style="font-size:0.82rem;">
+                    <td class="align-middle">
+                        {{ c.nome }}
+                        {% if not c.ativo %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle ms-1" style="font-size:0.65rem;">Inactivo</span>{% endif %}
+                    </td>
+                    <td class="text-end align-middle">{{ "{:,.2f}".format(c.salario_bruto | float) }}€</td>
+                    <td class="text-end align-middle">{{ "{:,.2f}".format(c.premio_bruto | float) }}€</td>
+                    <td class="text-center align-middle">{{ c.irs_taxa | float | round(1) }}%</td>
+                    <td class="text-end align-middle fw-semibold">{{ "{:,.2f}".format(c.salario_liq | float) }}€</td>
+                    <td class="text-end align-middle text-danger">{{ "{:,.2f}".format(c.impostos_dia15 | float) }}€</td>
+                    <td class="text-end align-middle text-muted">{{ "{:,.2f}".format(c.custo_empresa | float) }}€</td>
+                    <td class="align-middle small text-muted">
+                        {% set centros_list = c.centros if c.centros is iterable and c.centros is not string else [] %}
+                        {% for alloc in centros_list %}
+                            <span class="badge bg-light border text-dark">{{ alloc.code }} {{ alloc.percentagem | int }}%</span>
+                        {% endfor %}
+                    </td>
+                    <td class="text-end align-middle">
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1 small"
+                                data-bs-toggle="modal" data-bs-target="#editColabModal"
+                                data-id="{{ c.id }}"
+                                data-nome="{{ c.nome }}"
+                                data-bruto="{{ c.salario_bruto }}"
+                                data-premio="{{ c.premio_bruto }}"
+                                data-irs="{{ c.irs_taxa }}"
+                                data-inicio="{{ c.data_inicio.isoformat() if c.data_inicio else '' }}">Editar</button>
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="toggle_colaborador">
+                            <input type="hidden" name="colab_id" value="{{ c.id }}">
+                            <input type="hidden" name="ativo" value="{{ '0' if c.ativo else '1' }}">
+                            <button type="submit" class="btn btn-sm py-0 px-1 small {{ 'btn-outline-warning' if c.ativo else 'btn-outline-success' }}">
+                                {{ 'Desact.' if c.ativo else 'Activ.' }}
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="9" class="text-center text-muted small py-3">Nenhum colaborador registado.</td></tr>
+                {% endfor %}
+                </tbody>
+                {% if colaboradores %}
+                {% set ns = namespace(liq=0.0,imp=0.0,custo=0.0) %}
+                {% for c in colaboradores if c.ativo %}
+                    {% set ns.liq   = ns.liq   + (c.salario_liq   | float) %}
+                    {% set ns.imp   = ns.imp   + (c.impostos_dia15 | float) %}
+                    {% set ns.custo = ns.custo + (c.custo_empresa  | float) %}
+                {% endfor %}
+                <tfoot class="table-light fw-semibold small">
+                    <tr>
+                        <td>Total (activos)</td>
+                        <td colspan="3"></td>
+                        <td class="text-end">{{ "{:,.2f}".format(ns.liq) }}€</td>
+                        <td class="text-end text-danger">{{ "{:,.2f}".format(ns.imp) }}€</td>
+                        <td class="text-end text-muted">{{ "{:,.2f}".format(ns.custo) }}€</td>
+                        <td colspan="2"></td>
+                    </tr>
+                </tfoot>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Resumo mensal ─────────────────────────────────────────────────── -->
     {% set ns = namespace(liq=0.0, imp=0.0, custo=0.0) %}
-    {% for c in colaboradores %}
-        {% set ns.liq   = ns.liq   + ((c.salario_liq   if 'salario_liq'   in c else 0) | float) %}
-        {% set ns.imp   = ns.imp   + ((c.impostos_dia15 if 'impostos_dia15' in c else 0) | float) %}
-        {% set ns.custo = ns.custo + ((c.custo_empresa  if 'custo_empresa'  in c else 0) | float) %}
+    {% for c in colaboradores if c.ativo %}
+        {% set ns.liq   = ns.liq   + (c.salario_liq   | float) %}
+        {% set ns.imp   = ns.imp   + (c.impostos_dia15 | float) %}
+        {% set ns.custo = ns.custo + (c.custo_empresa  | float) %}
     {% endfor %}
     {% if ns.liq > 0 or ns.imp > 0 %}
-    <div class="card mt-3 bg-secondary bg-opacity-10 border-0">
+    <div class="card bg-secondary bg-opacity-10 border-0">
         <div class="card-body py-2 px-3">
-            <div class="fw-semibold mb-2" style="font-size:0.8rem;">Resumo mensal</div>
-            <div class="d-flex flex-wrap gap-4" style="font-size:0.82rem;">
+            <div class="fw-semibold mb-2 small">Resumo mensal (colaboradores activos)</div>
+            <div class="d-flex flex-wrap gap-4 small">
                 <div>
                     <span class="text-muted">Líquido total:</span>
                     <span class="fw-bold ms-1">{{ "{:,.2f}".format(ns.liq) }}€</span>
@@ -181,124 +230,86 @@
         </div>
     </div>
     {% endif %}
-
-    <!-- ── Tabela detalhe por colaborador ───────────────────────────────── -->
-    {% if colaboradores %}
-    <div class="card mt-3">
-        <div class="card-header fw-semibold" style="font-size:0.85rem;">Detalhe de impostos por colaborador</div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-sm mb-0" style="font-size:0.8rem;">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Nome</th>
-                            <th class="text-end">Bruto total</th>
-                            <th class="text-end">SS trabalhador (11%)</th>
-                            <th class="text-end">IRS retido</th>
-                            <th class="text-end">Líquido</th>
-                            <th class="text-end">SS patronal (23,75%)</th>
-                            <th class="text-end">Total impostos dia 15</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for c in colaboradores %}
-                        {% set bruto_t = ((c.salario_bruto if 'salario_bruto' in c else 0) | float) + ((c.premio_bruto if 'premio_bruto' in c else 0) | float) %}
-                        <tr>
-                            <td>{{ c.nome }}</td>
-                            <td class="text-end">{{ "{:,.2f}".format(bruto_t) }}€</td>
-                            <td class="text-end">{{ "{:,.2f}".format((c.ss_trabalhador if 'ss_trabalhador' in c else 0) | float) }}€</td>
-                            <td class="text-end">{{ "{:,.2f}".format((c.irs_retido if 'irs_retido' in c else 0) | float) }}€
-                                <small class="text-muted">({{ c.irs_taxa if 'irs_taxa' in c else 0 }}%)</small>
-                            </td>
-                            <td class="text-end fw-semibold">{{ "{:,.2f}".format((c.salario_liq if 'salario_liq' in c else 0) | float) }}€</td>
-                            <td class="text-end text-muted">{{ "{:,.2f}".format((c.ss_patronal if 'ss_patronal' in c else 0) | float) }}€</td>
-                            <td class="text-end text-danger fw-semibold">{{ "{:,.2f}".format((c.impostos_dia15 if 'impostos_dia15' in c else 0) | float) }}€</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
 </div>
 
+<!-- Edit Colaborador Modal -->
+<div class="modal fade" id="editColabModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title small fw-semibold">Editar Colaborador</h6>
+                <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="upsert_colaborador">
+                    <input type="hidden" name="colab_id" id="editColabId">
+                    <div class="row g-2 mb-2">
+                        <div class="col-12">
+                            <label class="form-label small">Nome</label>
+                            <input type="text" name="nome" id="editColabNome"
+                                   class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small">Salário Bruto (€)</label>
+                            <input type="number" name="salario_bruto" id="editColabBruto"
+                                   class="form-control form-control-sm" step="0.01" min="0">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small">Prémio Bruto (€)</label>
+                            <input type="number" name="premio_bruto" id="editColabPremio"
+                                   class="form-control form-control-sm" step="0.01" min="0">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small">IRS (%)</label>
+                            <input type="number" name="irs_taxa" id="editColabIrs"
+                                   class="form-control form-control-sm" step="0.1" min="0" max="100">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Data Início</label>
+                            <input type="date" name="data_inicio" id="editColabInicio"
+                                   class="form-control form-control-sm">
+                        </div>
+                    </div>
+                    {% if cost_centers %}
+                    <label class="form-label small">Alocação a centros de custo</label>
+                    <div class="row g-2">
+                        {% for cc in cost_centers %}
+                        <div class="col-auto">
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">{{ cc.code }}</span>
+                                <input type="hidden" name="cc_id[]" value="{{ cc.id }}">
+                                <input type="number" name="cc_pct[]"
+                                       class="form-control form-control-sm"
+                                       style="width:70px" step="1" min="0" max="100"
+                                       placeholder="%" title="{{ cc.name }}">
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
 <script>
-(function () {
-    const SS_TRAB = {{ SS_TRAB }};
-    const SS_PATR = {{ SS_PATR }};
-
-    const tbody    = document.getElementById('tbody-colabs');
-    const emptyMsg = document.getElementById('empty-msg');
-
-    const ROW_TPL = `
-        <tr class="colab-row">
-            <td><input type="text" class="form-control form-control-sm"
-                       name="colab_nome[]" placeholder="Nome" required></td>
-            <td><input type="number" class="form-control form-control-sm colab-bruto"
-                       name="colab_bruto[]" step="0.01" min="0" placeholder="0.00"></td>
-            <td><input type="number" class="form-control form-control-sm colab-premio"
-                       name="colab_premio_bruto[]" step="0.01" min="0" placeholder="0.00"></td>
-            <td><input type="number" class="form-control form-control-sm colab-irs"
-                       name="colab_irs_taxa[]" step="0.1" min="0" max="100" placeholder="0"></td>
-            <td class="text-end colab-liq align-middle fw-semibold" style="font-size:0.82rem;">0,00€</td>
-            <td class="text-end colab-imp align-middle text-danger" style="font-size:0.82rem;">0,00€</td>
-            <td class="text-end colab-custo align-middle text-muted" style="font-size:0.82rem;">0,00€</td>
-            <td class="text-center align-middle">
-                <button type="button" class="btn btn-link btn-sm text-danger p-0 btn-remove-colab" title="Remover">✕</button>
-            </td>
-        </tr>`;
-
-    function r2(n)  { return Math.round(n * 100) / 100; }
-    function fmt(n) { return n.toLocaleString('pt-PT', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '€'; }
-
-    function recalc() {
-        let totLiq = 0, totImp = 0, totCusto = 0;
-        tbody.querySelectorAll('.colab-row').forEach(function (row) {
-            const bruto  = parseFloat(row.querySelector('.colab-bruto').value)  || 0;
-            const premio = parseFloat(row.querySelector('.colab-premio').value) || 0;
-            const irs    = (parseFloat(row.querySelector('.colab-irs').value)   || 0) / 100;
-            const total  = bruto + premio;
-            const ssTrab = r2(total * SS_TRAB);
-            const ssPatr = r2(total * SS_PATR);
-            const irsRet = r2(total * irs);
-            const liq    = r2(total - ssTrab - irsRet);
-            const imp    = r2(ssTrab + ssPatr + irsRet);
-            const custo  = r2(total * (1 + SS_PATR));
-            row.querySelector('.colab-liq').textContent   = fmt(liq);
-            row.querySelector('.colab-imp').textContent   = fmt(imp);
-            row.querySelector('.colab-custo').textContent = fmt(custo);
-            totLiq   += liq;
-            totImp   += imp;
-            totCusto += custo;
-        });
-        totLiq   = r2(totLiq);
-        totImp   = r2(totImp);
-        totCusto = r2(totCusto);
-        document.getElementById('total-liq').textContent   = fmt(totLiq);
-        document.getElementById('total-imp').textContent   = fmt(totImp);
-        document.getElementById('total-custo').textContent = fmt(totCusto);
-        const dispEl = document.getElementById('imp-total-display');
-        if (dispEl) dispEl.value = totImp.toLocaleString('pt-PT', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-        if (emptyMsg) emptyMsg.style.display = tbody.children.length ? 'none' : '';
-    }
-
-    document.getElementById('btn-add-colab').addEventListener('click', function () {
-        tbody.insertAdjacentHTML('beforeend', ROW_TPL);
-        recalc();
-    });
-
-    tbody.addEventListener('input', recalc);
-
-    tbody.addEventListener('click', function (e) {
-        if (e.target.closest('.btn-remove-colab')) {
-            e.target.closest('.colab-row').remove();
-            recalc();
-        }
-    });
-
-    recalc();
-})();
+document.getElementById('editColabModal').addEventListener('show.bs.modal', function(e) {
+    const btn = e.relatedTarget;
+    document.getElementById('editColabId').value    = btn.dataset.id;
+    document.getElementById('editColabNome').value  = btn.dataset.nome;
+    document.getElementById('editColabBruto').value = btn.dataset.bruto;
+    document.getElementById('editColabPremio').value = btn.dataset.premio;
+    document.getElementById('editColabIrs').value   = btn.dataset.irs;
+    document.getElementById('editColabInicio').value = btn.dataset.inicio || '';
+});
 </script>
 {% endblock %}

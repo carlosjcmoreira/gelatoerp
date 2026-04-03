@@ -14,6 +14,8 @@ from database import (
     suggest_payment_date,
     get_payment_methods_config,
     upsert_supplier,
+    get_cost_centers,
+    get_cost_categories_tree,
 )
 
 compras_bp = Blueprint('compras', __name__)
@@ -88,6 +90,10 @@ def nova_fatura():
         payment_method = request.form.get('payment_method', '').strip() or None
         notes_raw = request.form.get('notes', '').strip() or ''
         document_type = request.form.get('document_type', 'fatura')
+        centro_custo_raw = request.form.get('centro_custo_id', '').strip()
+        centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
+        categoria_custo_raw = request.form.get('categoria_custo_id', '').strip()
+        categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
         if document_type not in ('fatura', 'nota_credito'):
             document_type = 'fatura'
 
@@ -162,6 +168,8 @@ def nova_fatura():
             'created_by': _get_username(),
             'notes': notes,
             'document_type': document_type,
+            'centro_custo_id': centro_custo_id,
+            'categoria_custo_id': categoria_custo_id,
         })
 
         if due_date:
@@ -180,9 +188,13 @@ def nova_fatura():
 
     suppliers = get_suppliers()
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
+    cost_centers = get_cost_centers(ativo_only=True)
+    cost_categories_tree = get_cost_categories_tree()
     return render_template('compras/nova_fatura.html',
                            suppliers=suppliers,
                            payment_methods=payment_methods,
+                           cost_centers=cost_centers,
+                           cost_categories_tree=cost_categories_tree,
                            today=str(date.today()))
 
 

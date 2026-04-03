@@ -1475,6 +1475,156 @@ def run_migrations_credito():
         release_connection(conn)
 
 
+def run_migrations_centros_custo():
+    """Idempotent migrations: cost_centers, cost_categories, colaboradores,
+    colaborador_centro_custo tables + FK columns on invoices.
+    Advisory lock 202606."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    acquired = False
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202606)")
+        acquired = cursor.fetchone()[0]
+        if not acquired:
+            return
+
+        # ── Centros de custo ───────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cost_centers (
+                id SERIAL PRIMARY KEY,
+                code VARCHAR(10) NOT NULL UNIQUE,
+                name VARCHAR(100) NOT NULL,
+                description TEXT,
+                ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # ── Categorias de custo (hierárquicas) ─────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS cost_categories (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                parent_id INTEGER REFERENCES cost_categories(id),
+                ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # ── Colaboradores ──────────────────────────────────────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS colaboradores (
+                id SERIAL PRIMARY KEY,
+                nome VARCHAR(150) NOT NULL,
+                salario_bruto NUMERIC(12,2) NOT NULL DEFAULT 0,
+                premio_bruto NUMERIC(12,2) NOT NULL DEFAULT 0,
+                irs_taxa NUMERIC(6,4) NOT NULL DEFAULT 0,
+                data_inicio DATE,
+                ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # ── Alocação de colaboradores a centros de custo ───────────────────
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS colaborador_centro_custo (
+                id SERIAL PRIMARY KEY,
+                colaborador_id INTEGER NOT NULL REFERENCES colaboradores(id) ON DELETE CASCADE,
+                centro_custo_id INTEGER NOT NULL REFERENCES cost_centers(id) ON DELETE CASCADE,
+                percentagem NUMERIC(6,3) NOT NULL DEFAULT 100.0,
+                UNIQUE(colaborador_id, centro_custo_id)
+            )
+        ''')
+        cursor.execute(
+            'CREATE INDEX IF NOT EXISTS idx_colab_cc_colab ON colaborador_centro_custo(colaborador_id)'
+        )
+
+        # ── FK columns on invoices ─────────────────────────────────────────
+        cursor.execute(
+            'ALTER TABLE invoices ADD COLUMN IF NOT EXISTS '
+            'centro_custo_id INTEGER REFERENCES cost_centers(id)'
+        )
+        cursor.execute(
+            'ALTER TABLE invoices ADD COLUMN IF NOT EXISTS '
+            'categoria_custo_id INTEGER REFERENCES cost_categories(id)'
+        )
+
+        # ── Seed: centros de custo ─────────────────────────────────────────
+        CENTROS = [
+            ('P',  'Produção',           'Laboratório de produção de gelados'),
+            ('M',  'Matosinhos',         'Loja de Matosinhos'),
+            ('B',  'Bolhão',             'Loja do Bolhão'),
+            ('G',  'Garagem',            'Armazém / Garagem'),
+            ('D',  'Delivery',           'Entregas e transporte'),
+            ('E',  'Escritório',         'Administração e escritório'),
+            ('FP', 'Fora de Portugal',   'Operações fora de Portugal'),
+        ]
+        for code, name, desc in CENTROS:
+            cursor.execute('''
+                INSERT INTO cost_centers (code, name, description)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (code) DO NOTHING
+            ''', (code, name, desc))
+
+        # ── Seed: categorias de custo ──────────────────────────────────────
+        CATEGORIAS_TOP = [
+            ('Custos Fixos Operacionais',   [
+                'Rendas', 'Seguros', 'Comunicações', 'Contabilidade', 'Licenças e Certificados',
+            ]),
+            ('Custos Variáveis Operacionais', [
+                'Água e Eletricidade', 'Manutenção e Reparações', 'Materiais de Embalagem',
+                'Materiais de Limpeza', 'Uniformes e EPI',
+            ]),
+            ('Compras', [
+                'Matérias-Primas', 'Ingredientes', 'Equipamentos',
+            ]),
+            ('Impostos e Encargos', [
+                'IVA a Pagar', 'Segurança Social', 'IRS Retido', 'IMI', 'Outros Impostos',
+            ]),
+            ('Salários e Recursos Humanos', [
+                'Salários Líquidos', 'Subsídios', 'Formação',
+            ]),
+            ('Marketing e Comercial', [
+                'Publicidade', 'Eventos e Promoções', 'Website e Redes Sociais',
+            ]),
+            ('Outros', []),
+        ]
+        for top_name, sub_names in CATEGORIAS_TOP:
+            cursor.execute('''
+                INSERT INTO cost_categories (name, parent_id)
+                VALUES (%s, NULL)
+                ON CONFLICT DO NOTHING
+            ''', (top_name,))
+            # Only get id if we need to insert subcategories
+            if sub_names:
+                cursor.execute(
+                    'SELECT id FROM cost_categories WHERE name = %s AND parent_id IS NULL',
+                    (top_name,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    parent_id = row[0]
+                    for sub in sub_names:
+                        cursor.execute('''
+                            INSERT INTO cost_categories (name, parent_id)
+                            VALUES (%s, %s)
+                            ON CONFLICT DO NOTHING
+                        ''', (sub, parent_id))
+
+        conn.commit()
+    finally:
+        if acquired:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(202606)")
+                conn.commit()
+            except Exception:
+                pass
+        release_connection(conn)
+
+
 def run_data_fix_quebras_march2026():
     """
     One-time idempotent cleanup of bad quebras records created in March 2026.

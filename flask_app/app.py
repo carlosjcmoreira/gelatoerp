@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, sync_produtos_vendas_config, seed_artigos_administrativos, authenticate_user, create_session
 from db.cashflow import run_migrations_cashflow
-from db.schema import run_migrations_credito, run_data_fix_quebras_march2026, run_data_fix_pesagem_april2026
+from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
+                        run_data_fix_pesagem_april2026, run_migrations_centros_custo)
 
 
 def _start_sheets_sync_scheduler():
@@ -58,6 +59,7 @@ def create_app():
         run_migrations_credito()
         run_data_fix_quebras_march2026()
         run_data_fix_pesagem_april2026()
+        run_migrations_centros_custo()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()
 
@@ -80,6 +82,8 @@ def create_app():
     from flask_app.routes.meteorologia import meteorologia_bp
     from flask_app.routes.forecast import forecast_bp
     from flask_app.routes.cashflow import cashflow_bp
+    from flask_app.routes.centros_custo import centros_custo_bp
+    from flask_app.routes.categorias_custo import categorias_custo_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -100,6 +104,8 @@ def create_app():
     app.register_blueprint(meteorologia_bp, url_prefix='/meteorologia')
     app.register_blueprint(forecast_bp, url_prefix='/forecast')
     app.register_blueprint(cashflow_bp, url_prefix='/financeiro/cashflow')
+    app.register_blueprint(centros_custo_bp, url_prefix='/financeiro/centros-custo')
+    app.register_blueprint(categorias_custo_bp, url_prefix='/financeiro/categorias')
 
     import weather_scheduler
     weather_scheduler.start_weather_scheduler()

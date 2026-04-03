@@ -326,7 +326,7 @@ def update_invoice(invoice_id: int, data: dict):
         'supplier_name', 'supplier_nif', 'invoice_number', 'amount_eur', 'vat_amount_eur',
         'issue_date', 'due_date', 'store_id', 'category', 'onedrive_subfolder',
         'onedrive_path', 'status', 'cfo_confirmed_date', 'paid_date', 'notes', 'supplier_id',
-        'document_type',
+        'document_type', 'centro_custo_id', 'categoria_custo_id',
     ]
     for key in allowed:
         if key in data:

@@ -8,6 +8,15 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from db.cashflow import build_cashflow_13weeks, get_cashflow_config, set_cashflow_config
 from db.faturas import ONEDRIVE_SUBFOLDERS
+from db.centros_custo import (
+    get_colaboradores, get_colaboradores_calculados,
+    upsert_colaborador, toggle_colaborador,
+    migrate_colaboradores_from_json,
+    _calc_colabs, get_cost_centers,
+)
+
+SS_TRAB = 0.11
+SS_PATR = 0.2375
 
 logger = logging.getLogger(__name__)
 
@@ -64,99 +73,123 @@ def configuracoes():
     return render_template('financeiro/cashflow/configuracoes.html', cfg=cfg)
 
 
+def _migrate_colabs_from_json_if_needed():
+    """One-time migration: if the DB colaboradores table is empty but JSON config exists, migrate."""
+    try:
+        existing = get_colaboradores()
+        if existing:
+            return
+        cfg = get_cashflow_config()
+        json_str = cfg.get('salarios_colaboradores', '[]')
+        n = migrate_colaboradores_from_json(json_str)
+        if n:
+            logger.info('Migrated %d colaboradores from JSON to DB table.', n)
+    except Exception as exc:
+        logger.warning('_migrate_colabs_from_json_if_needed failed: %s', exc)
+
+
 @cashflow_bp.route('/salarios', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def salarios():
-    SS_TRAB   = 0.11
-    SS_PATR   = 0.2375
+    _migrate_colabs_from_json_if_needed()
 
     if request.method == 'POST':
-        sal_imp_dia = request.form.get('salarios_impostos_dia', '15')
-        sal_liq_dia = request.form.get('salarios_liquido_dia', '28')
-        nomes        = request.form.getlist('colab_nome[]')
-        brutos_lst   = request.form.getlist('colab_bruto[]')
-        premios_lst  = request.form.getlist('colab_premio_bruto[]')
-        irs_lst      = request.form.getlist('colab_irs_taxa[]')
-        try:
-            colaboradores = []
-            total_liq     = 0.0
-            total_imp     = 0.0
-            for nome, bruto_s, premio_s, irs_s in zip(nomes, brutos_lst, premios_lst, irs_lst):
-                nome = nome.strip()
+        action = request.form.get('action', 'save_global')
+
+        if action == 'save_global':
+            # Save global payment-day config only
+            sal_imp_dia = request.form.get('salarios_impostos_dia', '15')
+            sal_liq_dia = request.form.get('salarios_liquido_dia', '28')
+            try:
+                set_cashflow_config('salarios_impostos_dia', str(int(sal_imp_dia)))
+                set_cashflow_config('salarios_liquido_dia',  str(int(sal_liq_dia)))
+                # Recalculate aggregate totals from DB
+                colabs = get_colaboradores_calculados(ativo_only=True)
+                total_liq = round(sum(c.get('salario_liq', 0) for c in colabs), 2)
+                total_imp = round(sum(c.get('impostos_dia15', 0) for c in colabs), 2)
+                set_cashflow_config('salarios_liquido_eur',  str(total_liq))
+                set_cashflow_config('salarios_impostos_eur', str(total_imp))
+                # Keep JSON in sync for legacy cashflow forecast reader
+                set_cashflow_config('salarios_colaboradores',
+                                    json.dumps([{k: c.get(k) for k in
+                                                 ('nome','salario_bruto','premio_bruto','irs_taxa',
+                                                  'salario_liq','ss_patronal','ss_trabalhador',
+                                                  'irs_retido','impostos_dia15','custo_empresa')}
+                                                for c in colabs], ensure_ascii=False))
+                flash('Configuração de dias de pagamento actualizada.', 'success')
+            except (ValueError, TypeError) as exc:
+                flash(f'Valores inválidos: {exc}', 'danger')
+
+        elif action == 'upsert_colaborador':
+            colab_id_raw = request.form.get('colab_id', '').strip()
+            colab_id = int(colab_id_raw) if colab_id_raw else None
+            nome = request.form.get('nome', '').strip()
+            try:
+                bruto  = float(request.form.get('salario_bruto', '0').replace(',', '.') or 0)
+                premio = float(request.form.get('premio_bruto',  '0').replace(',', '.') or 0)
+                irs    = min(100.0, max(0.0, float(
+                    request.form.get('irs_taxa', '0').replace(',', '.') or 0)))
+                data_inicio_s = request.form.get('data_inicio', '').strip() or None
+                from datetime import datetime as _dt
+                data_inicio = _dt.strptime(data_inicio_s, '%Y-%m-%d').date() if data_inicio_s else None
+
+                # Cost center allocations
+                cc_ids  = request.form.getlist('cc_id[]')
+                cc_pcts = request.form.getlist('cc_pct[]')
+                centros = []
+                for ccid, pct in zip(cc_ids, cc_pcts):
+                    if ccid and pct:
+                        try:
+                            centros.append({'centro_custo_id': int(ccid),
+                                            'percentagem': float(pct.replace(',', '.'))})
+                        except (ValueError, TypeError):
+                            pass
+
                 if not nome:
-                    continue
-                bruto      = float(bruto_s.replace(',', '.')  or 0)
-                premio     = float(premio_s.replace(',', '.') or 0)
-                irs_taxa   = min(100.0, max(0.0, float(irs_s.replace(',', '.') or 0)))
-                total_bruto    = bruto + premio
-                irs_frac       = irs_taxa / 100.0
-                ss_trab        = round(total_bruto * SS_TRAB, 2)
-                ss_patr        = round(total_bruto * SS_PATR, 2)
-                irs_retido     = round(total_bruto * irs_frac, 2)
-                liq            = round(total_bruto * (1 - SS_TRAB - irs_frac), 2)
-                impostos_d15   = round(ss_trab + ss_patr + irs_retido, 2)
-                custo_empresa  = round(total_bruto * (1 + SS_PATR), 2)
-                colaboradores.append({
-                    'nome': nome,
-                    'salario_bruto':   bruto,
-                    'premio_bruto':    premio,
-                    'irs_taxa':        irs_taxa,
-                    'salario_liq':     liq,
-                    'ss_patronal':     ss_patr,
-                    'ss_trabalhador':  ss_trab,
-                    'irs_retido':      irs_retido,
-                    'impostos_dia15':  impostos_d15,
-                    'custo_empresa':   custo_empresa,
-                })
-                total_liq += liq
-                total_imp += impostos_d15
-            set_cashflow_config('salarios_colaboradores', json.dumps(colaboradores, ensure_ascii=False))
-            set_cashflow_config('salarios_liquido_eur',  str(round(total_liq, 2)))
-            set_cashflow_config('salarios_impostos_eur', str(round(total_imp, 2)))
-            set_cashflow_config('salarios_impostos_dia', str(int(sal_imp_dia)))
-            set_cashflow_config('salarios_liquido_dia',  str(int(sal_liq_dia)))
-            flash('Configuração de salários actualizada.', 'success')
-        except (ValueError, TypeError):
-            flash('Valores inválidos.', 'danger')
+                    flash('Nome do colaborador é obrigatório.', 'warning')
+                else:
+                    upsert_colaborador(colab_id, nome, bruto, premio, irs, data_inicio, centros)
+                    # Sync aggregates
+                    colabs = get_colaboradores_calculados(ativo_only=True)
+                    total_liq = round(sum(c.get('salario_liq', 0) for c in colabs), 2)
+                    total_imp = round(sum(c.get('impostos_dia15', 0) for c in colabs), 2)
+                    set_cashflow_config('salarios_liquido_eur',  str(total_liq))
+                    set_cashflow_config('salarios_impostos_eur', str(total_imp))
+                    set_cashflow_config('salarios_colaboradores',
+                                        json.dumps([{k: c.get(k) for k in
+                                                     ('nome','salario_bruto','premio_bruto','irs_taxa',
+                                                      'salario_liq','ss_patronal','ss_trabalhador',
+                                                      'irs_retido','impostos_dia15','custo_empresa')}
+                                                    for c in colabs], ensure_ascii=False))
+                    label = 'actualizado' if colab_id else 'adicionado'
+                    flash(f'Colaborador "{nome}" {label}.', 'success')
+            except Exception as exc:
+                flash(f'Erro: {exc}', 'danger')
+
+        elif action == 'toggle_colaborador':
+            colab_id = int(request.form.get('colab_id', 0))
+            ativo = request.form.get('ativo', '0') == '1'
+            try:
+                toggle_colaborador(colab_id, ativo)
+                flash('Colaborador ' + ('activado.' if ativo else 'desactivado.'), 'success')
+            except Exception as exc:
+                flash(f'Erro: {exc}', 'danger')
+
         return redirect(url_for('cashflow.salarios'))
 
     try:
         cfg = get_cashflow_config()
     except Exception:
-        flash('Erro ao carregar configuração de salários. Por favor tente novamente.', 'danger')
+        flash('Erro ao carregar configuração. Por favor tente novamente.', 'danger')
         cfg = {}
-    try:
-        colaboradores = json.loads(cfg.get('salarios_colaboradores', '[]'))
-    except Exception:
-        colaboradores = []
 
-    # Backfill missing fields for collaborators saved before task #47
-    backfilled = []
-    for c in colaboradores:
-        c = dict(c)
-        bruto    = float(c.get('salario_bruto', 0) or 0)
-        premio   = float(c.get('premio_bruto', 0) or 0)
-        irs_taxa = float(c.get('irs_taxa', 0) or 0)
-        irs_frac = irs_taxa / 100.0
-        total_b  = bruto + premio
-        ss_trab  = round(total_b * SS_TRAB, 2)
-        ss_patr  = round(total_b * SS_PATR, 2)
-        irs_ret  = round(total_b * irs_frac, 2)
-        c.setdefault('salario_bruto',  bruto)
-        c.setdefault('premio_bruto',   premio)
-        c.setdefault('irs_taxa',       irs_taxa)
-        c.setdefault('ss_trabalhador', ss_trab)
-        c.setdefault('ss_patronal',    ss_patr)
-        c.setdefault('irs_retido',     irs_ret)
-        c.setdefault('salario_liq',    round(total_b * (1 - SS_TRAB - irs_frac), 2))
-        c.setdefault('impostos_dia15', round(ss_trab + ss_patr + irs_ret, 2))
-        c.setdefault('custo_empresa',  round(total_b * (1 + SS_PATR), 2))
-        backfilled.append(c)
-    colaboradores = backfilled
+    colaboradores = get_colaboradores_calculados(ativo_only=False)
+    cost_centers  = get_cost_centers(ativo_only=True)
 
     return render_template('financeiro/cashflow/salarios.html',
                            cfg=cfg,
                            colaboradores=colaboradores,
+                           cost_centers=cost_centers,
                            SS_TRAB=SS_TRAB,
                            SS_PATR=SS_PATR)
 

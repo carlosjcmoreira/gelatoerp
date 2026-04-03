@@ -201,6 +201,10 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
     document_type = form.get('document_type', 'fatura')
     if document_type not in ('fatura', 'nota_credito'):
         document_type = 'fatura'
+    centro_custo_raw = form.get('centro_custo_id', '').strip()
+    centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
+    categoria_custo_raw = form.get('categoria_custo_id', '').strip()
+    categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
 
     supplier_payment_method = form.get('supplier_payment_method', '').strip() or None
     supplier_payment_terms = form.get('supplier_payment_terms', '').strip() or None
@@ -313,6 +317,8 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
             'status': 'pending_review',
             'notes': notes or None,
             'document_type': document_type,
+            'centro_custo_id': centro_custo_id,
+            'categoria_custo_id': categoria_custo_id,
         })
     except Exception as exc:
         raise ServiceError(f'Erro ao actualizar fatura: {exc}') from exc

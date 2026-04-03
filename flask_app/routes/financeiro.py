@@ -30,6 +30,13 @@ FINANCEIRO_GROUPS = [
             {'key': 'meteorologia',  'label': 'Meteorologia',        'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
         ],
     },
+    {
+        'label': 'Configuração',
+        'modules': [
+            {'key': 'centros_custo',   'label': 'Centros de Custo',   'icon': '🏷️', 'active': True,  'url_func': 'centros_custo.index'},
+            {'key': 'categorias',      'label': 'Categorias de Custo', 'icon': '📂', 'active': True,  'url_func': 'categorias_custo.index'},
+        ],
+    },
 ]
 
 PAYMENT_METHODS = [

@@ -27,6 +27,7 @@ from database import (
     get_invoice_linhas, upsert_invoice_linha, delete_invoice_linha,
     registar_entradas_stock_fatura, derive_local_from_store,
     list_materiais, LOCAIS_STOCK, UNIDADES_MATERIAIS,
+    get_cost_centers, get_cost_categories_tree,
 )
 
 import flask_app.services.faturas as faturas_svc
@@ -410,6 +411,8 @@ def review(invoice_id):
         payment_method_labels=PAYMENT_METHOD_LABELS,
         payment_terms_labels=PAYMENT_TERMS_LABELS,
         return_to=return_to,
+        cost_centers=get_cost_centers(ativo_only=True),
+        cost_categories_tree=get_cost_categories_tree(ativo_only=True),
     )
 
 
@@ -448,6 +451,8 @@ def save():
         'supplier_payment_terms': request.form.get('supplier_payment_terms', ''),
         'supplier_iban': request.form.get('supplier_iban', ''),
         'is_new_supplier': request.form.get('is_new_supplier', ''),
+        'centro_custo_id': request.form.get('centro_custo_id', ''),
+        'categoria_custo_id': request.form.get('categoria_custo_id', ''),
     }
     try:
         result = faturas_svc.save_reviewed_invoice(invoice_id, form_data)
