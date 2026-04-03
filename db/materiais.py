@@ -292,38 +292,57 @@ def delete_invoice_linha(linha_id: int, invoice_id: int):
     release_connection(conn)
 
 
+_STORE_NAME_TO_LOCAL = {
+    'matosinhos': 'Matosinhos',
+    'bolhão': 'Bolhão',
+    'bolhao': 'Bolhão',
+}
+
+
+def derive_local_from_store(store_name: str) -> str | None:
+    """Map a store name to a LOCAIS_STOCK value, or None if unknown."""
+    if not store_name:
+        return None
+    return _STORE_NAME_TO_LOCAL.get(store_name.lower().strip())
+
+
 def registar_entradas_stock_fatura(invoice_id: int, utilizador: str,
                                    local: str) -> dict:
     """
-    For each unregistered invoice_linha that has a material_id,
-    create a stock 'entrada' movement.
+    For each invoice_linha that has a material_id,
+    create a stock 'entrada' movement atomically.
     Marks each linha as stock_registado and sets invoice.stock_registado_at.
-    Returns {'registadas': N, 'ignoradas': M}.
+    Uses atomic UPDATE with WHERE stock_registado_at IS NULL to prevent
+    double execution under concurrency.
+    Returns {'registadas': N}.
     Raises ValueError if already registered or local is invalid.
     """
     if local not in LOCAIS_STOCK:
         raise ValueError(f"local inválido: {local!r}")
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT stock_registado_at FROM invoices WHERE id = %s",
-        (invoice_id,)
-    )
-    row = cursor.fetchone()
-    if row and row[0] is not None:
-        release_connection(conn)
-        raise ValueError("O stock desta fatura já foi registado.")
-    cursor.execute("""
-        SELECT id, material_id, quantidade
-        FROM invoice_linhas
-        WHERE invoice_id = %s AND stock_registado = FALSE AND material_id IS NOT NULL
-    """, (invoice_id,))
-    linhas = cursor.fetchall()
-    registadas = 0
-    ignoradas = 0
-    for linha in linhas:
-        linha_id, material_id, quantidade = linha
-        try:
+    try:
+        cursor.execute("""
+            UPDATE invoices
+            SET stock_registado_at = NOW(), stock_registado_por = %s
+            WHERE id = %s AND stock_registado_at IS NULL
+            RETURNING id
+        """, (utilizador, invoice_id))
+        claimed = cursor.fetchone()
+        if not claimed:
+            conn.rollback()
+            release_connection(conn)
+            raise ValueError("O stock desta fatura já foi registado.")
+
+        cursor.execute("""
+            SELECT id, material_id, quantidade
+            FROM invoice_linhas
+            WHERE invoice_id = %s AND material_id IS NOT NULL
+        """, (invoice_id,))
+        linhas = cursor.fetchall()
+        registadas = 0
+        for linha in linhas:
+            linha_id, material_id, quantidade = linha
             cursor.execute("""
                 INSERT INTO movimentos_stock_materiais
                        (material_id, local, tipo, quantidade, data, invoice_id, utilizador)
@@ -341,19 +360,18 @@ def registar_entradas_stock_fatura(invoice_id: int, utilizador: str,
                 (linha_id,)
             )
             registadas += 1
-        except Exception as e:
-            logger.error("registar_entradas_stock_fatura linha_id=%s: %s", linha_id, e)
-            ignoradas += 1
-    if registadas > 0:
-        cursor.execute("""
-            UPDATE invoices
-            SET stock_registado_at = NOW(), stock_registado_por = %s
-            WHERE id = %s
-        """, (utilizador, invoice_id))
-    conn.commit()
-    release_connection(conn)
-    invalidate_prefix('materiais')
-    return {'registadas': registadas, 'ignoradas': ignoradas}
+
+        conn.commit()
+        invalidate_prefix('materiais')
+        return {'registadas': registadas}
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        release_connection(conn)
 
 
 def get_movimentos_stock(local: str = None, material_id: int = None,

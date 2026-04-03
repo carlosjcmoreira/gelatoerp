@@ -792,17 +792,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="modal-body">
                     <div class="mb-2">
                         <label class="form-label small">Local de destino</label>
+                        {% if stock_local_derivado %}
+                        <input type="hidden" name="local" value="{{ stock_local_derivado }}">
+                        <div class="form-control form-control-sm bg-light text-muted">
+                            {{ stock_local_derivado }}
+                            <span class="ms-1 small">(da loja da fatura)</span>
+                        </div>
+                        {% else %}
                         <select name="local" class="form-select form-select-sm" required>
-                            {% for local in locais_stock %}
-                            <option value="{{ local }}"
-                                {% if inv.store_name and local.lower() == inv.store_name.lower() %}selected{% endif %}>
-                                {{ local }}
-                            </option>
+                            {% for loc in locais_stock %}
+                            <option value="{{ loc }}">{{ loc }}</option>
                             {% endfor %}
                         </select>
+                        <div class="form-text small text-warning">Esta fatura não tem loja associada. Seleciona o destino manualmente.</div>
+                        {% endif %}
                     </div>
                     <p class="small text-muted mb-0">
-                        Serão criadas entradas de stock para todas as linhas com material associado ainda não registadas.
+                        Serão criadas entradas de stock para todas as linhas com material associado.
+                        Esta operação não pode ser repetida.
                     </p>
                 </div>
                 <div class="modal-footer py-2">

@@ -23,7 +23,7 @@ from database import (
     create_confirming_parcelas_batch,
     get_payment_methods_config,
     get_invoice_linhas, upsert_invoice_linha, delete_invoice_linha,
-    registar_entradas_stock_fatura,
+    registar_entradas_stock_fatura, derive_local_from_store,
     list_materiais, LOCAIS_STOCK, UNIDADES_MATERIAIS,
 )
 
@@ -499,6 +499,7 @@ def detail(invoice_id: int):
     confirming_contracts = get_confirming_contracts()
     linhas = get_invoice_linhas(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
+    stock_local_derivado = derive_local_from_store(inv.get('store_name') or '')
     return render_template(
         'financeiro/faturas/detail.html',
         inv=inv,
@@ -515,6 +516,7 @@ def detail(invoice_id: int):
         materiais=materiais,
         locais_stock=LOCAIS_STOCK,
         unidades_materiais=UNIDADES_MATERIAIS,
+        stock_local_derivado=stock_local_derivado,
     )
 
 
@@ -587,9 +589,12 @@ def registar_stock(invoice_id: int):
         flash('O stock desta fatura já foi registado e não pode ser executado novamente.', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
-    local = request.form.get('local', '').strip()
+    # Derive local from invoice store_name; only fall back to submitted value if no mapping
+    local = derive_local_from_store(inv.get('store_name') or '')
+    if not local:
+        local = request.form.get('local', '').strip()
     if local not in LOCAIS_STOCK:
-        flash('Local de stock inválido.', 'warning')
+        flash('Não foi possível determinar o local de stock. Seleciona um local e tenta de novo.', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
     utilizador = session.get('user', {}).get('username', 'system')
@@ -600,13 +605,10 @@ def registar_stock(invoice_id: int):
         return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
     n = resultado['registadas']
-    ign = resultado['ignoradas']
-    if n == 0 and ign == 0:
+    if n == 0:
         flash('Nenhuma linha com material associado por registar.', 'info')
-    elif ign > 0:
-        flash(f'{n} entrada(s) registada(s) em stock ({ign} ignorada(s)).', 'warning')
     else:
-        flash(f'{n} entrada(s) registada(s) em stock em {local}.', 'success')
+        flash(f'{n} entrada(s) de stock registada(s) em {local}.', 'success')
     return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
 
