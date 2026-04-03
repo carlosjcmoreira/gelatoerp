@@ -563,10 +563,13 @@ def linha(invoice_id: int):
         material_id = None
 
     preco_raw = request.form.get('preco_unitario', '').replace(',', '.').strip()
-    try:
-        preco_unitario = float(preco_raw) if preco_raw else None
-    except ValueError:
-        preco_unitario = None
+    preco_unitario = None
+    if preco_raw:
+        try:
+            preco_unitario = float(preco_raw)
+        except ValueError:
+            flash('Preço unitário inválido — deve ser um número (ex: 1.50).', 'warning')
+            return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
     linha_id = request.form.get('linha_id', type=int)
 
