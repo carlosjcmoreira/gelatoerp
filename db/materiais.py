@@ -305,15 +305,13 @@ _STORE_NAME_TO_LOCAL = {
 
 
 def _resolve_store_name_from_id(store_id: int) -> str | None:
-    """Look up store name from DB by store_id."""
+    """Look up store name from DB by store_id. Returns None if store not found."""
     conn = get_connection()
     try:
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM stores WHERE id = %s", (store_id,))
         row = cursor.fetchone()
         return row[0] if row else None
-    except Exception:
-        return None
     finally:
         release_connection(conn)
 

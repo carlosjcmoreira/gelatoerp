@@ -578,7 +578,7 @@ def linha(invoice_id: int):
             preco_unitario=preco_unitario,
             linha_id=linha_id,
         )
-    except (ValueError, Exception) as e:
+    except ValueError as e:
         flash(f'Erro ao guardar linha: {e}', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
     if saved_id is None:

@@ -809,10 +809,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="form-text small text-warning">Esta fatura não tem loja associada. Seleciona o destino manualmente.</div>
                         {% endif %}
                     </div>
-                    <p class="small text-muted mb-0">
-                        Serão criadas entradas de stock para todas as linhas com material associado.
+                    {% set linhas_com_material = linhas | selectattr('material_id') | list %}
+                    {% set linhas_sem_material = linhas | rejectattr('material_id') | list %}
+                    <p class="small text-muted mb-1">
+                        Serão criadas entradas de stock para as
+                        <strong>{{ linhas_com_material | length }}</strong> linha(s) com material associado.
                         Esta operação não pode ser repetida.
                     </p>
+                    {% if linhas_sem_material %}
+                    <div class="alert alert-warning py-1 px-2 small mb-0">
+                        {{ linhas_sem_material | length }} linha(s) sem material associado serão ignoradas (ex: serviços, descontos).
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="modal-footer py-2">
                     <button type="submit" class="btn btn-success btn-sm">Registar</button>
