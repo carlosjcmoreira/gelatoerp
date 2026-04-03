@@ -1512,16 +1512,17 @@ def run_migrations_centros_custo():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        # Add unique index for (name, COALESCE(parent_id::text,'')) to make seed
-        # idempotent. We use a text cast for parent_id rather than COALESCE(parent_id,-1)
-        # so the index contains no integer expressions. The Replit deployment platform
-        # incorrectly applied int4_ops to all index columns when it saw the integer
-        # COALESCE, causing production migrations to fail with "operator class int4_ops
-        # does not accept data type character varying". A text-only index avoids this.
+        # Add unique index for (name, COALESCE(parent_id,-1)) to make seed idempotent.
+        # We explicitly specify operator classes (text_ops for name, int4_ops for the
+        # COALESCE expression). text_ops is non-default for varchar (varchar's default is
+        # varchar_ops), so pg_dump exports it explicitly. This causes the Replit deployment
+        # platform to generate correct migration SQL for production instead of incorrectly
+        # applying int4_ops to all index columns (which failed with "operator class int4_ops
+        # does not accept data type character varying").
         cursor.execute('DROP INDEX IF EXISTS uq_cost_categories_name_parent')
         cursor.execute('''
             CREATE UNIQUE INDEX uq_cost_categories_name_parent
-            ON cost_categories (name, COALESCE(parent_id::text, ''))
+            ON cost_categories USING btree (name text_ops, COALESCE(parent_id, -1) int4_ops)
         ''')
 
         # ── Colaboradores ──────────────────────────────────────────────────
@@ -1607,7 +1608,7 @@ def run_migrations_centros_custo():
             cursor.execute('''
                 INSERT INTO cost_categories (name, parent_id)
                 VALUES (%s, NULL)
-                ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
+                ON CONFLICT (name, COALESCE(parent_id, -1)) DO NOTHING
             ''', (top_name,))
             # Always fetch id (insert may have been skipped due to conflict)
             cursor.execute(
@@ -1621,7 +1622,7 @@ def run_migrations_centros_custo():
                     cursor.execute('''
                         INSERT INTO cost_categories (name, parent_id)
                         VALUES (%s, %s)
-                        ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
+                        ON CONFLICT (name, COALESCE(parent_id, -1)) DO NOTHING
                     ''', (sub, parent_id))
 
         conn.commit()
