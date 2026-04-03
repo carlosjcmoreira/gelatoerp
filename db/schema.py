@@ -1130,7 +1130,7 @@ def run_migrations():
             tipo VARCHAR(20) NOT NULL,
             quantidade NUMERIC(12,3) NOT NULL,
             data DATE NOT NULL DEFAULT CURRENT_DATE,
-            invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+            invoice_id INTEGER,
             notas TEXT,
             utilizador VARCHAR(100),
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1347,6 +1347,22 @@ def run_faturas_migrations():
                 ('numerario', 'Numerário', TRUE),
                 ('cheque', 'Cheque', TRUE)
             ON CONFLICT (metodo) DO NOTHING
+        """)
+
+        # Wire FK from movimentos_stock_materiais -> invoices now that invoices exists
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE constraint_name = 'fk_movimentos_stock_invoice'
+                      AND table_name = 'movimentos_stock_materiais'
+                ) THEN
+                    ALTER TABLE movimentos_stock_materiais
+                        ADD CONSTRAINT fk_movimentos_stock_invoice
+                        FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
         """)
 
         conn.commit()
