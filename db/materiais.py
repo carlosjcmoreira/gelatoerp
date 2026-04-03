@@ -260,6 +260,10 @@ def upsert_invoice_linha(invoice_id: int, descricao: str, quantidade: float,
         raise ValueError("descricao é obrigatória")
     if quantidade is None or float(quantidade) <= 0:
         raise ValueError("quantidade deve ser > 0")
+    if unidade not in UNIDADES_MATERIAIS:
+        raise ValueError(f"unidade inválida: {unidade!r}")
+    if preco_unitario is not None and float(preco_unitario) < 0:
+        raise ValueError("preco_unitario não pode ser negativo")
     conn = get_connection()
     try:
         cursor = conn.cursor()
