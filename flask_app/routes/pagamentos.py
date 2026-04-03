@@ -82,7 +82,7 @@ def faturas():
     target = url_for('faturas.index')
     if status:
         target += f'?status={status}'
-    return redirect(target, code=301)
+    return redirect(target, code=302)
 
 
 @pagamentos_bp.route('/faturas/nova', methods=['GET', 'POST'])
@@ -207,7 +207,7 @@ def nova_fatura():
 @perm_required('acesso_gestor')
 def detalhe_fatura(invoice_id):
     """Backward-compat redirect — canonical detail is at /financeiro/faturas/<id>."""
-    return redirect(url_for('faturas.detail', invoice_id=invoice_id), code=301)
+    return redirect(url_for('faturas.detail', invoice_id=invoice_id), code=302)
 
 
 @pagamentos_bp.route('/iva')
