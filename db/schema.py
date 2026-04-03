@@ -1512,10 +1512,16 @@ def run_migrations_centros_custo():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        # Add unique index for (name, COALESCE(parent_id,-1)) to make seed idempotent
+        # Add unique index for (name, COALESCE(parent_id::text,'')) to make seed
+        # idempotent. We use a text cast for parent_id rather than COALESCE(parent_id,-1)
+        # so the index contains no integer expressions. The Replit deployment platform
+        # incorrectly applied int4_ops to all index columns when it saw the integer
+        # COALESCE, causing production migrations to fail with "operator class int4_ops
+        # does not accept data type character varying". A text-only index avoids this.
+        cursor.execute('DROP INDEX IF EXISTS uq_cost_categories_name_parent')
         cursor.execute('''
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_cost_categories_name_parent
-            ON cost_categories (name, COALESCE(parent_id, -1))
+            CREATE UNIQUE INDEX uq_cost_categories_name_parent
+            ON cost_categories (name, COALESCE(parent_id::text, ''))
         ''')
 
         # ── Colaboradores ──────────────────────────────────────────────────
@@ -1601,7 +1607,7 @@ def run_migrations_centros_custo():
             cursor.execute('''
                 INSERT INTO cost_categories (name, parent_id)
                 VALUES (%s, NULL)
-                ON CONFLICT (name, COALESCE(parent_id, -1)) DO NOTHING
+                ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
             ''', (top_name,))
             # Always fetch id (insert may have been skipped due to conflict)
             cursor.execute(
@@ -1615,7 +1621,7 @@ def run_migrations_centros_custo():
                     cursor.execute('''
                         INSERT INTO cost_categories (name, parent_id)
                         VALUES (%s, %s)
-                        ON CONFLICT (name, COALESCE(parent_id, -1)) DO NOTHING
+                        ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
                     ''', (sub, parent_id))
 
         conn.commit()
