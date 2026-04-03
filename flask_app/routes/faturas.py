@@ -583,6 +583,10 @@ def registar_stock(invoice_id: int):
         flash('Fatura não encontrada.', 'warning')
         return redirect(url_for('faturas.index'))
 
+    if inv.get('stock_registado_at'):
+        flash('O stock desta fatura já foi registado e não pode ser executado novamente.', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+
     local = request.form.get('local', '').strip()
     if local not in LOCAIS_STOCK:
         flash('Local de stock inválido.', 'warning')

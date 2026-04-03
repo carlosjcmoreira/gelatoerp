@@ -360,19 +360,40 @@
             <div class="text-muted small p-3">Nenhuma linha adicionada.</div>
             {% endif %}
         </div>
+        {% if linhas %}
+        <div class="px-3 py-2 border-top small">
+            {% set total_linhas = namespace(val=0) %}
+            {% for l in linhas %}
+                {% if l.preco_unitario is not none %}
+                    {% set total_linhas.val = total_linhas.val + l.quantidade * l.preco_unitario %}
+                {% endif %}
+            {% endfor %}
+            <span class="text-muted">Total das linhas: </span>
+            <strong>{{ '%.2f €'|format(total_linhas.val) }}</strong>
+            {% if inv.amount_eur is not none %}
+                {% set diff = (total_linhas.val - inv.amount_eur)|abs %}
+                {% if diff < 0.01 %}
+                <span class="text-success ms-2">✓ igual ao total da fatura</span>
+                {% else %}
+                <span class="text-warning ms-2">⚠ diferença de {{ '%.2f €'|format(diff) }} face ao total da fatura ({{ '%.2f €'|format(inv.amount_eur) }})</span>
+                {% endif %}
+            {% endif %}
+        </div>
+        {% endif %}
         <div class="card-footer py-2 d-flex flex-wrap gap-2 align-items-center justify-content-between">
+            {% if not inv.stock_registado_at %}
             <button class="btn btn-outline-secondary btn-sm"
                     data-bs-toggle="modal" data-bs-target="#modalAdicionarLinha">
                 + Adicionar linha
             </button>
-            {% set tem_linhas_por_registar = linhas | selectattr('stock_registado', 'equalto', false) | selectattr('material_id') | list %}
-            {% if tem_linhas_por_registar %}
+            {% endif %}
+            {% if not inv.stock_registado_at and linhas %}
             <button class="btn btn-success btn-sm"
                     data-bs-toggle="modal" data-bs-target="#modalRegistarStock">
                 📦 Registar entradas em stock
             </button>
-            {% elif linhas %}
-            <span class="text-success small">✓ Todas as linhas registadas</span>
+            {% elif inv.stock_registado_at %}
+            <span class="text-success small">✓ Stock registado — não é possível repetir esta operação</span>
             {% endif %}
         </div>
     </div>

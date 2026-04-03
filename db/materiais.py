@@ -299,11 +299,20 @@ def registar_entradas_stock_fatura(invoice_id: int, utilizador: str,
     create a stock 'entrada' movement.
     Marks each linha as stock_registado and sets invoice.stock_registado_at.
     Returns {'registadas': N, 'ignoradas': M}.
+    Raises ValueError if already registered or local is invalid.
     """
     if local not in LOCAIS_STOCK:
         raise ValueError(f"local inválido: {local!r}")
     conn = get_connection()
     cursor = conn.cursor()
+    cursor.execute(
+        "SELECT stock_registado_at FROM invoices WHERE id = %s",
+        (invoice_id,)
+    )
+    row = cursor.fetchone()
+    if row and row[0] is not None:
+        release_connection(conn)
+        raise ValueError("O stock desta fatura já foi registado.")
     cursor.execute("""
         SELECT id, material_id, quantidade
         FROM invoice_linhas
