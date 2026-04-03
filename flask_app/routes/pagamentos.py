@@ -144,10 +144,15 @@ def nova_fatura():
         except ValueError:
             pass
 
+        _ALLOWED_MANUAL_EXTS = {'pdf', 'jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'}
         pdf_file = request.files.get('pdf_file')
         pdf_data = None
         pdf_filename = None
         if pdf_file and pdf_file.filename:
+            ext = pdf_file.filename.rsplit('.', 1)[-1].lower() if '.' in pdf_file.filename else ''
+            if ext not in _ALLOWED_MANUAL_EXTS:
+                flash(f'Tipo de ficheiro não suportado (.{ext}). Usa PDF ou imagem.', 'warning')
+                return redirect(url_for('pagamentos.nova_fatura'))
             pdf_data = pdf_file.read()
             pdf_filename = pdf_file.filename
 

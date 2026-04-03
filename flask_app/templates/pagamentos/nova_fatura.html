@@ -112,10 +112,10 @@
                     <div class="col-12">
                         <label class="form-label small">Ficheiro PDF / Imagem <span class="text-muted">(opcional)</span></label>
                         <input type="file" name="pdf_file" class="form-control form-control-sm"
-                               accept=".pdf,image/*" id="manualPdfFile">
+                               accept=".pdf,image/*">
                         <div class="form-text">Anexa o PDF ou fotografia da fatura para arquivo no OneDrive.</div>
                     </div>
-                    <div class="col-12" id="onedrive-subfolder-row" style="display:none;">
+                    <div class="col-12">
                         <label class="form-label small">Subpasta OneDrive</label>
                         <select name="onedrive_subfolder" class="form-select form-select-sm">
                             <option value="">— Não arquivar —</option>
@@ -123,7 +123,7 @@
                             <option value="{{ sf }}">{{ sf }}</option>
                             {% endfor %}
                         </select>
-                        <div class="form-text">Pasta de destino no OneDrive onde o ficheiro será guardado.</div>
+                        <div class="form-text">Pasta de destino no OneDrive onde o ficheiro será guardado (só aplicável se anexares um ficheiro).</div>
                     </div>
                 </div>
 
@@ -134,16 +134,4 @@
         </div>
     </div>
 </div>
-
-<script>
-(function () {
-    var fileInput = document.getElementById('manualPdfFile');
-    var subfolderRow = document.getElementById('onedrive-subfolder-row');
-    if (fileInput && subfolderRow) {
-        fileInput.addEventListener('change', function () {
-            subfolderRow.style.display = this.files.length > 0 ? '' : 'none';
-        });
-    }
-})();
-</script>
 {% endblock %}
