@@ -90,6 +90,8 @@ def index():
             'financeiro/faturas/index.html',
             view='fornecedor',
             grupos=grupos,
+            grupos_cc=[],
+            grupos_cat=[],
             today=today,
             status_labels=INVOICE_STATUS_LABELS,
             invoices=[],
@@ -133,12 +135,56 @@ def index():
             'financeiro/faturas/index.html',
             view='centro_custo',
             grupos_cc=sorted_grupos,
+            grupos_cat=[],
             invoices=[],
             today=today,
             status_labels=INVOICE_STATUS_LABELS,
             confirming_contracts=confirming_contracts,
             payment_methods=payment_methods,
             cost_centers=get_cost_centers(ativo_only=True),
+            cost_categories_tree=[],
+            centro_custo_filter=None,
+            categoria_custo_filter=None,
+        )
+
+    if view == 'categoria_custo':
+        from collections import defaultdict
+        from db.centros_custo import get_cost_categories
+        all_invoices = get_invoices()
+        cat_map = {c['id']: c for c in get_cost_categories(ativo_only=False)}
+        grupos_cat = defaultdict(lambda: {'label': None, 'total': 0.0, 'count': 0, 'invoices': []})
+        for inv in all_invoices:
+            cat_id = inv.get('categoria_custo_id')
+            key = cat_id or 'sem_categoria'
+            if grupos_cat[key]['label'] is None:
+                if cat_id and cat_id in cat_map:
+                    cat = cat_map[cat_id]
+                    grupos_cat[key]['label'] = cat['name']
+                else:
+                    grupos_cat[key]['label'] = 'Sem categoria'
+            if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+                inv['display_status'] = 'overdue'
+                inv['status_label'] = 'Vencida'
+            else:
+                inv['display_status'] = inv['status']
+            grupos_cat[key]['invoices'].append(inv)
+            grupos_cat[key]['total'] += float(inv.get('amount_eur') or 0)
+            grupos_cat[key]['count'] += 1
+        sorted_grupos_cat = sorted(
+            [{'key': k, **v} for k, v in grupos_cat.items()],
+            key=lambda g: ('z' if g['key'] == 'sem_categoria' else g['label'].lower())
+        )
+        return render_template(
+            'financeiro/faturas/index.html',
+            view='categoria_custo',
+            grupos_cc=[],
+            grupos_cat=sorted_grupos_cat,
+            invoices=[],
+            today=today,
+            status_labels=INVOICE_STATUS_LABELS,
+            confirming_contracts=confirming_contracts,
+            payment_methods=payment_methods,
+            cost_centers=[],
             cost_categories_tree=[],
             centro_custo_filter=None,
             categoria_custo_filter=None,
