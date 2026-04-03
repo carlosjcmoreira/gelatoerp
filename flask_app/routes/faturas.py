@@ -5,6 +5,8 @@ import logging
 from datetime import date, datetime
 from io import BytesIO
 
+import psycopg2
+
 from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, session, send_file, jsonify)
 from flask_app.auth import perm_required
@@ -580,6 +582,10 @@ def linha(invoice_id: int):
         )
     except ValueError as e:
         flash(f'Erro ao guardar linha: {e}', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+    except psycopg2.IntegrityError as e:
+        logging.warning('IntegrityError saving invoice linha: %s', e)
+        flash('Não foi possível guardar a linha (material inválido ou dados inconsistentes).', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
     if saved_id is None:
         flash('Linha não encontrada ou sem permissão para editar.', 'warning')
