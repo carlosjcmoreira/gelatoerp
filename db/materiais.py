@@ -373,7 +373,7 @@ def registar_entradas_stock_fatura(invoice_id: int, utilizador: str,
         cursor.execute("""
             SELECT id, material_id, quantidade
             FROM invoice_linhas
-            WHERE invoice_id = %s AND material_id IS NOT NULL
+            WHERE invoice_id = %s AND material_id IS NOT NULL AND stock_registado = FALSE
         """, (invoice_id,))
         linhas = cursor.fetchall()
         if not linhas:

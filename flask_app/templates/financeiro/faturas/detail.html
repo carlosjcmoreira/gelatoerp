@@ -341,7 +341,7 @@
                                         data-quantidade="{{ l.quantidade }}"
                                         data-unidade="{{ l.unidade }}"
                                         data-material="{{ l.material_id or '' }}"
-                                        data-preco="{{ l.preco_unitario or '' }}"
+                                        data-preco="{{ l.preco_unitario if l.preco_unitario is not none else '' }}"
                                         title="Editar">✏️</button>
                                 <form method="post"
                                       action="{{ url_for('faturas.linha', invoice_id=inv.id) }}"
@@ -739,7 +739,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="modal-body">
                     <div class="mb-2">
                         <label class="form-label small">Material do catálogo <span class="text-muted">(opcional)</span></label>
-                        <select name="material_id" id="editMaterialSelect" class="form-select form-select-sm">
+                        <select name="material_id" id="editMaterialSelect" class="form-select form-select-sm"
+                                onchange="preencherDescricaoMaterial(this, 'editDescricao', 'editUnidade')">
                             <option value="">(sem material associado)</option>
                             {% for m in materiais %}
                             <option value="{{ m.id }}" data-nome="{{ m.nome }}" data-unidade="{{ m.unidade }}">
