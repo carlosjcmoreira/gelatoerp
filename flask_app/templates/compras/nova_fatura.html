@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <h5 class="mb-3">➕ Registar Fatura de Compra</h5>
+    <p class="text-muted small mb-3">Regista uma fatura de fornecedor na base de dados financeira partilhada.</p>
+
+    <div class="card">
+        <div class="card-body">
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Fornecedor <span class="text-danger">*</span></label>
+                    <input type="text" name="supplier_name" class="form-control form-control-sm" required
+                           list="suppliers-list" placeholder="Nome do fornecedor">
+                    <datalist id="suppliers-list">
+                        {% for s in suppliers %}
+                        <option value="{{ s.name }}">{{ s.name }}{% if s.nif %} (NIF: {{ s.nif }}){% endif %}</option>
+                        {% endfor %}
+                    </datalist>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">NIF do Fornecedor</label>
+                    <input type="text" name="supplier_nif" class="form-control form-control-sm"
+                           maxlength="20" placeholder="Ex: 123456789">
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-12">
+                        <label class="form-label small">Tipo de documento</label>
+                        <select name="document_type" class="form-select form-select-sm">
+                            <option value="fatura">Fatura</option>
+                            <option value="nota_credito">Nota de Crédito</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">Nº Fatura</label>
+                        <input type="text" name="invoice_number" class="form-control form-control-sm"
+                               placeholder="Ex: FT 2025/001">
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-semibold">Valor Total com IVA (€) <span class="text-danger">*</span></label>
+                        <input type="number" name="amount_eur" class="form-control form-control-sm"
+                               step="0.01" min="0" required placeholder="0.00">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">IVA (€)</label>
+                        <input type="number" name="vat_amount_eur" class="form-control form-control-sm"
+                               step="0.01" min="0" placeholder="0.00">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small text-muted">Valor sem IVA (€)</label>
+                        <input type="number" name="amount_sem_iva" class="form-control form-control-sm"
+                               step="0.01" min="0" placeholder="0.00">
+                        <div class="form-text">Campo informativo, não guardado separadamente.</div>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small">Data de Emissão</label>
+                        <input type="date" name="issue_date" class="form-control form-control-sm"
+                               value="{{ today }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Data de Vencimento</label>
+                        <input type="date" name="due_date" class="form-control form-control-sm">
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small">Notas</label>
+                    <textarea name="notes" class="form-control form-control-sm" rows="2"
+                              placeholder="Observações opcionais"></textarea>
+                </div>
+
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary">Registar Fatura</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

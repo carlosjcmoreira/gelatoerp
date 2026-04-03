@@ -464,7 +464,7 @@ def save():
     session.pop('faturas_return_to', None)
 
     if return_to == 'pagamentos':
-        return redirect(url_for('pagamentos.faturas'))
+        return redirect(url_for('faturas.index'))
 
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 

@@ -122,7 +122,7 @@
                 <a href="{{ url_for('cashflow.semana', week_num=alert.semana) }}" class="ms-2 small">→ ver semana</a>
                 {% endif %}
                 {% if alert.get('invoice_id') %}
-                <a href="{{ url_for('pagamentos.detalhe_fatura', invoice_id=alert.invoice_id) }}" class="ms-2 small">→ ver fatura</a>
+                <a href="{{ url_for('faturas.detail', invoice_id=alert.invoice_id) }}" class="ms-2 small">→ ver fatura</a>
                 {% endif %}
                 {% if alert.get('vat_year') %}
                 <a href="{{ url_for('pagamentos.iva_periodo', year=alert.vat_year, month=alert.vat_month) }}" class="ms-2 small">→ ver IVA</a>

@@ -4,8 +4,11 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
     <h5 class="mb-4">💰 Financeiro</h5>
-    <div class="nav-grid nav-grid-fill" data-items="{{ modules|length }}">
-        {% for m in modules %}
+
+    {% for group in groups %}
+    <h6 class="text-muted fw-semibold mb-2 mt-3" style="font-size:0.78rem;letter-spacing:.04em;text-transform:uppercase;">{{ group.label }}</h6>
+    <div class="nav-grid nav-grid-fill mb-4" data-items="{{ group.modules|length }}">
+        {% for m in group.modules %}
         {% if m.active and m.url %}
         <a href="{{ m.url }}" class="nav-card">
             <span class="nav-card-icon">{{ m.icon }}</span>
@@ -20,5 +23,6 @@
         {% endif %}
         {% endfor %}
     </div>
+    {% endfor %}
 </div>
 {% endblock %}

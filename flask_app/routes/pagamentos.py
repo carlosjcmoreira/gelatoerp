@@ -5,12 +5,11 @@ from flask_app.auth import perm_required
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
-    get_invoices, get_invoice, create_invoice, update_invoice, delete_invoice,
-    get_suppliers,
     get_invoices_with_payments,
-    propose_invoice_payment, confirm_invoice_payment, mark_payment_executed,
+    get_suppliers,
+    create_invoice,
+    propose_invoice_payment,
     suggest_payment_date,
-    get_invoice_payments,
     get_vat_periods, get_vat_period, upsert_vat_period, compute_vat_period,
     VAT_RATES,
     get_weekly_liquidity,
@@ -78,27 +77,12 @@ def index():
 @pagamentos_bp.route('/faturas')
 @perm_required('acesso_gestor')
 def faturas():
-    status_filter = request.args.get('status', '')
-    invoices = [dict(r) for r in get_invoices_with_payments(status=status_filter or None)]
-    today = date.today()
-    # Overdue is a virtual status: scheduled invoices whose due_date is in the past.
-    # Applied as display-only — DB status is NOT mutated, keeping filter semantics consistent.
-    for inv in invoices:
-        due = inv.get('due_date')
-        if due and inv.get('status') == 'scheduled' and due < today:
-            inv['_display_status'] = 'overdue'
-        else:
-            inv['_display_status'] = inv.get('status', '')
-    stores = get_all_stores()
-    suppliers = get_suppliers()
-    return render_template('pagamentos/faturas.html',
-                           invoices=invoices,
-                           status_filter=status_filter,
-                           status_map=STATUS_MAP,
-                           statuses=INVOICE_STATUSES,
-                           stores=stores,
-                           suppliers=suppliers,
-                           today=today)
+    """Backward-compat redirect — canonical list is at /financeiro/faturas/."""
+    status = request.args.get('status', '')
+    target = url_for('faturas.index')
+    if status:
+        target += f'?status={status}'
+    return redirect(target, code=301)
 
 
 @pagamentos_bp.route('/faturas/nova', methods=['GET', 'POST'])
@@ -210,7 +194,7 @@ def nova_fatura():
         else:
             flash(f'Fatura de {supplier_name} registada!', 'success')
 
-        return redirect(url_for('pagamentos.faturas'))
+        return redirect(url_for('faturas.index'))
 
     stores = get_all_stores()
     suppliers = get_suppliers()
@@ -222,131 +206,8 @@ def nova_fatura():
 @pagamentos_bp.route('/faturas/<int:invoice_id>', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def detalhe_fatura(invoice_id):
-    inv = get_invoice(invoice_id)
-    if not inv:
-        flash('Fatura não encontrada.', 'warning')
-        return redirect(url_for('pagamentos.faturas'))
-
-    if request.method == 'POST':
-        action = request.form.get('action')
-
-        if action == 'edit':
-            supplier_name = request.form.get('supplier_name', '').strip()
-            supplier_nif = request.form.get('supplier_nif', '').strip() or None
-            invoice_number = request.form.get('invoice_number', '').strip() or None
-            amount_str = request.form.get('amount_eur', '').replace(',', '.')
-            vat_str = request.form.get('vat_amount_eur', '').replace(',', '.') or '0'
-            issue_date_str = request.form.get('issue_date', '')
-            due_date_str = request.form.get('due_date', '')
-            store_id = request.form.get('store_id') or None
-            categoria = request.form.get('categoria', '').strip() or None
-            notes = request.form.get('notes', '').strip() or None
-            try:
-                amount_eur = float(amount_str)
-                vat_amount_eur = float(vat_str)
-            except (ValueError, TypeError):
-                flash('Valor inválido.', 'warning')
-                return redirect(url_for('pagamentos.detalhe_fatura', invoice_id=invoice_id))
-            issue_date = None
-            due_date = None
-            try:
-                if issue_date_str:
-                    issue_date = datetime.strptime(issue_date_str, '%Y-%m-%d').date()
-                if due_date_str:
-                    due_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
-            except ValueError:
-                pass
-            update_invoice(invoice_id, {
-                'supplier_name': supplier_name,
-                'supplier_nif': supplier_nif,
-                'invoice_number': invoice_number,
-                'amount_eur': amount_eur,
-                'vat_amount_eur': vat_amount_eur,
-                'issue_date': issue_date,
-                'due_date': due_date,
-                'store_id': int(store_id) if store_id else None,
-                'category': categoria,
-                'notes': notes,
-            })
-            flash('Fatura actualizada.', 'success')
-
-        elif action == 'propose_payment':
-            proposed_date_str = request.form.get('proposed_date', '')
-            amount_str = request.form.get('payment_amount', '').replace(',', '.')
-            try:
-                proposed_date = datetime.strptime(proposed_date_str, '%Y-%m-%d').date()
-                amount_eur = float(amount_str) if amount_str else float(inv.get('amount_eur') or 0)
-            except (ValueError, TypeError):
-                flash('Data ou valor inválido.', 'warning')
-                return redirect(url_for('pagamentos.detalhe_fatura', invoice_id=invoice_id))
-            propose_invoice_payment(invoice_id, proposed_date, amount_eur)
-            flash('Proposta de pagamento registada.', 'success')
-
-        elif action == 'suggest_date':
-            amount_eur = float(inv.get('amount_eur') or 0)
-            due_date = inv.get('due_date')
-            suggested_date, is_fallback, _ = suggest_payment_date(
-                invoice_id, amount_eur, due_date=due_date
-            )
-            propose_invoice_payment(invoice_id, suggested_date, amount_eur)
-            if is_fallback:
-                flash(f'Sem semana com liquidez suficiente — data proposta = vencimento ({suggested_date.strftime("%d/%m/%Y")}).', 'warning')
-            else:
-                flash(f'Data sugerida pela liquidez projectada: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
-
-        elif action == 'confirm_payment':
-            confirmed_date_str = request.form.get('confirmed_date', '')
-            amount_str = request.form.get('payment_amount', '').replace(',', '.')
-            notes = request.form.get('payment_notes', '').strip() or None
-            try:
-                confirmed_date = datetime.strptime(confirmed_date_str, '%Y-%m-%d').date()
-                amount_eur = float(amount_str) if amount_str else float(inv['amount_eur'])
-            except (ValueError, TypeError):
-                flash('Data ou valor inválido.', 'warning')
-                return redirect(url_for('pagamentos.detalhe_fatura', invoice_id=invoice_id))
-            confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, _get_username(), notes)
-            flash('Data de pagamento confirmada.', 'success')
-
-        elif action == 'mark_paid':
-            paid_date_str = request.form.get('paid_date', str(date.today()))
-            try:
-                paid_date = datetime.strptime(paid_date_str, '%Y-%m-%d').date()
-            except ValueError:
-                paid_date = date.today()
-            mark_payment_executed(invoice_id, paid_date, _get_username())
-            flash('Fatura marcada como paga.', 'success')
-
-        elif action == 'cancel':
-            update_invoice(invoice_id, {'status': 'cancelled'})
-            flash('Fatura cancelada.', 'success')
-            return redirect(url_for('pagamentos.faturas'))
-
-        elif action == 'delete':
-            delete_invoice(invoice_id)
-            flash('Fatura eliminada.', 'success')
-            return redirect(url_for('pagamentos.faturas'))
-
-        return redirect(url_for('pagamentos.detalhe_fatura', invoice_id=invoice_id))
-
-    # Fetch payment scheduling info separately (get_invoice doesn't join invoice_payments)
-    payment_list = get_invoice_payments()
-    payment_info = next((p for p in payment_list if p['invoice_id'] == invoice_id), None)
-
-    # Compute liquidity suggestion for display
-    amount_eur = float(inv.get('amount_eur') or 0)
-    due_date = inv.get('due_date')
-    suggested_date, is_fallback, weekly = suggest_payment_date(
-        invoice_id, amount_eur, due_date=due_date
-    )
-
-    stores = get_all_stores()
-    return render_template('pagamentos/detalhe_fatura.html',
-                           inv=inv, payment_info=payment_info,
-                           suggested_date=suggested_date,
-                           is_fallback=is_fallback,
-                           weekly=weekly,
-                           stores=stores, status_map=STATUS_MAP,
-                           today=str(date.today()))
+    """Backward-compat redirect — canonical detail is at /financeiro/faturas/<id>."""
+    return redirect(url_for('faturas.detail', invoice_id=invoice_id), code=301)
 
 
 @pagamentos_bp.route('/iva')

@@ -170,7 +170,7 @@
                 {% set cert = cert_labels.get(entry.certeza, (entry.certeza, 'bg-secondary')) %}
                 <span class="certeza-badge {{ cert[1] }} ms-1">{{ cert[0] }}</span>
                 {% if entry.fonte == 'invoices' and entry.fonte_ref %}
-                <a href="{{ url_for('pagamentos.detalhe_fatura', invoice_id=entry.fonte_ref) }}" class="ms-1 small" style="font-size:0.65rem;">→ fatura</a>
+                <a href="{{ url_for('faturas.detail', invoice_id=entry.fonte_ref) }}" class="ms-1 small" style="font-size:0.65rem;">→ fatura</a>
                 {% endif %}
                 {% if entry.fonte == 'vat_periods' and entry.fonte_ref %}
                 {% set vat_parts = entry.fonte_ref.split('-') %}

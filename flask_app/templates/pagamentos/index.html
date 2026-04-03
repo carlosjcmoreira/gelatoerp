@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-    <h5 class="mb-3">💸 Pagamentos & IVA</h5>
+    <h5 class="mb-3">💸 Pagamentos & Tesouraria</h5>
 
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-3">
@@ -50,7 +50,10 @@
     {% if invoices_pending %}
     <div class="card mb-4">
         <div class="card-body">
-            <h6 class="card-title">⏳ Faturas por confirmar</h6>
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="card-title mb-0">⏳ Faturas por confirmar</h6>
+                <a href="{{ url_for('faturas.index') }}?status=pending_review" class="btn btn-sm btn-outline-secondary">Ver todas</a>
+            </div>
             <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                     <thead>
@@ -78,7 +81,7 @@
                                 {% endif %}
                             </td>
                             <td class="small text-end">
-                                <a href="{{ url_for('pagamentos.detalhe_fatura', invoice_id=inv.id) }}" class="btn btn-xs btn-outline-primary py-0 px-2">Ver</a>
+                                <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}" class="btn btn-xs btn-outline-primary py-0 px-2">Ver</a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -125,9 +128,9 @@
     {% endif %}
 
     <div class="nav-grid nav-grid-fill" data-items="4">
-        <a href="{{ url_for('pagamentos.faturas') }}" class="nav-card">
+        <a href="{{ url_for('faturas.index') }}" class="nav-card">
             <span class="nav-card-icon">🧾</span>
-            <span class="nav-card-label">Faturas</span>
+            <span class="nav-card-label">Todas as Faturas</span>
         </a>
         <a href="{{ url_for('pagamentos.nova_fatura') }}" class="nav-card">
             <span class="nav-card-icon">➕</span>

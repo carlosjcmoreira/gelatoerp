@@ -8,15 +8,24 @@ from database import (
     update_artigo_administrativo, toggle_artigo_administrativo,
     delete_artigo_administrativo,
     criar_ordem_transferencia,
+    create_invoice,
+    get_suppliers,
+    propose_invoice_payment,
+    suggest_payment_date,
 )
 
 compras_bp = Blueprint('compras', __name__)
 
 TABS = [
     {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'faturas.index'},
+    {'id': 'nova_fatura', 'label': 'Registar Fatura', 'icon': '➕', 'url_endpoint': 'compras.nova_fatura'},
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
     {'id': 'criar_ordem', 'label': 'Criar Ordem de Transferência', 'icon': '📦', 'url_endpoint': 'compras.criar_ordem'},
 ]
+
+
+def _get_username():
+    return session.get('user', {}).get('username', 'sistema')
 
 
 @compras_bp.route('/')
@@ -60,6 +69,90 @@ def artigos():
     fornecedores = sorted(set(a['fornecedor'] for a in artigos_list))
     return render_template('compras/artigos.html',
                            artigos=artigos_list, fornecedores=fornecedores)
+
+
+@compras_bp.route('/nova-fatura', methods=['GET', 'POST'])
+@perm_required('acesso_administrativo')
+def nova_fatura():
+    if request.method == 'POST':
+        supplier_name = request.form.get('supplier_name', '').strip()
+        supplier_nif = request.form.get('supplier_nif', '').strip() or None
+        invoice_number = request.form.get('invoice_number', '').strip() or None
+        amount_str = request.form.get('amount_eur', '').replace(',', '.')
+        vat_str = request.form.get('vat_amount_eur', '').replace(',', '.') or '0'
+        amount_sem_iva_str = request.form.get('amount_sem_iva', '').replace(',', '.') or '0'
+        issue_date_str = request.form.get('issue_date', '')
+        due_date_str = request.form.get('due_date', '')
+        notes = request.form.get('notes', '').strip() or None
+        document_type = request.form.get('document_type', 'fatura')
+        if document_type not in ('fatura', 'nota_credito'):
+            document_type = 'fatura'
+
+        if not supplier_name:
+            flash('Nome do fornecedor é obrigatório.', 'warning')
+            return redirect(url_for('compras.nova_fatura'))
+        try:
+            amount_eur = float(amount_str)
+        except (ValueError, TypeError):
+            flash('Valor total inválido.', 'warning')
+            return redirect(url_for('compras.nova_fatura'))
+        try:
+            vat_amount_eur = float(vat_str)
+        except (ValueError, TypeError):
+            vat_amount_eur = 0.0
+
+        issue_date = None
+        due_date = None
+        try:
+            if issue_date_str:
+                issue_date = datetime.strptime(issue_date_str, '%Y-%m-%d').date()
+            if due_date_str:
+                due_date = datetime.strptime(due_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            pass
+
+        invoice_id = create_invoice({
+            'supplier_id': None,
+            'supplier_name': supplier_name,
+            'supplier_nif': supplier_nif,
+            'invoice_number': invoice_number,
+            'amount_eur': amount_eur,
+            'vat_amount_eur': vat_amount_eur,
+            'issue_date': issue_date,
+            'due_date': due_date,
+            'store_id': None,
+            'category': None,
+            'onedrive_subfolder': None,
+            'onedrive_path': None,
+            'onedrive_web_url': None,
+            'pdf_filename': None,
+            'pdf_data': None,
+            'status': 'pending_review',
+            'ocr_confidence': None,
+            'ocr_raw': None,
+            'created_by': _get_username(),
+            'notes': notes,
+            'document_type': document_type,
+        })
+
+        if due_date:
+            suggested_date, is_fallback, _ = suggest_payment_date(
+                invoice_id, amount_eur, due_date=due_date
+            )
+            propose_invoice_payment(invoice_id, suggested_date, amount_eur)
+            if is_fallback:
+                flash(f'Fatura de {supplier_name} registada. Vencimento: {due_date.strftime("%d/%m/%Y")}.', 'warning')
+            else:
+                flash(f'Fatura de {supplier_name} registada. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
+        else:
+            flash(f'Fatura de {supplier_name} registada com sucesso!', 'success')
+
+        return redirect(url_for('faturas.index'))
+
+    suppliers = get_suppliers()
+    return render_template('compras/nova_fatura.html',
+                           suppliers=suppliers,
+                           today=str(date.today()))
 
 
 @compras_bp.route('/criar-ordem', methods=['GET', 'POST'])

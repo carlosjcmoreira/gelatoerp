@@ -8,18 +8,29 @@ from database import get_contas_por_fornecedor, mark_payment_executed
 
 financeiro_bp = Blueprint('financeiro', __name__)
 
-FINANCEIRO_MODULES = {
-    'credito':    {'label': 'Crédito',              'icon': '💳', 'active': True,  'url': '/financeiro/credito/'},
-    'pagamentos': {'label': 'Pagamentos',           'icon': '💸', 'active': True,  'url': '/financeiro/pagamentos/'},
-    'iva':        {'label': 'IVA',                  'icon': '📋', 'active': True,  'url': '/financeiro/pagamentos/iva'},
-    'liquidez':   {'label': 'Liquidez',             'icon': '📈', 'active': True,  'url': '/financeiro/pagamentos/liquidez'},
-    'cashflow':      {'label': 'Cash Flow',           'icon': '📊', 'active': True,  'url': '/financeiro/cashflow/'},
-    'salarios':      {'label': 'Salários',            'icon': '👥', 'active': True,  'url_func': 'cashflow.salarios'},
-    'debitos':       {'label': 'Débitos Diretos',     'icon': '🔄', 'active': True,  'url_func': 'cashflow.debitos'},
-    'meteorologia':  {'label': 'Meteorologia',        'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
-    'previsao':      {'label': 'Previsão de Vendas',  'icon': '🔮', 'active': True,  'url_func': 'forecast.index'},
-    'modelo':        {'label': 'Modelo de Previsão', 'icon': '📊', 'active': True,  'url_func': 'forecast.modelo'},
-}
+FINANCEIRO_GROUPS = [
+    {
+        'label': 'Gestão de Pagamentos',
+        'modules': [
+            {'key': 'faturas',    'label': 'Faturas',          'icon': '🧾', 'active': True,  'url': '/financeiro/faturas/'},
+            {'key': 'pagamentos', 'label': 'Pagamentos',        'icon': '💸', 'active': True,  'url': '/financeiro/pagamentos/'},
+            {'key': 'credito',    'label': 'Crédito',           'icon': '💳', 'active': True,  'url': '/financeiro/credito/'},
+            {'key': 'iva',        'label': 'IVA',               'icon': '📋', 'active': True,  'url': '/financeiro/pagamentos/iva'},
+            {'key': 'liquidez',   'label': 'Liquidez',          'icon': '📈', 'active': True,  'url': '/financeiro/pagamentos/liquidez'},
+        ],
+    },
+    {
+        'label': 'Planeamento & Previsão',
+        'modules': [
+            {'key': 'cashflow',      'label': 'Cash Flow',           'icon': '📊', 'active': True,  'url_func': 'cashflow.index'},
+            {'key': 'salarios',      'label': 'Salários',            'icon': '👥', 'active': True,  'url_func': 'cashflow.salarios'},
+            {'key': 'debitos',       'label': 'Débitos Diretos',     'icon': '🔄', 'active': True,  'url_func': 'cashflow.debitos'},
+            {'key': 'previsao',      'label': 'Previsão de Vendas',  'icon': '🔮', 'active': True,  'url_func': 'forecast.index'},
+            {'key': 'modelo',        'label': 'Modelo de Previsão',  'icon': '📉', 'active': True,  'url_func': 'forecast.modelo'},
+            {'key': 'meteorologia',  'label': 'Meteorologia',        'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
+        ],
+    },
+]
 
 PAYMENT_METHODS = [
     ('transferencia', 'Transferência Bancária'),
@@ -37,15 +48,18 @@ def _get_username():
 @financeiro_bp.route('/')
 @perm_required('acesso_gestor')
 def index():
-    modules = []
-    for m in FINANCEIRO_MODULES.values():
-        entry = dict(m)
-        if entry['active'] and entry.get('url_func'):
-            entry['url'] = url_for(entry['url_func'])
-        elif not entry.get('url'):
-            entry['url'] = None
-        modules.append(entry)
-    return render_template('financeiro/index.html', modules=modules)
+    groups = []
+    for g in FINANCEIRO_GROUPS:
+        resolved = []
+        for m in g['modules']:
+            entry = dict(m)
+            if entry['active'] and entry.get('url_func'):
+                entry['url'] = url_for(entry['url_func'])
+            elif not entry.get('url'):
+                entry['url'] = None
+            resolved.append(entry)
+        groups.append({'label': g['label'], 'modules': resolved})
+    return render_template('financeiro/index.html', groups=groups)
 
 
 @financeiro_bp.route('/contas-fornecedor')
