@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, sync_produtos_vendas_config, seed_artigos_administrativos, authenticate_user, create_session
 from db.cashflow import run_migrations_cashflow
-from db.schema import run_migrations_credito, run_data_fix_quebras_march2026
+from db.schema import run_migrations_credito, run_data_fix_quebras_march2026, run_data_fix_pesagem_april2026
 
 
 def _start_sheets_sync_scheduler():
@@ -57,6 +57,7 @@ def create_app():
         run_migrations_cashflow()
         run_migrations_credito()
         run_data_fix_quebras_march2026()
+        run_data_fix_pesagem_april2026()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()
 

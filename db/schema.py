@@ -1542,3 +1542,82 @@ def run_data_fix_quebras_march2026():
         release_connection(conn)
 
 
+def run_data_fix_pesagem_april2026():
+    """
+    One-time idempotent correction of 7 plano_producao rows where
+    pesagem_matosinhos was entered in grams instead of kg (April 2026).
+
+    Each row is validated against its (data, sabor) fingerprint before
+    any UPDATE, and the guard condition (>= 50) makes this a pure no-op
+    once the values have been corrected.
+
+    Confirmed production rows (queried 2026-04-03):
+      id=25  2026-03-02 Pistacchio      5556 g → 5.556 kg
+      id=31  2026-03-02 Extra noir      5210 g → 5.210 kg
+      id=602 2026-03-23 Extra noir       214 g → 0.214 kg
+      id=823 2026-03-29 Framboesa        460 g → 0.460 kg
+      id=835 2026-03-29 Noz Pecan e Maple  410 g → 0.410 kg
+      id=838 2026-03-30 Coco             496 g → 0.496 kg
+      id=866 2026-03-30 Iogurte          208 g → 0.208 kg
+    """
+    EXPECTED = {
+        25:  ('2026-03-02', 'Pistacchio'),
+        31:  ('2026-03-02', 'Extra noir'),
+        602: ('2026-03-23', 'Extra noir'),
+        823: ('2026-03-29', 'Framboesa'),
+        835: ('2026-03-29', 'Noz Pecan e Maple '),
+        838: ('2026-03-30', 'Coco'),
+        866: ('2026-03-30', 'Iogurte'),
+    }
+    bad_ids = list(EXPECTED.keys())
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT id, data, sabor, pesagem_matosinhos"
+            " FROM plano_producao WHERE id = ANY(%s)",
+            (bad_ids,)
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return
+
+        confirmed_ids = []
+        for row in rows:
+            rid, rdata, rsabor, rpesagem = row[0], str(row[1]), row[2], float(row[3])
+            exp_data, exp_sabor = EXPECTED[rid]
+            if rdata == exp_data and rsabor == exp_sabor and rpesagem >= 50:
+                confirmed_ids.append(rid)
+            elif rdata != exp_data or rsabor != exp_sabor:
+                logger.warning(
+                    "run_data_fix_pesagem_april2026: ID %d fingerprint mismatch"
+                    " — got data=%s sabor=%s, expected data=%s sabor=%s — skipping",
+                    rid, rdata, rsabor, exp_data, exp_sabor,
+                )
+
+        if not confirmed_ids:
+            return
+
+        cursor.execute(
+            "UPDATE plano_producao"
+            " SET pesagem_matosinhos = pesagem_matosinhos / 1000.0"
+            " WHERE id = ANY(%s) AND pesagem_matosinhos >= 50",
+            (confirmed_ids,)
+        )
+        updated = cursor.rowcount
+        conn.commit()
+        logger.info(
+            "run_data_fix_pesagem_april2026: corrected %d row(s) with IDs %s"
+            " (divided pesagem_matosinhos by 1000)",
+            updated, confirmed_ids,
+        )
+    except Exception as exc:
+        logger.error("run_data_fix_pesagem_april2026 failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+

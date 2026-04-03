@@ -703,39 +703,3 @@ def sabores_ativos():
     return render_template('producao/sabores_ativos.html',
                            active_tab='sabores_ativos', tabs=_tabs_with_urls(),
                            receitas=receitas_filtered)
-
-
-# ── ONE-TIME FIX: pesagem grams→kg correction (REMOVE after use) ─────────────
-# Call once from production: GET /producao/fix-pesagem-gramas?token=nivafix2026gramas
-# Divides by 1000 the 7 confirmed rows where grams were entered instead of kg.
-_FIX_PESAGEM_TOKEN = 'nivafix2026gramas'
-_FIX_PESAGEM_IDS   = (838, 866, 823, 835, 602, 25, 31)
-
-@producao_bp.route('/fix-pesagem-gramas')
-def fix_pesagem_gramas():
-    import os
-    from db.connection import get_connection, release_connection
-    if request.args.get('token') != _FIX_PESAGEM_TOKEN:
-        return jsonify({'error': 'unauthorized'}), 403
-    conn = get_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, data, sabor, pesagem_matosinhos
-            FROM plano_producao WHERE id = ANY(%s)
-        """, (list(_FIX_PESAGEM_IDS),))
-        before = [{'id': r[0], 'data': str(r[1]), 'sabor': r[2], 'kg_antes': float(r[3])} for r in cursor.fetchall()]
-        cursor.execute("""
-            UPDATE plano_producao
-            SET pesagem_matosinhos = pesagem_matosinhos / 1000.0
-            WHERE id = ANY(%s) AND pesagem_matosinhos >= 50
-            RETURNING id, data, sabor, pesagem_matosinhos
-        """, (list(_FIX_PESAGEM_IDS),))
-        after = [{'id': r[0], 'data': str(r[1]), 'sabor': r[2], 'kg_depois': float(r[3])} for r in cursor.fetchall()]
-        conn.commit()
-        return jsonify({'status': 'ok', 'antes': before, 'depois': after})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        release_connection(conn)
