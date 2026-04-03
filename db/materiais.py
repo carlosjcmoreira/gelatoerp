@@ -343,6 +343,9 @@ def registar_entradas_stock_fatura(invoice_id: int, utilizador: str,
             WHERE invoice_id = %s AND material_id IS NOT NULL
         """, (invoice_id,))
         linhas = cursor.fetchall()
+        if not linhas:
+            conn.rollback()
+            raise ValueError("Nenhuma linha com material associado para registar.")
         registadas = 0
         for linha in linhas:
             linha_id, material_id, quantidade = linha
