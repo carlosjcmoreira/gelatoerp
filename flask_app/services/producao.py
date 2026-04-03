@@ -113,7 +113,9 @@ def executar_plano_dia(data: date, sabores_reais: dict) -> dict:
     Apply real production quantities to the day's plan, update stock, and
     auto-create quebras where actual < estimated (first submission only).
 
-    ``sabores_reais`` maps sabor name → ``{'real_b', 'real_m', 'real_mou'}``.
+    ``sabores_reais`` maps sabor name → ``{'real_b', 'real_m', 'real_mou', 'real_outros'}``.
+    ``real_outros`` (Eventos/B2B) is persisted but does NOT update store stock and does NOT
+    trigger quebras.
 
     Returns ``{'registos': int, 'quebras': int}``.
     """
@@ -136,15 +138,18 @@ def executar_plano_dia(data: date, sabores_reais: dict) -> dict:
         real_b = float(vals.get('real_b', 0) or 0)
         real_m = float(vals.get('real_m', 0) or 0)
         real_mou = float(vals.get('real_mou', 0) or 0)
+        real_outros = float(vals.get('real_outros', 0) or 0)
 
-        if not (real_b > 0 or real_m > 0 or real_mou > 0):
+        if not (real_b > 0 or real_m > 0 or real_mou > 0 or real_outros > 0):
             continue
 
         had_real_b = bool(e['real_bolhao']) and e['real_bolhao'] > 0
         had_real_m = bool(e['real_matosinhos']) and e['real_matosinhos'] > 0
         had_real_mou = bool(e['real_mouzinho']) and e['real_mouzinho'] > 0
 
-        update_producao_real(data, sabor, real_b, real_m, real_mou if real_mou > 0 else None)
+        update_producao_real(data, sabor, real_b, real_m,
+                             real_mou if real_mou > 0 else None,
+                             real_outros if real_outros > 0 else None)
         registos += 1
 
         if not had_real_b and real_b > 0:

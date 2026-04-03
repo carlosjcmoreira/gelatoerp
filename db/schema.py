@@ -861,6 +861,9 @@ def run_migrations():
     cursor.execute("ALTER TABLE plano_producao ADD COLUMN IF NOT EXISTS producao_estimada_mouzinho REAL DEFAULT 0")
     cursor.execute("ALTER TABLE plano_producao ADD COLUMN IF NOT EXISTS producao_real_mouzinho REAL")
 
+    # Eventos/B2B real production for plano_producao
+    cursor.execute("ALTER TABLE plano_producao ADD COLUMN IF NOT EXISTS producao_real_outros REAL")
+
     # credit_contracts — Fase 3 M1
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS credit_contracts (

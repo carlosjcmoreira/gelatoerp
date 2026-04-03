@@ -73,9 +73,11 @@
                     <th class="text-center" style="width:55px;">Est.B</th>
                     <th class="text-center" style="width:55px;">Est.M</th>
                     <th class="text-center" style="width:55px;">Est.Mou</th>
+                    <th class="text-center" style="width:55px;">Est.Ev</th>
                     <th class="text-center" style="width:65px;">Real B</th>
                     <th class="text-center" style="width:65px;">Real M</th>
                     <th class="text-center" style="width:65px;">Real Mou</th>
+                    <th class="text-center" style="width:65px;">Real Ev</th>
                 </tr>
             </thead>
             <tbody>
@@ -83,6 +85,7 @@
                 {% set real_b = item.real_bolhao if item.real_bolhao is not none else 0 %}
                 {% set real_m = item.real_matosinhos if item.real_matosinhos is not none else 0 %}
                 {% set real_mou = item.real_mouzinho if item.real_mouzinho is not none else 0 %}
+                {% set real_outros = item.real_outros if item.real_outros is not none else 0 %}
                 <tr data-sabor="{{ item.sabor }}">
                     <td>
                         <span class="fw-bold">{{ item.icon }} {{ item.sabor }}</span>
@@ -90,6 +93,7 @@
                     <td class="text-center text-muted">{{ "%.1f"|format(item.estimado_bolhao) }}</td>
                     <td class="text-center text-muted">{{ "%.1f"|format(item.estimado_matosinhos) }}</td>
                     <td class="text-center text-muted">{{ "%.1f"|format(item.estimado_mouzinho) }}</td>
+                    <td class="text-center text-muted">{{ "%.1f"|format(item.estimado_outros) if item.estimado_outros > 0 else '—' }}</td>
                     <td>
                         <input type="text" name="real_b_{{ item.sabor }}"
                                class="form-control form-control-sm text-center real-input"
@@ -118,6 +122,16 @@
                                data-est="{{ item.estimado_mouzinho }}"
                                placeholder="—"
                                value="{{ '%.1f'|format(real_mou)|replace('.', ',') if real_mou > 0 else '' }}"
+                               inputmode="decimal">
+                    </td>
+                    <td>
+                        <input type="text" name="real_outros_{{ item.sabor }}"
+                               class="form-control form-control-sm text-center real-input"
+                               data-sabor="{{ item.sabor }}"
+                               data-loja="ev"
+                               data-est="{{ item.estimado_outros }}"
+                               placeholder="—"
+                               value="{{ '%.1f'|format(real_outros)|replace('.', ',') if real_outros > 0 else '' }}"
                                inputmode="decimal">
                     </td>
                 </tr>

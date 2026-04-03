@@ -366,10 +366,11 @@ def executar_plano():
         data_plano = date.today()
 
     if request.method == 'POST':
-        # Build {sabor: {real_b, real_m, real_mou}} from form and delegate to service
+        # Build {sabor: {real_b, real_m, real_mou, real_outros}} from form and delegate to service
         sabores_reais = {}
         for key, val in request.form.items():
-            for prefix, field in (('real_b_', 'real_b'), ('real_m_', 'real_m'), ('real_mou_', 'real_mou')):
+            for prefix, field in (('real_b_', 'real_b'), ('real_m_', 'real_m'),
+                                  ('real_mou_', 'real_mou'), ('real_outros_', 'real_outros')):
                 if key.startswith(prefix):
                     sabor = key[len(prefix):]
                     sabores_reais.setdefault(sabor, {})[field] = _parse_decimal(val)
@@ -395,7 +396,8 @@ def executar_plano():
         e['icon'] = SABOR_ICONS.get(e['sabor'], '🍦')
         has_real = (e['real_bolhao'] is not None and e['real_bolhao'] > 0) or \
                    (e['real_matosinhos'] is not None and e['real_matosinhos'] > 0) or \
-                   (e['real_mouzinho'] is not None and e['real_mouzinho'] > 0)
+                   (e['real_mouzinho'] is not None and e['real_mouzinho'] > 0) or \
+                   (e['real_outros'] is not None and e['real_outros'] > 0)
         e['has_real'] = has_real
 
     n_total = len(entradas)

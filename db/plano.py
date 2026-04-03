@@ -57,7 +57,8 @@ def get_plano_do_dia(data: date) -> list:
                producao_real_bolhao, producao_real_matosinhos,
                COALESCE(producao_estimada_outros, 0),
                COALESCE(producao_estimada_mouzinho, 0),
-               producao_real_mouzinho
+               producao_real_mouzinho,
+               producao_real_outros
         FROM plano_producao
         WHERE data = %s AND (
             no_plano = TRUE
@@ -69,6 +70,7 @@ def get_plano_do_dia(data: date) -> list:
             OR producao_real_bolhao IS NOT NULL
             OR producao_real_matosinhos IS NOT NULL
             OR producao_real_mouzinho IS NOT NULL
+            OR producao_real_outros IS NOT NULL
         )
         ORDER BY sabor
     """, (data,))
@@ -85,6 +87,7 @@ def get_plano_do_dia(data: date) -> list:
             'estimado_outros': float(r[6] or 0),
             'estimado_mouzinho': float(r[7] or 0),
             'real_mouzinho': float(r[8]) if r[8] is not None else None,
+            'real_outros': float(r[9]) if r[9] is not None else None,
         }
         for r in rows
     ]
@@ -225,7 +228,8 @@ def copiar_plano_dia_anterior(data_destino: date) -> int:
     return count
 
 
-def update_producao_real(data: date, sabor: str, real_bolhao: float, real_matosinhos: float, real_mouzinho: float = None):
+def update_producao_real(data: date, sabor: str, real_bolhao: float, real_matosinhos: float,
+                         real_mouzinho: float = None, real_outros: float = None):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
@@ -233,9 +237,10 @@ def update_producao_real(data: date, sabor: str, real_bolhao: float, real_matosi
         SET producao_real_bolhao = %s,
             producao_real_matosinhos = %s,
             producao_real_mouzinho = %s,
+            producao_real_outros = %s,
             updated_at = NOW()
         WHERE data = %s AND sabor = %s
-    """, (real_bolhao, real_matosinhos, real_mouzinho, data, sabor))
+    """, (real_bolhao, real_matosinhos, real_mouzinho, real_outros, data, sabor))
     conn.commit()
     release_connection(conn)
 
