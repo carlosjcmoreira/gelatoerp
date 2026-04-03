@@ -12,6 +12,8 @@ from database import (
     get_suppliers,
     propose_invoice_payment,
     suggest_payment_date,
+    get_payment_methods_config,
+    upsert_supplier,
 )
 
 compras_bp = Blueprint('compras', __name__)
@@ -80,10 +82,10 @@ def nova_fatura():
         invoice_number = request.form.get('invoice_number', '').strip() or None
         amount_str = request.form.get('amount_eur', '').replace(',', '.')
         vat_str = request.form.get('vat_amount_eur', '').replace(',', '.') or '0'
-        amount_sem_iva_str = request.form.get('amount_sem_iva', '').replace(',', '.') or '0'
         issue_date_str = request.form.get('issue_date', '')
         due_date_str = request.form.get('due_date', '')
-        notes = request.form.get('notes', '').strip() or None
+        payment_method = request.form.get('payment_method', '').strip() or None
+        notes_raw = request.form.get('notes', '').strip() or ''
         document_type = request.form.get('document_type', 'fatura')
         if document_type not in ('fatura', 'nota_credito'):
             document_type = 'fatura'
@@ -111,8 +113,25 @@ def nova_fatura():
         except ValueError:
             pass
 
+        # Build notes: prepend the payment method so it's visible in invoice detail
+        notes_parts = []
+        if payment_method:
+            notes_parts.append(f'Método: {payment_method}')
+        if notes_raw:
+            notes_parts.append(notes_raw)
+        notes = ' | '.join(notes_parts) or None
+
+        # Upsert supplier so their preferred payment method is stored/updated
+        supplier_id = None
+        if supplier_nif and payment_method:
+            try:
+                supplier_id = upsert_supplier(supplier_name, supplier_nif,
+                                              payment_method=payment_method)
+            except Exception:
+                pass
+
         invoice_id = create_invoice({
-            'supplier_id': None,
+            'supplier_id': supplier_id,
             'supplier_name': supplier_name,
             'supplier_nif': supplier_nif,
             'invoice_number': invoice_number,
@@ -150,8 +169,10 @@ def nova_fatura():
         return redirect(url_for('faturas.index'))
 
     suppliers = get_suppliers()
+    payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     return render_template('compras/nova_fatura.html',
                            suppliers=suppliers,
+                           payment_methods=payment_methods,
                            today=str(date.today()))
 
 
