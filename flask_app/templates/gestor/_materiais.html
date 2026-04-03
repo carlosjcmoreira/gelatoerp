@@ -52,14 +52,6 @@
                                     {{ '⏸' if m.ativo else '▶' }}
                                 </button>
                             </form>
-                            <form method="POST" action="{{ url_for('gestor.materiais_post') }}" class="d-inline">
-                                <input type="hidden" name="action" value="delete_material">
-                                <input type="hidden" name="material_id" value="{{ m.id }}">
-                                <button type="submit" class="btn btn-outline-danger btn-sm"
-                                        onclick="return confirm('Eliminar material \'{{ m.nome }}\'? Esta ação não pode ser desfeita.')">
-                                    ✕
-                                </button>
-                            </form>
                         </td>
                     </tr>
                     {% endfor %}

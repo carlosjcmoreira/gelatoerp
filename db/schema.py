@@ -1141,6 +1141,36 @@ def run_migrations():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_movimentos_stock_local ON movimentos_stock_materiais(local)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_movimentos_stock_data ON movimentos_stock_materiais(data)")
 
+    cursor.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE constraint_name = 'chk_stock_materiais_local'
+                  AND table_name = 'stock_materiais'
+            ) THEN
+                ALTER TABLE stock_materiais
+                    ADD CONSTRAINT chk_stock_materiais_local
+                    CHECK (local IN ('Bolhão', 'Matosinhos', 'Garagem'));
+            END IF;
+        END $$;
+    """)
+
+    cursor.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE constraint_name = 'chk_movimentos_stock_local'
+                  AND table_name = 'movimentos_stock_materiais'
+            ) THEN
+                ALTER TABLE movimentos_stock_materiais
+                    ADD CONSTRAINT chk_movimentos_stock_local
+                    CHECK (local IN ('Bolhão', 'Matosinhos', 'Garagem'));
+            END IF;
+        END $$;
+    """)
+
     conn.commit()
     release_connection(conn)
 

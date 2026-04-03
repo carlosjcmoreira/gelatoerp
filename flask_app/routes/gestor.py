@@ -1112,7 +1112,7 @@ def materiais():
 @perm_required('acesso_gestor')
 def materiais_post():
     from db.materiais import (upsert_material, toggle_material_ativo,
-                               delete_material, CATEGORIAS_MATERIAIS, UNIDADES_MATERIAIS)
+                               CATEGORIAS_MATERIAIS, UNIDADES_MATERIAIS)
     action = request.form.get('action', '')
 
     if action == 'add_material':
@@ -1148,13 +1148,5 @@ def materiais_post():
         toggle_material_ativo(mid, ativo)
         estado = 'ativado' if ativo else 'desativado'
         flash(f'Material {estado}.', 'success')
-
-    elif action == 'delete_material':
-        mid = int(request.form.get('material_id', 0))
-        ok = delete_material(mid)
-        if ok:
-            flash('Material eliminado.', 'success')
-        else:
-            flash('Não foi possível eliminar (material em uso?).', 'danger')
 
     return redirect(url_for('gestor.materiais'))

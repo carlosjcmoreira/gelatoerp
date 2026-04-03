@@ -12,7 +12,6 @@ CATEGORIAS_MATERIAIS = [
     'Higiene',
     'Cafetaria',
     'Produção',
-    'Limpeza',
     'Outro',
 ]
 
@@ -106,20 +105,6 @@ def toggle_material_ativo(material_id: int, ativo: bool):
     release_connection(conn)
     invalidate_prefix('materiais')
 
-
-def delete_material(material_id: int) -> bool:
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("DELETE FROM materiais WHERE id = %s", (material_id,))
-        conn.commit()
-        ok = True
-    except Exception:
-        conn.rollback()
-        ok = False
-    release_connection(conn)
-    invalidate_prefix('materiais')
-    return ok
 
 
 # ── Stock e Movimentos ─────────────────────────────────────────────────────────
