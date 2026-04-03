@@ -188,6 +188,33 @@
                     {% endfor %}
                 </select>
             </div>
+            {% if cost_centers %}
+            <div class="col-6 col-sm-3 col-md-2">
+                <select name="centro_custo_id" class="form-select form-select-sm">
+                    <option value="">Todos os centros</option>
+                    {% for cc in cost_centers %}
+                    <option value="{{ cc.id }}" {% if centro_custo_filter == cc.id %}selected{% endif %}>{{ cc.code }} — {{ cc.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            {% if cost_categories_tree %}
+            <div class="col-6 col-sm-3 col-md-2">
+                <select name="categoria_custo_id" class="form-select form-select-sm">
+                    <option value="">Todas as categorias</option>
+                    {% for top in cost_categories_tree %}
+                    <optgroup label="{{ top.name }}">
+                        {% for sub in top.children %}
+                        <option value="{{ sub.id }}" {% if categoria_custo_filter == sub.id %}selected{% endif %}>{{ sub.name }}</option>
+                        {% endfor %}
+                        {% if not top.children %}
+                        <option value="{{ top.id }}" {% if categoria_custo_filter == top.id %}selected{% endif %}>({{ top.name }})</option>
+                        {% endif %}
+                    </optgroup>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
             <div class="col-6 col-sm-3 col-md-2 d-flex gap-1">
                 <button type="submit" class="btn btn-outline-primary btn-sm flex-grow-1">Filtrar</button>
                 <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm">✕</a>

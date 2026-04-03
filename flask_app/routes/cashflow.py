@@ -138,12 +138,21 @@ def salarios():
                 cc_pcts = request.form.getlist('cc_pct[]')
                 centros = []
                 for ccid, pct in zip(cc_ids, cc_pcts):
-                    if ccid and pct:
+                    if ccid and pct and pct.strip():
                         try:
-                            centros.append({'centro_custo_id': int(ccid),
-                                            'percentagem': float(pct.replace(',', '.'))})
+                            pct_val = float(pct.replace(',', '.'))
+                            if pct_val > 0:
+                                centros.append({'centro_custo_id': int(ccid),
+                                                'percentagem': pct_val})
                         except (ValueError, TypeError):
                             pass
+
+                # Validate 100% rule if any allocations given
+                if centros:
+                    total_pct = sum(c['percentagem'] for c in centros)
+                    if abs(total_pct - 100.0) > 0.5:
+                        flash(f'A soma das percentagens dos centros de custo deve ser 100% (actual: {total_pct:.1f}%).', 'warning')
+                        return redirect(url_for('cashflow.salarios'))
 
                 if not nome:
                     flash('Nome do colaborador é obrigatório.', 'warning')

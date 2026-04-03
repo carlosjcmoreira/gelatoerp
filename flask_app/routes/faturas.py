@@ -102,6 +102,10 @@ def index():
     order_dir = request.args.get('order_dir', 'asc')
     search = request.args.get('q', '').strip()
     store_id = request.args.get('store_id', '')
+    centro_custo_raw = request.args.get('centro_custo_id', '')
+    categoria_custo_raw = request.args.get('categoria_custo_id', '')
+    centro_custo_filter = int(centro_custo_raw) if centro_custo_raw else None
+    categoria_custo_filter = int(categoria_custo_raw) if categoria_custo_raw else None
 
     invoices = get_invoices(
         status=status_filter or None,
@@ -109,6 +113,8 @@ def index():
         search=search or None,
         order_by=order_by,
         order_dir=order_dir,
+        centro_custo_id=centro_custo_filter,
+        categoria_custo_id=categoria_custo_filter,
     )
 
     for inv in invoices:
@@ -120,9 +126,12 @@ def index():
 
     filter_qs = '?' + urlencode({k: v for k, v in {
         'q': search, 'status': status_filter, 'store_id': store_id,
+        'centro_custo_id': centro_custo_raw, 'categoria_custo_id': categoria_custo_raw,
     }.items()})
 
     stores = get_stores_list()
+    cost_centers = get_cost_centers(ativo_only=True)
+    cost_categories_tree = get_cost_categories_tree()
     return render_template(
         'financeiro/faturas/index.html',
         view='documento',
@@ -138,6 +147,10 @@ def index():
         filter_qs=filter_qs,
         confirming_contracts=confirming_contracts,
         payment_methods=payment_methods,
+        cost_centers=cost_centers,
+        cost_categories_tree=cost_categories_tree,
+        centro_custo_filter=centro_custo_filter,
+        categoria_custo_filter=categoria_custo_filter,
     )
 
 

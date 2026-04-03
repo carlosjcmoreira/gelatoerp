@@ -184,6 +184,8 @@ def _row_to_invoice(row) -> dict:
         'document_type': document_type,
         'document_type_label': DOCUMENT_TYPE_LABELS.get(document_type, document_type),
         'status_label': INVOICE_STATUS_LABELS.get(row[14], row[14]),
+        'centro_custo_id': row[24] if len(row) > 24 else None,
+        'categoria_custo_id': row[25] if len(row) > 25 else None,
     }
 
 
@@ -202,7 +204,9 @@ _ORDER_COL_MAP = {
 
 def get_invoices(status: str = None, store_id: int = None,
                  search: str = None, order_by: str = 'due_date',
-                 order_dir: str = 'asc') -> list:
+                 order_dir: str = 'asc',
+                 centro_custo_id: int = None,
+                 categoria_custo_id: int = None) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         where = []
@@ -219,6 +223,12 @@ def get_invoices(status: str = None, store_id: int = None,
         if store_id:
             where.append("i.store_id = %s")
             params.append(store_id)
+        if centro_custo_id:
+            where.append("i.centro_custo_id = %s")
+            params.append(centro_custo_id)
+        if categoria_custo_id:
+            where.append("i.categoria_custo_id = %s")
+            params.append(categoria_custo_id)
         if search:
             where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s)")
             s = f'%{search.lower()}%'
@@ -236,6 +246,8 @@ def get_invoices(status: str = None, store_id: int = None,
                    st.name AS store_name,
                    i.onedrive_web_url,
                    i.document_type,
+                   i.centro_custo_id,
+                   i.categoria_custo_id,
                    ip.confirmed_date AS payment_confirmed_date
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
@@ -247,7 +259,7 @@ def get_invoices(status: str = None, store_id: int = None,
     result = []
     for r in rows:
         inv = _row_to_invoice(r)
-        inv['payment_confirmed_date'] = r[24] if len(r) > 24 else None
+        inv['payment_confirmed_date'] = r[26] if len(r) > 26 else None
         result.append(inv)
     return result
 
@@ -265,6 +277,8 @@ def get_invoice(invoice_id: int) -> dict:
                    st.name AS store_name,
                    i.onedrive_web_url,
                    i.document_type,
+                   i.centro_custo_id,
+                   i.categoria_custo_id,
                    i.ocr_raw,
                    ip.confirmed_date AS payment_confirmed_date,
                    i.stock_registado_at,
@@ -278,10 +292,10 @@ def get_invoice(invoice_id: int) -> dict:
     if not row:
         return None
     inv = _row_to_invoice(row)
-    inv['ocr_raw'] = row[24]
-    inv['payment_confirmed_date'] = row[25] if len(row) > 25 else None
-    inv['stock_registado_at'] = row[26] if len(row) > 26 else None
-    inv['stock_registado_por'] = row[27] if len(row) > 27 else None
+    inv['ocr_raw'] = row[26]
+    inv['payment_confirmed_date'] = row[27] if len(row) > 27 else None
+    inv['stock_registado_at'] = row[28] if len(row) > 28 else None
+    inv['stock_registado_por'] = row[29] if len(row) > 29 else None
     return inv
 
 
@@ -304,16 +318,21 @@ def create_invoice(data: dict) -> int:
                 amount_eur, vat_amount_eur, issue_date, due_date,
                 store_id, category, onedrive_subfolder, onedrive_path,
                 onedrive_web_url, pdf_filename, pdf_data, status,
-                ocr_confidence, ocr_raw, created_by, notes, document_type, source, updated_at
+                ocr_confidence, ocr_raw, created_by, notes, document_type, source,
+                centro_custo_id, categoria_custo_id, updated_at
             ) VALUES (
                 %(supplier_id)s, %(supplier_name)s, %(supplier_nif)s, %(invoice_number)s,
                 %(amount_eur)s, %(vat_amount_eur)s, %(issue_date)s, %(due_date)s,
                 %(store_id)s, %(category)s, %(onedrive_subfolder)s, %(onedrive_path)s,
                 %(onedrive_web_url)s, %(pdf_filename)s, %(pdf_data)s, %(status)s,
                 %(ocr_confidence)s, %(ocr_raw)s, %(created_by)s, %(notes)s,
-                %(document_type)s, %(source)s, NOW()
+                %(document_type)s, %(source)s,
+                %(centro_custo_id)s, %(categoria_custo_id)s, NOW()
             ) RETURNING id
-        """, {**data, 'source': data.get('source', 'email_upload')})
+        """, {**data,
+              'source': data.get('source', 'email_upload'),
+              'centro_custo_id': data.get('centro_custo_id'),
+              'categoria_custo_id': data.get('categoria_custo_id')})
         invoice_id = cursor.fetchone()[0]
         conn.commit()
     return invoice_id
@@ -493,7 +512,9 @@ def get_contas_por_fornecedor() -> list:
                    i.cfo_confirmed_date, i.paid_date, i.notes, i.created_at,
                    st.name AS store_name,
                    i.onedrive_web_url,
-                   i.document_type
+                   i.document_type,
+                   i.centro_custo_id,
+                   i.categoria_custo_id
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             WHERE i.status IN ('pending_review', 'scheduled')

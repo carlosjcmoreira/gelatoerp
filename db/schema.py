@@ -1512,6 +1512,11 @@ def run_migrations_centros_custo():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # Add unique index for (name, COALESCE(parent_id,-1)) to make seed idempotent
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_cost_categories_name_parent
+            ON cost_categories (name, COALESCE(parent_id, -1))
+        ''')
 
         # ── Colaboradores ──────────────────────────────────────────────────
         cursor.execute('''
@@ -1596,23 +1601,22 @@ def run_migrations_centros_custo():
             cursor.execute('''
                 INSERT INTO cost_categories (name, parent_id)
                 VALUES (%s, NULL)
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (name, COALESCE(parent_id, -1)) DO NOTHING
             ''', (top_name,))
-            # Only get id if we need to insert subcategories
-            if sub_names:
-                cursor.execute(
-                    'SELECT id FROM cost_categories WHERE name = %s AND parent_id IS NULL',
-                    (top_name,)
-                )
-                row = cursor.fetchone()
-                if row:
-                    parent_id = row[0]
-                    for sub in sub_names:
-                        cursor.execute('''
-                            INSERT INTO cost_categories (name, parent_id)
-                            VALUES (%s, %s)
-                            ON CONFLICT DO NOTHING
-                        ''', (sub, parent_id))
+            # Always fetch id (insert may have been skipped due to conflict)
+            cursor.execute(
+                'SELECT id FROM cost_categories WHERE name = %s AND parent_id IS NULL',
+                (top_name,)
+            )
+            row = cursor.fetchone()
+            if row and sub_names:
+                parent_id = row[0]
+                for sub in sub_names:
+                    cursor.execute('''
+                        INSERT INTO cost_categories (name, parent_id)
+                        VALUES (%s, %s)
+                        ON CONFLICT (name, COALESCE(parent_id, -1)) DO NOTHING
+                    ''', (sub, parent_id))
 
         conn.commit()
     finally:

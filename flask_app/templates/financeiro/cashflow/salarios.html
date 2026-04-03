@@ -156,6 +156,7 @@
                         {% endfor %}
                     </td>
                     <td class="text-end align-middle">
+                        {% set centros_js = c.centros if c.centros is iterable and c.centros is not string else [] %}
                         <button class="btn btn-outline-secondary btn-sm py-0 px-1 small"
                                 data-bs-toggle="modal" data-bs-target="#editColabModal"
                                 data-id="{{ c.id }}"
@@ -163,7 +164,8 @@
                                 data-bruto="{{ c.salario_bruto }}"
                                 data-premio="{{ c.premio_bruto }}"
                                 data-irs="{{ c.irs_taxa }}"
-                                data-inicio="{{ c.data_inicio.isoformat() if c.data_inicio else '' }}">Editar</button>
+                                data-inicio="{{ c.data_inicio.isoformat() if c.data_inicio else '' }}"
+                                data-centros="{{ centros_js | tojson | e }}">Editar</button>
                         <form method="post" class="d-inline">
                             <input type="hidden" name="action" value="toggle_colaborador">
                             <input type="hidden" name="colab_id" value="{{ c.id }}">
@@ -302,14 +304,49 @@
 
 {% block scripts %}
 <script>
-document.getElementById('editColabModal').addEventListener('show.bs.modal', function(e) {
-    const btn = e.relatedTarget;
-    document.getElementById('editColabId').value    = btn.dataset.id;
-    document.getElementById('editColabNome').value  = btn.dataset.nome;
-    document.getElementById('editColabBruto').value = btn.dataset.bruto;
-    document.getElementById('editColabPremio').value = btn.dataset.premio;
-    document.getElementById('editColabIrs').value   = btn.dataset.irs;
-    document.getElementById('editColabInicio').value = btn.dataset.inicio || '';
-});
+(function () {
+    var modal = document.getElementById('editColabModal');
+    if (!modal) return;
+
+    modal.addEventListener('show.bs.modal', function (e) {
+        var btn = e.relatedTarget;
+        document.getElementById('editColabId').value     = btn.dataset.id;
+        document.getElementById('editColabNome').value   = btn.dataset.nome;
+        document.getElementById('editColabBruto').value  = btn.dataset.bruto;
+        document.getElementById('editColabPremio').value = btn.dataset.premio;
+        document.getElementById('editColabIrs').value    = btn.dataset.irs;
+        document.getElementById('editColabInicio').value = btn.dataset.inicio || '';
+
+        // Preload centro allocations
+        var centros = [];
+        try { centros = JSON.parse(btn.dataset.centros || '[]'); } catch(e) {}
+        var allocMap = {};
+        centros.forEach(function (a) { allocMap[a.centro_custo_id] = a.percentagem; });
+
+        modal.querySelectorAll('input[name="cc_pct[]"]').forEach(function (inp, idx) {
+            var hiddenIds = modal.querySelectorAll('input[name="cc_id[]"]');
+            var ccId = hiddenIds[idx] ? parseInt(hiddenIds[idx].value) : 0;
+            inp.value = ccId && allocMap[ccId] !== undefined ? allocMap[ccId] : '';
+        });
+    });
+
+    // Validate allocation sum on edit form submit
+    var editForm = modal.querySelector('form');
+    if (editForm) {
+        editForm.addEventListener('submit', function (e) {
+            var inputs = modal.querySelectorAll('input[name="cc_pct[]"]');
+            var total = 0;
+            var hasAny = false;
+            inputs.forEach(function (inp) {
+                var v = parseFloat(inp.value) || 0;
+                if (v > 0) { hasAny = true; total += v; }
+            });
+            if (hasAny && Math.abs(total - 100) > 0.5) {
+                e.preventDefault();
+                alert('A soma das percentagens dos centros de custo deve ser 100% (actual: ' + total.toFixed(1) + '%).');
+            }
+        });
+    }
+})();
 </script>
 {% endblock %}
