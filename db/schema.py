@@ -1395,6 +1395,26 @@ def run_faturas_migrations():
             END $$;
         """)
 
+        # Task #66: invoice line items linked to materiais
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS invoice_linhas (
+                id SERIAL PRIMARY KEY,
+                invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                material_id INTEGER REFERENCES materiais(id) ON DELETE SET NULL,
+                descricao VARCHAR(500) NOT NULL,
+                quantidade NUMERIC(12,3) NOT NULL,
+                unidade VARCHAR(20) NOT NULL DEFAULT 'un',
+                preco_unitario NUMERIC(12,4),
+                stock_registado BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoice_linhas_invoice ON invoice_linhas(invoice_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoice_linhas_material ON invoice_linhas(material_id)")
+        cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stock_registado_at TIMESTAMP")
+        cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS stock_registado_por VARCHAR(100)")
+
         conn.commit()
 
 

@@ -220,6 +220,133 @@ def get_movimentos_stock_count(local: str = None, tipo: str = None) -> int:
     return count
 
 
+# ── Linhas de Fatura (invoice line items) ─────────────────────────────────────
+
+def get_invoice_linhas(invoice_id: int) -> list:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT il.id, il.invoice_id, il.material_id, m.nome AS material_nome,
+               il.descricao, il.quantidade, il.unidade, il.preco_unitario,
+               il.stock_registado
+        FROM invoice_linhas il
+        LEFT JOIN materiais m ON m.id = il.material_id
+        WHERE il.invoice_id = %s
+        ORDER BY il.id
+    """, (invoice_id,))
+    rows = cursor.fetchall()
+    release_connection(conn)
+    return [
+        {
+            'id': r[0],
+            'invoice_id': r[1],
+            'material_id': r[2],
+            'material_nome': r[3],
+            'descricao': r[4],
+            'quantidade': float(r[5]),
+            'unidade': r[6],
+            'preco_unitario': float(r[7]) if r[7] is not None else None,
+            'stock_registado': r[8],
+        }
+        for r in rows
+    ]
+
+
+def upsert_invoice_linha(invoice_id: int, descricao: str, quantidade: float,
+                         unidade: str, material_id: int = None,
+                         preco_unitario: float = None,
+                         linha_id: int = None) -> int:
+    conn = get_connection()
+    cursor = conn.cursor()
+    if linha_id:
+        cursor.execute("""
+            UPDATE invoice_linhas
+            SET material_id = %s, descricao = %s, quantidade = %s,
+                unidade = %s, preco_unitario = %s, updated_at = NOW()
+            WHERE id = %s AND invoice_id = %s
+            RETURNING id
+        """, (material_id or None, descricao, quantidade,
+              unidade, preco_unitario, linha_id, invoice_id))
+    else:
+        cursor.execute("""
+            INSERT INTO invoice_linhas
+                   (invoice_id, material_id, descricao, quantidade, unidade, preco_unitario)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (invoice_id, material_id or None, descricao, quantidade,
+              unidade, preco_unitario))
+    row = cursor.fetchone()
+    conn.commit()
+    release_connection(conn)
+    return row[0] if row else None
+
+
+def delete_invoice_linha(linha_id: int, invoice_id: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM invoice_linhas WHERE id = %s AND invoice_id = %s",
+        (linha_id, invoice_id)
+    )
+    conn.commit()
+    release_connection(conn)
+
+
+def registar_entradas_stock_fatura(invoice_id: int, utilizador: str,
+                                   local: str) -> dict:
+    """
+    For each unregistered invoice_linha that has a material_id,
+    create a stock 'entrada' movement.
+    Marks each linha as stock_registado and sets invoice.stock_registado_at.
+    Returns {'registadas': N, 'ignoradas': M}.
+    """
+    if local not in LOCAIS_STOCK:
+        raise ValueError(f"local inválido: {local!r}")
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, material_id, quantidade
+        FROM invoice_linhas
+        WHERE invoice_id = %s AND stock_registado = FALSE AND material_id IS NOT NULL
+    """, (invoice_id,))
+    linhas = cursor.fetchall()
+    registadas = 0
+    ignoradas = 0
+    for linha in linhas:
+        linha_id, material_id, quantidade = linha
+        try:
+            cursor.execute("""
+                INSERT INTO movimentos_stock_materiais
+                       (material_id, local, tipo, quantidade, data, invoice_id, utilizador)
+                VALUES (%s, %s, 'entrada', %s, CURRENT_DATE, %s, %s)
+            """, (material_id, local, float(quantidade), invoice_id, utilizador))
+            cursor.execute("""
+                INSERT INTO stock_materiais (material_id, local, quantidade)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (material_id, local)
+                DO UPDATE SET quantidade = stock_materiais.quantidade + EXCLUDED.quantidade,
+                              updated_at = NOW()
+            """, (material_id, local, float(quantidade)))
+            cursor.execute(
+                "UPDATE invoice_linhas SET stock_registado = TRUE, updated_at = NOW() WHERE id = %s",
+                (linha_id,)
+            )
+            registadas += 1
+        except Exception as e:
+            logger.error("registar_entradas_stock_fatura linha_id=%s: %s", linha_id, e)
+            ignoradas += 1
+    if registadas > 0:
+        cursor.execute("""
+            UPDATE invoices
+            SET stock_registado_at = NOW(), stock_registado_por = %s
+            WHERE id = %s
+        """, (utilizador, invoice_id))
+    conn.commit()
+    release_connection(conn)
+    invalidate_prefix('materiais')
+    return {'registadas': registadas, 'ignoradas': ignoradas}
+
+
 def get_movimentos_stock(local: str = None, material_id: int = None,
                          tipo: str = None, limit: int = 200,
                          offset: int = 0) -> list:

@@ -22,6 +22,9 @@ from database import (
     get_confirming_contracts, create_confirming_parcela,
     create_confirming_parcelas_batch,
     get_payment_methods_config,
+    get_invoice_linhas, upsert_invoice_linha, delete_invoice_linha,
+    registar_entradas_stock_fatura,
+    list_materiais, LOCAIS_STOCK, UNIDADES_MATERIAIS,
 )
 
 import flask_app.services.faturas as faturas_svc
@@ -494,6 +497,8 @@ def detail(invoice_id: int):
     today = date.today()
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     confirming_contracts = get_confirming_contracts()
+    linhas = get_invoice_linhas(invoice_id)
+    materiais = list_materiais(apenas_ativos=True)
     return render_template(
         'financeiro/faturas/detail.html',
         inv=inv,
@@ -506,7 +511,99 @@ def detail(invoice_id: int):
         today=today,
         payment_methods=payment_methods,
         confirming_contracts=confirming_contracts,
+        linhas=linhas,
+        materiais=materiais,
+        locais_stock=LOCAIS_STOCK,
+        unidades_materiais=UNIDADES_MATERIAIS,
     )
+
+
+# ── Invoice Linhas (line items) ────────────────────────────────────────────────
+
+@faturas_bp.route('/<int:invoice_id>/linha', methods=['POST'])
+@perm_required('acesso_gestor')
+def linha(invoice_id: int):
+    inv = get_invoice(invoice_id)
+    if not inv:
+        flash('Fatura não encontrada.', 'warning')
+        return redirect(url_for('faturas.index'))
+
+    action = request.form.get('action', '')
+    if action == 'delete':
+        linha_id = request.form.get('linha_id', type=int)
+        if linha_id:
+            delete_invoice_linha(linha_id, invoice_id)
+            flash('Linha eliminada.', 'success')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+
+    descricao = request.form.get('descricao', '').strip()
+    if not descricao:
+        flash('A descrição é obrigatória.', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+
+    try:
+        quantidade = float(request.form.get('quantidade', '').replace(',', '.'))
+    except (ValueError, AttributeError):
+        flash('Quantidade inválida.', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+
+    unidade = request.form.get('unidade', 'un').strip()
+    material_id_raw = request.form.get('material_id', '').strip()
+    try:
+        material_id = int(material_id_raw) if material_id_raw else None
+    except ValueError:
+        material_id = None
+
+    preco_raw = request.form.get('preco_unitario', '').replace(',', '.').strip()
+    try:
+        preco_unitario = float(preco_raw) if preco_raw else None
+    except ValueError:
+        preco_unitario = None
+
+    linha_id = request.form.get('linha_id', type=int)
+
+    upsert_invoice_linha(
+        invoice_id=invoice_id,
+        descricao=descricao,
+        quantidade=quantidade,
+        unidade=unidade,
+        material_id=material_id,
+        preco_unitario=preco_unitario,
+        linha_id=linha_id,
+    )
+    flash('Linha guardada.', 'success')
+    return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+
+
+@faturas_bp.route('/<int:invoice_id>/registar-stock', methods=['POST'])
+@perm_required('acesso_gestor')
+def registar_stock(invoice_id: int):
+    inv = get_invoice(invoice_id)
+    if not inv:
+        flash('Fatura não encontrada.', 'warning')
+        return redirect(url_for('faturas.index'))
+
+    local = request.form.get('local', '').strip()
+    if local not in LOCAIS_STOCK:
+        flash('Local de stock inválido.', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+
+    utilizador = session.get('user', {}).get('username', 'system')
+    try:
+        resultado = registar_entradas_stock_fatura(invoice_id, utilizador, local)
+    except ValueError as e:
+        flash(str(e), 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+
+    n = resultado['registadas']
+    ign = resultado['ignoradas']
+    if n == 0 and ign == 0:
+        flash('Nenhuma linha com material associado por registar.', 'info')
+    elif ign > 0:
+        flash(f'{n} entrada(s) registada(s) em stock ({ign} ignorada(s)).', 'warning')
+    else:
+        flash(f'{n} entrada(s) registada(s) em stock em {local}.', 'success')
+    return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
 
 # ── Edit ───────────────────────────────────────────────────────────────────────

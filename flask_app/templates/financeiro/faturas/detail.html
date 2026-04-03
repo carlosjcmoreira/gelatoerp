@@ -273,6 +273,110 @@
         </div>
     </div>
 
+    <!-- Linhas da Fatura -->
+    <div class="card mb-3" id="linhas">
+        <div class="card-header d-flex justify-content-between align-items-center py-2">
+            <span class="fw-semibold small">Linhas da Fatura</span>
+            {% if inv.stock_registado_at %}
+            <span class="badge bg-success-subtle text-success-emphasis small">
+                Stock registado {{ inv.stock_registado_at.strftime('%d/%m/%Y') }}
+                {% if inv.stock_registado_por %} por {{ inv.stock_registado_por }}{% endif %}
+            </span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary-emphasis small">Stock pendente</span>
+            {% endif %}
+        </div>
+        <div class="card-body p-0">
+            {% if linhas %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Descrição</th>
+                            <th class="text-end">Qtd</th>
+                            <th>Un</th>
+                            <th class="text-end">P.Unit</th>
+                            <th class="text-end">Total</th>
+                            <th class="text-center">Stock</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for l in linhas %}
+                        <tr>
+                            <td>
+                                {{ l.descricao }}
+                                {% if l.material_nome %}
+                                <div class="text-muted" style="font-size:.75rem">{{ l.material_nome }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                {% if l.quantidade == l.quantidade|int %}{{ l.quantidade|int }}{% else %}{{ '%.3f'|format(l.quantidade) }}{% endif %}
+                            </td>
+                            <td>{{ l.unidade }}</td>
+                            <td class="text-end text-nowrap">
+                                {{ '%.2f €'|format(l.preco_unitario) if l.preco_unitario is not none else '—' }}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                {% if l.preco_unitario is not none %}
+                                    {{ '%.2f €'|format(l.quantidade * l.preco_unitario) }}
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if l.stock_registado %}
+                                <span class="badge bg-success-subtle text-success-emphasis">✓</span>
+                                {% elif l.material_id %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis">—</span>
+                                {% else %}
+                                <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-link btn-sm p-0 text-secondary"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#modalEditarLinha"
+                                        data-id="{{ l.id }}"
+                                        data-descricao="{{ l.descricao }}"
+                                        data-quantidade="{{ l.quantidade }}"
+                                        data-unidade="{{ l.unidade }}"
+                                        data-material="{{ l.material_id or '' }}"
+                                        data-preco="{{ l.preco_unitario or '' }}"
+                                        title="Editar">✏️</button>
+                                <form method="post"
+                                      action="{{ url_for('faturas.linha', invoice_id=inv.id) }}"
+                                      onsubmit="return confirm('Eliminar esta linha?')"
+                                      style="display:inline">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="linha_id" value="{{ l.id }}">
+                                    <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar">🗑</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-muted small p-3">Nenhuma linha adicionada.</div>
+            {% endif %}
+        </div>
+        <div class="card-footer py-2 d-flex flex-wrap gap-2 align-items-center justify-content-between">
+            <button class="btn btn-outline-secondary btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#modalAdicionarLinha">
+                + Adicionar linha
+            </button>
+            {% set tem_linhas_por_registar = linhas | selectattr('stock_registado', 'equalto', false) | selectattr('material_id') | list %}
+            {% if tem_linhas_por_registar %}
+            <button class="btn btn-success btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#modalRegistarStock">
+                📦 Registar entradas em stock
+            </button>
+            {% elif linhas %}
+            <span class="text-success small">✓ Todas as linhas registadas</span>
+            {% endif %}
+        </div>
+    </div>
+
     <!-- Danger zone -->
     <div class="card border-danger">
         <div class="card-body py-2">
@@ -538,6 +642,194 @@ function updateParcelaTotal(ctx) {
 document.addEventListener('DOMContentLoaded', function() {
     updateParcelaTotal('confirmar');
     updateParcelaTotal('pagar');
+});
+</script>
+
+<!-- Modal: Adicionar Linha -->
+<div class="modal fade" id="modalAdicionarLinha" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Adicionar linha</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.linha', invoice_id=inv.id) }}">
+                <input type="hidden" name="action" value="add">
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Material do catálogo <span class="text-muted">(opcional)</span></label>
+                        <select name="material_id" class="form-select form-select-sm" id="addMaterialSelect"
+                                onchange="preencherDescricaoMaterial(this, 'addDescricao', 'addUnidade')">
+                            <option value="">(sem material associado)</option>
+                            {% for m in materiais %}
+                            <option value="{{ m.id }}" data-nome="{{ m.nome }}" data-unidade="{{ m.unidade }}">
+                                [{{ m.categoria }}] {{ m.nome }} ({{ m.unidade }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Descrição <span class="text-danger">*</span></label>
+                        <input type="text" name="descricao" id="addDescricao" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-5">
+                            <label class="form-label small">Quantidade <span class="text-danger">*</span></label>
+                            <input type="number" name="quantidade" step="0.001" min="0.001"
+                                   class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small">Unidade</label>
+                            <select name="unidade" id="addUnidade" class="form-select form-select-sm">
+                                {% for u in unidades_materiais %}
+                                <option value="{{ u }}">{{ u }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label small">P. Unit. €</label>
+                            <input type="number" name="preco_unitario" step="0.0001" min="0"
+                                   class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Editar Linha -->
+<div class="modal fade" id="modalEditarLinha" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Editar linha</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.linha', invoice_id=inv.id) }}">
+                <input type="hidden" name="action" value="edit">
+                <input type="hidden" name="linha_id" id="editLinhaId">
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Material do catálogo <span class="text-muted">(opcional)</span></label>
+                        <select name="material_id" id="editMaterialSelect" class="form-select form-select-sm">
+                            <option value="">(sem material associado)</option>
+                            {% for m in materiais %}
+                            <option value="{{ m.id }}" data-nome="{{ m.nome }}" data-unidade="{{ m.unidade }}">
+                                [{{ m.categoria }}] {{ m.nome }} ({{ m.unidade }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Descrição <span class="text-danger">*</span></label>
+                        <input type="text" name="descricao" id="editDescricao" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-5">
+                            <label class="form-label small">Quantidade <span class="text-danger">*</span></label>
+                            <input type="number" name="quantidade" id="editQuantidade" step="0.001" min="0.001"
+                                   class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small">Unidade</label>
+                            <select name="unidade" id="editUnidade" class="form-select form-select-sm">
+                                {% for u in unidades_materiais %}
+                                <option value="{{ u }}">{{ u }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label small">P. Unit. €</label>
+                            <input type="number" name="preco_unitario" id="editPreco" step="0.0001" min="0"
+                                   class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Registar Stock -->
+<div class="modal fade" id="modalRegistarStock" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Registar entradas em stock</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.registar_stock', invoice_id=inv.id) }}">
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Local de destino</label>
+                        <select name="local" class="form-select form-select-sm" required>
+                            {% for local in locais_stock %}
+                            <option value="{{ local }}"
+                                {% if inv.store_name and local.lower() == inv.store_name.lower() %}selected{% endif %}>
+                                {{ local }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <p class="small text-muted mb-0">
+                        Serão criadas entradas de stock para todas as linhas com material associado ainda não registadas.
+                    </p>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-success btn-sm">Registar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function preencherDescricaoMaterial(sel, descId, unidadeId) {
+    var opt = sel.options[sel.selectedIndex];
+    if (opt && opt.value) {
+        var descEl = document.getElementById(descId);
+        if (descEl && !descEl.value) descEl.value = opt.getAttribute('data-nome') || '';
+        var unEl = document.getElementById(unidadeId);
+        if (unEl) {
+            var un = opt.getAttribute('data-unidade') || '';
+            for (var i = 0; i < unEl.options.length; i++) {
+                if (unEl.options[i].value === un) { unEl.selectedIndex = i; break; }
+            }
+        }
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var editModal = document.getElementById('modalEditarLinha');
+    if (editModal) {
+        editModal.addEventListener('show.bs.modal', function(ev) {
+            var btn = ev.relatedTarget;
+            document.getElementById('editLinhaId').value = btn.getAttribute('data-id') || '';
+            document.getElementById('editDescricao').value = btn.getAttribute('data-descricao') || '';
+            document.getElementById('editQuantidade').value = btn.getAttribute('data-quantidade') || '';
+            document.getElementById('editPreco').value = btn.getAttribute('data-preco') || '';
+            var matSel = document.getElementById('editMaterialSelect');
+            var matId = btn.getAttribute('data-material') || '';
+            for (var i = 0; i < matSel.options.length; i++) {
+                if (matSel.options[i].value === matId) { matSel.selectedIndex = i; break; }
+            }
+            var unSel = document.getElementById('editUnidade');
+            var un = btn.getAttribute('data-unidade') || 'un';
+            for (var j = 0; j < unSel.options.length; j++) {
+                if (unSel.options[j].value === un) { unSel.selectedIndex = j; break; }
+            }
+        });
+    }
 });
 </script>
 

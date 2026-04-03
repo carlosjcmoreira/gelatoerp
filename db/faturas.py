@@ -266,7 +266,9 @@ def get_invoice(invoice_id: int) -> dict:
                    i.onedrive_web_url,
                    i.document_type,
                    i.ocr_raw,
-                   ip.confirmed_date AS payment_confirmed_date
+                   ip.confirmed_date AS payment_confirmed_date,
+                   i.stock_registado_at,
+                   i.stock_registado_por
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -278,6 +280,8 @@ def get_invoice(invoice_id: int) -> dict:
     inv = _row_to_invoice(row)
     inv['ocr_raw'] = row[24]
     inv['payment_confirmed_date'] = row[25] if len(row) > 25 else None
+    inv['stock_registado_at'] = row[26] if len(row) > 26 else None
+    inv['stock_registado_por'] = row[27] if len(row) > 27 else None
     return inv
 
 
