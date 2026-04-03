@@ -180,6 +180,11 @@ def salarios():
             ativo = request.form.get('ativo', '0') == '1'
             try:
                 toggle_colaborador(colab_id, ativo)
+                colabs = get_colaboradores_calculados(ativo_only=True)
+                total_liq = round(sum(c.get('salario_liq', 0) for c in colabs), 2)
+                total_imp = round(sum(c.get('impostos_dia15', 0) for c in colabs), 2)
+                set_cashflow_config('salarios_liquido_eur',  str(total_liq))
+                set_cashflow_config('salarios_impostos_eur', str(total_imp))
                 flash('Colaborador ' + ('activado.' if ativo else 'desactivado.'), 'success')
             except Exception as exc:
                 flash(f'Erro: {exc}', 'danger')
