@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% set back_url = url_for("logistica.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">🕒 Histórico de Movimentos de Stock</h5>
+    <a href="{{ url_for('logistica.stock_materiais') }}" class="btn btn-outline-secondary btn-sm">← Ver Stock</a>
+</div>
+
+<form method="GET" action="{{ url_for('logistica.historico_movimentos') }}" class="row g-2 mb-3">
+    <div class="col-auto">
+        <select name="local" class="form-select form-select-sm">
+            <option value="">Todos os locais</option>
+            {% for l in locais %}
+            <option value="{{ l }}" {% if l == local %}selected{% endif %}>{{ l }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <select name="tipo" class="form-select form-select-sm">
+            <option value="">Todos os tipos</option>
+            {% for t in tipos %}
+            <option value="{{ t }}" {% if t == tipo %}selected{% endif %}>{{ t | capitalize }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-outline-primary btn-sm">Filtrar</button>
+    </div>
+    {% if local or tipo %}
+    <div class="col-auto">
+        <a href="{{ url_for('logistica.historico_movimentos') }}" class="btn btn-outline-secondary btn-sm">Limpar</a>
+    </div>
+    {% endif %}
+</form>
+
+{% if movimentos %}
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle" style="font-size:0.85rem;">
+        <thead class="table-light">
+            <tr>
+                <th>Data</th>
+                <th>Material</th>
+                <th>Local</th>
+                <th>Tipo</th>
+                <th class="text-end">Quantidade</th>
+                <th>Nota</th>
+                <th>Utilizador</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for mv in movimentos %}
+        <tr>
+            <td class="text-nowrap">{{ mv.data.strftime('%d/%m/%Y') if mv.data else '—' }}</td>
+            <td>{{ mv.nome }}</td>
+            <td class="text-muted">{{ mv.local }}</td>
+            <td>
+                {% if mv.tipo == 'entrada' %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle">entrada</span>
+                {% elif mv.tipo == 'saida' %}
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">saída</span>
+                {% elif mv.tipo == 'contagem' %}
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">contagem</span>
+                {% else %}
+                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">{{ mv.tipo }}</span>
+                {% endif %}
+            </td>
+            <td class="text-end text-nowrap">
+                {% if mv.tipo == 'saida' %}
+                <span class="text-danger">−{{ "%.3g"|format(mv.quantidade) }}</span>
+                {% elif mv.tipo == 'entrada' %}
+                <span class="text-success">+{{ "%.3g"|format(mv.quantidade) }}</span>
+                {% else %}
+                {{ "%.3g"|format(mv.quantidade) }}
+                {% endif %}
+                {{ mv.unidade }}
+            </td>
+            <td class="text-muted small">{{ mv.notas or '—' }}</td>
+            <td class="text-muted small">{{ mv.utilizador or '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p class="text-muted small">{{ movimentos | length }} movimento(s) mostrado(s).</p>
+{% else %}
+<div class="alert alert-info">Sem movimentos de stock registados{% if local %} em {{ local }}{% endif %}{% if tipo %} do tipo {{ tipo }}{% endif %}.</div>
+{% endif %}
+
+</div>
+{% endblock %}

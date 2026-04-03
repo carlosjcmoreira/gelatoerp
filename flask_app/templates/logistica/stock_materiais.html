@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% set back_url = url_for("logistica.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">📦 Stock de Materiais</h5>
+    {% if modo == 'ver' %}
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('logistica.stock_materiais_contagem', local=local) }}"
+           class="btn btn-primary btn-sm">✏️ Registar Contagem</a>
+        <a href="{{ url_for('logistica.historico_movimentos', local=local) }}"
+           class="btn btn-outline-secondary btn-sm">🕒 Histórico</a>
+    </div>
+    {% endif %}
+</div>
+
+<ul class="nav nav-tabs mb-3">
+    {% for l in locais %}
+    <li class="nav-item">
+        <a class="nav-link {% if l == local %}active{% endif %}"
+           href="{{ url_for('logistica.stock_materiais_contagem' if modo == 'contagem' else 'logistica.stock_materiais', local=l) }}">
+            {{ l }}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+
+{% if modo == 'contagem' %}
+{# ── Counting form ───────────────────────────────── #}
+<div class="alert alert-info py-2 small mb-3">
+    <strong>Contagem física em {{ local }}.</strong>
+    Preencha apenas os campos que contou. Campos em branco não são registados. Ao submeter, o stock é atualizado com os valores introduzidos.
+</div>
+<form method="POST" action="{{ url_for('logistica.stock_materiais_post') }}">
+    <input type="hidden" name="action" value="registar_contagem">
+    <input type="hidden" name="local" value="{{ local }}">
+
+    {% for cat in categorias %}
+    {% set items = por_categoria.get(cat, []) %}
+    {% if items %}
+    <h6 class="text-secondary text-uppercase small fw-semibold mt-3 mb-1">{{ cat }}</h6>
+    <div class="table-responsive mb-2">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Material</th>
+                    <th class="text-end" style="width:100px">Stock atual</th>
+                    <th class="text-end" style="width:150px">Contagem física</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for item in items %}
+            <tr>
+                <td class="small">{{ item.nome }}</td>
+                <td class="text-end small text-muted">
+                    {{ "%.3g"|format(item.quantidade) }} {{ item.unidade }}
+                </td>
+                <td class="text-end">
+                    <div class="input-group input-group-sm justify-content-end" style="max-width:140px;margin-left:auto">
+                        <input type="number" name="qtd_{{ item.material_id }}"
+                               class="form-control form-control-sm text-end"
+                               placeholder="—" min="0" step="any"
+                               style="max-width:90px">
+                        <span class="input-group-text">{{ item.unidade }}</span>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+    {% if not stock %}
+    <div class="alert alert-warning">Sem materiais ativos no catálogo. Adicione materiais no Gestor primeiro.</div>
+    {% else %}
+    <div class="mb-3 mt-3">
+        <label class="form-label form-label-sm">Nota da contagem (opcional)</label>
+        <input type="text" name="notas_contagem" class="form-control form-control-sm"
+               placeholder="Ex: Inventário mensal Abril 2026">
+    </div>
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary btn-sm">✅ Guardar Contagem</button>
+        <a href="{{ url_for('logistica.stock_materiais', local=local) }}"
+           class="btn btn-outline-secondary btn-sm">Cancelar</a>
+    </div>
+    {% endif %}
+</form>
+
+{% else %}
+{# ── Stock view ──────────────────────────────────── #}
+{% if not stock %}
+<div class="alert alert-warning">Sem materiais ativos no catálogo. Adicione materiais no <a href="{{ url_for('gestor.materiais') }}">Gestor</a>.</div>
+{% else %}
+{% for cat in categorias %}
+{% set items = por_categoria.get(cat, []) %}
+{% if items %}
+<h6 class="text-secondary text-uppercase small fw-semibold mt-3 mb-1">{{ cat }}</h6>
+<div class="table-responsive mb-2">
+    <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>Material</th>
+                <th>Fornecedor</th>
+                <th class="text-end">Quantidade em Stock</th>
+                <th class="text-end">Ajuste</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in items %}
+        <tr>
+            <td class="small">{{ item.nome }}</td>
+            <td class="small text-muted">{{ item.fornecedor or '—' }}</td>
+            <td class="text-end small">
+                <span class="{% if item.quantidade == 0 %}text-muted{% elif item.quantidade < 0 %}text-danger fw-bold{% else %}fw-semibold{% endif %}">
+                    {{ "%.3g"|format(item.quantidade) }} {{ item.unidade }}
+                </span>
+            </td>
+            <td class="text-end">
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        data-bs-toggle="modal" data-bs-target="#ajusteModal"
+                        data-material-id="{{ item.material_id }}"
+                        data-nome="{{ item.nome }}"
+                        data-unidade="{{ item.unidade }}"
+                        data-local="{{ local }}">
+                    ±
+                </button>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+</div>
+
+{# ── Ajuste Modal ──────────────────────────────────────────────────────────── #}
+<div class="modal fade" id="ajusteModal" tabindex="-1" aria-labelledby="ajusteModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="ajusteModalLabel">Ajuste Manual de Stock</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('logistica.stock_materiais_post') }}">
+                <input type="hidden" name="action" value="ajuste">
+                <input type="hidden" name="local" id="ajusteLocal" value="{{ local }}">
+                <input type="hidden" name="material_id" id="ajusteMaterialId">
+                <div class="modal-body">
+                    <p class="small text-muted mb-3">Material: <strong id="ajusteNome"></strong> — Local: <strong>{{ local }}</strong></p>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm">Tipo de movimento</label>
+                        <select name="tipo_ajuste" class="form-select form-select-sm">
+                            <option value="entrada">Entrada (adicionar ao stock)</option>
+                            <option value="saida">Saída (retirar do stock)</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm">Quantidade *</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" name="quantidade_ajuste" class="form-control form-control-sm"
+                                   required min="0.001" step="any" placeholder="0">
+                            <span class="input-group-text" id="ajusteUnidade"></span>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label form-label-sm">Nota (obrigatória) *</label>
+                        <input type="text" name="notas_ajuste" class="form-control form-control-sm"
+                               required placeholder="Ex: Compra direta, correção de inventário…">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Registar Ajuste</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const ajusteModal = document.getElementById('ajusteModal');
+    if (ajusteModal) {
+        ajusteModal.addEventListener('show.bs.modal', function (e) {
+            const btn = e.relatedTarget;
+            ajusteModal.querySelector('#ajusteMaterialId').value = btn.dataset.materialId;
+            ajusteModal.querySelector('#ajusteNome').textContent = btn.dataset.nome;
+            ajusteModal.querySelector('#ajusteUnidade').textContent = btn.dataset.unidade;
+        });
+    }
+});
+</script>
+{% endblock %}
