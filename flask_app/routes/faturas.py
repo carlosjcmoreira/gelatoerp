@@ -623,6 +623,10 @@ def registar_stock(invoice_id: int):
     except ValueError as e:
         flash(str(e), 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+    except Exception as e:
+        logging.error('Erro ao registar stock para fatura %s: %s', invoice_id, e)
+        flash('Ocorreu um erro inesperado ao registar o stock. Tenta novamente.', 'danger')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
 
     n = resultado['registadas']
     if n == 0:
