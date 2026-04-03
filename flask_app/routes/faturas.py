@@ -530,6 +530,10 @@ def linha(invoice_id: int):
         flash('Fatura não encontrada.', 'warning')
         return redirect(url_for('faturas.index'))
 
+    if inv.get('stock_registado_at'):
+        flash('As linhas desta fatura não podem ser alteradas após o stock ter sido registado.', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+
     action = request.form.get('action', '')
     if action == 'delete':
         linha_id = request.form.get('linha_id', type=int)

@@ -332,6 +332,7 @@
                                 {% endif %}
                             </td>
                             <td class="text-end">
+                                {% if not inv.stock_registado_at %}
                                 <button class="btn btn-link btn-sm p-0 text-secondary"
                                         data-bs-toggle="modal"
                                         data-bs-target="#modalEditarLinha"
@@ -350,6 +351,7 @@
                                     <input type="hidden" name="linha_id" value="{{ l.id }}">
                                     <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar">🗑</button>
                                 </form>
+                                {% endif %}
                             </td>
                         </tr>
                     {% endfor %}
