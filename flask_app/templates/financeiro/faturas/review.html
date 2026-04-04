@@ -276,16 +276,15 @@
 <script>
 (function() {
     // Show/hide supplier card based on document_type
-    var INVOICE_TYPES = ['fatura', 'nota_credito', 'nota_debito'];
     var docTypeSelect = document.querySelector('select[name="document_type"]');
     var supplierCard = document.getElementById('review-supplier-card');
     if (docTypeSelect && supplierCard) {
         function toggleSupplierCard() {
-            var isInvoice = INVOICE_TYPES.indexOf(docTypeSelect.value) !== -1;
-            supplierCard.style.display = isInvoice ? '' : 'none';
+            var isFatura = (docTypeSelect.value === 'fatura');
+            supplierCard.style.display = isFatura ? '' : 'none';
             // Toggle required on new-supplier fields
             supplierCard.querySelectorAll('[required]').forEach(function(el) {
-                el.required = isInvoice;
+                el.required = isFatura;
             });
         }
         docTypeSelect.addEventListener('change', toggleSupplierCard);

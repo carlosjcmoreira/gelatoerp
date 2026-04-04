@@ -199,7 +199,8 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
     onedrive_subfolder = form.get('onedrive_subfolder', '').strip()
     notes = form.get('notes', '').strip()
     document_type = form.get('document_type', 'fatura')
-    if document_type not in ('fatura', 'nota_credito'):
+    from db.faturas import DOCUMENT_TYPE_LABELS as _DTL
+    if document_type not in _DTL:
         document_type = 'fatura'
     centro_custo_raw = form.get('centro_custo_id', '').strip()
     centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None

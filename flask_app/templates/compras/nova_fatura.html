@@ -138,7 +138,6 @@
 {% block scripts %}
 <script>
 (function () {
-    var INVOICE_TYPES = ['fatura', 'nota_credito', 'nota_debito'];
     var docTypeSelect = document.getElementById('document_type');
     var supplierExtra = document.getElementById('supplier-extra-fields');
     var vatField = document.getElementById('vat-field');
@@ -147,12 +146,12 @@
     var supplierInput = document.getElementById('supplier_name');
 
     function toggleFields() {
-        var isInvoice = INVOICE_TYPES.indexOf(docTypeSelect.value) !== -1;
-        supplierExtra.style.display = isInvoice ? '' : 'none';
-        vatField.style.display = isInvoice ? '' : 'none';
-        semIvaField.style.display = isInvoice ? '' : 'none';
-        supplierReqMark.style.display = isInvoice ? '' : 'none';
-        supplierInput.required = (docTypeSelect.value === 'fatura');
+        var isFatura = (docTypeSelect.value === 'fatura');
+        supplierExtra.style.display = isFatura ? '' : 'none';
+        vatField.style.display = isFatura ? '' : 'none';
+        semIvaField.style.display = isFatura ? '' : 'none';
+        supplierReqMark.style.display = isFatura ? '' : 'none';
+        supplierInput.required = isFatura;
     }
 
     docTypeSelect.addEventListener('change', toggleFields);
