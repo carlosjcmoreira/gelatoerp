@@ -185,10 +185,10 @@ def nova_fatura():
                                             onedrive_subfolder,
                                             onedrive_web_url=result.get('web_url'))
                 elif result.get('warning'):
-                    flash(f'Fatura registada. Aviso OneDrive: {result["warning"]}', 'warning')
+                    flash(f'Documento registado. Aviso OneDrive: {result["warning"]}', 'warning')
             except Exception as exc:
                 logger.warning('OneDrive upload failed for manual invoice %s: %s', invoice_id, exc)
-                flash(f'Fatura registada. Erro ao arquivar no OneDrive: {exc}', 'warning')
+                flash(f'Documento registado. Erro ao arquivar no OneDrive: {exc}', 'warning')
 
         # Auto-propose a liquidity-aware payment date
         from db.faturas import DOCUMENT_TYPE_LABELS as _DTL2

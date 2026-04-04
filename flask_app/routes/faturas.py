@@ -571,9 +571,9 @@ def save():
         return redirect(url_for('faturas.review', invoice_id=invoice_id))
 
     if result.get('warning'):
-        flash(f'Fatura guardada. Aviso OneDrive: {result["warning"]}', 'warning')
+        flash(f'Documento guardado. Aviso OneDrive: {result["warning"]}', 'warning')
     else:
-        flash('Fatura guardada com sucesso!', 'success')
+        flash('Documento guardado com sucesso!', 'success')
 
     # Clear the return_to context from session after save
     session.pop('faturas_return_to', None)
