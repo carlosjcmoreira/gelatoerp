@@ -1582,59 +1582,23 @@ def run_migrations_centros_custo():
             ('E',  'Eventos',             'Eventos e B2B'),
             ('FP', 'Faturas Partilhadas', 'Faturas com custo partilhado entre centros'),
         ]
+        _valid_codes = [c[0] for c in CENTROS]
         for code, name, desc in CENTROS:
             cursor.execute('''
                 INSERT INTO cost_centers (code, name, description)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (code) DO NOTHING
             ''', (code, name, desc))
+        # Deactivate any cost center whose code is not in the canonical set
+        cursor.execute(
+            'UPDATE cost_centers SET ativo=FALSE WHERE code != ALL(%s)',
+            (_valid_codes,)
+        )
 
         # ── Correct old wrong top-level category names ─────────────────────
         cursor.execute(
             "UPDATE cost_categories SET name='Impostos' WHERE name='Impostos e Encargos' AND parent_id IS NULL"
         )
-
-        # ── Ensure valid top-level categories are active ───────────────────
-        VALID_TOP = [
-            'Custos Fixos Operacionais', 'Custos Variáveis Operacionais', 'Compras', 'Impostos',
-        ]
-        for vt in VALID_TOP:
-            cursor.execute(
-                'UPDATE cost_categories SET ativo=TRUE WHERE name=%s AND parent_id IS NULL',
-                (vt,)
-            )
-
-        # ── Deactivate top-level categories no longer in use ───────────────
-        OLD_TOP = ['Salários e Recursos Humanos', 'Marketing e Comercial', 'Outros']
-        for old_name in OLD_TOP:
-            cursor.execute(
-                'UPDATE cost_categories SET ativo=FALSE WHERE name=%s AND parent_id IS NULL',
-                (old_name,)
-            )
-
-        # ── Deactivate old subcategories no longer in use ──────────────────
-        _OLD_SUBS = {
-            'Custos Fixos Operacionais':    ['Comunicações', 'Licenças e Certificados'],
-            'Custos Variáveis Operacionais': [
-                'Água e Eletricidade', 'Manutenção e Reparações',
-                'Materiais de Embalagem', 'Materiais de Limpeza', 'Uniformes e EPI',
-            ],
-            'Compras':   ['Matérias-Primas', 'Ingredientes', 'Equipamentos'],
-            'Impostos':  ['IVA a Pagar', 'Segurança Social', 'IRS Retido', 'IMI', 'Outros Impostos'],
-        }
-        for parent_name, old_children in _OLD_SUBS.items():
-            cursor.execute(
-                'SELECT id FROM cost_categories WHERE name=%s AND parent_id IS NULL',
-                (parent_name,)
-            )
-            _row = cursor.fetchone()
-            if _row:
-                _pid = _row[0]
-                for old_child in old_children:
-                    cursor.execute(
-                        'UPDATE cost_categories SET ativo=FALSE WHERE name=%s AND parent_id=%s',
-                        (old_child, _pid)
-                    )
 
         # ── Seed: categorias de custo (correct tree) ───────────────────────
         CATEGORIAS_TOP = [
@@ -1654,6 +1618,28 @@ def run_migrations_centros_custo():
                 'TSU', 'Pagamento por Conta', 'IES',
             ]),
         ]
+        _valid_top_names = [t[0] for t in CATEGORIAS_TOP]
+
+        # Deactivate all top-level categories not in the canonical set (and their children)
+        cursor.execute(
+            '''UPDATE cost_categories SET ativo=FALSE
+               WHERE parent_id IS NULL AND name != ALL(%s)''',
+            (_valid_top_names,)
+        )
+        cursor.execute(
+            '''UPDATE cost_categories SET ativo=FALSE
+               WHERE parent_id IN (
+                   SELECT id FROM cost_categories
+                   WHERE parent_id IS NULL AND name != ALL(%s)
+               )''',
+            (_valid_top_names,)
+        )
+        # Ensure canonical top-level categories are active
+        cursor.execute(
+            'UPDATE cost_categories SET ativo=TRUE WHERE parent_id IS NULL AND name = ANY(%s)',
+            (_valid_top_names,)
+        )
+
         for top_name, sub_names in CATEGORIAS_TOP:
             cursor.execute('''
                 INSERT INTO cost_categories (name, parent_id)
@@ -1666,15 +1652,20 @@ def run_migrations_centros_custo():
                 (top_name,)
             )
             row = cursor.fetchone()
-            if row and sub_names:
+            if row:
                 parent_id = row[0]
+                # Deactivate subcategories under this parent not in the canonical child set
+                cursor.execute(
+                    'UPDATE cost_categories SET ativo=FALSE WHERE parent_id=%s AND name != ALL(%s)',
+                    (parent_id, sub_names if sub_names else [''])
+                )
                 for sub in sub_names:
                     cursor.execute('''
                         INSERT INTO cost_categories (name, parent_id)
                         VALUES (%s, %s)
                         ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
                     ''', (sub, parent_id))
-                    # Ensure newly-seeded subcategories are active
+                    # Ensure canonical subcategories are active
                     cursor.execute(
                         'UPDATE cost_categories SET ativo=TRUE WHERE name=%s AND parent_id=%s',
                         (sub, parent_id)
