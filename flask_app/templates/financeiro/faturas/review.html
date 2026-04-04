@@ -84,7 +84,7 @@
                 <div class="row g-2">
                     <div class="col-12 col-md-8">
                         <label class="form-label small">Nome do fornecedor <span class="text-danger">*</span></label>
-                        <input type="text" name="supplier_name" class="form-control form-control-sm
+                        <input type="text" name="supplier_name" id="rev-supplier-name" class="form-control form-control-sm
                             {% if ocr.confidence.get('supplier_name', 1) < 0.7 %}border-warning{% endif %}"
                             value="{{ ocr.supplier_name or '' }}" required>
                         {% if ocr.confidence.get('supplier_name', 1) < 0.7 %}
@@ -93,7 +93,7 @@
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label small">NIF <span class="text-danger">*</span></label>
-                        <input type="text" name="supplier_nif" class="form-control form-control-sm
+                        <input type="text" name="supplier_nif" id="rev-supplier-nif" class="form-control form-control-sm
                             {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}border-warning{% endif %}"
                             value="{{ ocr.supplier_nif or '' }}"
                             pattern="[0-9]*" inputmode="numeric" required>
@@ -281,6 +281,8 @@
     var docTypeSelect = document.querySelector('select[name="document_type"]');
     var reviewNewSupplierExtra = document.getElementById('review-new-supplier-extra');
     var reviewVatField = document.getElementById('review-vat-field');
+    var revSupplierName = document.getElementById('rev-supplier-name');
+    var revSupplierNif = document.getElementById('rev-supplier-nif');
     var revSupplierPm = document.getElementById('rev-supplier-pm');
     var revSupplierPt = document.getElementById('rev-supplier-pt');
 
@@ -293,6 +295,8 @@
             if (reviewVatField) {
                 reviewVatField.style.display = isFatura ? '' : 'none';
             }
+            if (revSupplierName) { revSupplierName.required = isFatura; }
+            if (revSupplierNif) { revSupplierNif.required = isFatura; }
             if (revSupplierPm) { revSupplierPm.required = isFatura; }
             if (revSupplierPt) { revSupplierPt.required = isFatura; }
         }
