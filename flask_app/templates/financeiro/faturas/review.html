@@ -26,7 +26,7 @@
 
         <!-- Fornecedor card -->
         <div class="card mb-3" id="review-supplier-card">
-            <div class="card-body">
+            <div class="card-body" id="review-supplier-card-body">
                 {% if supplier %}
                 {# Existing supplier — show locked fields #}
                 <h6 class="card-title d-flex align-items-center gap-2">
@@ -101,9 +101,10 @@
                         <div class="form-text text-warning">Confiança baixa – verifica</div>
                         {% endif %}
                     </div>
+                    <div id="review-new-supplier-extra" class="col-12 row g-2 m-0 p-0">
                     <div class="col-12 col-sm-6">
-                        <label class="form-label small">Método de Pagamento <span class="text-danger">*</span></label>
-                        <select name="supplier_payment_method" class="form-select form-select-sm" required>
+                        <label class="form-label small">Método de Pagamento <span class="text-danger review-supplier-req-mark">*</span></label>
+                        <select name="supplier_payment_method" id="rev-supplier-pm" class="form-select form-select-sm" required>
                             <option value="">— Seleccionar —</option>
                             {% for val, label in payment_method_labels.items() %}
                             <option value="{{ val }}" {% if pm_hint == val %}selected{% endif %}>{{ label }}</option>
@@ -111,8 +112,8 @@
                         </select>
                     </div>
                     <div class="col-12 col-sm-6">
-                        <label class="form-label small">Prazo de Pagamento <span class="text-danger">*</span></label>
-                        <select name="supplier_payment_terms" class="form-select form-select-sm" required>
+                        <label class="form-label small">Prazo de Pagamento <span class="text-danger review-supplier-req-mark">*</span></label>
+                        <select name="supplier_payment_terms" id="rev-supplier-pt" class="form-select form-select-sm" required>
                             <option value="">— Seleccionar —</option>
                             {% for val, label in payment_terms_labels.items() %}
                             <option value="{{ val }}" {% if pt_hint == val %}selected{% endif %}>{{ label }}</option>
@@ -123,6 +124,7 @@
                         <label class="form-label small">IBAN</label>
                         <input type="text" name="supplier_iban" class="form-control form-control-sm"
                                placeholder="PT50..." value="{{ iban_hint or '' }}">
+                    </div>
                     </div>
                 </div>
                 {% endif %}
@@ -153,7 +155,7 @@
                             {% if ocr.confidence.get('amount_eur', 1) < 0.7 %}border-warning{% endif %}"
                             value="{{ '%.2f'|format(ocr.amount_eur) if ocr.amount_eur is not none else '' }}">
                     </div>
-                    <div class="col-6 col-md-3">
+                    <div class="col-6 col-md-3" id="review-vat-field">
                         <label class="form-label small">Valor IVA (€)</label>
                         <input type="number" step="0.01" name="vat_amount_eur" class="form-control form-control-sm
                             {% if ocr.confidence.get('vat_amount_eur', 1) < 0.7 %}border-warning{% endif %}"
@@ -275,20 +277,27 @@
 {% block scripts %}
 <script>
 (function() {
-    // Show/hide supplier card based on document_type
+    // Show/hide supplier-specific fields and VAT based on document_type
     var docTypeSelect = document.querySelector('select[name="document_type"]');
-    var supplierCard = document.getElementById('review-supplier-card');
-    if (docTypeSelect && supplierCard) {
-        function toggleSupplierCard() {
+    var reviewNewSupplierExtra = document.getElementById('review-new-supplier-extra');
+    var reviewVatField = document.getElementById('review-vat-field');
+    var revSupplierPm = document.getElementById('rev-supplier-pm');
+    var revSupplierPt = document.getElementById('rev-supplier-pt');
+
+    if (docTypeSelect) {
+        function toggleReviewFields() {
             var isFatura = (docTypeSelect.value === 'fatura');
-            supplierCard.style.display = isFatura ? '' : 'none';
-            // Toggle required on new-supplier fields
-            supplierCard.querySelectorAll('[required]').forEach(function(el) {
-                el.required = isFatura;
-            });
+            if (reviewNewSupplierExtra) {
+                reviewNewSupplierExtra.style.display = isFatura ? '' : 'none';
+            }
+            if (reviewVatField) {
+                reviewVatField.style.display = isFatura ? '' : 'none';
+            }
+            if (revSupplierPm) { revSupplierPm.required = isFatura; }
+            if (revSupplierPt) { revSupplierPt.required = isFatura; }
         }
-        docTypeSelect.addEventListener('change', toggleSupplierCard);
-        toggleSupplierCard();
+        docTypeSelect.addEventListener('change', toggleReviewFields);
+        toggleReviewFields();
     }
 
     {% if supplier and supplier.payment_terms %}

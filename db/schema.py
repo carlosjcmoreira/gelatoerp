@@ -1236,6 +1236,8 @@ def run_faturas_migrations():
         cursor.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(50)")
         cursor.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS iban VARCHAR(50)")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'email_upload'")
+        # Widen document_type column to accommodate longer type keys (e.g. nota_pagamento_imposto = 22 chars)
+        cursor.execute("ALTER TABLE invoices ALTER COLUMN document_type TYPE VARCHAR(30)")
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS system_config (
