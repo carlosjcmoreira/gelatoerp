@@ -7,7 +7,7 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <h5 class="mb-1">🔍 Revisão de Fatura</h5>
+    <h5 class="mb-1">🔍 Revisão de Documento</h5>
     {% if ocr.error %}
     <div class="alert alert-warning py-2 small">
         OCR não disponível: {{ ocr.error }}. Preenche os campos manualmente.
@@ -25,7 +25,7 @@
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
 
         <!-- Fornecedor card -->
-        <div class="card mb-3">
+        <div class="card mb-3" id="review-supplier-card">
             <div class="card-body">
                 {% if supplier %}
                 {# Existing supplier — show locked fields #}
@@ -131,7 +131,7 @@
 
         <div class="card mb-3">
             <div class="card-body">
-                <h6 class="card-title">Dados da Fatura</h6>
+                <h6 class="card-title">Dados do Documento</h6>
                 <div class="row g-2">
                     <div class="col-12 col-md-6">
                         <label class="form-label small">Tipo de documento</label>
@@ -142,7 +142,7 @@
                         </select>
                     </div>
                     <div class="col-12 col-md-6">
-                        <label class="form-label small">Número da fatura</label>
+                        <label class="form-label small">Nº Documento</label>
                         <input type="text" name="invoice_number" class="form-control form-control-sm
                             {% if ocr.confidence.get('invoice_number', 1) < 0.7 %}border-warning{% endif %}"
                             value="{{ ocr.invoice_number or '' }}">
@@ -264,7 +264,7 @@
         </div>
 
         <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-primary flex-grow-1">Guardar fatura</button>
+            <button type="submit" class="btn btn-primary flex-grow-1">Guardar Documento</button>
             <a href="{{ url_for('faturas.cancel_draft', invoice_id=inv.id) }}"
                class="btn btn-outline-secondary" data-no-loading>Cancelar</a>
         </div>
@@ -275,6 +275,23 @@
 {% block scripts %}
 <script>
 (function() {
+    // Show/hide supplier card based on document_type
+    var INVOICE_TYPES = ['fatura', 'nota_credito', 'nota_debito'];
+    var docTypeSelect = document.querySelector('select[name="document_type"]');
+    var supplierCard = document.getElementById('review-supplier-card');
+    if (docTypeSelect && supplierCard) {
+        function toggleSupplierCard() {
+            var isInvoice = INVOICE_TYPES.indexOf(docTypeSelect.value) !== -1;
+            supplierCard.style.display = isInvoice ? '' : 'none';
+            // Toggle required on new-supplier fields
+            supplierCard.querySelectorAll('[required]').forEach(function(el) {
+                el.required = isInvoice;
+            });
+        }
+        docTypeSelect.addEventListener('change', toggleSupplierCard);
+        toggleSupplierCard();
+    }
+
     {% if supplier and supplier.payment_terms %}
     // Auto-calculate due date from issue date and supplier payment terms
     var paymentTerms = {{ (supplier.payment_terms)|tojson }};

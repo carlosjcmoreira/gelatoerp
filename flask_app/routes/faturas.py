@@ -801,7 +801,7 @@ def edit(invoice_id: int):
         'document_type': document_type,
     })
 
-    flash('Fatura actualizada.', 'success')
+    flash('Documento actualizado.', 'success')
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 
 

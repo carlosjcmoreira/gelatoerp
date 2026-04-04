@@ -3,16 +3,16 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <h5 class="mb-3">➕ Registar Fatura de Compra</h5>
-    <p class="text-muted small mb-3">Regista uma fatura de fornecedor na base de dados financeira partilhada.</p>
+    <h5 class="mb-3">➕ Registar Documento</h5>
+    <p class="text-muted small mb-3">Regista uma fatura ou outro documento financeiro de fornecedor na base de dados partilhada.</p>
 
     <div class="card">
         <div class="card-body">
             <form method="post">
                 <div class="mb-3">
-                    <label class="form-label small fw-semibold">Fornecedor <span class="text-danger">*</span></label>
-                    <input type="text" name="supplier_name" class="form-control form-control-sm" required
-                           list="suppliers-list" placeholder="Nome do fornecedor">
+                    <label class="form-label small fw-semibold" id="supplier-label">Fornecedor <span class="text-danger" id="supplier-required-mark">*</span></label>
+                    <input type="text" name="supplier_name" id="supplier_name" class="form-control form-control-sm"
+                           list="suppliers-list" placeholder="Nome do fornecedor ou entidade">
                     <datalist id="suppliers-list">
                         {% for s in suppliers %}
                         <option value="{{ s.name }}">{{ s.name }}{% if s.nif %} (NIF: {{ s.nif }}){% endif %}</option>
@@ -20,36 +20,40 @@
                     </datalist>
                 </div>
 
-                <div class="row g-2 mb-3">
-                    <div class="col-6">
-                        <label class="form-label small">NIF do Fornecedor</label>
-                        <input type="text" name="supplier_nif" class="form-control form-control-sm"
-                               maxlength="20" placeholder="Ex: 123456789">
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label small">Método de Pagamento</label>
-                        <select name="payment_method" class="form-select form-select-sm">
-                            <option value="">— Não especificado —</option>
-                            {% for m in payment_methods %}
-                            <option value="{{ m.metodo }}">{{ m.label }}</option>
-                            {% endfor %}
-                        </select>
+                <div class="mb-3">
+                    <label class="form-label small">Tipo de Documento <span class="text-danger">*</span></label>
+                    <select name="document_type" id="document_type" class="form-select form-select-sm">
+                        <option value="fatura">Fatura</option>
+                        <option value="nota_credito">Nota de Crédito</option>
+                        <option value="nota_debito">Nota de Débito</option>
+                        <option value="nota_pagamento_imposto">Nota de Pagamento de Imposto</option>
+                        <option value="outro">Outro Documento</option>
+                    </select>
+                </div>
+
+                <div id="supplier-extra-fields">
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label small">NIF do Fornecedor</label>
+                            <input type="text" name="supplier_nif" class="form-control form-control-sm"
+                                   maxlength="20" placeholder="Ex: 123456789">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small">Método de Pagamento</label>
+                            <select name="payment_method" class="form-select form-select-sm">
+                                <option value="">— Não especificado —</option>
+                                {% for m in payment_methods %}
+                                <option value="{{ m.metodo }}">{{ m.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
                 </div>
 
-                <div class="row g-2 mb-3">
-                    <div class="col-12">
-                        <label class="form-label small">Tipo de documento</label>
-                        <select name="document_type" class="form-select form-select-sm">
-                            <option value="fatura">Fatura</option>
-                            <option value="nota_credito">Nota de Crédito</option>
-                        </select>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label small">Nº Fatura</label>
-                        <input type="text" name="invoice_number" class="form-control form-control-sm"
-                               placeholder="Ex: FT 2025/001">
-                    </div>
+                <div class="mb-3">
+                    <label class="form-label small">Nº Documento</label>
+                    <input type="text" name="invoice_number" class="form-control form-control-sm"
+                           placeholder="Ex: FT 2025/001">
                 </div>
 
                 <div class="row g-2 mb-3">
@@ -58,12 +62,12 @@
                         <input type="number" name="amount_eur" class="form-control form-control-sm"
                                step="0.01" min="0" required placeholder="0.00">
                     </div>
-                    <div class="col-6">
+                    <div class="col-6" id="vat-field">
                         <label class="form-label small">IVA (€)</label>
                         <input type="number" name="vat_amount_eur" class="form-control form-control-sm"
                                step="0.01" min="0" placeholder="0.00">
                     </div>
-                    <div class="col-6">
+                    <div class="col-6" id="sem-iva-field">
                         <label class="form-label small">Valor sem IVA (€)</label>
                         <input type="number" name="amount_sem_iva" class="form-control form-control-sm"
                                step="0.01" min="0" placeholder="0.00">
@@ -123,10 +127,36 @@
                 </div>
 
                 <div class="d-grid">
-                    <button type="submit" class="btn btn-primary">Registar Fatura</button>
+                    <button type="submit" class="btn btn-primary">Registar Documento</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var INVOICE_TYPES = ['fatura', 'nota_credito', 'nota_debito'];
+    var docTypeSelect = document.getElementById('document_type');
+    var supplierExtra = document.getElementById('supplier-extra-fields');
+    var vatField = document.getElementById('vat-field');
+    var semIvaField = document.getElementById('sem-iva-field');
+    var supplierReqMark = document.getElementById('supplier-required-mark');
+    var supplierInput = document.getElementById('supplier_name');
+
+    function toggleFields() {
+        var isInvoice = INVOICE_TYPES.indexOf(docTypeSelect.value) !== -1;
+        supplierExtra.style.display = isInvoice ? '' : 'none';
+        vatField.style.display = isInvoice ? '' : 'none';
+        semIvaField.style.display = isInvoice ? '' : 'none';
+        supplierReqMark.style.display = isInvoice ? '' : 'none';
+        supplierInput.required = (docTypeSelect.value === 'fatura');
+    }
+
+    docTypeSelect.addEventListener('change', toggleFields);
+    toggleFields();
+})();
+</script>
 {% endblock %}

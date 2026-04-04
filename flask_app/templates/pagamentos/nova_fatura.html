@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <h5 class="mb-3">➕ Nova Fatura de Fornecedor</h5>
+    <h5 class="mb-3">➕ Registar Documento</h5>
 
     <!-- Canal 1: Upload PDF -->
     <div class="card mb-3">
@@ -47,33 +47,40 @@
     <div class="card mb-3">
         <div class="card-body">
             <h6 class="card-title mb-1">✏️ Entrada Manual</h6>
-            <p class="text-muted small mb-3">Introduzir dados da fatura manualmente</p>
+            <p class="text-muted small mb-3">Introduzir dados do documento manualmente</p>
             <form method="post" enctype="multipart/form-data">
                 <div class="mb-3">
-                    <label class="form-label small">Fornecedor *</label>
-                    <input type="text" name="supplier_name" class="form-control form-control-sm" required
-                           list="suppliers-list" placeholder="Nome do fornecedor">
+                    <label class="form-label small" id="supplier-label-pag">Fornecedor / Entidade <span id="supplier-req-mark-pag" class="text-danger">*</span></label>
+                    <input type="text" name="supplier_name" id="supplier-name-pag" class="form-control form-control-sm"
+                           list="suppliers-list" placeholder="Nome do fornecedor ou entidade">
                     <datalist id="suppliers-list">
                         {% for s in suppliers %}
                         <option value="{{ s.name }}">{{ s.name }} {% if s.nif %}(NIF: {{ s.nif }}){% endif %}</option>
                         {% endfor %}
                     </datalist>
                 </div>
+
                 <div class="mb-3">
-                    <label class="form-label small">NIF do Fornecedor</label>
-                    <input type="text" name="supplier_nif" class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
+                    <label class="form-label small">Tipo de Documento <span class="text-danger">*</span></label>
+                    <select name="document_type" id="doc-type-pag" class="form-select form-select-sm">
+                        <option value="fatura">Fatura</option>
+                        <option value="nota_credito">Nota de Crédito</option>
+                        <option value="nota_debito">Nota de Débito</option>
+                        <option value="nota_pagamento_imposto">Nota de Pagamento de Imposto</option>
+                        <option value="outro">Outro Documento</option>
+                    </select>
+                </div>
+
+                <div id="pag-supplier-extra">
+                    <div class="mb-3">
+                        <label class="form-label small">NIF do Fornecedor</label>
+                        <input type="text" name="supplier_nif" class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
+                    </div>
                 </div>
 
                 <div class="row g-2">
-                    <div class="col-12">
-                        <label class="form-label small">Tipo de documento</label>
-                        <select name="document_type" class="form-select form-select-sm">
-                            <option value="fatura">Fatura</option>
-                            <option value="nota_credito">Nota de Crédito</option>
-                        </select>
-                    </div>
                     <div class="col-6">
-                        <label class="form-label small">Nº Fatura</label>
+                        <label class="form-label small">Nº Documento</label>
                         <input type="text" name="invoice_number" class="form-control form-control-sm" placeholder="Ex: FT 2025/001">
                     </div>
                     <div class="col-6">
@@ -84,7 +91,7 @@
                         <label class="form-label small">Valor Total (€) *</label>
                         <input type="number" name="amount_eur" class="form-control form-control-sm" step="0.01" min="0" required placeholder="0.00">
                     </div>
-                    <div class="col-6">
+                    <div class="col-6" id="pag-vat-field">
                         <label class="form-label small">IVA (€)</label>
                         <input type="number" name="vat_amount_eur" class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00">
                     </div>
@@ -140,7 +147,7 @@
                         <label class="form-label small">Ficheiro PDF / Imagem <span class="text-muted">(opcional)</span></label>
                         <input type="file" name="pdf_file" class="form-control form-control-sm"
                                accept=".pdf,image/*">
-                        <div class="form-text">Anexa o PDF ou fotografia da fatura para arquivo no OneDrive.</div>
+                        <div class="form-text">Anexa o PDF ou fotografia do documento para arquivo no OneDrive.</div>
                     </div>
                     <div class="col-12">
                         <label class="form-label small">Subpasta OneDrive</label>
@@ -155,10 +162,34 @@
                 </div>
 
                 <div class="d-grid mt-3">
-                    <button type="submit" class="btn btn-primary">Guardar Fatura</button>
+                    <button type="submit" class="btn btn-primary">Guardar Documento</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var INVOICE_TYPES = ['fatura', 'nota_credito', 'nota_debito'];
+    var docType = document.getElementById('doc-type-pag');
+    var supplierExtra = document.getElementById('pag-supplier-extra');
+    var vatField = document.getElementById('pag-vat-field');
+    var reqMark = document.getElementById('supplier-req-mark-pag');
+    var supplierInput = document.getElementById('supplier-name-pag');
+
+    function toggleFields() {
+        var isInvoice = INVOICE_TYPES.indexOf(docType.value) !== -1;
+        supplierExtra.style.display = isInvoice ? '' : 'none';
+        vatField.style.display = isInvoice ? '' : 'none';
+        reqMark.style.display = isInvoice ? '' : 'none';
+        supplierInput.required = (docType.value === 'fatura');
+    }
+
+    docType.addEventListener('change', toggleFields);
+    toggleFields();
+})();
+</script>
 {% endblock %}

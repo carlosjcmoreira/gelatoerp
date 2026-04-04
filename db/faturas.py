@@ -148,9 +148,15 @@ INVOICE_CATEGORIES = [
 
 
 DOCUMENT_TYPE_LABELS = {
-    'fatura': 'Fatura',
-    'nota_credito': 'Nota de Crédito',
+    'fatura':                 'Fatura',
+    'nota_credito':           'Nota de Crédito',
+    'nota_debito':            'Nota de Débito',
+    'nota_pagamento_imposto': 'Nota de Pagamento de Imposto',
+    'outro':                  'Outro Documento',
 }
+
+# Types that represent a supplier invoice (full supplier fields required)
+DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
 
 
 def _row_to_invoice(row) -> dict:

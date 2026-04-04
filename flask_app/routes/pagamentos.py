@@ -102,7 +102,8 @@ def nova_fatura():
         categoria = request.form.get('categoria', '').strip() or None
         notes = request.form.get('notes', '').strip() or None
         document_type = request.form.get('document_type', 'fatura')
-        if document_type not in ('fatura', 'nota_credito'):
+        from db.faturas import DOCUMENT_TYPE_LABELS as _DTL
+        if document_type not in _DTL:
             document_type = 'fatura'
         onedrive_subfolder = request.form.get('onedrive_subfolder', '').strip() or None
         centro_custo_raw = request.form.get('centro_custo_id', '').strip()
@@ -110,8 +111,8 @@ def nova_fatura():
         categoria_custo_raw = request.form.get('categoria_custo_id', '').strip()
         categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
 
-        if not supplier_name:
-            flash('Nome do fornecedor é obrigatório.', 'warning')
+        if not supplier_name and document_type == 'fatura':
+            flash('Nome do fornecedor é obrigatório para faturas.', 'warning')
             return redirect(url_for('pagamentos.nova_fatura'))
         try:
             amount_eur = float(amount_str)
@@ -190,17 +191,20 @@ def nova_fatura():
                 flash(f'Fatura registada. Erro ao arquivar no OneDrive: {exc}', 'warning')
 
         # Auto-propose a liquidity-aware payment date
+        from db.faturas import DOCUMENT_TYPE_LABELS as _DTL2
+        _doc_label = _DTL2.get(document_type, 'Documento')
+        _entity = f' de {supplier_name}' if supplier_name else ''
         if due_date:
             suggested_date, is_fallback, _ = suggest_payment_date(
                 invoice_id, amount_eur, due_date=due_date
             )
             propose_invoice_payment(invoice_id, suggested_date, amount_eur)
             if is_fallback:
-                flash(f'Fatura registada. Data de pagamento sugerida = vencimento ({due_date.strftime("%d/%m/%Y")}) — sem semana com liquidez suficiente nas próximas 8 semanas.', 'warning')
+                flash(f'{_doc_label} registado. Data de pagamento sugerida = vencimento ({due_date.strftime("%d/%m/%Y")}) — sem semana com liquidez suficiente nas próximas 8 semanas.', 'warning')
             else:
-                flash(f'Fatura de {supplier_name} registada. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
+                flash(f'{_doc_label}{_entity} registado. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
         else:
-            flash(f'Fatura de {supplier_name} registada!', 'success')
+            flash(f'{_doc_label}{_entity} registado com sucesso!', 'success')
 
         return redirect(url_for('faturas.index'))
 
