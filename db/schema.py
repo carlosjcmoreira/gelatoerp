@@ -1594,6 +1594,11 @@ def run_migrations_centros_custo():
             'UPDATE cost_centers SET ativo=FALSE WHERE code != ALL(%s)',
             (_valid_codes,)
         )
+        # Ensure all canonical cost centers are active
+        cursor.execute(
+            'UPDATE cost_centers SET ativo=TRUE WHERE code = ANY(%s)',
+            (_valid_codes,)
+        )
 
         # ── Correct old wrong top-level category names ─────────────────────
         cursor.execute(
