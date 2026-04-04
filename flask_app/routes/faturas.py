@@ -101,6 +101,7 @@ def index():
             cost_categories_tree=[],
             centro_custo_filter=None,
             categoria_custo_filter=None,
+            document_type_labels=DOCUMENT_TYPE_LABELS,
         )
 
     if view == 'centro_custo':
@@ -145,6 +146,7 @@ def index():
             cost_categories_tree=[],
             centro_custo_filter=None,
             categoria_custo_filter=None,
+            document_type_labels=DOCUMENT_TYPE_LABELS,
         )
 
     if view == 'categoria_custo':
@@ -188,6 +190,7 @@ def index():
             cost_categories_tree=[],
             centro_custo_filter=None,
             categoria_custo_filter=None,
+            document_type_labels=DOCUMENT_TYPE_LABELS,
         )
 
     status_filter = request.args.get('status', '')
@@ -244,6 +247,7 @@ def index():
         cost_categories_tree=cost_categories_tree,
         centro_custo_filter=centro_custo_filter,
         categoria_custo_filter=categoria_custo_filter,
+        document_type_labels=DOCUMENT_TYPE_LABELS,
     )
 
 

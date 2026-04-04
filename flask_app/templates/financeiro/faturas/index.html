@@ -124,10 +124,13 @@
                                     </a>
                                 </td>
                                 <td>
-                                    {% if inv.document_type == 'nota_credito' %}
+                                    {% set _dt = inv.document_type or 'fatura' %}
+                                    {% if _dt == 'nota_credito' %}
                                     <span class="badge bg-success-subtle text-success-emphasis">NC</span>
-                                    {% else %}
+                                    {% elif _dt == 'fatura' %}
                                     <span class="badge bg-light text-dark border">FT</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ document_type_labels.get(_dt, _dt)|truncate(8, True, '…') }}</span>
                                     {% endif %}
                                 </td>
                                 <td class="text-end text-nowrap small fw-semibold
@@ -205,6 +208,10 @@
                         {% else %}—{% endif %}
                     </td>
                     <td>
+                        {% set _dtcc = inv.document_type or 'fatura' %}
+                        {% if _dtcc != 'fatura' and _dtcc != 'nota_credito' %}
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ document_type_labels.get(_dtcc, _dtcc)|truncate(8, True, '…') }}</span>
+                        {% endif %}
                         <span class="badge {% if inv.display_status == 'overdue' %}bg-danger
                             {% elif inv.status == 'pending_review' %}bg-warning text-dark
                             {% elif inv.status == 'scheduled' %}bg-info text-dark
@@ -263,6 +270,10 @@
                         {% else %}—{% endif %}
                     </td>
                     <td>
+                        {% set _dtcat = inv.document_type or 'fatura' %}
+                        {% if _dtcat != 'fatura' and _dtcat != 'nota_credito' %}
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ document_type_labels.get(_dtcat, _dtcat)|truncate(8, True, '…') }}</span>
+                        {% endif %}
                         <span class="badge {% if inv.display_status == 'overdue' %}bg-danger
                             {% elif inv.status == 'pending_review' %}bg-warning text-dark
                             {% elif inv.status == 'scheduled' %}bg-info text-dark
@@ -453,8 +464,11 @@
                         {% else %}—{% endif %}
                     </td>
                     <td>
-                        {% if inv.document_type == 'nota_credito' %}
+                        {% set _dtdoc = inv.document_type or 'fatura' %}
+                        {% if _dtdoc == 'nota_credito' %}
                         <span class="badge bg-success-subtle text-success-emphasis me-1" title="Nota de Crédito">NC</span>
+                        {% elif _dtdoc != 'fatura' %}
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ document_type_labels.get(_dtdoc, _dtdoc)|truncate(8, True, '…') }}</span>
                         {% endif %}
                         <span class="badge
                             {% if overdue %}bg-danger

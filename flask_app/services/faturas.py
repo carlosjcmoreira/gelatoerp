@@ -226,8 +226,8 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
         except Exception:
             pass
 
-    # Server-side validation for new supplier required fields
-    if is_new_supplier:
+    # Server-side validation for new supplier required fields (only for faturas)
+    if is_new_supplier and document_type == 'fatura':
         if not supplier_name or not supplier_nif:
             raise ServiceError('Nome e NIF do fornecedor são obrigatórios.')
         if not supplier_payment_method:
