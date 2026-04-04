@@ -1565,15 +1565,22 @@ def run_migrations_centros_custo():
             'categoria_custo_id INTEGER REFERENCES cost_categories(id)'
         )
 
+        # ── Correct old wrong cost center names (from previous incorrect seed) ──
+        cursor.execute("UPDATE cost_centers SET name='Produção',            description='Centro de produção de gelados e pastelaria' WHERE code='P'")
+        cursor.execute("UPDATE cost_centers SET name='Geral',               description='Custos gerais não alocados a loja ou área específica' WHERE code='G'")
+        cursor.execute("UPDATE cost_centers SET name='Distribuição',        description='Entregas, transporte e logística' WHERE code='D'")
+        cursor.execute("UPDATE cost_centers SET name='Eventos',             description='Eventos e B2B' WHERE code='E'")
+        cursor.execute("UPDATE cost_centers SET name='Faturas Partilhadas', description='Faturas com custo partilhado entre centros' WHERE code='FP'")
+
         # ── Seed: centros de custo ─────────────────────────────────────────
         CENTROS = [
-            ('P',  'Produção',           'Laboratório de produção de gelados'),
-            ('M',  'Matosinhos',         'Loja de Matosinhos'),
-            ('B',  'Bolhão',             'Loja do Bolhão'),
-            ('G',  'Garagem',            'Armazém / Garagem'),
-            ('D',  'Delivery',           'Entregas e transporte'),
-            ('E',  'Escritório',         'Administração e escritório'),
-            ('FP', 'Fora de Portugal',   'Operações fora de Portugal'),
+            ('P',  'Produção',            'Centro de produção de gelados e pastelaria'),
+            ('M',  'Matosinhos',          'Loja de Matosinhos'),
+            ('B',  'Bolhão',              'Loja do Bolhão'),
+            ('G',  'Geral',               'Custos gerais não alocados a loja ou área específica'),
+            ('D',  'Distribuição',        'Entregas, transporte e logística'),
+            ('E',  'Eventos',             'Eventos e B2B'),
+            ('FP', 'Faturas Partilhadas', 'Faturas com custo partilhado entre centros'),
         ]
         for code, name, desc in CENTROS:
             cursor.execute('''
@@ -1582,28 +1589,70 @@ def run_migrations_centros_custo():
                 ON CONFLICT (code) DO NOTHING
             ''', (code, name, desc))
 
-        # ── Seed: categorias de custo ──────────────────────────────────────
+        # ── Correct old wrong top-level category names ─────────────────────
+        cursor.execute(
+            "UPDATE cost_categories SET name='Impostos' WHERE name='Impostos e Encargos' AND parent_id IS NULL"
+        )
+
+        # ── Ensure valid top-level categories are active ───────────────────
+        VALID_TOP = [
+            'Custos Fixos Operacionais', 'Custos Variáveis Operacionais', 'Compras', 'Impostos',
+        ]
+        for vt in VALID_TOP:
+            cursor.execute(
+                'UPDATE cost_categories SET ativo=TRUE WHERE name=%s AND parent_id IS NULL',
+                (vt,)
+            )
+
+        # ── Deactivate top-level categories no longer in use ───────────────
+        OLD_TOP = ['Salários e Recursos Humanos', 'Marketing e Comercial', 'Outros']
+        for old_name in OLD_TOP:
+            cursor.execute(
+                'UPDATE cost_categories SET ativo=FALSE WHERE name=%s AND parent_id IS NULL',
+                (old_name,)
+            )
+
+        # ── Deactivate old subcategories no longer in use ──────────────────
+        _OLD_SUBS = {
+            'Custos Fixos Operacionais':    ['Comunicações', 'Licenças e Certificados'],
+            'Custos Variáveis Operacionais': [
+                'Água e Eletricidade', 'Manutenção e Reparações',
+                'Materiais de Embalagem', 'Materiais de Limpeza', 'Uniformes e EPI',
+            ],
+            'Compras':   ['Matérias-Primas', 'Ingredientes', 'Equipamentos'],
+            'Impostos':  ['IVA a Pagar', 'Segurança Social', 'IRS Retido', 'IMI', 'Outros Impostos'],
+        }
+        for parent_name, old_children in _OLD_SUBS.items():
+            cursor.execute(
+                'SELECT id FROM cost_categories WHERE name=%s AND parent_id IS NULL',
+                (parent_name,)
+            )
+            _row = cursor.fetchone()
+            if _row:
+                _pid = _row[0]
+                for old_child in old_children:
+                    cursor.execute(
+                        'UPDATE cost_categories SET ativo=FALSE WHERE name=%s AND parent_id=%s',
+                        (old_child, _pid)
+                    )
+
+        # ── Seed: categorias de custo (correct tree) ───────────────────────
         CATEGORIAS_TOP = [
-            ('Custos Fixos Operacionais',   [
-                'Rendas', 'Seguros', 'Comunicações', 'Contabilidade', 'Licenças e Certificados',
+            ('Custos Fixos Operacionais', [
+                'Rendas', 'Telecomunicações', 'Royalties', 'Contabilidade', 'Advogados',
+                'Marketing', 'Música', 'Sistemas', 'Segurança', 'HACCP', 'SST',
+                'Ecrãs', 'Controlo de Pragas', 'Créditos', 'Leasings', 'Seguros',
             ]),
             ('Custos Variáveis Operacionais', [
-                'Água e Eletricidade', 'Manutenção e Reparações', 'Materiais de Embalagem',
-                'Materiais de Limpeza', 'Uniformes e EPI',
+                'Água', 'Energia', 'Limpezas', 'Consumíveis', 'Transportes', 'Economato',
             ]),
             ('Compras', [
-                'Matérias-Primas', 'Ingredientes', 'Equipamentos',
+                'Matéria Prima',
             ]),
-            ('Impostos e Encargos', [
-                'IVA a Pagar', 'Segurança Social', 'IRS Retido', 'IMI', 'Outros Impostos',
+            ('Impostos', [
+                'IVA', 'DMR', 'Retenção IRS', 'IRC e Imposto de Selo',
+                'TSU', 'Pagamento por Conta', 'IES',
             ]),
-            ('Salários e Recursos Humanos', [
-                'Salários Líquidos', 'Subsídios', 'Formação',
-            ]),
-            ('Marketing e Comercial', [
-                'Publicidade', 'Eventos e Promoções', 'Website e Redes Sociais',
-            ]),
-            ('Outros', []),
         ]
         for top_name, sub_names in CATEGORIAS_TOP:
             cursor.execute('''
@@ -1625,6 +1674,11 @@ def run_migrations_centros_custo():
                         VALUES (%s, %s)
                         ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
                     ''', (sub, parent_id))
+                    # Ensure newly-seeded subcategories are active
+                    cursor.execute(
+                        'UPDATE cost_categories SET ativo=TRUE WHERE name=%s AND parent_id=%s',
+                        (sub, parent_id)
+                    )
 
         conn.commit()
 
