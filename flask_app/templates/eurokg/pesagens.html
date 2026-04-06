@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eurokg.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="fw-bold mb-1">⚖️ Pesagens</h5>
+    <p class="text-muted small mb-3">Registos de pesagem de gelado por loja e período</p>
+
+    <form method="get" action="{{ url_for('eurokg.pesagens') }}" class="mb-4">
+        <div class="card card-body py-3">
+            <div class="row g-3 align-items-end">
+
+                <div class="col-12 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1">Loja</label>
+                    <div class="d-flex gap-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="loja" value="Bolhão"
+                                   id="cb-bolhao" {% if 'Bolhão' in lojas %}checked{% endif %}>
+                            <label class="form-check-label small" for="cb-bolhao">🛒 Bolhão</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="loja" value="Matosinhos"
+                                   id="cb-mat" {% if 'Matosinhos' in lojas %}checked{% endif %}>
+                            <label class="form-check-label small" for="cb-mat">🏭 Matosinhos</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-6 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1" for="de">De</label>
+                    <input type="date" id="de" name="de" class="form-control form-control-sm"
+                           value="{{ de_date }}" style="min-width:140px;">
+                </div>
+
+                <div class="col-6 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1" for="ate">Até</label>
+                    <input type="date" id="ate" name="ate" class="form-control form-control-sm"
+                           value="{{ ate_date }}" style="min-width:140px;">
+                </div>
+
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Ver</button>
+                </div>
+
+            </div>
+        </div>
+    </form>
+
+    {% if single_day %}
+    {# ── Single-day mode: sabor breakdown per loja ── #}
+
+    {% if detail_data and detail_data.by_loja %}
+
+        {% if lojas|length > 1 %}
+        {# Both stores: side-by-side cards #}
+        <div class="row g-3">
+            {% for loja in lojas %}
+            {% set rows = detail_data.by_loja.get(loja, []) %}
+            <div class="col-12 col-md-6">
+                <h6 class="fw-bold mb-2">
+                    {% if loja == 'Bolhão' %}🛒{% else %}🏭{% endif %} {{ loja }}
+                </h6>
+                {% if rows %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped mb-1">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Sabor</th>
+                                <th>Tipo</th>
+                                <th class="text-end">Qtd (kg)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for r in rows %}
+                            <tr>
+                                <td>{{ r.sabor }}</td>
+                                <td><span class="badge {% if r.tipo == 'Início' %}bg-info text-dark{% else %}bg-secondary{% endif %} small">{{ r.tipo }}</span></td>
+                                <td class="text-end">{{ "%.3f"|format(r.quantidade_kg) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold table-secondary">
+                                <td colspan="2">Total</td>
+                                <td class="text-end">{{ "%.3f"|format(detail_data.totals.get(loja, 0)) }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted small">Sem registos para {{ loja }}.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% if lojas|length == 2 %}
+        <div class="mt-2 text-end text-muted small fw-semibold">
+            Total global: {{ "%.3f"|format(detail_data.grand_total) }} kg
+        </div>
+        {% endif %}
+
+        {% else %}
+        {# Single store selected #}
+        {% set loja = lojas[0] %}
+        {% set rows = detail_data.by_loja.get(loja, []) %}
+        <h6 class="fw-bold mb-2">
+            {% if loja == 'Bolhão' %}🛒{% else %}🏭{% endif %} {{ loja }}
+        </h6>
+        {% if rows %}
+        <div class="table-responsive">
+            <table class="table table-sm table-striped">
+                <thead class="table-light">
+                    <tr>
+                        <th>Sabor</th>
+                        <th>Tipo</th>
+                        <th class="text-end">Qtd (kg)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in rows %}
+                    <tr>
+                        <td>{{ r.sabor }}</td>
+                        <td><span class="badge {% if r.tipo == 'Início' %}bg-info text-dark{% else %}bg-secondary{% endif %} small">{{ r.tipo }}</span></td>
+                        <td class="text-end">{{ "%.3f"|format(r.quantidade_kg) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="fw-bold table-secondary">
+                        <td colspan="2">Total</td>
+                        <td class="text-end">{{ "%.3f"|format(detail_data.grand_total) }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted small">Sem registos para {{ loja }} neste dia.</p>
+        {% endif %}
+        {% endif %}
+
+    {% else %}
+    <div class="alert alert-info small">Sem pesagens registadas para o dia e loja(s) selecionados.</div>
+    {% endif %}
+
+    {% else %}
+    {# ── Multi-day mode: daily totals per loja ── #}
+
+    {% if summary_data and summary_data.rows %}
+    <div class="table-responsive">
+        <table class="table table-sm table-striped">
+            <thead class="table-light">
+                <tr>
+                    <th>Data</th>
+                    {% if 'Bolhão' in lojas %}<th class="text-end">🛒 Bolhão (kg)</th>{% endif %}
+                    {% if 'Matosinhos' in lojas %}<th class="text-end">🏭 Matosinhos (kg)</th>{% endif %}
+                    <th class="text-end">Total (kg)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in summary_data.rows %}
+                <tr>
+                    <td>{{ row.data }}</td>
+                    {% if 'Bolhão' in lojas %}<td class="text-end">{{ "%.3f"|format(row.get('Bolhão', 0)) }}</td>{% endif %}
+                    {% if 'Matosinhos' in lojas %}<td class="text-end">{{ "%.3f"|format(row.get('Matosinhos', 0)) }}</td>{% endif %}
+                    <td class="text-end fw-semibold">{{ "%.3f"|format(row.total) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr class="fw-bold table-secondary">
+                    <td>TOTAL</td>
+                    {% if 'Bolhão' in lojas %}<td class="text-end">{{ "%.3f"|format(summary_data.totals.get('Bolhão', 0)) }}</td>{% endif %}
+                    {% if 'Matosinhos' in lojas %}<td class="text-end">{{ "%.3f"|format(summary_data.totals.get('Matosinhos', 0)) }}</td>{% endif %}
+                    <td class="text-end">{{ "%.3f"|format(summary_data.grand_total) }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info small">Sem pesagens registadas para o período e loja(s) selecionados.</div>
+    {% endif %}
+
+    {% endif %}
+
+</div>
+{% endblock %}

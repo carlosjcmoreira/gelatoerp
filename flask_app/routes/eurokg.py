@@ -22,6 +22,7 @@ MENU_ITEMS = [
     {'icon': '📅', 'label': 'Resumo Mensal', 'url_endpoint': 'eurokg.resumo_mensal'},
     {'icon': '🧮', 'label': 'Consumo Teórico', 'url_endpoint': 'eurokg.consumo_teorico'},
     {'icon': '💶', 'label': 'Vendas por Produto', 'url_endpoint': 'eurokg.vendas_produto'},
+    {'icon': '⚖️', 'label': 'Pesagens', 'url_endpoint': 'eurokg.pesagens'},
 ]
 
 MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
@@ -33,6 +34,7 @@ def _build_tabs(loja_filter, is_gestor, active):
         {'id': 'dashboard', 'label': 'Dashboard', 'icon': '📊', 'url': url_for('eurokg.dashboard', loja=loja_filter)},
         {'id': 'resumo', 'label': 'Resumo Mensal', 'icon': '📅', 'url': url_for('eurokg.resumo_mensal', loja=loja_filter)},
         {'id': 'vendas', 'label': 'Vendas por Produto', 'icon': '💶', 'url': url_for('eurokg.vendas_produto', loja=loja_filter)},
+        {'id': 'pesagens', 'label': 'Pesagens', 'icon': '⚖️', 'url': url_for('eurokg.pesagens')},
     ]
     if is_gestor:
         tabs.append({'id': 'consumo', 'label': 'Consumo Teórico', 'icon': '🍦', 'url': url_for('eurokg.consumo_teorico', loja=loja_filter)})
@@ -364,5 +366,111 @@ def add_gramas():
             flash("Erro ao adicionar. O artigo pode já existir.", 'error')
     else:
         flash("Preencha todos os campos.", 'warning')
+
+
+@eurokg_bp.route('/pesagens')
+@perm_required('acesso_eurokg')
+def pesagens():
+    import calendar
+    from collections import defaultdict
+    from db.pastelaria import get_stock_gelado_df
+
+    today = date.today()
+    first_of_month = today.replace(day=1)
+    last_of_month = today.replace(day=calendar.monthrange(today.year, today.month)[1])
+
+    lojas_raw = request.args.getlist('loja')
+    lojas = [l for l in lojas_raw if l in ('Bolhão', 'Matosinhos')]
+    if not lojas:
+        lojas = ['Bolhão', 'Matosinhos']
+
+    de_str = request.args.get('de', str(first_of_month))
+    ate_str = request.args.get('ate', str(last_of_month))
+
+    try:
+        de_date = date.fromisoformat(de_str)
+    except (ValueError, TypeError):
+        de_date = first_of_month
+    try:
+        ate_date = date.fromisoformat(ate_str)
+    except (ValueError, TypeError):
+        ate_date = last_of_month
+
+    if ate_date < de_date:
+        ate_date = de_date
+
+    single_day = (de_date == ate_date)
+
+    all_rows = []
+    for loja in lojas:
+        rows = get_stock_gelado_df(loja=loja, data_inicio=de_date, data_fim=ate_date)
+        all_rows.extend(rows)
+    all_rows.sort(key=lambda r: (str(r['data']), r['loja'], r.get('sabor') or ''))
+
+    TIPO_LABELS = {'inicio': 'Início', 'fim': 'Fim'}
+
+    if single_day:
+        by_loja = defaultdict(list)
+        total_by_loja = defaultdict(float)
+        grand_total = 0.0
+        for row in all_rows:
+            entry = {
+                'sabor': row.get('sabor') or '—',
+                'tipo': TIPO_LABELS.get(row.get('tipo', ''), row.get('tipo', '')),
+                'quantidade_kg': round(float(row.get('quantidade_kg') or 0), 3),
+            }
+            by_loja[row['loja']].append(entry)
+            total_by_loja[row['loja']] += entry['quantidade_kg']
+            grand_total += entry['quantidade_kg']
+        detail_data = {
+            'by_loja': dict(by_loja),
+            'totals': {k: round(v, 3) for k, v in total_by_loja.items()},
+            'grand_total': round(grand_total, 3),
+        }
+        summary_data = None
+    else:
+        by_date = defaultdict(lambda: defaultdict(float))
+        for row in all_rows:
+            d = str(row['data'])
+            by_date[d][row['loja']] += float(row.get('quantidade_kg') or 0)
+
+        summary_rows = []
+        total_by_loja = defaultdict(float)
+        grand_total = 0.0
+        for d in sorted(by_date.keys()):
+            row_totals = by_date[d]
+            row_entry = {'data': d}
+            row_sum = 0.0
+            for loja in lojas:
+                kg = round(row_totals.get(loja, 0.0), 3)
+                row_entry[loja] = kg
+                total_by_loja[loja] += kg
+                row_sum += kg
+            row_entry['total'] = round(row_sum, 3)
+            grand_total += row_sum
+            summary_rows.append(row_entry)
+
+        summary_data = {
+            'rows': summary_rows,
+            'totals': {k: round(v, 3) for k, v in total_by_loja.items()},
+            'grand_total': round(grand_total, 3),
+        }
+        detail_data = None
+
+    user = session.get('user', {})
+    is_gestor = user.get('acesso_gestor', False)
+    loja_for_tabs = lojas[0] if len(lojas) == 1 else 'Bolhão'
+    tabs = _build_tabs(loja_for_tabs, is_gestor, 'pesagens')
+
+    return render_template('eurokg/pesagens.html',
+        lojas=lojas,
+        de_date=str(de_date),
+        ate_date=str(ate_date),
+        single_day=single_day,
+        detail_data=detail_data,
+        summary_data=summary_data,
+        active_tab='pesagens',
+        tabs=tabs,
+    )
 
     return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
