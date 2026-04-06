@@ -462,6 +462,7 @@ def pesagens():
         }
         detail_data = None
 
+    has_data = len(all_rows) > 0
     user = session.get('user', {})
     is_gestor = user.get('acesso_gestor', False)
     loja_for_tabs = lojas[0] if len(lojas) == 1 else 'Bolhão'
@@ -472,10 +473,9 @@ def pesagens():
         de_date=str(de_date),
         ate_date=str(ate_date),
         single_day=single_day,
+        has_data=has_data,
         detail_data=detail_data,
         summary_data=summary_data,
         active_tab='pesagens',
         tabs=tabs,
     )
-
-    return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))

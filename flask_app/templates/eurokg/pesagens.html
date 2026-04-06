@@ -4,6 +4,8 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
 
+    {% include "components/tabs.html" %}
+
     <h5 class="fw-bold mb-1">⚖️ Pesagens</h5>
     <p class="text-muted small mb-3">Registos de pesagem de gelado por loja e período</p>
 
@@ -146,7 +148,7 @@
     {% else %}
     {# ── Multi-day mode: daily totals per loja ── #}
 
-    {% if summary_data and summary_data.rows %}
+    {% if has_data and summary_data and summary_data.rows %}
     <div class="table-responsive">
         <table class="table table-sm table-striped">
             <thead class="table-light">
