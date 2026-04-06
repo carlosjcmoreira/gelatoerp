@@ -110,27 +110,21 @@ def ajustar_plano_dia(data: date, ajustes: dict) -> int:
 
 def executar_plano_dia(data: date, sabores_reais: dict) -> dict:
     """
-    Apply real production quantities to the day's plan, update stock, and
-    auto-create quebras where actual < estimated (first submission only).
+    Apply real production quantities to the day's plan and update stock.
 
     ``sabores_reais`` maps sabor name → ``{'real_b', 'real_m', 'real_mou', 'real_outros'}``.
-    ``real_outros`` (Eventos/B2B) is persisted but does NOT update store stock and does NOT
-    trigger quebras.
+    ``real_outros`` (Eventos/B2B) is persisted but does NOT update store stock.
 
-    Returns ``{'registos': int, 'quebras': int}``.
+    Returns ``{'registos': int}``.
     """
     from database import (
         get_plano_do_dia,
         update_producao_real,
         upsert_stock_producao,
-        add_quebra,
     )
-
-    _QUEBRA_IMPLAUSIVEL_LIMITE_KG = 50.0
 
     entradas = get_plano_do_dia(data)
     registos = 0
-    quebras_count = 0
 
     for e in entradas:
         sabor = e['sabor']
@@ -159,42 +153,7 @@ def executar_plano_dia(data: date, sabores_reais: dict) -> dict:
         if not had_real_mou and real_mou > 0:
             upsert_stock_producao(data, sabor, 'Mouzinho', real_mou)
 
-        est_b = e.get('estimado_bolhao') or 0
-        est_m = e.get('estimado_matosinhos') or 0
-        est_mou = e.get('estimado_mouzinho') or 0
-
-        if not had_real_b and real_b < est_b and est_b > 0:
-            diff_b = est_b - real_b
-            if diff_b > _QUEBRA_IMPLAUSIVEL_LIMITE_KG:
-                logger.warning(
-                    "QUEBRA IMPLAUSÍVEL ignorada: %s / Bolhão — estimado=%.2f real=%.2f diff=%.2f kg (limite=%.0f kg)",
-                    sabor, est_b, real_b, diff_b, _QUEBRA_IMPLAUSIVEL_LIMITE_KG)
-            else:
-                add_quebra(data, 'Bolhão', diff_b,
-                           'Quebra de produção (estimado vs real)', sabor)
-                quebras_count += 1
-        if not had_real_m and real_m < est_m and est_m > 0:
-            diff_m = est_m - real_m
-            if diff_m > _QUEBRA_IMPLAUSIVEL_LIMITE_KG:
-                logger.warning(
-                    "QUEBRA IMPLAUSÍVEL ignorada: %s / Matosinhos — estimado=%.2f real=%.2f diff=%.2f kg (limite=%.0f kg)",
-                    sabor, est_m, real_m, diff_m, _QUEBRA_IMPLAUSIVEL_LIMITE_KG)
-            else:
-                add_quebra(data, 'Matosinhos', diff_m,
-                           'Quebra de produção (estimado vs real)', sabor)
-                quebras_count += 1
-        if not had_real_mou and real_mou < est_mou and est_mou > 0:
-            diff_mou = est_mou - real_mou
-            if diff_mou > _QUEBRA_IMPLAUSIVEL_LIMITE_KG:
-                logger.warning(
-                    "QUEBRA IMPLAUSÍVEL ignorada: %s / Mouzinho — estimado=%.2f real=%.2f diff=%.2f kg (limite=%.0f kg)",
-                    sabor, est_mou, real_mou, diff_mou, _QUEBRA_IMPLAUSIVEL_LIMITE_KG)
-            else:
-                add_quebra(data, 'Mouzinho', diff_mou,
-                           'Quebra de produção (estimado vs real)', sabor)
-                quebras_count += 1
-
-    return {'registos': registos, 'quebras': quebras_count}
+    return {'registos': registos}
 
 
 # ── Sabores helpers ───────────────────────────────────────────────────────────

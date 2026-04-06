@@ -1784,6 +1784,40 @@ def run_data_fix_quebras_march2026():
         release_connection(conn)
 
 
+def run_data_fix_delete_auto_quebras():
+    """
+    One-time idempotent deletion of all auto-generated quebras created during
+    gelado production registration (motivo = 'Quebra de produção (estimado vs real)').
+
+    These rows recorded plan-vs-actual differences, not real stock losses.
+    The auto-creation logic has been removed from executar_plano_dia; this
+    function purges the historical records created before that change.
+
+    Becomes a no-op immediately after the first run (no matching rows remain).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "DELETE FROM quebras WHERE motivo = 'Quebra de produção (estimado vs real)'"
+        )
+        deleted = cursor.rowcount
+        conn.commit()
+        if deleted:
+            logger.info(
+                "run_data_fix_delete_auto_quebras: deleted %d auto-generated quebra(s)",
+                deleted,
+            )
+    except Exception as exc:
+        logger.error("run_data_fix_delete_auto_quebras failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+
 def run_data_fix_pesagem_april2026():
     """
     One-time idempotent correction of 7 plano_producao rows where

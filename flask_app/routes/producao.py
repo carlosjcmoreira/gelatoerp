@@ -398,15 +398,9 @@ def executar_plano():
 
         result = producao_svc.executar_plano_dia(data_plano, sabores_reais)
         registos = result['registos']
-        quebras_count = result['quebras']
 
-        msgs = []
         if registos > 0:
-            msgs.append(f"{registos} sabor(es) registado(s)")
-        if quebras_count > 0:
-            msgs.append(f"{quebras_count} quebra(s) de produção criada(s)")
-        if msgs:
-            flash(". ".join(msgs) + ".", "success")
+            flash(f"{registos} sabor(es) registado(s).", "success")
         else:
             flash("Nenhuma alteração.", "info")
         return redirect(url_for('producao.executar_plano', data=str(date.today())))
