@@ -1909,6 +1909,62 @@ def run_data_fix_pesagem_april2026():
         release_connection(conn)
 
 
+def run_data_fix_march1_dedup():
+    """
+    One-time idempotent fix: remove duplicate rows from vendas_detalhe for
+    2026-03-01.  On that date every product was imported twice for both lojas,
+    adding ~3 130 € to the all-products total and ~2 826 € to the gelado_kpi
+    indicator.  We keep the row with the lowest id for each (data, loja,
+    produto) combination and delete the rest.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202608)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_data_fix_march1_dedup: lock held by another worker, skipping")
+            return
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT data, loja, produto
+                FROM vendas_detalhe
+                WHERE data = '2026-03-01'
+                GROUP BY data, loja, produto
+                HAVING COUNT(*) > 1
+            ) dup
+        """)
+        pending = cursor.fetchone()[0]
+        if pending == 0:
+            logger.info("run_data_fix_march1_dedup: no duplicates found for 2026-03-01, skipping")
+            return
+
+        cursor.execute("""
+            DELETE FROM vendas_detalhe
+            WHERE data = '2026-03-01'
+              AND id NOT IN (
+                  SELECT MIN(id)
+                  FROM vendas_detalhe
+                  WHERE data = '2026-03-01'
+                  GROUP BY loja, produto
+              )
+        """)
+        deleted = cursor.rowcount
+        conn.commit()
+        logger.info(
+            "run_data_fix_march1_dedup: removed %d duplicate rows for 2026-03-01",
+            deleted,
+        )
+    except Exception as exc:
+        logger.error("run_data_fix_march1_dedup failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+
 def run_data_fix_pesagem_matosinhos_backfill():
     """
     One-time idempotent backfill: copy all plano_producao rows where
