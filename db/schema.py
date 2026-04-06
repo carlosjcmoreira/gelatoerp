@@ -1965,6 +1965,79 @@ def run_data_fix_march1_dedup():
         release_connection(conn)
 
 
+def run_data_fix_gelado_kpi_classification():
+    """
+    One-time idempotent fix: set gelado_kpi = TRUE for cone and brioche
+    products that were inserted into produtos_vendas_config with an incorrect
+    FALSE classification before the keyword rules were applied consistently.
+
+    Confirmed products that contain gelado-related keywords but are currently
+    classified FALSE (they are genuine gelado-container/serving products and
+    must count towards the euro/kg KPI):
+      - Cone(s)
+      - Cones (Box 3) Uber
+      - Cones (Box 3) Bolt
+      - Mini Cone
+      - Mini Cones (Box 10) Uber
+      - Mini Cones (Box 10) Bolt
+      - Cone Simples (avulso)
+      - Brioche simples
+
+    Deliberately excluded from this fix (not gelado containers):
+      - Taxa Caixa Takeaway / Uber / Bolt / Glovo (fee lines)
+      - Caixa Panna 0,5L Bolt (cream product)
+      - Gelado Avelã / Baunilha / Chocolate (scoop add-ons for coffee — to be
+        reviewed separately with the user before changing)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202609)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_data_fix_gelado_kpi_classification: lock held by another worker, skipping")
+            return
+
+        produtos_to_fix = [
+            'Cone(s)',
+            'Cones (Box 3) Uber',
+            'Cones (Box 3) Bolt',
+            'Mini Cone',
+            'Mini Cones (Box 10) Uber',
+            'Mini Cones (Box 10) Bolt',
+            'Cone Simples (avulso)',
+            'Brioche simples',
+        ]
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM produtos_vendas_config
+            WHERE produto = ANY(%s) AND gelado_kpi = FALSE
+        """, (produtos_to_fix,))
+        pending = cursor.fetchone()[0]
+        if pending == 0:
+            logger.info("run_data_fix_gelado_kpi_classification: all products already correctly classified, skipping")
+            return
+
+        cursor.execute("""
+            UPDATE produtos_vendas_config
+            SET gelado_kpi = TRUE
+            WHERE produto = ANY(%s) AND gelado_kpi = FALSE
+        """, (produtos_to_fix,))
+        updated = cursor.rowcount
+        conn.commit()
+        logger.info(
+            "run_data_fix_gelado_kpi_classification: updated %d products to gelado_kpi=TRUE",
+            updated,
+        )
+    except Exception as exc:
+        logger.error("run_data_fix_gelado_kpi_classification failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+
 def run_data_fix_pesagem_matosinhos_backfill():
     """
     One-time idempotent backfill: copy all plano_producao rows where
