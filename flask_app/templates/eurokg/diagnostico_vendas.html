@@ -132,8 +132,11 @@
     <div class="mt-4 p-3 bg-light rounded small text-muted">
         <strong>Como usar:</strong> Dias marcados a amarelo têm dados suspeitos.
         <em>ausente</em> significa que a loja não tem nenhum registo nesse dia enquanto a outra loja tem — o ficheiro de importação provavelmente não incluiu essa loja nesse dia.
-        Para reimportar um dia específico, utilize o <a href="{{ url_for('gestor.vendas_detalhe') }}">Gestor → Vendas Detalhe</a>:
-        primeiro apague os registos do dia (se já existirem) e depois reimporte o ficheiro XLSX correcto.
+        <em>baixo</em> indica que o total ficou abaixo de 35% da média da loja — pode ser uma importação parcial/truncada.
+        <br>
+        Para corrigir, importe o ficheiro XLSX completo em
+        <a href="{{ url_for('gestor.vendas_detalhe') }}">Gestor → Vendas Detalhe</a>.
+        Quando o ficheiro contém datas já existentes na base de dados, os registos anteriores são automaticamente substituídos — não é necessário apagar manualmente.
     </div>
 
 </div>

@@ -601,6 +601,12 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
             rec.get('valor_euros'),
             store_id_cache[loja],
         ))
+    if pre_delete_pairs and not rows:
+        raise ValueError(
+            f"pre_delete_pairs contains {len(pre_delete_pairs)} pair(s) but the "
+            "parsed batch is empty — refusing to delete existing data without replacement. "
+            "Check that the file contains valid sales rows for the expected lojas."
+        )
     conn = get_connection()
     cursor = conn.cursor()
     try:

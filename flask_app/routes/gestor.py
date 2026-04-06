@@ -331,6 +331,18 @@ def vendas_detalhe():
                            default_limit=500)
 
 
+# Q1 2026 confirmed sales data gaps (identified 2026-04-06 via production DB query):
+#   2026-02-02 Bolhão — PARTIAL import: only 4 gelado products / 49.50€ recorded
+#     (full Monday typically 8+ products / ~170-280€). Use /eurokg/diagnostico-vendas
+#     to confirm, then re-upload the correct Feb 02 XLSX for Bolhão.
+#   2026-03-22 Bolhão — COMPLETELY ABSENT (0 rows) while Matosinhos had 1 601.54€.
+#     Upload the missing March 22 XLSX for Bolhão.
+_Q1_KNOWN_GAPS = [
+    ('2026-02-02', 'Bolhão', 'partial'),
+    ('2026-03-22', 'Bolhão', 'absent'),
+]
+
+
 def _handle_upload_vendas(loja_map_vendas):
     uploaded_file = request.files.get('vendas_file')
     if not uploaded_file or uploaded_file.filename == '':
