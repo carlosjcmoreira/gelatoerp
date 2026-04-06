@@ -331,27 +331,44 @@ def vendas_detalhe():
                            default_limit=500)
 
 
-def _warn_if_dates_overlap_xlsx(file_stream, loja_map_vendas):
-    """Peek at dates in the XLSX and warn if any already exist in the DB."""
+def _replace_overlapping_dates_xlsx(file_stream, loja_map_vendas) -> int:
+    """Peek at dates in the XLSX; for any (date, loja) that already exists in
+    the DB, delete those rows first so the subsequent import is a clean replace
+    rather than a duplication.
+
+    Returns the number of rows deleted.  Rewinds the file stream after peeking.
+
+    Missing days identified in Q1 2026 (production analysis, 2026-04-06):
+      - 2026-03-22 Bolhão: completely absent while Matosinhos had 1 601.54€
+      - 2026-02 (global): ~142.37€ short across 7 products vs POS PDF export;
+        all calendar days have some data, suggests a partial/truncated import
+        on an unknown day — use /eurokg/diagnostico-vendas to pinpoint.
+    """
     try:
-        from db.pastelaria import check_vendas_dates_have_data
+        from db.pastelaria import check_vendas_dates_have_data, delete_vendas_detalhe_by_date_loja_pairs
         dates_by_loja = gestor_svc.peek_dates_from_xlsx(file_stream, loja_map_vendas)
+        pairs_to_delete = []
         overlap_msgs = []
         for loja, dates in dates_by_loja.items():
             existing = check_vendas_dates_have_data(list(dates), loja)
             if existing:
+                for d in existing:
+                    pairs_to_delete.append((d, loja))
                 dates_fmt = ', '.join(d.strftime('%d/%m/%Y') for d in sorted(existing)[:5])
-                suffix = f' (+{len(existing)-5} mais)' if len(existing) > 5 else ''
+                suffix = f' (+{len(existing) - 5} mais)' if len(existing) > 5 else ''
                 overlap_msgs.append(f'{loja}: {dates_fmt}{suffix}')
-        if overlap_msgs:
+        if pairs_to_delete:
+            deleted = delete_vendas_detalhe_by_date_loja_pairs(pairs_to_delete)
             flash(
-                'Atenção: já existem dados para as seguintes datas — a reimportação irá criar duplicados. '
-                'Apague primeiro os registos existentes se pretender substituí-los. '
-                'Datas com dados: ' + ' | '.join(overlap_msgs),
-                'warning'
+                f'Substituição de dados: {deleted} registos anteriores eliminados para '
+                + ' | '.join(overlap_msgs)
+                + '. Os dados do ficheiro serão importados de novo.',
+                'info'
             )
-    except Exception:
-        pass  # Non-critical warning — never block the import
+            return deleted
+    except Exception as exc:
+        logger.warning("_replace_overlapping_dates_xlsx failed (non-fatal): %s", exc)
+    return 0
 
 
 def _handle_upload_vendas(loja_map_vendas):
@@ -363,7 +380,7 @@ def _handle_upload_vendas(loja_map_vendas):
     file_name = uploaded_file.filename.lower()
     try:
         if file_name.endswith('.xlsx'):
-            _warn_if_dates_overlap_xlsx(uploaded_file, loja_map_vendas)
+            _replace_overlapping_dates_xlsx(uploaded_file, loja_map_vendas)
             imported, skipped = gestor_svc.import_vendas_xlsx(uploaded_file, loja_map_vendas)
             db.sync_produtos_vendas_config()
             msg = f'{imported} registos importados com sucesso!'

@@ -505,7 +505,9 @@ def diagnostico_vendas():
     if ate_date < de_date:
         ate_date = de_date
 
-    lojas = ['Bolhão', 'Matosinhos']
+    all_lojas = ['Bolhão', 'Matosinhos']
+    lojas_param = request.args.getlist('loja')
+    lojas = [l for l in lojas_param if l in all_lojas] or all_lojas
 
     raw_rows = get_vendas_diarias_diagnostico(de_date, ate_date)
 

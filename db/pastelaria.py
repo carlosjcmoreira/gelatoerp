@@ -1002,6 +1002,29 @@ def get_vendas_diarias_diagnostico(data_inicio: date, data_fim: date) -> list:
     return [{'data': r[0], 'loja': r[1], 'total_euros': float(r[2]), 'n_produtos': int(r[3])} for r in rows]
 
 
+def delete_vendas_detalhe_by_date_loja_pairs(pairs: list) -> int:
+    """Delete all vendas_detalhe rows matching any (date, loja) in ``pairs``.
+
+    ``pairs`` is a list of (date_obj, loja_name) tuples.
+    Returns the total number of deleted rows.
+    Used to clear existing data before a targeted reimport (replace semantics).
+    """
+    if not pairs:
+        return 0
+    conn = get_connection()
+    cursor = conn.cursor()
+    total_deleted = 0
+    for d, loja in pairs:
+        cursor.execute(
+            "DELETE FROM vendas_detalhe WHERE data = %s AND loja = %s",
+            (d, loja)
+        )
+        total_deleted += cursor.rowcount
+    conn.commit()
+    release_connection(conn)
+    return total_deleted
+
+
 def check_vendas_dates_have_data(datas: list, loja: str = None) -> list:
     """Return which dates from ``datas`` already have rows in vendas_detalhe.
 

@@ -10,6 +10,23 @@
     <form method="get" action="{{ url_for('eurokg.diagnostico_vendas') }}" class="mb-4">
         <div class="card card-body py-3">
             <div class="row g-3 align-items-end">
+
+                <div class="col-12 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1">Loja</label>
+                    <div class="d-flex gap-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="loja" value="Bolhão"
+                                   id="cb-bolhao" {% if 'Bolhão' in lojas %}checked{% endif %}>
+                            <label class="form-check-label small" for="cb-bolhao">🛒 Bolhão</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="loja" value="Matosinhos"
+                                   id="cb-mat" {% if 'Matosinhos' in lojas %}checked{% endif %}>
+                            <label class="form-check-label small" for="cb-mat">🏭 Matosinhos</label>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="col-6 col-sm-auto">
                     <label class="form-label small fw-semibold mb-1" for="de">De</label>
                     <input type="date" id="de" name="de" class="form-control form-control-sm"
