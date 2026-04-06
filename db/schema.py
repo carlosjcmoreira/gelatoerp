@@ -1909,3 +1909,76 @@ def run_data_fix_pesagem_april2026():
         release_connection(conn)
 
 
+def run_data_fix_pesagem_matosinhos_backfill():
+    """
+    One-time idempotent backfill: copy all plano_producao rows where
+    pesagem_matosinhos > 0 into stock_gelado (loja='Matosinhos', tipo='inicio')
+    for any (data, sabor) pair not already present there.
+
+    Fixes the gap from 2026-03-02 onwards where the production manager entered
+    Matosinhos weighings via the production plan but the values were never
+    mirrored into stock_gelado.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202607)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_data_fix_pesagem_matosinhos_backfill: lock held by another worker, skipping")
+            return
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM plano_producao pp
+            WHERE pp.pesagem_matosinhos > 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM stock_gelado sg
+                  WHERE sg.data = pp.data
+                    AND sg.loja = 'Matosinhos'
+                    AND sg.sabor = pp.sabor
+                    AND sg.tipo = 'inicio'
+              )
+        """)
+        pending = cursor.fetchone()[0]
+        if pending == 0:
+            logger.info("run_data_fix_pesagem_matosinhos_backfill: nothing to backfill, skipping")
+            return
+
+        cursor.execute("""
+            SELECT s.id AS store_id
+            FROM stores s
+            WHERE s.name = 'Matosinhos'
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+        store_id = row[0] if row else None
+
+        cursor.execute("""
+            INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
+            SELECT pp.data, 'Matosinhos', pp.sabor, pp.pesagem_matosinhos, 'inicio', %s
+            FROM plano_producao pp
+            WHERE pp.pesagem_matosinhos > 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM stock_gelado sg
+                  WHERE sg.data = pp.data
+                    AND sg.loja = 'Matosinhos'
+                    AND sg.sabor = pp.sabor
+                    AND sg.tipo = 'inicio'
+              )
+        """, (store_id,))
+        inserted = cursor.rowcount
+        conn.commit()
+        logger.info(
+            "run_data_fix_pesagem_matosinhos_backfill: inserted %d rows into stock_gelado",
+            inserted,
+        )
+    except Exception as exc:
+        logger.error("run_data_fix_pesagem_matosinhos_backfill failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+

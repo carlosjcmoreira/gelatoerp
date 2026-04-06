@@ -12,7 +12,8 @@ from database import init_database, run_migrations, run_faturas_migrations, run_
 from db.cashflow import run_migrations_cashflow
 from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_data_fix_pesagem_april2026, run_migrations_centros_custo,
-                        run_data_fix_delete_auto_quebras)
+                        run_data_fix_delete_auto_quebras,
+                        run_data_fix_pesagem_matosinhos_backfill)
 
 
 def _start_sheets_sync_scheduler():
@@ -61,6 +62,7 @@ def create_app():
         run_migrations_credito()
         run_data_fix_quebras_march2026()
         run_data_fix_pesagem_april2026()
+        run_data_fix_pesagem_matosinhos_backfill()
         run_migrations_centros_custo()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()

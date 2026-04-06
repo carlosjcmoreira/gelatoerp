@@ -646,6 +646,31 @@ def add_stock_gelado(data: date, loja: str, sabor: str, quantidade_kg: float, ti
     conn.commit()
     release_connection(conn)
 
+def upsert_stock_gelado_matosinhos(data: date, sabor: str, quantidade_kg: float) -> None:
+    """
+    Insert a stock_gelado record for Matosinhos/inicio if one doesn't already
+    exist for that (data, loja, sabor, tipo) combination.  Used when saving
+    the production plan so pesagens entered there are reflected in the
+    Euro/kg Pesagens page.
+    """
+    store_id = get_store_id_by_name('Matosinhos')
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
+        SELECT %s, %s, %s, %s, %s, %s
+        WHERE NOT EXISTS (
+            SELECT 1 FROM stock_gelado
+            WHERE data = %s AND loja = %s AND sabor = %s AND tipo = %s
+        )
+    ''', (
+        data, 'Matosinhos', sabor, quantidade_kg, 'inicio', store_id,
+        data, 'Matosinhos', sabor, 'inicio',
+    ))
+    conn.commit()
+    release_connection(conn)
+
+
 def get_pesagem_comparison(loja: str, tipo: str, data_atual: date = None, local: str = None):
     if data_atual is None:
         data_atual = date.today()

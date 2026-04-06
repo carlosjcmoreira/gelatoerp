@@ -71,11 +71,16 @@ def guardar_plano_sabor(data: date, sabor: str, pesagem_mat: float, est_bolhao: 
 
     If ``add_to_plan`` is True, also marks the sabor as active in today's plan
     (``marcar_sabor_no_plano``).
+    Also mirrors the Matosinhos pesagem into stock_gelado (tipo='inicio') so
+    the Euro/kg Pesagens page reflects it.
     """
     from database import upsert_plano_producao, marcar_sabor_no_plano
+    from db.pastelaria import upsert_stock_gelado_matosinhos
 
     upsert_plano_producao(data, sabor, pesagem_mat, est_bolhao, est_matosinhos,
                           est_outros, est_mouzinho)
+    if pesagem_mat > 0:
+        upsert_stock_gelado_matosinhos(data, sabor, pesagem_mat)
     if add_to_plan:
         marcar_sabor_no_plano(data, sabor)
 
@@ -91,17 +96,21 @@ def ajustar_plano_dia(data: date, ajustes: dict) -> int:
     Returns the number of sabores saved.
     """
     from database import upsert_plano_producao
+    from db.pastelaria import upsert_stock_gelado_matosinhos
 
     saved = 0
     for sabor, vals in ajustes.items():
+        pesagem_mat = float(vals.get('pesagem_mat', 0) or 0)
         upsert_plano_producao(
             data, sabor,
-            float(vals.get('pesagem_mat', 0) or 0),
+            pesagem_mat,
             float(vals.get('est_bol', 0) or 0),
             float(vals.get('est_mat', 0) or 0),
             float(vals.get('est_outros', 0) or 0),
             float(vals.get('est_mou', 0) or 0),
         )
+        if pesagem_mat > 0:
+            upsert_stock_gelado_matosinhos(data, sabor, pesagem_mat)
         saved += 1
     return saved
 
