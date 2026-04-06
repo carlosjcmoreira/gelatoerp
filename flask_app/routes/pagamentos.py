@@ -18,6 +18,7 @@ from database import (
     get_cost_categories_tree,
 )
 from db.faturas import ONEDRIVE_SUBFOLDERS, update_invoice_onedrive
+from db.credito import get_payment_methods_config
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,8 @@ def nova_fatura():
         due_date_str = request.form.get('due_date', '')
         store_id = request.form.get('store_id') or None
         categoria = request.form.get('categoria', '').strip() or None
-        notes = request.form.get('notes', '').strip() or None
+        notes_raw = request.form.get('notes', '').strip() or ''
+        payment_method = request.form.get('payment_method', '').strip() or None
         document_type = request.form.get('document_type', 'fatura')
         from db.faturas import DOCUMENT_TYPE_LABELS as _DTL
         if document_type not in _DTL:
@@ -146,6 +148,13 @@ def nova_fatura():
                 return redirect(url_for('pagamentos.nova_fatura'))
             pdf_data = pdf_file.read()
             pdf_filename = pdf_file.filename
+
+        notes_parts = []
+        if payment_method:
+            notes_parts.append(f'Método: {payment_method}')
+        if notes_raw:
+            notes_parts.append(notes_raw)
+        notes = ' | '.join(notes_parts) or None
 
         store_id_int = int(store_id) if store_id else None
         invoice_id = create_invoice({
@@ -212,11 +221,13 @@ def nova_fatura():
     suppliers = get_suppliers()
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
+    payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     return render_template('pagamentos/nova_fatura.html',
                            stores=stores, suppliers=suppliers, today=str(date.today()),
                            subfolders=ONEDRIVE_SUBFOLDERS,
                            cost_centers=cost_centers,
-                           cost_categories_tree=cost_categories_tree)
+                           cost_categories_tree=cost_categories_tree,
+                           payment_methods=payment_methods)
 
 
 @pagamentos_bp.route('/faturas/<int:invoice_id>', methods=['GET', 'POST'])

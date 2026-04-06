@@ -1803,8 +1803,8 @@ def run_data_fix_pesagem_april2026():
       id=866 2026-03-30 Iogurte          208 g → 0.208 kg
     """
     EXPECTED = {
-        25:  ('2026-03-02', 'Pistacchio'),
-        31:  ('2026-03-02', 'Extra noir'),
+        # IDs 25 and 31 were removed: rows were altered after fix was written
+        # (now hold different sabor/data) and their pesagem is already corrected.
         602: ('2026-03-23', 'Extra noir'),
         823: ('2026-03-29', 'Framboesa'),
         835: ('2026-03-29', 'Noz Pecan e Maple'),

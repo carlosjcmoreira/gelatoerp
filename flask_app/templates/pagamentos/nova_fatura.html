@@ -72,9 +72,20 @@
                 </div>
 
                 <div id="pag-supplier-extra">
-                    <div class="mb-3">
-                        <label class="form-label small">NIF do Fornecedor</label>
-                        <input type="text" name="supplier_nif" class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
+                    <div class="row g-2 mb-3">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">NIF do Fornecedor</label>
+                            <input type="text" name="supplier_nif" class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Método de Pagamento</label>
+                            <select name="payment_method" class="form-select form-select-sm">
+                                <option value="">— Não especificado —</option>
+                                {% for m in payment_methods %}
+                                <option value="{{ m.metodo }}">{{ m.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
                 </div>
 
