@@ -463,10 +463,6 @@ def pesagens():
         detail_data = None
 
     has_data = len(all_rows) > 0
-    user = session.get('user', {})
-    is_gestor = user.get('acesso_gestor', False)
-    loja_for_tabs = lojas[0] if len(lojas) == 1 else 'Bolhão'
-    tabs = _build_tabs(loja_for_tabs, is_gestor, 'pesagens')
 
     return render_template('eurokg/pesagens.html',
         lojas=lojas,
@@ -476,6 +472,4 @@ def pesagens():
         has_data=has_data,
         detail_data=detail_data,
         summary_data=summary_data,
-        active_tab='pesagens',
-        tabs=tabs,
     )
