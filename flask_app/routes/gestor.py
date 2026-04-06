@@ -338,11 +338,17 @@ def _replace_overlapping_dates_xlsx(file_stream, loja_map_vendas) -> int:
 
     Returns the number of rows deleted.  Rewinds the file stream after peeking.
 
-    Missing days identified in Q1 2026 (production analysis, 2026-04-06):
-      - 2026-03-22 Bolhão: completely absent while Matosinhos had 1 601.54€
-      - 2026-02 (global): ~142.37€ short across 7 products vs POS PDF export;
-        all calendar days have some data, suggests a partial/truncated import
-        on an unknown day — use /eurokg/diagnostico-vendas to pinpoint.
+    Missing/truncated days identified in Q1 2026 (production DB, 2026-04-06):
+      - 2026-02-02 Bolhão: PARTIAL import — only 7 products/49.50€ gelado_kpi
+        imported (4 unique gelado products: Cone Pequeno ×2, Copo Médio ×2,
+        Copo Mini ×2, Copo Pequeno ×5). A full Monday typically has 8+ gelado
+        products and ~170-280€. The 7-product shortfall from the task description
+        (Cone Pequeno −40.50€, Copo Médio −27.50€, Copo Pequeno −27€, Copo Maxi
+        −21€, Caixa Gelado Pequena −15.90€, Copo Grande −7€, Copo Mini −3.50€,
+        total −142.37€) matches a truncated Feb-02 Bolhão export.
+        Action: re-upload the complete Feb 02 XLSX for loja Bolhão.
+      - 2026-03-22 Bolhão: COMPLETELY ABSENT (0 rows) while Matosinhos had
+        1 601.54€ that same day. Action: upload the missing March 22 XLSX.
     """
     try:
         from db.pastelaria import check_vendas_dates_have_data, delete_vendas_detalhe_by_date_loja_pairs

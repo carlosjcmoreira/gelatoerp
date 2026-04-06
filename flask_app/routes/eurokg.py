@@ -510,6 +510,8 @@ def diagnostico_vendas():
     lojas = [l for l in lojas_param if l in all_lojas] or all_lojas
 
     raw_rows = get_vendas_diarias_diagnostico(de_date, ate_date)
+    # Keep only rows for selected lojas (avoids KeyError when user deselects a loja)
+    raw_rows = [r for r in raw_rows if r['loja'] in lojas]
 
     # Index by (data, loja)
     by_day_loja = {}
@@ -517,7 +519,7 @@ def diagnostico_vendas():
         key = (str(r['data']), r['loja'])
         by_day_loja[key] = r
 
-    # Compute per-loja average (excluding outlier days and zero days)
+    # Compute per-loja average (excluding zero days)
     loja_values = {l: [] for l in lojas}
     for r in raw_rows:
         if r['total_euros'] > 0:
