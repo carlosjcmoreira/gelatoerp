@@ -366,6 +366,7 @@ def add_gramas():
             flash("Erro ao adicionar. O artigo pode já existir.", 'error')
     else:
         flash("Preencha todos os campos.", 'warning')
+    return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
 
 
 @eurokg_bp.route('/pesagens')
@@ -434,11 +435,14 @@ def pesagens():
             d = str(row['data'])
             by_date[d][row['loja']] += float(row.get('quantidade_kg') or 0)
 
+        # Enumerate every calendar day in the range (zero-fill missing days)
         summary_rows = []
         total_by_loja = defaultdict(float)
         grand_total = 0.0
-        for d in sorted(by_date.keys()):
-            row_totals = by_date[d]
+        current = de_date
+        while current <= ate_date:
+            d = str(current)
+            row_totals = by_date.get(d, {})
             row_entry = {'data': d}
             row_sum = 0.0
             for loja in lojas:
@@ -449,6 +453,7 @@ def pesagens():
             row_entry['total'] = round(row_sum, 3)
             grand_total += row_sum
             summary_rows.append(row_entry)
+            current += timedelta(days=1)
 
         summary_data = {
             'rows': summary_rows,
