@@ -572,14 +572,19 @@ def add_venda_detalhe(data: date, loja: str, produto: str, quantidade: int, cate
     release_connection(conn)
 
 
-def add_venda_detalhe_batch(records: list) -> int:
+def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int:
     """Insert multiple vendas_detalhe records in a single transaction.
 
     Each record is a dict with keys: data, loja, produto, quantidade,
     categoria (optional), valor_euros (optional).
+
+    If ``pre_delete_pairs`` is provided (list of ``(date, loja)`` tuples),
+    those rows are deleted atomically before the insert so that replace
+    semantics are safe: if the insert fails the delete is also rolled back.
+
     Returns the number of rows inserted.
     """
-    if not records:
+    if not records and not pre_delete_pairs:
         return 0
     store_id_cache = {}
     rows = []
@@ -598,13 +603,26 @@ def add_venda_detalhe_batch(records: list) -> int:
         ))
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.executemany(
-        '''INSERT INTO vendas_detalhe (data, loja, produto, categoria, quantidade, valor_euros, store_id)
-           VALUES (%s, %s, %s, %s, %s, %s, %s)''',
-        rows
-    )
-    conn.commit()
-    release_connection(conn)
+    try:
+        if pre_delete_pairs:
+            for d, loja in pre_delete_pairs:
+                cursor.execute(
+                    "DELETE FROM vendas_detalhe WHERE data = %s AND loja = %s",
+                    (d, loja)
+                )
+        if rows:
+            cursor.executemany(
+                '''INSERT INTO vendas_detalhe
+                   (data, loja, produto, categoria, quantidade, valor_euros, store_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+                rows
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_connection(conn)
     return len(rows)
 
 

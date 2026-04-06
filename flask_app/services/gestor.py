@@ -80,7 +80,8 @@ def _detect_columns(df_det):
     return date_col, prod_col, qtd_col, valor_col, cat_col
 
 
-def _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col):
+def _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col,
+                              pre_delete_pairs=None):
     import database as db
     skipped_no_loja = 0
     batch = []
@@ -118,7 +119,7 @@ def _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat
                 })
         except Exception:
             continue
-    imported_count = db.add_venda_detalhe_batch(batch)
+    imported_count = db.add_venda_detalhe_batch(batch, pre_delete_pairs=pre_delete_pairs)
     return imported_count, skipped_no_loja
 
 
@@ -209,10 +210,15 @@ def peek_dates_from_xlsx(file_stream, loja_map: dict) -> dict:
     return {loja: sorted(dates) for loja, dates in pairs.items()}
 
 
-def import_vendas_xlsx(file_stream, loja_map: dict) -> tuple[int, int]:
-    """
-    Parse a multi-loja sales XLSX and import rows.
+def import_vendas_xlsx(file_stream, loja_map: dict,
+                        pre_delete_pairs: list = None) -> tuple[int, int]:
+    """Parse a multi-loja sales XLSX and import rows.
+
     ``loja_map`` maps string loja IDs to store names, e.g. ``{'1': 'Matosinhos'}``.
+
+    If ``pre_delete_pairs`` is provided (list of ``(date, loja)`` tuples), those
+    existing rows are deleted atomically with the insert (same DB transaction) so
+    reimporting a corrected file is a safe replace with no duplication risk.
 
     Returns ``(imported, skipped)`` counts.
     Raises ``ServiceError`` on empty / malformed data.
@@ -253,7 +259,8 @@ def import_vendas_xlsx(file_stream, loja_map: dict) -> tuple[int, int]:
 
     df_det = pd.DataFrame(all_data)
     date_col, prod_col, qtd_col, valor_col, cat_col = _detect_columns(df_det)
-    return _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col)
+    return _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col,
+                                    pre_delete_pairs=pre_delete_pairs)
 
 
 # ── Vendas CSV import ─────────────────────────────────────────────────────────
