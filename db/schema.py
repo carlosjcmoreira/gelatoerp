@@ -1803,11 +1803,10 @@ def run_data_fix_delete_auto_quebras():
         )
         deleted = cursor.rowcount
         conn.commit()
-        if deleted:
-            logger.info(
-                "run_data_fix_delete_auto_quebras: deleted %d auto-generated quebra(s)",
-                deleted,
-            )
+        logger.info(
+            "run_data_fix_delete_auto_quebras: deleted %d auto-generated quebra(s)",
+            deleted,
+        )
     except Exception as exc:
         logger.error("run_data_fix_delete_auto_quebras failed: %s", exc)
         try:
