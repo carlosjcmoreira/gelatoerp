@@ -152,6 +152,63 @@ def import_producao_csv(file_stream, loja: str, unit_is_grams: bool) -> dict:
 
 # ── Vendas XLSX import ────────────────────────────────────────────────────────
 
+def peek_dates_from_xlsx(file_stream, loja_map: dict) -> dict:
+    """Read an XLSX file to extract the set of (loja, date) pairs it contains,
+    WITHOUT writing anything to the database. Rewinds the stream afterwards.
+
+    Returns a dict ``{loja_name: sorted_list_of_date_objects}`` for every loja
+    identified in the file.  Used to warn the user about potential re-import
+    duplicates before the actual import runs.
+    """
+    import io
+    raw = file_stream.read()
+    file_stream.seek(0)
+
+    buf = io.BytesIO(raw)
+    df_xlsx = pd.read_excel(buf, engine='openpyxl', header=None)
+
+    current_loja_id = None
+    headers = None
+    pairs: dict = {}  # loja_name -> set of date objects
+
+    for _, row_vals in df_xlsx.iterrows():
+        row_str = ' '.join([str(v) for v in row_vals if pd.notna(v)])
+        loja_match = _re.search(r'Loja[:\s]*(\d+)', row_str)
+        if loja_match:
+            current_loja_id = loja_match.group(1)
+
+        cells = [str(v).strip() if pd.notna(v) else '' for v in row_vals]
+        if 'Data' in cells or 'Date' in cells:
+            headers = cells
+            continue
+
+        if headers and any(c != '' for c in cells):
+            if cells[0].lower().startswith('totai') or cells[0].lower().startswith('total'):
+                continue
+            date_str = cells[0].strip()
+            if not date_str:
+                continue
+            loja_resolved = loja_map.get(str(current_loja_id).strip(), None) if current_loja_id else None
+            if not loja_resolved:
+                continue
+            parsed_date = None
+            for fmt in ['%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d']:
+                try:
+                    parsed_date = datetime.strptime(date_str.split(' ')[0], fmt).date()
+                    break
+                except ValueError:
+                    continue
+            if not parsed_date:
+                try:
+                    parsed_date = pd.to_datetime(date_str).date()
+                except Exception:
+                    pass
+            if parsed_date:
+                pairs.setdefault(loja_resolved, set()).add(parsed_date)
+
+    return {loja: sorted(dates) for loja, dates in pairs.items()}
+
+
 def import_vendas_xlsx(file_stream, loja_map: dict) -> tuple[int, int]:
     """
     Parse a multi-loja sales XLSX and import rows.

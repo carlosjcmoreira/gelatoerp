@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eurokg.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="fw-bold mb-1">🔍 Diagnóstico de Vendas</h5>
+    <p class="text-muted small mb-3">Totais diários de vendas gelado (produtos com gelado_kpi=TRUE) por loja. Detecta dias com dados em falta ou valores anormalmente baixos.</p>
+
+    <form method="get" action="{{ url_for('eurokg.diagnostico_vendas') }}" class="mb-4">
+        <div class="card card-body py-3">
+            <div class="row g-3 align-items-end">
+                <div class="col-6 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1" for="de">De</label>
+                    <input type="date" id="de" name="de" class="form-control form-control-sm"
+                           value="{{ de_date }}" style="min-width:140px;">
+                </div>
+                <div class="col-6 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1" for="ate">Até</label>
+                    <input type="date" id="ate" name="ate" class="form-control form-control-sm"
+                           value="{{ ate_date }}" style="min-width:140px;">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Ver</button>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    {% if n_alerts > 0 %}
+    <div class="alert alert-warning d-flex align-items-start gap-2 mb-3 py-2">
+        <span class="fs-5">⚠️</span>
+        <div>
+            <strong>{{ n_alerts }} dia(s) com alertas</strong> no período seleccionado.
+            {% if n_ausente > 0 %}
+            <br><span class="small">{{ n_ausente }} entrada(s) de loja <strong>sem dados</strong> quando a outra loja tem dados nesse dia — verificar importação.</span>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success d-flex align-items-center gap-2 mb-3 py-2">
+        <span>✅</span> Sem alertas detectados no período seleccionado.
+    </div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-body p-2">
+            <div class="d-flex flex-wrap gap-3 small">
+                <span><span class="badge bg-danger">ausente</span> Sem dados (outra loja tem)</span>
+                <span><span class="badge bg-warning text-dark">baixo</span> Abaixo de 35% da média da loja</span>
+                <span><span class="badge bg-secondary">zero</span> Total = 0 €</span>
+                <span class="text-muted">Médias: {% for loja in lojas %}<strong>{{ loja }}</strong>: {{ "%.0f"|format(loja_avg.get(loja, 0)) }} €{% if not loop.last %} | {% endif %}{% endfor %}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" style="font-size:0.82rem;">
+            <thead class="table-light sticky-top">
+                <tr>
+                    <th>Data</th>
+                    {% for loja in lojas %}
+                    <th class="text-end">{{ loja }}<br><small class="text-muted fw-normal">€ gelado</small></th>
+                    <th class="text-end">{{ loja }}<br><small class="text-muted fw-normal">produtos</small></th>
+                    {% endfor %}
+                    <th class="text-end">Total</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in table_rows %}
+            {% set day_total = namespace(v=0) %}
+            {% for loja in lojas %}
+                {% if row.lojas[loja].total is not none %}
+                    {% set day_total.v = day_total.v + row.lojas[loja].total %}
+                {% endif %}
+            {% endfor %}
+            <tr class="{% if row.any_alert %}table-warning{% endif %}">
+                <td class="fw-semibold text-nowrap">{{ row.data[8:10] }}/{{ row.data[5:7] }}/{{ row.data[0:4] }}</td>
+                {% for loja in lojas %}
+                {% set entry = row.lojas[loja] %}
+                <td class="text-end text-nowrap">
+                    {% if entry.status == 'ausente' and row.any_loja_has_data %}
+                        <span class="badge bg-danger">— sem dados</span>
+                    {% elif entry.status == 'ausente' %}
+                        <span class="text-muted small">—</span>
+                    {% elif entry.status == 'zero' %}
+                        <span class="badge bg-secondary">0,00 €</span>
+                    {% elif entry.status == 'baixo' %}
+                        <span class="badge bg-warning text-dark">{{ "%.2f"|format(entry.total)|replace(".", ",") }} €</span>
+                    {% else %}
+                        {{ "%.2f"|format(entry.total)|replace(".", ",") }} €
+                    {% endif %}
+                </td>
+                <td class="text-end text-muted small">
+                    {% if entry.n > 0 %}{{ entry.n }}{% else %}—{% endif %}
+                </td>
+                {% endfor %}
+                <td class="text-end fw-semibold text-nowrap">
+                    {% if row.any_loja_has_data %}
+                        {{ "%.2f"|format(day_total.v)|replace(".", ",") }} €
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td class="text-center">
+                    {% if row.any_alert %}⚠️{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mt-4 p-3 bg-light rounded small text-muted">
+        <strong>Como usar:</strong> Dias marcados a amarelo têm dados suspeitos.
+        <em>ausente</em> significa que a loja não tem nenhum registo nesse dia enquanto a outra loja tem — o ficheiro de importação provavelmente não incluiu essa loja nesse dia.
+        Para reimportar um dia específico, utilize o <a href="{{ url_for('gestor.vendas_detalhe') }}">Gestor → Vendas Detalhe</a>:
+        primeiro apague os registos do dia (se já existirem) e depois reimporte o ficheiro XLSX correcto.
+    </div>
+
+</div>
+{% endblock %}

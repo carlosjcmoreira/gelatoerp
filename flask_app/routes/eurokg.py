@@ -23,6 +23,7 @@ MENU_ITEMS = [
     {'icon': '🧮', 'label': 'Consumo Teórico', 'url_endpoint': 'eurokg.consumo_teorico'},
     {'icon': '💶', 'label': 'Vendas por Produto', 'url_endpoint': 'eurokg.vendas_produto'},
     {'icon': '⚖️', 'label': 'Pesagens', 'url_endpoint': 'eurokg.pesagens'},
+    {'icon': '🔍', 'label': 'Diagnóstico de Vendas', 'url_endpoint': 'eurokg.diagnostico_vendas', 'gestor_only': True},
 ]
 
 MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
@@ -44,7 +45,13 @@ def _build_tabs(loja_filter, is_gestor, active):
 @eurokg_bp.route('/')
 @perm_required('acesso_eurokg')
 def index():
-    items = [{'icon': m['icon'], 'label': m['label'], 'url': url_for(m['url_endpoint'])} for m in MENU_ITEMS]
+    user = session.get('user', {})
+    is_gestor = user.get('acesso_gestor', False)
+    items = [
+        {'icon': m['icon'], 'label': m['label'], 'url': url_for(m['url_endpoint'])}
+        for m in MENU_ITEMS
+        if not m.get('gestor_only') or is_gestor
+    ]
     return render_template('components/section_menu.html', items=items,
                            menu_title='📊 Euro/kg')
 
@@ -472,4 +479,105 @@ def pesagens():
         has_data=has_data,
         detail_data=detail_data,
         summary_data=summary_data,
+    )
+
+
+@eurokg_bp.route('/diagnostico-vendas')
+@perm_required('acesso_gestor')
+def diagnostico_vendas():
+    from db.pastelaria import get_vendas_diarias_diagnostico
+
+    today = date.today()
+    first_of_year = date(today.year, 1, 1)
+
+    de_str = request.args.get('de', str(first_of_year))
+    ate_str = request.args.get('ate', str(today))
+
+    try:
+        de_date = date.fromisoformat(de_str)
+    except (ValueError, TypeError):
+        de_date = first_of_year
+    try:
+        ate_date = date.fromisoformat(ate_str)
+    except (ValueError, TypeError):
+        ate_date = today
+
+    if ate_date < de_date:
+        ate_date = de_date
+
+    lojas = ['Bolhão', 'Matosinhos']
+
+    raw_rows = get_vendas_diarias_diagnostico(de_date, ate_date)
+
+    # Index by (data, loja)
+    by_day_loja = {}
+    for r in raw_rows:
+        key = (str(r['data']), r['loja'])
+        by_day_loja[key] = r
+
+    # Compute per-loja average (excluding outlier days and zero days)
+    loja_values = {l: [] for l in lojas}
+    for r in raw_rows:
+        if r['total_euros'] > 0:
+            loja_values[r['loja']].append(r['total_euros'])
+    loja_avg = {}
+    for loja, vals in loja_values.items():
+        loja_avg[loja] = sum(vals) / len(vals) if vals else 0
+
+    # Build day-by-day table
+    THRESHOLD_RATIO = 0.35  # flag if < 35% of loja average
+    table_rows = []
+    current = de_date
+    while current <= ate_date:
+        d = str(current)
+        row_data = {'data': d, 'lojas': {}}
+        any_loja_has_data = False
+        any_alert = False
+
+        for loja in lojas:
+            entry = by_day_loja.get((d, loja))
+            if entry:
+                total = entry['total_euros']
+                n = entry['n_produtos']
+                avg = loja_avg.get(loja, 0)
+                if total == 0:
+                    status = 'zero'
+                elif avg > 0 and total < avg * THRESHOLD_RATIO:
+                    status = 'baixo'
+                else:
+                    status = 'ok'
+                any_loja_has_data = True
+                if status in ('zero', 'baixo'):
+                    any_alert = True
+            else:
+                total = None
+                n = 0
+                status = 'ausente'
+                # Only flag as alert if at least one other loja has data that day
+                # (some stores may genuinely be closed)
+                if any(by_day_loja.get((d, l2)) for l2 in lojas if l2 != loja):
+                    any_alert = True
+            row_data['lojas'][loja] = {'total': total, 'n': n, 'status': status}
+
+        row_data['any_alert'] = any_alert
+        row_data['any_loja_has_data'] = any_loja_has_data
+        table_rows.append(row_data)
+        current += timedelta(days=1)
+
+    n_alerts = sum(1 for r in table_rows if r['any_alert'])
+    n_ausente = sum(
+        1 for r in table_rows
+        for loja in lojas
+        if r['lojas'][loja]['status'] == 'ausente'
+           and r['any_loja_has_data']
+    )
+
+    return render_template('eurokg/diagnostico_vendas.html',
+        de_date=str(de_date),
+        ate_date=str(ate_date),
+        lojas=lojas,
+        table_rows=table_rows,
+        loja_avg=loja_avg,
+        n_alerts=n_alerts,
+        n_ausente=n_ausente,
     )

@@ -331,6 +331,29 @@ def vendas_detalhe():
                            default_limit=500)
 
 
+def _warn_if_dates_overlap_xlsx(file_stream, loja_map_vendas):
+    """Peek at dates in the XLSX and warn if any already exist in the DB."""
+    try:
+        from db.pastelaria import check_vendas_dates_have_data
+        dates_by_loja = gestor_svc.peek_dates_from_xlsx(file_stream, loja_map_vendas)
+        overlap_msgs = []
+        for loja, dates in dates_by_loja.items():
+            existing = check_vendas_dates_have_data(list(dates), loja)
+            if existing:
+                dates_fmt = ', '.join(d.strftime('%d/%m/%Y') for d in sorted(existing)[:5])
+                suffix = f' (+{len(existing)-5} mais)' if len(existing) > 5 else ''
+                overlap_msgs.append(f'{loja}: {dates_fmt}{suffix}')
+        if overlap_msgs:
+            flash(
+                'Atenção: já existem dados para as seguintes datas — a reimportação irá criar duplicados. '
+                'Apague primeiro os registos existentes se pretender substituí-los. '
+                'Datas com dados: ' + ' | '.join(overlap_msgs),
+                'warning'
+            )
+    except Exception:
+        pass  # Non-critical warning — never block the import
+
+
 def _handle_upload_vendas(loja_map_vendas):
     uploaded_file = request.files.get('vendas_file')
     if not uploaded_file or uploaded_file.filename == '':
@@ -340,6 +363,7 @@ def _handle_upload_vendas(loja_map_vendas):
     file_name = uploaded_file.filename.lower()
     try:
         if file_name.endswith('.xlsx'):
+            _warn_if_dates_overlap_xlsx(uploaded_file, loja_map_vendas)
             imported, skipped = gestor_svc.import_vendas_xlsx(uploaded_file, loja_map_vendas)
             db.sync_produtos_vendas_config()
             msg = f'{imported} registos importados com sucesso!'

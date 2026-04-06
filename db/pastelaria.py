@@ -976,6 +976,58 @@ def delete_regra_negocio(regra_id: int):
     conn.commit()
     release_connection(conn)
 
+def get_vendas_diarias_diagnostico(data_inicio: date, data_fim: date) -> list:
+    """Return daily gelado_kpi sales totals per loja for the given date range.
+
+    Each row is a dict with:
+      data, loja, total_euros, n_produtos
+    Only products with gelado_kpi=TRUE are included.
+    Days/lojas with no rows are NOT included (caller must detect gaps).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT vd.data, vd.loja,
+               COALESCE(SUM(vd.valor_euros), 0) AS total_euros,
+               COUNT(DISTINCT vd.produto) AS n_produtos
+        FROM vendas_detalhe vd
+        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+        WHERE pvc.gelado_kpi = TRUE
+          AND vd.data >= %s AND vd.data <= %s
+        GROUP BY vd.data, vd.loja
+        ORDER BY vd.data, vd.loja
+    """, (data_inicio, data_fim))
+    rows = cursor.fetchall()
+    release_connection(conn)
+    return [{'data': r[0], 'loja': r[1], 'total_euros': float(r[2]), 'n_produtos': int(r[3])} for r in rows]
+
+
+def check_vendas_dates_have_data(datas: list, loja: str = None) -> list:
+    """Return which dates from ``datas`` already have rows in vendas_detalhe.
+
+    Used to warn the user before re-importing a file that may duplicate data.
+    If ``loja`` is given, filter to that loja; otherwise any loja counts.
+    Returns a list of date objects that already have data.
+    """
+    if not datas:
+        return []
+    conn = get_connection()
+    cursor = conn.cursor()
+    if loja:
+        cursor.execute("""
+            SELECT DISTINCT data FROM vendas_detalhe
+            WHERE data = ANY(%s) AND loja = %s
+        """, (datas, loja))
+    else:
+        cursor.execute("""
+            SELECT DISTINCT data FROM vendas_detalhe
+            WHERE data = ANY(%s)
+        """, (datas,))
+    rows = cursor.fetchall()
+    release_connection(conn)
+    return [r[0] for r in rows]
+
+
 def sync_produtos_vendas_config():
     conn = get_connection()
     cursor = conn.cursor()
