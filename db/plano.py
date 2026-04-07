@@ -612,6 +612,48 @@ def rejeitar_ordem_transferencia(ordem_id: int, confirmado_por: str):
     return updated
 
 
+def get_stock_producao_by_loja(loja: str) -> list:
+    """Return all active production stock rows for a specific loja.
+
+    Returns a list of {'sabor': str, 'quantidade_kg': float} dicts.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT sabor, SUM(quantidade_kg) as total
+        FROM stock_producao
+        WHERE loja = %s AND quantidade_kg > 0
+        GROUP BY sabor
+        HAVING SUM(quantidade_kg) > 0
+        ORDER BY sabor
+    """, (loja,))
+    rows = cursor.fetchall()
+    release_connection(conn)
+    return [{'sabor': r[0], 'quantidade_kg': float(r[1])} for r in rows]
+
+
+def upsert_pesagem_matosinhos_inicio(data: date, sabor: str, quantidade_kg: float) -> None:
+    """Replace same-day Matosinhos/inicio stock_gelado entry for a given sabor.
+
+    Deletes any existing row(s) for (data, Matosinhos, sabor, inicio) then
+    inserts the new measurement.  This is the correct replacement semantics for
+    the daily production start weighing.
+    """
+    store_id = get_store_id_by_name('Matosinhos')
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        DELETE FROM stock_gelado
+        WHERE data = %s AND loja = 'Matosinhos' AND sabor = %s AND tipo = 'inicio'
+    """, (data, sabor))
+    cursor.execute("""
+        INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, (data, 'Matosinhos', sabor, quantidade_kg, 'inicio', store_id))
+    conn.commit()
+    release_connection(conn)
+
+
 def get_latest_pesagem_por_sabor_all_lojas() -> dict:
     """Return the latest weighing per sabor for each balcão loja (from stock_gelado).
 

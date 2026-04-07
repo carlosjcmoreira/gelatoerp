@@ -20,6 +20,7 @@ from database import (
     get_plano_ajuste_dia,
     get_eventos_adjudicados_para_producao, mark_production_alert_sent,
     get_latest_pesagem_por_sabor_all_lojas, set_stock_producao,
+    get_stock_producao_by_loja, upsert_pesagem_matosinhos_inicio,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -388,7 +389,10 @@ def registo_producao_ocr():
         flash(f"Erro no OCR: {result['error']}", "danger")
         return redirect(url_for('producao.registo_producao'))
 
-    data_ocr = result.get('date') or str(date.today())
+    user_date = request.form.get('data_producao', '').strip()
+    data_ocr = result.get('date') or user_date or str(date.today())
+    if user_date:
+        data_ocr = user_date
     session['ocr_producao_data'] = {
         'date': data_ocr,
         'sabores': result.get('sabores', {}),
@@ -491,6 +495,9 @@ def registo_producao_guardar():
             producao_estimada_mouzinho=prod_mou,
         )
 
+        if pesagem_mat > 0:
+            upsert_pesagem_matosinhos_inicio(data_prod, sabor, pesagem_mat)
+
         for loja, qty in (('Bolhão', prod_bol), ('Matosinhos', prod_mat),
                           ('Mouzinho', prod_mou), ('B2B', prod_b2b)):
             if qty > 0:
@@ -499,6 +506,8 @@ def registo_producao_guardar():
         if criar_ordens:
             for loja, qty in (('Bolhão', prod_bol), ('Mouzinho', prod_mou), ('B2B', prod_b2b)):
                 if qty > 0:
+                    reduzir_stock_producao(data_prod, sabor, loja, qty)
+                    add_transferencia(data_prod, sabor, loja, qty)
                     criar_ordem_transferencia(
                         data_prod, 'Gelado', sabor, qty, 'kg', loja,
                         sabor=sabor, criado_por=username, data_prevista=data_prod,

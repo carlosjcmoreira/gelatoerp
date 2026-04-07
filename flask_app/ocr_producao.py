@@ -176,10 +176,28 @@ def _empty_result(error: str) -> dict:
 
 
 def _parse_float(val) -> float:
+    """Parse a numeric value that may be:
+    - a number (int or float): returned directly.
+    - a string with comma as decimal separator: e.g. "1,508" → 1.508
+    - a simple addition expression: e.g. "1,508+4,815" → 6.323
+    Returns 0.0 on any failure.
+    """
     if val is None:
         return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip().replace(',', '.')
+    if not s:
+        return 0.0
     try:
-        return float(str(val).replace(',', '.'))
+        return float(s)
+    except ValueError:
+        pass
+    import re
+    parts = re.split(r'\+', s)
+    try:
+        total = sum(float(p.strip()) for p in parts if p.strip())
+        return total
     except Exception:
         return 0.0
 

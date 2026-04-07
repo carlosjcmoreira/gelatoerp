@@ -8,6 +8,12 @@
     <div class="card-body">
         <form method="post" action="{{ url_for('producao.registo_producao_ocr') }}" enctype="multipart/form-data">
             <div class="mb-3">
+                <label class="form-label fw-semibold">Data de produção</label>
+                <input type="date" name="data_producao" class="form-control"
+                       value="{{ today }}" max="{{ today }}" required>
+                <div class="form-text">Por omissão, hoje. Altere se estiver a registar um dia anterior.</div>
+            </div>
+            <div class="mb-3">
                 <label class="form-label fw-semibold">Foto da folha de produção</label>
                 <input type="file" name="foto" class="form-control" accept="image/*" required>
                 <div class="form-text">Formatos aceites: JPEG, PNG, WEBP. Máximo 20 MB.</div>
