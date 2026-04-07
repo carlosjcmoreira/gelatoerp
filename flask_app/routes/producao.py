@@ -473,6 +473,8 @@ def registo_producao_guardar():
             if key.startswith(prefix):
                 sabor = key[len(prefix):]
                 sabores_form.setdefault(sabor, {})[field] = _parse_decimal(val)
+                if field == 'pesagem_mat':
+                    sabores_form[sabor]['pesagem_mat_explicit'] = val.strip() != ''
                 break
 
     saved = 0
@@ -483,9 +485,11 @@ def registo_producao_guardar():
         prod_mat = vals.get('prod_matosinhos', 0.0)
         prod_mou = vals.get('prod_mouzinho', 0.0)
         prod_b2b = vals.get('prod_b2b', 0.0)
+        pesagem_mat_explicit = vals.get('pesagem_mat_explicit', False)
 
         if all(v == 0 for v in [pesagem_mat, prod_bol, prod_mat, prod_mou, prod_b2b]):
-            continue
+            if not pesagem_mat_explicit:
+                continue
 
         upsert_plano_producao(
             data_prod, sabor,
@@ -496,7 +500,7 @@ def registo_producao_guardar():
             producao_estimada_mouzinho=prod_mou,
         )
 
-        if pesagem_mat > 0:
+        if pesagem_mat_explicit:
             upsert_pesagem_matosinhos_inicio(data_prod, sabor, pesagem_mat)
 
         for loja, qty in (('Bolhão', prod_bol), ('Matosinhos', prod_mat),
@@ -570,6 +574,7 @@ def registo_producao_criar_ordens():
         data_prod = date.today()
 
     ordens = 0
+    avisos = []
     for key, val in request.form.items():
         if not key.startswith('ordem_'):
             continue
@@ -582,6 +587,15 @@ def registo_producao_criar_ordens():
             continue
         if loja not in ('Bolhão', 'Mouzinho'):
             continue
+        disponivel = get_stock_producao(data_prod, sabor, loja)
+        if disponivel <= 0:
+            avisos.append(f"{sabor} ({loja}): sem stock disponível, ordem ignorada.")
+            continue
+        if qty > disponivel:
+            avisos.append(
+                f"{sabor} ({loja}): pedido {qty:.3f} kg mas disponível {disponivel:.3f} kg — ordem criada para o disponível."
+            )
+            qty = disponivel
         reduzir_stock_producao(data_prod, sabor, loja, qty)
         criar_ordem_transferencia(
             data_prod, 'Gelado', sabor, qty, 'kg', loja,
@@ -591,9 +605,11 @@ def registo_producao_criar_ordens():
 
     session.pop('producao_ordens_pendentes', None)
 
+    for aviso in avisos:
+        flash(aviso, "warning")
     if ordens:
         flash(f"{ordens} ordem(ns) de transferência criada(s).", "success")
-    else:
+    elif not avisos:
         flash("Nenhuma ordem criada.", "info")
 
     return redirect(url_for('producao.por_sabor'))
