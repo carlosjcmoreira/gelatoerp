@@ -183,27 +183,30 @@ def dashboard():
                            pesagens=pesagens)
 
 
-@producao_bp.route('/por-sabor', methods=['GET', 'POST'])
+@producao_bp.route('/stock-gelado/ajustar', methods=['POST'])
+@perm_required('acesso_producao')
+def stock_gelado_ajustar():
+    changes = 0
+    for key, val in request.form.items():
+        for prefix, loja in (('prod_mat_', 'Matosinhos'), ('prod_bol_', 'Bolhão'),
+                              ('prod_mou_', 'Mouzinho'), ('prod_b2b_', 'B2B')):
+            if key.startswith(prefix):
+                sabor = key[len(prefix):]
+                qty = _parse_decimal(val)
+                set_stock_producao(sabor, loja, qty)
+                changes += 1
+                break
+    if changes:
+        flash(f"Stock de produção atualizado ({changes} entrada(s)).", "success")
+    else:
+        flash("Nenhuma alteração detetada.", "info")
+    return redirect(url_for('producao.por_sabor'))
+
+
+@producao_bp.route('/por-sabor', methods=['GET'])
 @perm_required('acesso_producao')
 def por_sabor():
     today = date.today()
-
-    if request.method == 'POST':
-        changes = 0
-        for key, val in request.form.items():
-            for prefix, loja in (('prod_mat_', 'Matosinhos'), ('prod_bol_', 'Bolhão'),
-                                  ('prod_mou_', 'Mouzinho'), ('prod_b2b_', 'B2B')):
-                if key.startswith(prefix):
-                    sabor = key[len(prefix):]
-                    qty = _parse_decimal(val)
-                    set_stock_producao(sabor, loja, qty)
-                    changes += 1
-                    break
-        if changes:
-            flash(f"Stock de produção atualizado ({changes} entrada(s)).", "success")
-        else:
-            flash("Nenhuma alteração detetada.", "info")
-        return redirect(url_for('producao.por_sabor'))
 
     overview_df = get_producao_sabor_overview()
     stock_prod = get_stock_producao_all(today)
@@ -458,8 +461,6 @@ def registo_producao_guardar():
     except ValueError:
         data_prod = date.today()
 
-    criar_ordens = request.form.get('criar_ordens') == '1'
-
     sabores_form = {}
     for key, val in request.form.items():
         for prefix, field in (
@@ -475,7 +476,7 @@ def registo_producao_guardar():
                 break
 
     saved = 0
-    ordens = 0
+    sabores_para_ordens = {}
     for sabor, vals in sabores_form.items():
         pesagem_mat = vals.get('pesagem_mat', 0.0)
         prod_bol = vals.get('prod_bolhao', 0.0)
@@ -503,28 +504,97 @@ def registo_producao_guardar():
             if qty > 0:
                 add_stock_producao(data_prod, sabor, loja, qty)
 
-        if criar_ordens:
-            for loja, qty in (('Bolhão', prod_bol), ('Mouzinho', prod_mou), ('B2B', prod_b2b)):
-                if qty > 0:
-                    reduzir_stock_producao(data_prod, sabor, loja, qty)
-                    add_transferencia(data_prod, sabor, loja, qty)
-                    criar_ordem_transferencia(
-                        data_prod, 'Gelado', sabor, qty, 'kg', loja,
-                        sabor=sabor, criado_por=username, data_prevista=data_prod,
-                    )
-                    ordens += 1
+        for loja, qty in (('Bolhão', prod_bol), ('Mouzinho', prod_mou)):
+            if qty > 0:
+                sabores_para_ordens.setdefault(sabor, {})[loja] = qty
 
         saved += 1
 
     session.pop('ocr_producao_data', None)
 
-    if saved:
-        msg = f"Produção registada: {saved} sabor(es)."
-        if ordens:
-            msg += f" {ordens} ordem(ns) de transferência criada(s)."
-        flash(msg, "success")
-    else:
+    if not saved:
         flash("Nenhuma alteração guardada.", "info")
+        return redirect(url_for('producao.registo_producao'))
+
+    flash(f"Produção registada: {saved} sabor(es).", "success")
+
+    if sabores_para_ordens:
+        session['producao_ordens_pendentes'] = {
+            'data': str(data_prod),
+            'sabores': {s: {loja: qty for loja, qty in lojas.items()}
+                        for s, lojas in sabores_para_ordens.items()},
+            'saved': saved,
+        }
+        return redirect(url_for('producao.registo_producao_ordens'))
+
+    return redirect(url_for('producao.por_sabor'))
+
+
+@producao_bp.route('/registo-producao/ordens', methods=['GET'])
+@perm_required('acesso_producao')
+def registo_producao_ordens():
+    pendentes = session.get('producao_ordens_pendentes')
+    if not pendentes:
+        flash("Nenhuma produção recente para criar ordens.", "warning")
+        return redirect(url_for('producao.por_sabor'))
+
+    sabores_ordens = pendentes.get('sabores', {})
+    data_prod = pendentes.get('data', str(date.today()))
+    saved = pendentes.get('saved', 0)
+
+    lojas_com_producao = sorted({
+        loja
+        for lojas in sabores_ordens.values()
+        for loja in lojas
+        if lojas[loja] > 0
+    })
+
+    return render_template(
+        'producao/registo_producao_ordens.html',
+        active_tab='registo_producao', tabs=_tabs_with_urls(),
+        sabores_ordens=sabores_ordens,
+        lojas_com_producao=lojas_com_producao,
+        data_prod=data_prod,
+        saved=saved,
+    )
+
+
+@producao_bp.route('/registo-producao/criar-ordens', methods=['POST'])
+@perm_required('acesso_producao')
+def registo_producao_criar_ordens():
+    username = session.get('user', {}).get('username', 'system')
+    data_str = request.form.get('data', str(date.today()))
+    try:
+        data_prod = date.fromisoformat(data_str)
+    except ValueError:
+        data_prod = date.today()
+
+    ordens = 0
+    for key, val in request.form.items():
+        if not key.startswith('ordem_'):
+            continue
+        parts = key[len('ordem_'):].split('_', 1)
+        if len(parts) != 2:
+            continue
+        loja, sabor = parts
+        qty = _parse_decimal(val)
+        if qty <= 0:
+            continue
+        if loja not in ('Bolhão', 'Mouzinho'):
+            continue
+        reduzir_stock_producao(data_prod, sabor, loja, qty)
+        criar_ordem_transferencia(
+            data_prod, 'Gelado', sabor, qty, 'kg', loja,
+            sabor=sabor, criado_por=username, data_prevista=data_prod,
+        )
+        ordens += 1
+
+    session.pop('producao_ordens_pendentes', None)
+
+    if ordens:
+        flash(f"{ordens} ordem(ns) de transferência criada(s).", "success")
+    else:
+        flash("Nenhuma ordem criada.", "info")
 
     return redirect(url_for('producao.por_sabor'))
 

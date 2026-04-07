@@ -13,9 +13,9 @@ _LOCK_STOCK_PRODUCAO_LOJAS = 202612
 def run_migrations_stock_producao_lojas():
     """Ensure stock_producao supports Mouzinho and B2B as loja values.
 
-    stock_producao.loja is a free-form VARCHAR(100) column with no CHECK
-    constraint, so no DDL change is required.  This migration uses advisory
-    lock 202612 so it is idempotent across workers and merely logs success.
+    Drops any CHECK constraint on stock_producao.loja that would block
+    arbitrary store names (Mouzinho, B2B, etc.).  Uses advisory lock 202612
+    for idempotency across workers.
     """
     conn = get_connection()
     try:
@@ -24,14 +24,41 @@ def run_migrations_stock_producao_lojas():
         if not cursor.fetchone()[0]:
             logger.info("run_migrations_stock_producao_lojas: lock held by another worker, skipping")
             return
+
         cursor.execute("""
             SELECT COUNT(*) FROM information_schema.columns
             WHERE table_name = 'stock_producao' AND column_name = 'loja'
         """)
         if cursor.fetchone()[0] == 0:
             logger.warning("run_migrations_stock_producao_lojas: stock_producao.loja column not found")
-        else:
-            logger.info("run_migrations_stock_producao_lojas: stock_producao ready for Mouzinho/B2B lojas")
+            conn.commit()
+            return
+
+        cursor.execute("""
+            SELECT con.conname
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_attribute att ON att.attrelid = rel.oid
+                AND att.attnum = ANY(con.conkey)
+            WHERE con.contype = 'c'
+              AND rel.relname = 'stock_producao'
+              AND att.attname = 'loja'
+        """)
+        check_constraints = [row[0] for row in cursor.fetchall()]
+        for conname in check_constraints:
+            cursor.execute(
+                f"ALTER TABLE stock_producao DROP CONSTRAINT IF EXISTS {conname}"
+            )
+            logger.info(
+                "run_migrations_stock_producao_lojas: dropped CHECK constraint %s on loja",
+                conname,
+            )
+
+        if not check_constraints:
+            logger.info(
+                "run_migrations_stock_producao_lojas: no CHECK constraints on loja — already clean"
+            )
+
         conn.commit()
     except Exception as exc:
         logger.error("run_migrations_stock_producao_lojas failed: %s", exc)

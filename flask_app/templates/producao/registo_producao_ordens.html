@@ -1,0 +1,59 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-3">Criar Ordens de Transferência</h5>
+
+<div class="alert alert-success alert-sm py-2 mb-3">
+    Produção de <strong>{{ saved }}</strong> sabor(es) registada para <strong>{{ data_prod }}</strong>.
+</div>
+
+{% if not lojas_com_producao %}
+<p class="text-muted">Nenhuma produção para Bolhão ou Mouzinho — não há ordens a criar.</p>
+<a href="{{ url_for('producao.por_sabor') }}" class="btn btn-outline-primary">Ver Stock Gelado</a>
+{% else %}
+<p class="text-muted small mb-3">
+    Escolha as quantidades para criar ordens de transferência de produção para as lojas.
+    O stock de produção é deduzido imediatamente ao criar cada ordem.
+</p>
+
+<form method="post" action="{{ url_for('producao.registo_producao_criar_ordens') }}">
+    <input type="hidden" name="data" value="{{ data_prod }}">
+
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-bordered align-middle" style="font-size: 0.82rem;">
+            <thead class="table-dark">
+                <tr>
+                    <th class="px-2">Sabor</th>
+                    {% for loja in lojas_com_producao %}
+                    <th class="text-center px-1">{{ loja }} (kg)</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for sabor, qtds in sabores_ordens.items() %}
+                <tr>
+                    <td class="fw-semibold px-2">{{ sabor }}</td>
+                    {% for loja in lojas_com_producao %}
+                    <td class="text-center px-1">
+                        {% set qty = qtds.get(loja, 0) %}
+                        <input type="number"
+                               name="ordem_{{ loja }}_{{ sabor }}"
+                               class="form-control form-control-sm text-center p-1 {% if qty > 0 %}border-success{% endif %}"
+                               value="{{ '%.3f'|format(qty) if qty else '' }}"
+                               step="0.001" min="0"
+                               style="width:80px;margin:auto;">
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Criar ordens</button>
+        <a href="{{ url_for('producao.por_sabor') }}" class="btn btn-outline-secondary">Ignorar</a>
+    </div>
+</form>
+{% endif %}
+{% endblock %}
