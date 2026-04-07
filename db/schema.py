@@ -2038,6 +2038,92 @@ def run_data_fix_gelado_kpi_classification():
         release_connection(conn)
 
 
+def run_migrations_caixa_loja():
+    """Add caixa_loja column to produtos_vendas_config and classify in-store boxes.
+
+    Advisory lock 202610. In-store boxes (Caixa Gelado Pequena/Media/Grande/Mini)
+    are always sold at exactly €/kg, so they are excluded from the euro/kg KPI.
+    Platform boxes (Uber / Bolt / Glovo) have a fixed price per order and MUST
+    remain in the KPI to track whether collaborators are portioning correctly.
+
+    Classification rule: caixa_loja = TRUE when product name contains
+    'Caixa Gelado' AND does NOT contain 'Uber', 'Bolt', or 'Glovo'.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202610)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_caixa_loja: lock held by another worker, skipping")
+            return
+
+        cursor.execute("""
+            ALTER TABLE produtos_vendas_config
+            ADD COLUMN IF NOT EXISTS caixa_loja BOOLEAN NOT NULL DEFAULT FALSE
+        """)
+
+        cursor.execute("""
+            UPDATE produtos_vendas_config
+            SET caixa_loja = TRUE
+            WHERE produto ILIKE '%Caixa Gelado%'
+              AND produto NOT ILIKE '%Uber%'
+              AND produto NOT ILIKE '%Bolt%'
+              AND produto NOT ILIKE '%Glovo%'
+              AND caixa_loja = FALSE
+        """)
+        updated = cursor.rowcount
+        conn.commit()
+        logger.info("run_migrations_caixa_loja: %d in-store box products marked caixa_loja=TRUE", updated)
+    except Exception as exc:
+        logger.error("run_migrations_caixa_loja failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+
+def run_migrations_preco_caixa_kg():
+    """Create config_preco_caixa_kg table for historical in-store box price per kg.
+
+    Advisory lock 202611. Stores the €/kg price of in-store gelado boxes over
+    time. Used by the euro/kg KPI to estimate kg consumed in boxes per period.
+    Initial record: 2024-01-01 at €30.00/kg.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202611)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_preco_caixa_kg: lock held by another worker, skipping")
+            return
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS config_preco_caixa_kg (
+                id SERIAL PRIMARY KEY,
+                data_inicio DATE NOT NULL UNIQUE,
+                preco_kg NUMERIC(5,2) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO config_preco_caixa_kg (data_inicio, preco_kg)
+            VALUES ('2024-01-01', 30.00)
+            ON CONFLICT (data_inicio) DO NOTHING
+        """)
+        conn.commit()
+        logger.info("run_migrations_preco_caixa_kg: table ready")
+    except Exception as exc:
+        logger.error("run_migrations_preco_caixa_kg failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+
 def run_data_fix_pesagem_matosinhos_backfill():
     """
     One-time idempotent backfill: copy all plano_producao rows where

@@ -13,6 +13,10 @@ from database import (
     get_gramas_gelado, add_gramas_gelado, get_consumo_gelado_mensal,
     get_vendas_produto_mensal,
 )
+from db.pastelaria import (
+    get_precos_caixa_kg_historico, add_preco_caixa_kg, delete_preco_caixa_kg,
+    get_volume_por_produto,
+)
 
 eurokg_bp = Blueprint('eurokg', __name__)
 
@@ -24,6 +28,8 @@ MENU_ITEMS = [
     {'icon': '💶', 'label': 'Vendas por Produto', 'url_endpoint': 'eurokg.vendas_produto'},
     {'icon': '⚖️', 'label': 'Pesagens', 'url_endpoint': 'eurokg.pesagens'},
     {'icon': '🔍', 'label': 'Diagnóstico de Vendas', 'url_endpoint': 'eurokg.diagnostico_vendas', 'gestor_only': True},
+    {'icon': '📦', 'label': 'Volume por Produto', 'url_endpoint': 'eurokg.volume_produtos', 'gestor_only': True},
+    {'icon': '⚙️', 'label': 'Preço/kg Caixas Loja', 'url_endpoint': 'eurokg.config_preco_caixa', 'gestor_only': True},
 ]
 
 MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
@@ -584,4 +590,75 @@ def diagnostico_vendas():
         loja_avg=loja_avg,
         n_alerts=n_alerts,
         n_ausente=n_ausente,
+    )
+
+
+@eurokg_bp.route('/volume-produtos')
+@perm_required('acesso_gestor')
+def volume_produtos():
+    today = date.today()
+    first_of_month = today.replace(day=1)
+    de_str = request.args.get('de', str(first_of_month))
+    ate_str = request.args.get('ate', str(today))
+    loja = request.args.get('loja', '')
+    try:
+        de_date = date.fromisoformat(de_str)
+    except ValueError:
+        de_date = first_of_month
+    try:
+        ate_date = date.fromisoformat(ate_str)
+    except ValueError:
+        ate_date = today
+
+    loja_db = loja if loja else None
+    rows = get_volume_por_produto(de_date, ate_date, loja_db)
+
+    total_euros = sum(float(r['valor_euros']) for r in rows)
+    total_unidades = sum(int(r['unidades']) for r in rows)
+    return render_template('eurokg/volume_produtos.html',
+        de_date=str(de_date),
+        ate_date=str(ate_date),
+        loja=loja,
+        rows=rows,
+        total_euros=total_euros,
+        total_unidades=total_unidades,
+    )
+
+
+@eurokg_bp.route('/config-preco-caixa', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def config_preco_caixa():
+    username = session.get('user', {}).get('username', 'system')
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        if action == 'add':
+            data_inicio_str = request.form.get('data_inicio', '').strip()
+            preco_kg_str = request.form.get('preco_kg', '').strip()
+            if not data_inicio_str or not preco_kg_str:
+                flash('Preencha a data de início e o preço €/kg.', 'danger')
+            else:
+                try:
+                    data_inicio = date.fromisoformat(data_inicio_str)
+                    preco_kg = float(preco_kg_str.replace(',', '.'))
+                    if preco_kg <= 0:
+                        raise ValueError('Preço deve ser positivo')
+                    add_preco_caixa_kg(data_inicio, preco_kg)
+                    flash(f'Período adicionado: {data_inicio_str} → {preco_kg:.2f} €/kg.', 'success')
+                except ValueError as e:
+                    flash(f'Dados inválidos: {e}', 'danger')
+        elif action == 'delete':
+            record_id = request.form.get('id', '')
+            if record_id:
+                deleted = delete_preco_caixa_kg(int(record_id))
+                if deleted:
+                    flash('Período removido.', 'success')
+                else:
+                    flash('Não é possível apagar o registo base (mais antigo).', 'warning')
+        return redirect(url_for('eurokg.config_preco_caixa'))
+
+    historico = get_precos_caixa_kg_historico()
+    min_id = min((r['id'] for r in historico), default=None)
+    return render_template('eurokg/config_preco_caixa.html',
+        historico=historico,
+        min_id=min_id,
     )

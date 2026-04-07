@@ -704,6 +704,55 @@ def get_vendas_filtradas_df(area: str, loja: str = None, data_inicio: date = Non
     return df
 
 
+def get_caixa_loja_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
+    """Return daily sums of valor_euros for caixa_loja=TRUE products.
+
+    These are in-store gelado boxes sold by weight (Caixa Gelado Pequena/Media/
+    Grande/Mini). They are excluded from the euro/kg KPI numerator; their weight
+    is estimated as valor_euros / preco_kg and subtracted from the denominator.
+    """
+    conn = get_connection()
+    query = """
+        SELECT vd.data, vd.loja, SUM(vd.valor_euros) as valor_euros
+        FROM vendas_detalhe vd
+        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+        WHERE pvc.caixa_loja = TRUE
+    """
+    params = []
+    if loja:
+        query += " AND vd.loja = %s"
+        params.append(loja)
+    if data_inicio:
+        query += " AND vd.data >= %s"
+        params.append(data_inicio)
+    if data_fim:
+        query += " AND vd.data <= %s"
+        params.append(data_fim)
+    query += " GROUP BY vd.data, vd.loja ORDER BY vd.data"
+    df = pd.read_sql_query(query, conn, params=params)
+    release_connection(conn)
+    return df
+
+
+def get_preco_kg_for_date(for_date) -> float:
+    """Return the active in-store box price per kg for a given date.
+
+    Looks up config_preco_caixa_kg for the most recent period whose
+    data_inicio <= for_date. Falls back to 30.0 if no period is found.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT preco_kg FROM config_preco_caixa_kg
+        WHERE data_inicio <= %s
+        ORDER BY data_inicio DESC
+        LIMIT 1
+    """, (for_date,))
+    row = cursor.fetchone()
+    release_connection(conn)
+    return float(row[0]) if row else 30.0
+
+
 @ttl_cache_args('kpi_by_day', ttl=600)
 def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
     loja_db = loja if loja and loja != 'Porto (Global)' else None
@@ -711,6 +760,7 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
     excluidos = get_sabores_excluidos_eurokg()
 
     vendas_gelado_df = get_vendas_filtradas_df('gelado_kpi', loja_db, data_inicio, data_fim)
+    caixa_loja_df = get_caixa_loja_vendas_df(loja_db, data_inicio, data_fim)
     if loja_db == 'Matosinhos':
         producao_plano_daily = get_producao_plano_matosinhos_daily(data_inicio, data_fim)
         producao_df = pd.DataFrame()
@@ -859,6 +909,11 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
         d_date = d if isinstance(d, date) else pd.to_datetime(d).date()
 
         vendas = vendas_gelado_df[vendas_gelado_df['data'] == d]['valor_euros'].sum() if not vendas_gelado_df.empty else 0
+        caixa_v = caixa_loja_df[caixa_loja_df['data'] == d]['valor_euros'].sum() if not caixa_loja_df.empty else 0
+        preco_kg_caixa = get_preco_kg_for_date(d_date)
+        caixa_kg = caixa_v / preco_kg_caixa if preco_kg_caixa > 0 else 0
+        vendas = vendas - caixa_v
+
         if loja_db == 'Matosinhos':
             producao_total = producao_plano_daily.get(d_date, 0)
         else:
@@ -887,7 +942,7 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
             entrada = producao_total - transf_bolhao
             transf_display = transf_bolhao
 
-        consumo = stock_ini + entrada - stock_fim - quebras
+        consumo = stock_ini + entrada - stock_fim - quebras - caixa_kg
         kpi = vendas / consumo if consumo > 0 else 0
 
         month = d_date.month
@@ -1023,6 +1078,12 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
     vendas_df = get_vendas_filtradas_df('gelado_kpi', loja_db, first_day, last_day)
     vendas = vendas_df['valor_euros'].sum() if not vendas_df.empty else 0
 
+    caixa_df = get_caixa_loja_vendas_df(loja_db, first_day, last_day)
+    caixa_v = float(caixa_df['valor_euros'].sum()) if not caixa_df.empty else 0.0
+    preco_kg_caixa = get_preco_kg_for_date(last_day)
+    caixa_kg = caixa_v / preco_kg_caixa if preco_kg_caixa > 0 else 0.0
+    vendas = vendas - caixa_v
+
     if loja_db is None:
         entrada = producao_ajustada
     elif loja_db == 'Bolhão':
@@ -1030,7 +1091,7 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
     else:
         entrada = producao_ajustada - transf_bolhao
 
-    consumo = stock_ini_total + entrada - stock_final_total - quebras
+    consumo = stock_ini_total + entrada - stock_final_total - quebras - caixa_kg
     kpi = vendas / consumo if consumo > 0 else 0
 
     return {
@@ -1045,7 +1106,9 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
         'consumo': round(consumo, 3),
         'vendas': round(float(vendas), 2),
         'kpi': round(kpi, 2),
-        'ajuste': round(float(ajuste), 3)
+        'ajuste': round(float(ajuste), 3),
+        'caixa_vendas': round(caixa_v, 2),
+        'caixa_kg': round(caixa_kg, 3),
     }
 
 @ttl_cache_args('kpi_annual', ttl=600)
@@ -1141,7 +1204,27 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
     vendas_query += " GROUP BY mes ORDER BY mes"
     cursor.execute(vendas_query, vendas_params)
     vendas_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
-    
+
+    caixa_query = """
+        SELECT EXTRACT(MONTH FROM vd.data)::int as mes, COALESCE(SUM(vd.valor_euros), 0)
+        FROM vendas_detalhe vd
+        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+        WHERE pvc.caixa_loja = TRUE AND EXTRACT(YEAR FROM vd.data) = %s
+    """
+    caixa_params = [year]
+    if loja_db:
+        caixa_query += " AND vd.loja = %s"
+        caixa_params.append(loja_db)
+    caixa_query += " GROUP BY mes ORDER BY mes"
+    cursor.execute(caixa_query, caixa_params)
+    caixa_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
+
+    cursor.execute("""
+        SELECT data_inicio, preco_kg FROM config_preco_caixa_kg
+        WHERE data_inicio <= %s ORDER BY data_inicio
+    """, (date(year, 12, 31),))
+    price_periods = [(row[0], float(row[1])) for row in cursor.fetchall()]
+
     cursor.execute("SELECT mes, COALESCE(SUM(quantidade_kg), 0) FROM ajustes_producao WHERE ano = %s GROUP BY mes", (year,))
     ajustes_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
     
@@ -1202,6 +1285,15 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
         transf_bolhao = transf_bolhao_by_month.get(month, 0)
         quebras = quebras_by_month.get(month, 0)
         vendas = vendas_by_month.get(month, 0)
+        caixa_v_m = caixa_by_month.get(month, 0.0)
+        last_day_m = date(year, month, last_day_num)
+        preco_kg_caixa_m = 30.0
+        for period_date, period_price in reversed(price_periods):
+            if period_date <= last_day_m:
+                preco_kg_caixa_m = period_price
+                break
+        caixa_kg_m = caixa_v_m / preco_kg_caixa_m if preco_kg_caixa_m > 0 else 0.0
+        vendas = vendas - caixa_v_m
 
         if loja_db is None:
             entrada = producao_ajustada
@@ -1210,7 +1302,7 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
         else:
             entrada = producao_ajustada - transf_bolhao
 
-        consumo = stock_ini_total + entrada - stock_final_total - quebras
+        consumo = stock_ini_total + entrada - stock_final_total - quebras - caixa_kg_m
         kpi = vendas / consumo if consumo > 0 else 0
 
         results[month] = {
@@ -1225,7 +1317,9 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
             'consumo': round(consumo, 3),
             'vendas': round(float(vendas), 2),
             'kpi': round(kpi, 2),
-            'ajuste': round(float(ajuste), 3)
+            'ajuste': round(float(ajuste), 3),
+            'caixa_vendas': round(caixa_v_m, 2),
+            'caixa_kg': round(caixa_kg_m, 3),
         }
     
     return results

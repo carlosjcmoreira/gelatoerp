@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eurokg.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="fw-bold mb-1">⚙️ Preço/kg Caixas Loja</h5>
+    <p class="text-muted small mb-3">
+        Histórico do preço médio por kg usado para estimar o peso das caixas gelado vendidas na loja
+        (Caixa Gelado Pequena, Média, Grande, Mini). Este preço é usado para corrigir o denominador do KPI €/kg.
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="mb-3">
+        {% for category, message in messages %}
+        <div class="alert alert-{{ category }} alert-dismissible py-2 px-3 small fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <div class="row g-3">
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100">
+                <div class="card-header fw-semibold small py-2">Adicionar período</div>
+                <div class="card-body">
+                    <form method="post" action="{{ url_for('eurokg.config_preco_caixa') }}">
+                        <input type="hidden" name="action" value="add">
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold" for="data_inicio">Data de início</label>
+                            <input type="date" id="data_inicio" name="data_inicio"
+                                   class="form-control form-control-sm" required>
+                            <div class="form-text small">A partir desta data o novo preço é aplicado ao KPI.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold" for="preco_kg">Preço €/kg</label>
+                            <div class="input-group input-group-sm">
+                                <input type="number" id="preco_kg" name="preco_kg"
+                                       class="form-control form-control-sm"
+                                       step="0.01" min="0.01" max="999.99"
+                                       placeholder="30.00" required>
+                                <span class="input-group-text">€/kg</span>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-primary">Adicionar</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="card h-100">
+                <div class="card-header fw-semibold small py-2">Histórico de preços</div>
+                <div class="card-body p-0">
+                    {% if historico %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Data início</th>
+                                    <th class="text-end">€/kg</th>
+                                    <th class="text-center">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for h in historico %}
+                                <tr>
+                                    <td class="small">{{ h.data_inicio.strftime('%d/%m/%Y') if h.data_inicio else '—' }}</td>
+                                    <td class="text-end small fw-semibold">{{ '%.2f'|format(h.preco_kg|float) }} €</td>
+                                    <td class="text-center">
+                                        {% if h.id != min_id %}
+                                        <form method="post" action="{{ url_for('eurokg.config_preco_caixa') }}"
+                                              style="display:inline;"
+                                              onsubmit="return confirm('Apagar este período de preço?');">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="id" value="{{ h.id }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2">✕</button>
+                                        </form>
+                                        {% else %}
+                                        <span class="text-muted small" title="Registo base — não removível">base</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted small p-3 mb-0">Nenhum período configurado.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-body py-2 px-3">
+            <p class="small text-muted mb-0">
+                <strong>Como funciona:</strong> Para cada período no KPI €/kg, as vendas de caixas loja são excluídas
+                do numerador (€ de vendas) e o peso estimado é excluído do denominador (kg consumidos).
+                O peso é estimado dividindo o valor de vendas pelo preço €/kg vigente à data.
+                Caixas de plataformas (Uber, Bolt, Glovo) <em>não</em> são afetadas.
+            </p>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

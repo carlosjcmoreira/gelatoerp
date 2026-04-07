@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eurokg.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <h5 class="fw-bold mb-1">📦 Volume por Produto</h5>
+    <p class="text-muted small mb-3">Unidades e valor de venda por produto gelado no período selecionado. Caixas loja (excluídas do KPI) são assinaladas separadamente.</p>
+
+    <form method="get" action="{{ url_for('eurokg.volume_produtos') }}" class="mb-4">
+        <div class="card card-body py-3">
+            <div class="row g-3 align-items-end">
+
+                <div class="col-12 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1">Loja</label>
+                    <select name="loja" class="form-select form-select-sm" style="min-width:140px;">
+                        <option value="" {% if not loja %}selected{% endif %}>Todas</option>
+                        <option value="Bolhão" {% if loja == 'Bolhão' %}selected{% endif %}>🛒 Bolhão</option>
+                        <option value="Matosinhos" {% if loja == 'Matosinhos' %}selected{% endif %}>🏭 Matosinhos</option>
+                    </select>
+                </div>
+
+                <div class="col-6 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1" for="de">De</label>
+                    <input type="date" id="de" name="de" class="form-control form-control-sm"
+                           value="{{ de_date }}" style="min-width:140px;">
+                </div>
+                <div class="col-6 col-sm-auto">
+                    <label class="form-label small fw-semibold mb-1" for="ate">Até</label>
+                    <input type="date" id="ate" name="ate" class="form-control form-control-sm"
+                           value="{{ ate_date }}" style="min-width:140px;">
+                </div>
+
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-sm btn-primary">Filtrar</button>
+                </div>
+
+            </div>
+        </div>
+    </form>
+
+    {% if rows %}
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Produto</th>
+                            <th class="text-center">Tipo</th>
+                            <th class="text-end">Unidades</th>
+                            <th class="text-end">Valor €</th>
+                            <th class="text-end">% Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in rows %}
+                        <tr class="{% if r.caixa_loja %}table-warning{% endif %}">
+                            <td class="small">
+                                {{ r.produto }}
+                                {% if r.caixa_loja %}
+                                <span class="badge bg-warning text-dark ms-1" title="Excluída do KPI €/kg">caixa loja</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center small">
+                                {% if r.caixa_loja %}
+                                    🎁 Caixa
+                                {% elif r.gelado_kpi %}
+                                    🍦 Gelado
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td class="text-end small">{{ r.unidades }}</td>
+                            <td class="text-end small">{{ '%.2f'|format(r.valor_euros|float) }} €</td>
+                            <td class="text-end small">
+                                {% if total_euros > 0 %}
+                                {{ '%.1f'|format(r.valor_euros|float / total_euros * 100) }}%
+                                {% else %}—{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-secondary fw-semibold">
+                        <tr>
+                            <td colspan="2">Total</td>
+                            <td class="text-end">{{ total_unidades }}</td>
+                            <td class="text-end">{{ '%.2f'|format(total_euros) }} €</td>
+                            <td class="text-end">100%</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <p class="text-muted small mt-2">
+        <span class="badge bg-warning text-dark">caixa loja</span>
+        Caixas gelado vendidas ao peso na loja — excluídas do KPI €/kg.
+    </p>
+
+    {% else %}
+    <div class="alert alert-info">
+        Nenhum produto encontrado para o período e loja selecionados.
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

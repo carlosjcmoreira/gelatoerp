@@ -1373,3 +1373,82 @@ def delete_tipologia_pastelaria(id: int):
     conn.commit()
     release_connection(conn)
 
+
+def get_precos_caixa_kg_historico() -> list:
+    """Return all config_preco_caixa_kg rows ordered by data_inicio DESC."""
+    conn = get_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("""
+        SELECT id, data_inicio, preco_kg, created_at
+        FROM config_preco_caixa_kg
+        ORDER BY data_inicio DESC
+    """)
+    rows = [dict(r) for r in cursor.fetchall()]
+    release_connection(conn)
+    return rows
+
+
+def add_preco_caixa_kg(data_inicio: date, preco_kg: float) -> None:
+    """Insert or update a price period in config_preco_caixa_kg."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO config_preco_caixa_kg (data_inicio, preco_kg)
+        VALUES (%s, %s)
+        ON CONFLICT (data_inicio) DO UPDATE SET preco_kg = EXCLUDED.preco_kg
+    """, (data_inicio, preco_kg))
+    conn.commit()
+    release_connection(conn)
+
+
+def delete_preco_caixa_kg(id: int) -> bool:
+    """Delete a price period by id. Returns False if it is the base record (first ever)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT MIN(id) FROM config_preco_caixa_kg")
+    min_id = cursor.fetchone()[0]
+    if min_id is None or int(id) == int(min_id):
+        release_connection(conn)
+        return False
+    cursor.execute("DELETE FROM config_preco_caixa_kg WHERE id = %s", (id,))
+    conn.commit()
+    release_connection(conn)
+    return True
+
+
+def get_volume_por_produto(data_inicio: date = None, data_fim: date = None, loja: str = None) -> list:
+    """Return per-product sales volume for the eurokg section.
+
+    Returns a list of dicts with produto, gelado_kpi, caixa_loja, unidades,
+    valor_euros. Only products with gelado_kpi=TRUE or caixa_loja=TRUE are
+    returned so the page focuses on the gelado product mix.
+    """
+    conn = get_connection()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    query = """
+        SELECT
+            vd.produto,
+            pvc.gelado_kpi,
+            pvc.caixa_loja,
+            COUNT(*) AS unidades,
+            COALESCE(SUM(vd.valor_euros), 0) AS valor_euros
+        FROM vendas_detalhe vd
+        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+        WHERE (pvc.gelado_kpi = TRUE OR pvc.caixa_loja = TRUE)
+    """
+    params = []
+    if loja:
+        query += " AND vd.loja = %s"
+        params.append(loja)
+    if data_inicio:
+        query += " AND vd.data >= %s"
+        params.append(data_inicio)
+    if data_fim:
+        query += " AND vd.data <= %s"
+        params.append(data_fim)
+    query += " GROUP BY vd.produto, pvc.gelado_kpi, pvc.caixa_loja ORDER BY valor_euros DESC"
+    cursor.execute(query, params)
+    rows = [dict(r) for r in cursor.fetchall()]
+    release_connection(conn)
+    return rows
+
