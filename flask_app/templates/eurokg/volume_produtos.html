@@ -5,7 +5,7 @@
 <div class="container-fluid px-3 py-3">
 
     <h5 class="fw-bold mb-1">📦 Volume por Produto</h5>
-    <p class="text-muted small mb-3">Unidades e valor de venda por produto gelado no período selecionado. Caixas loja (excluídas do KPI) são assinaladas separadamente com estimativa de kg.</p>
+    <p class="text-muted small mb-3">Unidades e valor de venda por produto gelado no período selecionado. Caixas loja (excluídas do KPI) são assinaladas separadamente com kg estimado calculado ao preço vigente em cada data de venda.</p>
 
     <form method="get" action="{{ url_for('eurokg.volume_produtos') }}" class="mb-4">
         <div class="card card-body py-3">
@@ -56,7 +56,6 @@
                     </thead>
                     <tbody>
                         {% for r in rows %}
-                        {% set kg_est = (r.valor_euros|float / preco_kg) if (r.caixa_loja and preco_kg > 0) else none %}
                         <tr class="{% if r.caixa_loja %}table-warning{% endif %}">
                             <td class="small">
                                 {{ r.produto }}
@@ -80,8 +79,8 @@
                             <td class="text-end small">{{ r.unidades }}</td>
                             <td class="text-end small">{{ '%.2f'|format(r.valor_euros|float) }} €</td>
                             <td class="text-end small">
-                                {% if kg_est is not none %}
-                                    {{ '%.2f'|format(kg_est) }} kg
+                                {% if r.kg_estimado is not none %}
+                                    {{ '%.2f'|format(r.kg_estimado|float) }} kg
                                 {% else %}
                                     <span class="text-muted">—</span>
                                 {% endif %}
@@ -116,7 +115,7 @@
     <p class="text-muted small mt-2">
         <span class="badge bg-warning text-dark">caixa loja</span>
         Caixas gelado vendidas ao peso na loja — excluídas do KPI €/kg.
-        Kg estimado baseado em <strong>{{ '%.2f'|format(preco_kg) }} €/kg</strong> (preço vigente a {{ ate_date }}).
+        Kg estimado calculado ao preço vigente em cada data de venda (tabela Preço/kg Caixas Loja).
     </p>
 
     {% else %}

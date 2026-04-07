@@ -1438,7 +1438,21 @@ def get_volume_por_produto(data_inicio: date = None, data_fim: date = None, loja
                 ELSE 'Directo'
             END AS canal,
             COUNT(*) AS unidades,
-            COALESCE(SUM(vd.valor_euros), 0) AS valor_euros
+            COALESCE(SUM(vd.valor_euros), 0) AS valor_euros,
+            CASE
+                WHEN pvc.caixa_loja = TRUE THEN
+                    COALESCE(SUM(
+                        vd.valor_euros / COALESCE(
+                            (SELECT ck.preco_kg
+                             FROM config_preco_caixa_kg ck
+                             WHERE ck.data_inicio <= vd.data
+                             ORDER BY ck.data_inicio DESC
+                             LIMIT 1),
+                            30.0
+                        )
+                    ), 0)
+                ELSE NULL
+            END AS kg_estimado
         FROM vendas_detalhe vd
         INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
         WHERE (pvc.gelado_kpi = TRUE OR pvc.caixa_loja = TRUE)
