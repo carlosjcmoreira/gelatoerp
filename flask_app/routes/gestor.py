@@ -1212,18 +1212,11 @@ def materiais_post():
     return redirect(url_for('gestor.materiais'))
 
 
-@gestor_bp.route('/gestao-tiles', methods=['GET', 'POST'])
+@gestor_bp.route('/gestao-tiles', methods=['GET'])
 @perm_required('acesso_gestor')
 def gestao_tiles():
-    from db.tiles import get_all_tile_config, set_tile_visibility
-
-    if request.method == 'POST':
-        module = request.form.get('module', '').strip()
-        tile_id = request.form.get('tile_id', '').strip()
-        visible = request.form.get('visible') == '1'
-        if module and tile_id:
-            set_tile_visibility(module, tile_id, visible)
-        return redirect(url_for('gestor.gestao_tiles'))
+    from db.tiles import get_all_tile_config
+    from flask import jsonify
 
     all_tiles = get_all_tile_config()
     modules = {}
@@ -1236,3 +1229,21 @@ def gestao_tiles():
         modules=modules,
         back_url=url_for('gestor.index'),
     )
+
+
+@gestor_bp.route('/gestao-tiles/toggle', methods=['POST'])
+@perm_required('acesso_gestor')
+def gestao_tiles_toggle():
+    from db.tiles import set_tile_visibility
+    from flask import jsonify
+
+    module = request.form.get('module', '').strip()
+    tile_id = request.form.get('tile_id', '').strip()
+    visible_str = request.form.get('visible', '')
+
+    if not module or not tile_id or visible_str not in ('0', '1'):
+        return jsonify({'ok': False, 'error': 'Parâmetros inválidos'}), 400
+
+    visible = visible_str == '1'
+    set_tile_visibility(module, tile_id, visible)
+    return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'visible': visible})

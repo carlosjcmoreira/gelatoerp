@@ -46,6 +46,37 @@ def _start_sheets_sync_scheduler():
     t.start()
 
 
+def _seed_all_tiles():
+    """Seed tile_config for all modules using their canonical TABS definitions.
+
+    Called once at startup after run_migrations_tile_config so the admin
+    Gestão de Tiles page always shows every known tile regardless of whether
+    the user has visited each module.
+    """
+    try:
+        from db.tiles import seed_tile_config
+
+        from flask_app.routes.producao import TABS as PRODUCAO_TABS
+        seed_tile_config('producao', [{'id': t['id'], 'label': t['label']} for t in PRODUCAO_TABS])
+
+        from flask_app.routes.pastelaria import TABS as PASTELARIA_TABS
+        seed_tile_config('pastelaria', [{'id': t['id'], 'label': t['label']} for t in PASTELARIA_TABS])
+
+        from flask_app.routes.vendas import TAB_DEFS as VENDAS_TABS
+        seed_tile_config('vendas', [{'id': t['id'], 'label': t['label']} for t in VENDAS_TABS])
+
+        from flask_app.routes.gestor import TABS as GESTOR_TABS
+        seed_tile_config('gestor', [{'id': t['id'], 'label': t['label']} for t in GESTOR_TABS])
+
+        from flask_app.routes.financeiro import FINANCEIRO_GROUPS
+        fin_tiles = [{'id': m['key'], 'label': m['label']} for g in FINANCEIRO_GROUPS for m in g['modules']]
+        seed_tile_config('financeiro', fin_tiles)
+
+        logger.info("_seed_all_tiles: all module tiles seeded")
+    except Exception as exc:
+        logger.error("_seed_all_tiles failed: %s", exc)
+
+
 def create_app():
     app = Flask(__name__, static_folder='static', template_folder='templates')
     app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
@@ -76,6 +107,7 @@ def create_app():
         run_migrations_centros_custo()
         run_migrations_stock_producao_lojas()
         run_migrations_tile_config()
+        _seed_all_tiles()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()
 

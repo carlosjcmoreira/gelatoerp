@@ -6,14 +6,10 @@
     <h5 class="mb-1">🔲 Gestão de Tiles</h5>
     <p class="text-muted small mb-4">Ative ou desative os tiles visíveis em cada módulo.</p>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for category, message in messages %}
-    <div class="alert alert-{{ 'success' if category == 'success' else 'warning' if category == 'warning' else 'danger' }} py-2">{{ message }}</div>
-    {% endfor %}
-    {% endwith %}
+    <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:1100;"></div>
 
     {% if not modules %}
-    <div class="alert alert-info">Nenhum tile registado. Aceda a cada módulo para que os tiles sejam registados automaticamente.</div>
+    <div class="alert alert-info">Nenhum tile registado ainda.</div>
     {% else %}
 
     {% set module_labels = {
@@ -45,21 +41,14 @@
                         {% if tile.label %}— {{ tile.label }}{% endif %}
                     </td>
                     <td class="text-center align-middle py-2">
-                        <form method="POST" action="{{ url_for('gestor.gestao_tiles') }}" class="d-inline">
-                            <input type="hidden" name="module" value="{{ module_id }}">
-                            <input type="hidden" name="tile_id" value="{{ tile.tile_id }}">
-                            {% if tile.visible %}
-                            <input type="hidden" name="visible" value="0">
-                            <button type="submit" class="btn btn-sm btn-success" title="Clique para ocultar">
-                                Visível
-                            </button>
-                            {% else %}
-                            <input type="hidden" name="visible" value="1">
-                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Clique para mostrar">
-                                Oculto
-                            </button>
-                            {% endif %}
-                        </form>
+                        <button type="button"
+                                class="btn btn-sm tile-toggle {% if tile.visible %}btn-success{% else %}btn-outline-secondary{% endif %}"
+                                data-module="{{ module_id }}"
+                                data-tile-id="{{ tile.tile_id }}"
+                                data-visible="{{ '1' if tile.visible else '0' }}"
+                                title="{{ 'Clique para ocultar' if tile.visible else 'Clique para mostrar' }}">
+                            {{ 'Visível' if tile.visible else 'Oculto' }}
+                        </button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -70,4 +59,60 @@
     {% endfor %}
     {% endif %}
 </div>
+
+<script>
+(function () {
+    const TOGGLE_URL = "{{ url_for('gestor.gestao_tiles_toggle') }}";
+
+    function showToast(msg, ok) {
+        const container = document.getElementById('toast-container');
+        const id = 'toast-' + Date.now();
+        const cls = ok ? 'bg-success text-white' : 'bg-danger text-white';
+        const html = `<div id="${id}" class="toast align-items-center ${cls} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body">${msg}</div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        </div>`;
+        container.insertAdjacentHTML('beforeend', html);
+        const el = document.getElementById(id);
+        const toast = new bootstrap.Toast(el, {delay: 2500});
+        toast.show();
+        el.addEventListener('hidden.bs.toast', () => el.remove());
+    }
+
+    document.querySelectorAll('.tile-toggle').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const module = this.dataset.module;
+            const tileId = this.dataset.tileId;
+            const currentVisible = this.dataset.visible === '1';
+            const newVisible = currentVisible ? '0' : '1';
+
+            btn.disabled = true;
+
+            const fd = new FormData();
+            fd.append('module', module);
+            fd.append('tile_id', tileId);
+            fd.append('visible', newVisible);
+
+            fetch(TOGGLE_URL, {method: 'POST', body: fd})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.ok) {
+                        const nowVisible = data.visible;
+                        btn.dataset.visible = nowVisible ? '1' : '0';
+                        btn.textContent = nowVisible ? 'Visível' : 'Oculto';
+                        btn.className = 'btn btn-sm tile-toggle ' + (nowVisible ? 'btn-success' : 'btn-outline-secondary');
+                        btn.title = nowVisible ? 'Clique para ocultar' : 'Clique para mostrar';
+                        showToast('Guardado', true);
+                    } else {
+                        showToast(data.error || 'Erro ao guardar', false);
+                    }
+                })
+                .catch(() => showToast('Erro de rede', false))
+                .finally(() => { btn.disabled = false; });
+        });
+    });
+})();
+</script>
 {% endblock %}
