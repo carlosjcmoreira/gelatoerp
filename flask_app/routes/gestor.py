@@ -52,11 +52,6 @@ SECTION_ENDPOINT_MAP = {
     'materiais': 'gestor.materiais',
 }
 
-def _seed_tiles():
-    from db.tiles import seed_tile_config
-    seed_tile_config('gestor', [{'id': t['id'], 'label': t['label']} for t in TABS])
-
-
 def get_tabs():
     from db.tiles import get_tile_visibility
     visibility = get_tile_visibility('gestor')
@@ -1219,9 +1214,15 @@ def gestao_tiles():
     from flask import jsonify
 
     all_tiles = get_all_tile_config()
-    modules = {}
+    raw_modules = {}
     for t in all_tiles:
-        modules.setdefault(t['module'], []).append(t)
+        raw_modules.setdefault(t['module'], []).append(t)
+
+    _ORDER = ['producao', 'pastelaria', 'vendas', 'gestor', 'financeiro']
+    modules = {m: raw_modules[m] for m in _ORDER if m in raw_modules}
+    for m in raw_modules:
+        if m not in modules:
+            modules[m] = raw_modules[m]
 
     return render_template(
         'gestor/gestao_tiles.html',

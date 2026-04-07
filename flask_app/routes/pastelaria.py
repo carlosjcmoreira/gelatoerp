@@ -32,11 +32,6 @@ TABS = [
     {'id': 'gerir_produtos', 'label': 'Gerir Produtos', 'icon': '🍡', 'endpoint': 'pastelaria.gerir_produtos'},
 ]
 
-def _seed_tiles():
-    from db.tiles import seed_tile_config
-    seed_tile_config('pastelaria', [{'id': t['id'], 'label': t['label']} for t in TABS])
-
-
 def _tabs_with_urls():
     from db.tiles import get_tile_visibility
     visibility = get_tile_visibility('pastelaria')

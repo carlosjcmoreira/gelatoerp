@@ -57,11 +57,6 @@ TABS = [
     {'id': 'sabores_ativos', 'label': 'Lista de Sabores', 'icon': '✅', 'url_endpoint': 'producao.sabores_ativos'},
 ]
 
-def _seed_tiles():
-    from db.tiles import seed_tile_config
-    seed_tile_config('producao', [{'id': t['id'], 'label': t['label']} for t in TABS])
-
-
 def _tabs_with_urls():
     from db.tiles import get_tile_visibility
     visibility = get_tile_visibility('producao')
