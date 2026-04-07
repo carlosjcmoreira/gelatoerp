@@ -619,6 +619,10 @@ def volume_produtos():
         float(r['kg_estimado']) for r in rows
         if r['caixa_loja'] and r['kg_estimado'] is not None
     )
+    missing_price_products = [
+        r['produto'] for r in rows
+        if r['caixa_loja'] and r['kg_estimado'] is None
+    ]
     return render_template('eurokg/volume_produtos.html',
         de_date=str(de_date),
         ate_date=str(ate_date),
@@ -627,6 +631,7 @@ def volume_produtos():
         total_euros=total_euros,
         total_unidades=total_unidades,
         total_caixa_kg=total_caixa_kg,
+        missing_price_products=missing_price_products,
     )
 
 

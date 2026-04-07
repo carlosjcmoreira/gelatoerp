@@ -1419,9 +1419,21 @@ def delete_preco_caixa_kg(id: int) -> bool:
 def get_volume_por_produto(data_inicio: date = None, data_fim: date = None, loja: str = None) -> list:
     """Return per-product sales volume for the eurokg section.
 
-    Returns a list of dicts with produto, gelado_kpi, caixa_loja, unidades,
-    valor_euros. Only products with gelado_kpi=TRUE or caixa_loja=TRUE are
-    returned so the page focuses on the gelado product mix.
+    Returns a list of dicts with:
+        produto       str   — product name
+        gelado_kpi    bool  — included in €/kg KPI
+        caixa_loja    bool  — in-store box sold by weight (excluded from KPI)
+        canal         str   — Uber | Bolt | Glovo | Loja | Directo
+        unidades      int   — number of sale lines in the period
+        valor_euros   float — total value sold
+        kg_estimado   float | None — estimated kg for caixa_loja (value/preco_kg_per_date);
+                      NULL when no price is configured in config_preco_caixa_kg for the
+                      sale date, or for non-caixa_loja products.
+
+    Only products with gelado_kpi=TRUE or caixa_loja=TRUE are returned so the page
+    focuses on the gelado product mix. kg_estimado uses effective-dated pricing from
+    config_preco_caixa_kg (most recent data_inicio <= vd.data). Rows without a
+    matching price record return NULL for kg_estimado rather than a silent default.
     """
     conn = get_connection()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -1441,16 +1453,14 @@ def get_volume_por_produto(data_inicio: date = None, data_fim: date = None, loja
             COALESCE(SUM(vd.valor_euros), 0) AS valor_euros,
             CASE
                 WHEN pvc.caixa_loja = TRUE THEN
-                    COALESCE(SUM(
-                        vd.valor_euros / COALESCE(
-                            (SELECT ck.preco_kg
-                             FROM config_preco_caixa_kg ck
-                             WHERE ck.data_inicio <= vd.data
-                             ORDER BY ck.data_inicio DESC
-                             LIMIT 1),
-                            30.0
-                        )
-                    ), 0)
+                    SUM(
+                        vd.valor_euros /
+                        (SELECT ck.preco_kg
+                         FROM config_preco_caixa_kg ck
+                         WHERE ck.data_inicio <= vd.data
+                         ORDER BY ck.data_inicio DESC
+                         LIMIT 1)
+                    )
                 ELSE NULL
             END AS kg_estimado
         FROM vendas_detalhe vd
