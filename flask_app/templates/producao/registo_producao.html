@@ -1,0 +1,25 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-3">Registo de Produção</h5>
+<p class="text-muted small mb-4">Fotografe a folha de registo diário de produção e o sistema extrai os valores automaticamente.</p>
+
+<div class="card shadow-sm" style="max-width: 520px;">
+    <div class="card-body">
+        <form method="post" action="{{ url_for('producao.registo_producao_ocr') }}" enctype="multipart/form-data">
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Foto da folha de produção</label>
+                <input type="file" name="foto" class="form-control" accept="image/*" required>
+                <div class="form-text">Formatos aceites: JPEG, PNG, WEBP. Máximo 20 MB.</div>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">
+                Processar imagem
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="mt-4 text-muted small">
+    <strong>Fluxo:</strong> Carregar foto → Rever valores extraídos → Confirmar → Stock e plano atualizados
+</div>
+{% endblock %}

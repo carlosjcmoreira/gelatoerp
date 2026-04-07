@@ -1,0 +1,45 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-3">Pesagens de Loja <small class="text-muted fs-6">(última pesagem por sabor)</small></h5>
+
+{% if rows %}
+<div class="table-responsive">
+    <table class="table table-sm table-striped align-middle">
+        <thead class="table-dark">
+            <tr>
+                <th class="px-2">Sabor</th>
+                {% for loja in lojas %}
+                <th class="text-center px-2 border-start" colspan="2">{{ loja }}</th>
+                {% endfor %}
+            </tr>
+            <tr>
+                <th class="px-2"></th>
+                {% for loja in lojas %}
+                <th class="text-center px-1 border-start small">kg</th>
+                <th class="text-center px-1 small">data</th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
+                {% for loja in lojas %}
+                {% set entry = r.lojas.get(loja) %}
+                <td class="text-center px-1 border-start {% if entry %}text-primary fw-semibold{% else %}text-muted{% endif %}">
+                    {{ '%.2f'|format(entry.kg) if entry else '-' }}
+                </td>
+                <td class="text-center px-1 small text-muted">
+                    {{ entry.data if entry else '-' }}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="alert alert-info">Sem pesagens de loja registadas.</div>
+{% endif %}
+{% endblock %}

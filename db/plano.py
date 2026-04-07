@@ -611,3 +611,60 @@ def rejeitar_ordem_transferencia(ordem_id: int, confirmado_por: str):
     release_connection(conn)
     return updated
 
+
+def get_latest_pesagem_por_sabor_all_lojas() -> dict:
+    """Return the latest weighing per sabor for each balcão loja (from stock_gelado).
+
+    Matosinhos is excluded — its stock_gelado 'inicio' rows represent production
+    inventory, not a balcão weighing.  All other lojas (Bolhão, Mouzinho, …) are
+    included.
+
+    Returns:
+        {
+          'Bolhão':   {sabor: {'kg': float, 'data': date}, ...},
+          'Mouzinho': {sabor: {'kg': float, 'data': date}, ...},
+          ...
+        }
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT ON (loja, sabor) loja, sabor, quantidade_kg, data
+        FROM stock_gelado
+        WHERE loja != 'Matosinhos'
+        ORDER BY loja, sabor, data DESC, id DESC
+    """)
+    rows = cursor.fetchall()
+    release_connection(conn)
+    result = {}
+    for loja, sabor, kg, dt in rows:
+        if loja not in result:
+            result[loja] = {}
+        result[loja][sabor] = {'kg': float(kg), 'data': dt}
+    return result
+
+
+def set_stock_producao(sabor: str, loja: str, quantidade_kg: float):
+    """Overwrite the total production stock for a sabor+loja combination.
+
+    This collapses all existing rows into one (FIFO order is lost) and sets the
+    new total.  Used by the manual stock-correction form on the Stock Gelado page.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    today = __import__('datetime').date.today()
+    cursor.execute("""
+        UPDATE stock_producao
+        SET quantidade_kg = 0, updated_at = NOW()
+        WHERE sabor = %s AND loja = %s AND quantidade_kg > 0
+    """, (sabor, loja))
+    cursor.execute("""
+        INSERT INTO stock_producao (data, sabor, loja, quantidade_kg)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (data, sabor, loja) DO UPDATE SET
+            quantidade_kg = EXCLUDED.quantidade_kg,
+            updated_at = NOW()
+    """, (today, sabor, loja, max(quantidade_kg, 0)))
+    conn.commit()
+    release_connection(conn)
+

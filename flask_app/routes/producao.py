@@ -19,6 +19,7 @@ from database import (
     criar_ordem_transferencia, add_stock_producao,
     get_plano_ajuste_dia,
     get_eventos_adjudicados_para_producao, mark_production_alert_sent,
+    get_latest_pesagem_por_sabor_all_lojas, set_stock_producao,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -44,9 +45,8 @@ SABOR_ICONS = {
 }
 
 TABS = [
-    {'id': 'criar_plano', 'label': 'Planear Produção', 'icon': '📋', 'url_endpoint': 'producao.criar_plano'},
-    {'id': 'executar_plano', 'label': 'Produzir', 'icon': '▶️', 'url_endpoint': 'producao.executar_plano'},
-    {'id': 'ajustar_plano', 'label': 'Ajustar Plano', 'icon': '✏️', 'url_endpoint': 'producao.ajustar_plano'},
+    {'id': 'pesagens_loja', 'label': 'Pesagens de Loja', 'icon': '⚖️', 'url_endpoint': 'producao.pesagens_loja'},
+    {'id': 'registo_producao', 'label': 'Registo de Produção', 'icon': '📸', 'url_endpoint': 'producao.registo_producao'},
     {'id': 'transferir', 'label': 'Transferir para Loja', 'icon': '🔄', 'url_endpoint': 'producao.transferir'},
     {'id': 'ordem', 'label': 'Ordem de Produção', 'icon': '🔢', 'url_endpoint': 'producao.ordem'},
     {'id': 'por_sabor', 'label': 'Stock Gelado', 'icon': '🍨', 'url_endpoint': 'producao.por_sabor'},
@@ -182,10 +182,28 @@ def dashboard():
                            pesagens=pesagens)
 
 
-@producao_bp.route('/por-sabor')
+@producao_bp.route('/por-sabor', methods=['GET', 'POST'])
 @perm_required('acesso_producao')
 def por_sabor():
     today = date.today()
+
+    if request.method == 'POST':
+        changes = 0
+        for key, val in request.form.items():
+            for prefix, loja in (('prod_mat_', 'Matosinhos'), ('prod_bol_', 'Bolhão'),
+                                  ('prod_mou_', 'Mouzinho'), ('prod_b2b_', 'B2B')):
+                if key.startswith(prefix):
+                    sabor = key[len(prefix):]
+                    qty = _parse_decimal(val)
+                    set_stock_producao(sabor, loja, qty)
+                    changes += 1
+                    break
+        if changes:
+            flash(f"Stock de produção atualizado ({changes} entrada(s)).", "success")
+        else:
+            flash("Nenhuma alteração detetada.", "info")
+        return redirect(url_for('producao.por_sabor'))
+
     overview_df = get_producao_sabor_overview()
     stock_prod = get_stock_producao_all(today)
 
@@ -193,7 +211,7 @@ def por_sabor():
     for sp in stock_prod:
         key = sp['sabor']
         if key not in stock_prod_map:
-            stock_prod_map[key] = {'Matosinhos': 0, 'Bolhão': 0}
+            stock_prod_map[key] = {}
         stock_prod_map[key][sp['loja']] = sp['quantidade_kg']
 
     all_sabores = set(stock_prod_map.keys())
@@ -202,8 +220,11 @@ def por_sabor():
 
     rows = []
     for sabor in sorted(all_sabores):
-        prod_mat = stock_prod_map.get(sabor, {}).get('Matosinhos', 0)
-        prod_bol = stock_prod_map.get(sabor, {}).get('Bolhão', 0)
+        sp = stock_prod_map.get(sabor, {})
+        prod_mat = sp.get('Matosinhos', 0)
+        prod_bol = sp.get('Bolhão', 0)
+        prod_mou = sp.get('Mouzinho', 0)
+        prod_b2b = sp.get('B2B', 0)
 
         loja_mat = 0
         loja_bol = 0
@@ -220,12 +241,14 @@ def por_sabor():
             if pd.notna(r.get('data_stock_bolhao')) and r['data_stock_bolhao'] is not None:
                 data_bol = r['data_stock_bolhao']
 
-        total = prod_mat + prod_bol + loja_mat + loja_bol
+        total = prod_mat + prod_bol + prod_mou + prod_b2b + loja_mat + loja_bol
 
         rows.append({
             'sabor': sabor,
             'prod_mat': prod_mat,
             'prod_bol': prod_bol,
+            'prod_mou': prod_mou,
+            'prod_b2b': prod_b2b,
             'loja_mat': loja_mat,
             'loja_mat_data': _format_date(data_mat) if data_mat else '',
             'loja_bol': loja_bol,
@@ -238,6 +261,8 @@ def por_sabor():
     totals = {
         'prod_mat': sum(r['prod_mat'] for r in rows),
         'prod_bol': sum(r['prod_bol'] for r in rows),
+        'prod_mou': sum(r['prod_mou'] for r in rows),
+        'prod_b2b': sum(r['prod_b2b'] for r in rows),
         'loja_mat': sum(r['loja_mat'] for r in rows),
         'loja_bol': sum(r['loja_bol'] for r in rows),
         'total': sum(r['total'] for r in rows),
@@ -306,6 +331,193 @@ def eliminar_quebras_bulk():
     deleted = delete_quebras_bulk(ids)
     flash(f"{deleted} registo(s) eliminado(s)!", "success")
     return redirect(url_for('producao.registar_quebra'))
+
+
+@producao_bp.route('/pesagens-loja')
+@perm_required('acesso_producao')
+def pesagens_loja():
+    pesagens_by_loja = get_latest_pesagem_por_sabor_all_lojas()
+    lojas = sorted(pesagens_by_loja.keys())
+    all_sabores = set()
+    for loja_data in pesagens_by_loja.values():
+        all_sabores.update(loja_data.keys())
+    all_sabores = sorted(all_sabores)
+
+    rows = []
+    for sabor in all_sabores:
+        row = {'sabor': sabor, 'lojas': {}}
+        for loja in lojas:
+            entry = pesagens_by_loja.get(loja, {}).get(sabor)
+            if entry:
+                row['lojas'][loja] = {
+                    'kg': entry['kg'],
+                    'data': _format_date(entry['data']) if entry['data'] else '-',
+                }
+            else:
+                row['lojas'][loja] = None
+        rows.append(row)
+
+    return render_template('producao/pesagens_loja.html',
+                           active_tab='pesagens_loja', tabs=_tabs_with_urls(),
+                           lojas=lojas, rows=rows)
+
+
+@producao_bp.route('/registo-producao', methods=['GET'])
+@perm_required('acesso_producao')
+def registo_producao():
+    return render_template('producao/registo_producao.html',
+                           active_tab='registo_producao', tabs=_tabs_with_urls(),
+                           today=str(date.today()))
+
+
+@producao_bp.route('/registo-producao/ocr', methods=['POST'])
+@perm_required('acesso_producao')
+def registo_producao_ocr():
+    from flask_app.ocr_producao import extract_producao_sheet
+    uploaded = request.files.get('foto')
+    if not uploaded or uploaded.filename == '':
+        flash("Por favor, selecione uma imagem.", "warning")
+        return redirect(url_for('producao.registo_producao'))
+
+    image_bytes = uploaded.read()
+    filename = uploaded.filename or 'upload.jpg'
+
+    result = extract_producao_sheet(image_bytes, filename)
+
+    if result.get('error') and not result.get('sabores'):
+        flash(f"Erro no OCR: {result['error']}", "danger")
+        return redirect(url_for('producao.registo_producao'))
+
+    data_ocr = result.get('date') or str(date.today())
+    session['ocr_producao_data'] = {
+        'date': data_ocr,
+        'sabores': result.get('sabores', {}),
+        'confidence': result.get('ocr_confidence', 0.0),
+        'error': result.get('error'),
+    }
+
+    return redirect(url_for('producao.registo_producao_confirmar'))
+
+
+@producao_bp.route('/registo-producao/confirmar', methods=['GET'])
+@perm_required('acesso_producao')
+def registo_producao_confirmar():
+    ocr_data = session.get('ocr_producao_data')
+    if not ocr_data:
+        flash("Nenhum dado de produção para confirmar. Carregue uma imagem primeiro.", "warning")
+        return redirect(url_for('producao.registo_producao'))
+
+    sabores_all = get_sabores_list()
+    ocr_sabores = ocr_data.get('sabores', {})
+    ocr_date = ocr_data.get('date', str(date.today()))
+    confidence = ocr_data.get('confidence', 0.0)
+    ocr_error = ocr_data.get('error')
+
+    rows = []
+    for sabor in sabores_all:
+        vals = ocr_sabores.get(sabor, {})
+        rows.append({
+            'sabor': sabor,
+            'pesagem_mat': vals.get('pesagem_mat', 0.0),
+            'prod_bolhao': vals.get('prod_bolhao', 0.0),
+            'prod_matosinhos': vals.get('prod_matosinhos', 0.0),
+            'prod_mouzinho': vals.get('prod_mouzinho', 0.0),
+            'prod_b2b': vals.get('prod_b2b', 0.0),
+        })
+
+    for sabor in ocr_sabores:
+        if sabor not in sabores_all:
+            vals = ocr_sabores[sabor]
+            rows.append({
+                'sabor': sabor,
+                'pesagem_mat': vals.get('pesagem_mat', 0.0),
+                'prod_bolhao': vals.get('prod_bolhao', 0.0),
+                'prod_matosinhos': vals.get('prod_matosinhos', 0.0),
+                'prod_mouzinho': vals.get('prod_mouzinho', 0.0),
+                'prod_b2b': vals.get('prod_b2b', 0.0),
+            })
+
+    return render_template('producao/registo_producao_confirmar.html',
+                           active_tab='registo_producao', tabs=_tabs_with_urls(),
+                           rows=rows, ocr_date=ocr_date,
+                           confidence=confidence, ocr_error=ocr_error,
+                           today=str(date.today()))
+
+
+@producao_bp.route('/registo-producao/guardar', methods=['POST'])
+@perm_required('acesso_producao')
+def registo_producao_guardar():
+    username = session.get('user', {}).get('username', 'system')
+    data_str = request.form.get('data', str(date.today()))
+    try:
+        data_prod = date.fromisoformat(data_str)
+    except ValueError:
+        data_prod = date.today()
+
+    criar_ordens = request.form.get('criar_ordens') == '1'
+
+    sabores_form = {}
+    for key, val in request.form.items():
+        for prefix, field in (
+            ('pesagem_mat_', 'pesagem_mat'),
+            ('prod_bolhao_', 'prod_bolhao'),
+            ('prod_matosinhos_', 'prod_matosinhos'),
+            ('prod_mouzinho_', 'prod_mouzinho'),
+            ('prod_b2b_', 'prod_b2b'),
+        ):
+            if key.startswith(prefix):
+                sabor = key[len(prefix):]
+                sabores_form.setdefault(sabor, {})[field] = _parse_decimal(val)
+                break
+
+    saved = 0
+    ordens = 0
+    for sabor, vals in sabores_form.items():
+        pesagem_mat = vals.get('pesagem_mat', 0.0)
+        prod_bol = vals.get('prod_bolhao', 0.0)
+        prod_mat = vals.get('prod_matosinhos', 0.0)
+        prod_mou = vals.get('prod_mouzinho', 0.0)
+        prod_b2b = vals.get('prod_b2b', 0.0)
+
+        if all(v == 0 for v in [pesagem_mat, prod_bol, prod_mat, prod_mou, prod_b2b]):
+            continue
+
+        upsert_plano_producao(
+            data_prod, sabor,
+            pesagem_matosinhos=pesagem_mat,
+            producao_estimada_bolhao=prod_bol,
+            producao_estimada_matosinhos=prod_mat,
+            producao_estimada_outros=prod_b2b,
+            producao_estimada_mouzinho=prod_mou,
+        )
+
+        for loja, qty in (('Bolhão', prod_bol), ('Matosinhos', prod_mat),
+                          ('Mouzinho', prod_mou), ('B2B', prod_b2b)):
+            if qty > 0:
+                add_stock_producao(data_prod, sabor, loja, qty)
+
+        if criar_ordens:
+            for loja, qty in (('Bolhão', prod_bol), ('Mouzinho', prod_mou), ('B2B', prod_b2b)):
+                if qty > 0:
+                    criar_ordem_transferencia(
+                        data_prod, 'Gelado', sabor, qty, 'kg', loja,
+                        sabor=sabor, criado_por=username, data_prevista=data_prod,
+                    )
+                    ordens += 1
+
+        saved += 1
+
+    session.pop('ocr_producao_data', None)
+
+    if saved:
+        msg = f"Produção registada: {saved} sabor(es)."
+        if ordens:
+            msg += f" {ordens} ordem(ns) de transferência criada(s)."
+        flash(msg, "success")
+    else:
+        flash("Nenhuma alteração guardada.", "info")
+
+    return redirect(url_for('producao.por_sabor'))
 
 
 @producao_bp.route('/criar-plano')

@@ -126,7 +126,7 @@ PostgreSQL (Replit Database) via variável DATABASE_URL com as seguintes tabelas
 - `produtos_vendas_config` - Configuração de produtos para KPIs
 - `receitas_gelado` - Mapeamento receitas → sabores
 - `plano_producao` / `ordem_producao` - Planeamento de produção
-- `stock_producao` - Stock de produção por sabor/loja/dia (agregado multi-data, redução FIFO)
+- `stock_producao` - Stock de produção por sabor/loja/dia (agregado multi-data, redução FIFO); lojas suportadas: Bolhão, Matosinhos, Mouzinho, B2B
 - `transferencias` - Registo de transferências de stock de produção para lojas
 - `ordens_transferencia` - Ordens de transferência com workflow (pendente/confirmada/rejeitada) + `data_prevista`
 - `artigos_administrativos` - Artigos de fornecimento (fornecedor + produto, ativo/inativo)

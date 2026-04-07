@@ -6,6 +6,42 @@ from db.connection import db_connection, get_connection, release_connection, log
 import json
 import os
 
+
+_LOCK_STOCK_PRODUCAO_LOJAS = 202612
+
+
+def run_migrations_stock_producao_lojas():
+    """Ensure stock_producao supports Mouzinho and B2B as loja values.
+
+    stock_producao.loja is a free-form VARCHAR(100) column with no CHECK
+    constraint, so no DDL change is required.  This migration uses advisory
+    lock 202612 so it is idempotent across workers and merely logs success.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_STOCK_PRODUCAO_LOJAS,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_stock_producao_lojas: lock held by another worker, skipping")
+            return
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.columns
+            WHERE table_name = 'stock_producao' AND column_name = 'loja'
+        """)
+        if cursor.fetchone()[0] == 0:
+            logger.warning("run_migrations_stock_producao_lojas: stock_producao.loja column not found")
+        else:
+            logger.info("run_migrations_stock_producao_lojas: stock_producao ready for Mouzinho/B2B lojas")
+        conn.commit()
+    except Exception as exc:
+        logger.error("run_migrations_stock_producao_lojas failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
 SCHEMA_VERSION = 14
 
 def init_database():
