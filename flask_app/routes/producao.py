@@ -57,8 +57,19 @@ TABS = [
     {'id': 'sabores_ativos', 'label': 'Lista de Sabores', 'icon': '✅', 'url_endpoint': 'producao.sabores_ativos'},
 ]
 
+def _seed_tiles():
+    from db.tiles import seed_tile_config
+    seed_tile_config('producao', [{'id': t['id'], 'label': t['label']} for t in TABS])
+
+
 def _tabs_with_urls():
-    return [{'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])} for t in TABS]
+    from db.tiles import get_tile_visibility
+    visibility = get_tile_visibility('producao')
+    return [
+        {'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])}
+        for t in TABS
+        if visibility.get(t['id'], True)
+    ]
 
 
 def _parse_decimal(s):
@@ -93,7 +104,13 @@ def _format_date(val):
 @producao_bp.route('/')
 @perm_required('acesso_producao')
 def index():
-    items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])} for t in TABS]
+    from db.tiles import get_tile_visibility
+    visibility = get_tile_visibility('producao')
+    items = [
+        {'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])}
+        for t in TABS
+        if visibility.get(t['id'], True)
+    ]
     return render_template('components/section_menu.html', items=items,
                            menu_title='🍦 Produção Gelado')
 

@@ -329,5 +329,23 @@ Motor central de Cash Flow que agrega todas as fontes de entradas e saídas e pr
 - Drill-down por semana com detalhe de cada entrada/saída e links para módulos
 - Configurações: threshold de alerta, salários (impostos + líquido + dias), débitos directos recorrentes
 
+## Tile Visibility Management (Task #87)
+
+Sistema DB-backed de visibilidade de tiles por módulo.
+
+### Ficheiros
+- `db/tiles.py` — Migration (`run_migrations_tile_config`, lock 202613), helpers: `get_tile_visibility`, `set_tile_visibility`, `seed_tile_config`, `get_all_tile_config`
+- `flask_app/routes/gestor.py` — Rota `GET/POST /gestor/gestao-tiles` com toggle de visibilidade; tile `gestao_tiles` adicionado ao TABS
+- `flask_app/templates/gestor/gestao_tiles.html` — UI table com botões Visível/Oculto por tile
+
+### Tabela DB
+- `tile_config(module, tile_id, label, visible, updated_at)` — PK composto (module, tile_id)
+
+### Comportamento
+- Tiles não presentes na DB → visível por defeito (True)
+- Defaults hidden: `producao/ordem`, `producao/receitas`, `producao/sabores_ativos`
+- Módulos com filtro: producao, pastelaria, vendas, gestor, financeiro
+- `seed_tile_config` é chamado no index de financeiro; restantes módulos são auto-seeded quando visitados via gestor
+
 ## Última Atualização
-2026-03-18 - Fase 8 M3: Cash Flow 13 Semanas implementado. Motor de agregação, dashboard visual, drill-down semanal, alertas PRD e configurações.
+2026-04-07 - Task #87: Tile visibility management implementado. DB table tile_config, helpers em db/tiles.py, migration 202613, filtro em todos os módulos, UI gestor para toggle.

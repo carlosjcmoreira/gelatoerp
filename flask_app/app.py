@@ -19,6 +19,7 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_migrations_caixa_loja,
                         run_migrations_preco_caixa_kg,
                         run_migrations_stock_producao_lojas)
+from db.tiles import run_migrations_tile_config
 
 
 def _start_sheets_sync_scheduler():
@@ -74,6 +75,7 @@ def create_app():
         run_migrations_preco_caixa_kg()
         run_migrations_centros_custo()
         run_migrations_stock_producao_lojas()
+        run_migrations_tile_config()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()
 

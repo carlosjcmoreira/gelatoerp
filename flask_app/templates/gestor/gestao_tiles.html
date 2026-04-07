@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% set back_url = back_url %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">🔲 Gestão de Tiles</h5>
+    <p class="text-muted small mb-4">Ative ou desative os tiles visíveis em cada módulo.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="alert alert-{{ 'success' if category == 'success' else 'warning' if category == 'warning' else 'danger' }} py-2">{{ message }}</div>
+    {% endfor %}
+    {% endwith %}
+
+    {% if not modules %}
+    <div class="alert alert-info">Nenhum tile registado. Aceda a cada módulo para que os tiles sejam registados automaticamente.</div>
+    {% else %}
+
+    {% set module_labels = {
+        'producao': '🍦 Produção',
+        'pastelaria': '🥐 Pastelaria',
+        'vendas': '🛍️ Vendas',
+        'gestor': '⚙️ Gestor',
+        'financeiro': '💰 Financeiro'
+    } %}
+
+    {% for module_id, tiles in modules.items() %}
+    <div class="card mb-4" style="max-width:640px;">
+        <div class="card-header">
+            <strong>{{ module_labels.get(module_id, module_id) }}</strong>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Tile</th>
+                        <th class="text-center" style="width:120px;">Visível</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for tile in tiles %}
+                <tr>
+                    <td class="align-middle py-2">
+                        <span class="text-muted small font-monospace me-1">{{ tile.tile_id }}</span>
+                        {% if tile.label %}— {{ tile.label }}{% endif %}
+                    </td>
+                    <td class="text-center align-middle py-2">
+                        <form method="POST" action="{{ url_for('gestor.gestao_tiles') }}" class="d-inline">
+                            <input type="hidden" name="module" value="{{ module_id }}">
+                            <input type="hidden" name="tile_id" value="{{ tile.tile_id }}">
+                            {% if tile.visible %}
+                            <input type="hidden" name="visible" value="0">
+                            <button type="submit" class="btn btn-sm btn-success" title="Clique para ocultar">
+                                Visível
+                            </button>
+                            {% else %}
+                            <input type="hidden" name="visible" value="1">
+                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Clique para mostrar">
+                                Oculto
+                            </button>
+                            {% endif %}
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+{% endblock %}

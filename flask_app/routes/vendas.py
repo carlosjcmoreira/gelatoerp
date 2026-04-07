@@ -74,8 +74,12 @@ def _get_user_loja():
 
 
 def _build_tabs(active_id, loja_id=None):
+    from db.tiles import get_tile_visibility
+    visibility = get_tile_visibility('vendas')
     tabs = []
     for t in TAB_DEFS:
+        if not visibility.get(t['id'], True):
+            continue
         kwargs = {}
         if loja_id:
             kwargs['loja_id'] = loja_id
@@ -120,7 +124,13 @@ def index():
         return redirect(url_for('home.index'))
     loja_id, loja_nome = _get_user_loja()
     kwargs = {'loja_id': loja_id} if loja_id else {}
-    items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['endpoint'], **kwargs)} for t in TAB_DEFS]
+    from db.tiles import get_tile_visibility
+    visibility = get_tile_visibility('vendas')
+    items = [
+        {'icon': t['icon'], 'label': t['label'], 'url': url_for(t['endpoint'], **kwargs)}
+        for t in TAB_DEFS
+        if visibility.get(t['id'], True)
+    ]
     return render_template('components/section_menu.html', items=items,
                            menu_title='🛍️ Vendas Bolhão')
 

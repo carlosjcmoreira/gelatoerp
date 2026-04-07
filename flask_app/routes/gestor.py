@@ -35,6 +35,7 @@ TABS = [
     {'id': 'centros_custo', 'label': 'Centros de Custo', 'icon': '🏷️', 'url_endpoint': 'centros_custo.index'},
     {'id': 'categorias_custo', 'label': 'Categorias de Custo', 'icon': '📂', 'url_endpoint': 'categorias_custo.index'},
     {'id': 'configuracoes', 'label': 'Configurações', 'icon': '⚙️', 'url_endpoint': 'gestor.configuracoes'},
+    {'id': 'gestao_tiles', 'label': 'Gestão de Tiles', 'icon': '🔲', 'url_endpoint': 'gestor.gestao_tiles'},
 ]
 
 SECTION_ENDPOINT_MAP = {
@@ -51,8 +52,19 @@ SECTION_ENDPOINT_MAP = {
     'materiais': 'gestor.materiais',
 }
 
+def _seed_tiles():
+    from db.tiles import seed_tile_config
+    seed_tile_config('gestor', [{'id': t['id'], 'label': t['label']} for t in TABS])
+
+
 def get_tabs():
-    return [{'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])} for t in TABS]
+    from db.tiles import get_tile_visibility
+    visibility = get_tile_visibility('gestor')
+    return [
+        {'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])}
+        for t in TABS
+        if visibility.get(t['id'], True)
+    ]
 
 
 def parse_decimal_input(val_str, default=0.0):
@@ -70,10 +82,14 @@ EUROKG_CHILD_IDS = {'premio_eurokg', 'receitas_eurokg', 'alocacao_produtos'}
 @gestor_bp.route('/')
 @perm_required('acesso_gestor')
 def index():
+    from db.tiles import get_tile_visibility
     onedrive_configured = bool(db.get_system_config('onedrive_refresh_token'))
+    visibility = get_tile_visibility('gestor')
     items = []
     eurokg_added = False
     for t in TABS:
+        if not visibility.get(t['id'], True):
+            continue
         if t['id'] in EUROKG_CHILD_IDS:
             if not eurokg_added:
                 items.append({'icon': '💶', 'label': 'Euro/kg', 'url': url_for('gestor.eurokg_index')})
@@ -1194,3 +1210,29 @@ def materiais_post():
         flash(f'Material {estado}.', 'success')
 
     return redirect(url_for('gestor.materiais'))
+
+
+@gestor_bp.route('/gestao-tiles', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def gestao_tiles():
+    from db.tiles import get_all_tile_config, set_tile_visibility
+
+    if request.method == 'POST':
+        module = request.form.get('module', '').strip()
+        tile_id = request.form.get('tile_id', '').strip()
+        visible = request.form.get('visible') == '1'
+        if module and tile_id:
+            set_tile_visibility(module, tile_id, visible)
+        return redirect(url_for('gestor.gestao_tiles'))
+
+    all_tiles = get_all_tile_config()
+    modules = {}
+    for t in all_tiles:
+        modules.setdefault(t['module'], []).append(t)
+
+    return render_template(
+        'gestor/gestao_tiles.html',
+        active_tab='gestao_tiles',
+        modules=modules,
+        back_url=url_for('gestor.index'),
+    )
