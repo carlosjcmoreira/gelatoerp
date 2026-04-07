@@ -17,6 +17,7 @@ from db.pastelaria import (
     get_precos_caixa_kg_historico, add_preco_caixa_kg, delete_preco_caixa_kg,
     get_volume_por_produto,
 )
+from db.producao import get_preco_kg_for_date
 
 eurokg_bp = Blueprint('eurokg', __name__)
 
@@ -612,16 +613,21 @@ def volume_produtos():
 
     loja_db = loja if loja else None
     rows = get_volume_por_produto(de_date, ate_date, loja_db)
+    preco_kg = get_preco_kg_for_date(ate_date)
 
     total_euros = sum(float(r['valor_euros']) for r in rows)
     total_unidades = sum(int(r['unidades']) for r in rows)
+    total_caixa_euros = sum(float(r['valor_euros']) for r in rows if r['caixa_loja'])
+    total_caixa_kg = total_caixa_euros / preco_kg if preco_kg > 0 else 0.0
     return render_template('eurokg/volume_produtos.html',
         de_date=str(de_date),
         ate_date=str(ate_date),
         loja=loja,
         rows=rows,
+        preco_kg=preco_kg,
         total_euros=total_euros,
         total_unidades=total_unidades,
+        total_caixa_kg=total_caixa_kg,
     )
 
 

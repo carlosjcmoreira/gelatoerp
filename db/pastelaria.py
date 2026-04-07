@@ -1430,6 +1430,13 @@ def get_volume_por_produto(data_inicio: date = None, data_fim: date = None, loja
             vd.produto,
             pvc.gelado_kpi,
             pvc.caixa_loja,
+            CASE
+                WHEN vd.produto ILIKE '%%Uber%%'  THEN 'Uber'
+                WHEN vd.produto ILIKE '%%Bolt%%'  THEN 'Bolt'
+                WHEN vd.produto ILIKE '%%Glovo%%' THEN 'Glovo'
+                WHEN pvc.caixa_loja = TRUE        THEN 'Loja'
+                ELSE 'Directo'
+            END AS canal,
             COUNT(*) AS unidades,
             COALESCE(SUM(vd.valor_euros), 0) AS valor_euros
         FROM vendas_detalhe vd
@@ -1446,7 +1453,17 @@ def get_volume_por_produto(data_inicio: date = None, data_fim: date = None, loja
     if data_fim:
         query += " AND vd.data <= %s"
         params.append(data_fim)
-    query += " GROUP BY vd.produto, pvc.gelado_kpi, pvc.caixa_loja ORDER BY valor_euros DESC"
+    query += """
+        GROUP BY vd.produto, pvc.gelado_kpi, pvc.caixa_loja,
+                 CASE
+                     WHEN vd.produto ILIKE '%%Uber%%'  THEN 'Uber'
+                     WHEN vd.produto ILIKE '%%Bolt%%'  THEN 'Bolt'
+                     WHEN vd.produto ILIKE '%%Glovo%%' THEN 'Glovo'
+                     WHEN pvc.caixa_loja = TRUE        THEN 'Loja'
+                     ELSE 'Directo'
+                 END
+        ORDER BY valor_euros DESC
+    """
     cursor.execute(query, params)
     rows = [dict(r) for r in cursor.fetchall()]
     release_connection(conn)
