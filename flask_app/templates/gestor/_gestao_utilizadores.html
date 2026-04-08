@@ -75,7 +75,7 @@
                                 <button type="button"
                                         class="btn btn-sm btn-outline-danger py-0 px-1"
                                         title="Eliminar utilizador"
-                                        onclick="openDeleteModal({{ u.id }}, '{{ u.username | e }}')">
+                                        onclick="openDeleteModal({{ u.id }}, {{ u.username | tojson }})">
                                     🗑️
                                 </button>
                                 {% endif %}

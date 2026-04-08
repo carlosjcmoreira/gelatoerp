@@ -261,10 +261,10 @@ def revoke_user_sessions(user_id: int):
 
 
 def count_admin_users() -> int:
-    """Return the number of users with role='admin'."""
+    """Return the total number of users with role='admin' (regardless of ativo status)."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin' AND ativo = TRUE")
+    cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
     count = cursor.fetchone()[0]
     release_connection(conn)
     return int(count)
