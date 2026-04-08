@@ -365,9 +365,95 @@ def iva_periodo(year, month):
 @pagamentos_bp.route('/liquidez')
 @perm_required('acesso_gestor')
 def liquidez():
-    weekly = get_weekly_liquidity(weeks=8)
+    weekly = get_weekly_liquidity(weeks=6)
     running_balance = 0
     for w in weekly:
         running_balance += w['balance']
         w['running_balance'] = round(running_balance, 2)
-    return render_template('pagamentos/liquidez.html', weekly=weekly)
+
+    all_cats: dict = {}
+    for w in weekly:
+        for cat in w['outflows_by_category']:
+            cid = cat['category_id']
+            if cid not in all_cats or cat['amount'] > 0:
+                all_cats[cid] = cat['category_name']
+
+    categories = sorted(
+        all_cats.items(),
+        key=lambda x: (x[0] is None, (x[1] or '').lower()),
+    )
+    categories = [(cid, cname) for cid, cname in categories
+                  if any(
+                      any(c['category_id'] == cid and c['amount'] > 0
+                          for c in w['outflows_by_category'])
+                      for w in weekly
+                  )]
+
+    items_by_cat: dict = {}
+    for w in weekly:
+        for cat in w['outflows_by_category']:
+            cid = cat['category_id']
+            if cid not in items_by_cat:
+                items_by_cat[cid] = {}
+            for item in cat['items']:
+                ref = item['reference']
+                key = f"{item['description']} ({ref})" if ref else item['description']
+                if key not in items_by_cat[cid]:
+                    items_by_cat[cid][key] = {}
+                items_by_cat[cid][key][w['week']] = item['amount']
+
+    credit_items_by_week: dict = {}
+    for w in weekly:
+        for item in w['outflows_credit_items']:
+            key = item['description']
+            if key not in credit_items_by_week:
+                credit_items_by_week[key] = {}
+            credit_items_by_week[key][w['week']] = item['amount']
+
+    vat_items_by_week: dict = {}
+    for w in weekly:
+        for item in w['outflows_vat_items']:
+            key = item['description']
+            if key not in vat_items_by_week:
+                vat_items_by_week[key] = {}
+            vat_items_by_week[key][w['week']] = item['amount']
+
+    cat_totals: dict = {}
+    for cid, _ in categories:
+        cat_totals[cid] = sum(
+            next((c['amount'] for c in w['outflows_by_category'] if c['category_id'] == cid), 0.0)
+            for w in weekly
+        )
+
+    credit_total = sum(w['outflows_credit'] for w in weekly)
+    vat_total = sum(w['outflows_vat'] for w in weekly)
+    total_out_all = sum(w['total_out'] for w in weekly)
+    total_in_all = sum(w['total_in'] for w in weekly)
+    pos_total = sum(w['inflows_pos'] for w in weekly)
+    events_total = sum(w['inflows_events'] for w in weekly)
+
+    item_totals_by_cat: dict = {}
+    for cid, items in items_by_cat.items():
+        item_totals_by_cat[cid] = {k: sum(v.values()) for k, v in items.items()}
+
+    credit_item_totals = {k: sum(v.values()) for k, v in credit_items_by_week.items()}
+    vat_item_totals = {k: sum(v.values()) for k, v in vat_items_by_week.items()}
+
+    return render_template(
+        'pagamentos/liquidez.html',
+        weekly=weekly,
+        categories=categories,
+        items_by_cat=items_by_cat,
+        credit_items_by_week=credit_items_by_week,
+        vat_items_by_week=vat_items_by_week,
+        cat_totals=cat_totals,
+        item_totals_by_cat=item_totals_by_cat,
+        credit_item_totals=credit_item_totals,
+        vat_item_totals=vat_item_totals,
+        credit_total=round(credit_total, 2),
+        vat_total=round(vat_total, 2),
+        total_out_all=round(total_out_all, 2),
+        total_in_all=round(total_in_all, 2),
+        pos_total=round(pos_total, 2),
+        events_total=round(events_total, 2),
+    )

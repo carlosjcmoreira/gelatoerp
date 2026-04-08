@@ -1,7 +1,30 @@
 """M0b: Pagamentos, IVA e Liquidez Semanal — payment scheduling, VAT periods, weekly liquidity."""
+from calendar import monthrange
 from datetime import date as _date, timedelta
 from psycopg2.extras import RealDictCursor
 from db.connection import db_connection, get_connection, release_connection
+
+_MESES_PT = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+             'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+
+
+def _credit_debit_date_in_week(dia_debito: int, week_start: _date, week_end: _date):
+    """Return the concrete debit date if the contract falls in this week, else None.
+
+    Fixes the bug where 'dia_debito BETWEEN week_start.day AND week_end.day'
+    silently fails for weeks that cross a month boundary (e.g. 28 Apr – 4 May).
+    Checks all months that the week touches.
+    """
+    months = {(week_start.year, week_start.month)}
+    if week_end.month != week_start.month or week_end.year != week_start.year:
+        months.add((week_end.year, week_end.month))
+    for yr, mo in months:
+        last_day = monthrange(yr, mo)[1]
+        actual_day = min(dia_debito, last_day)
+        debit_date = _date(yr, mo, actual_day)
+        if week_start <= debit_date <= week_end:
+            return debit_date
+    return None
 
 VAT_RATES = {
     'pos_food': 0.06,
@@ -399,91 +422,186 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
         }
 
 
-def get_weekly_liquidity(weeks=8, exclude_invoice_id: int = None):
+def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
     """Return projected weekly cash flows for the next N weeks.
 
+    Returns enriched per-category data with individual item detail for drill-down.
+    Also keeps top-level total fields (total_in, total_out, balance) for backward
+    compatibility with suggest_payment_date() and the pagamentos index mini-table.
+
     Args:
-        weeks: Number of weeks to project.
+        weeks: Number of weeks to project (default 6).
         exclude_invoice_id: If set, exclude this invoice's payment from outflows
                             (used by suggest_payment_date to avoid double-counting).
     """
     today = _date.today()
     monday = today - timedelta(days=today.weekday())
-    result = []
+    week_starts = [monday + timedelta(weeks=w) for w in range(weeks)]
+    week_ends = [ws + timedelta(days=6) for ws in week_starts]
+    range_start = week_starts[0]
+    range_end = week_ends[-1]
+
     with db_connection() as conn:
-        cursor = conn.cursor()
-        for w in range(weeks):
-            week_start = monday + timedelta(weeks=w)
-            week_end = week_start + timedelta(days=6)
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-            excl_clause = "AND ip.invoice_id != %s" if exclude_invoice_id else ""
-            excl_params = [exclude_invoice_id] if exclude_invoice_id else []
-            cursor.execute(f"""
-                SELECT COALESCE(SUM(COALESCE(ip.amount_eur, i.amount_eur)), 0)
-                FROM invoice_payments ip
-                JOIN invoices i ON i.id = ip.invoice_id
-                WHERE COALESCE(ip.confirmed_date, ip.proposed_date) BETWEEN %s AND %s
-                  AND ip.status IN ('proposed', 'confirmed')
-                  {excl_clause}
-            """, [week_start, week_end] + excl_params)
-            outflows_invoices = float(cursor.fetchone()[0])
+        excl_clause = "AND ip.invoice_id != %s" if exclude_invoice_id else ""
+        excl_params = [exclude_invoice_id] if exclude_invoice_id else []
+        cursor.execute(f"""
+            SELECT
+                i.id              AS invoice_id,
+                i.supplier_name,
+                i.invoice_number,
+                COALESCE(ip.amount_eur, i.amount_eur) AS amount,
+                COALESCE(ip.confirmed_date, ip.proposed_date) AS payment_date,
+                cc.id             AS category_id,
+                COALESCE(cc.name, 'Sem categoria') AS category_name
+            FROM invoice_payments ip
+            JOIN invoices i ON i.id = ip.invoice_id
+            LEFT JOIN cost_categories cc ON cc.id = i.categoria_custo_id
+            WHERE COALESCE(ip.confirmed_date, ip.proposed_date) BETWEEN %s AND %s
+              AND ip.status IN ('proposed', 'confirmed')
+              {excl_clause}
+            ORDER BY cc.name NULLS LAST, i.supplier_name
+        """, [range_start, range_end] + excl_params)
+        invoice_rows = cursor.fetchall()
 
-            cursor.execute("""
-                SELECT COALESCE(SUM(prestacao_mensal), 0)
-                FROM credit_contracts
-                WHERE estado = 'ativo'
-                  AND tipo != 'overdraft'
-                  AND dia_debito BETWEEN %s AND %s
-            """, (week_start.day, week_end.day))
-            outflows_credit = float(cursor.fetchone()[0])
+        cursor.execute("""
+            SELECT id, label, banco, tipo, prestacao_mensal, dia_debito
+            FROM credit_contracts
+            WHERE estado = 'ativo' AND tipo != 'overdraft'
+            ORDER BY label
+        """)
+        credit_contracts = cursor.fetchall()
 
-            cursor.execute("""
-                SELECT COALESCE(SUM(
-                    CASE
-                        WHEN status = 'declared' AND vat_due_eur > 0 THEN vat_due_eur
-                        ELSE COALESCE(vat_due_estimated, 0)
-                    END
-                ), 0)
-                FROM vat_periods
-                WHERE payment_date BETWEEN %s AND %s
-                  AND status IN ('estimated', 'declared')
-            """, (week_start, week_end))
-            outflows_vat = float(cursor.fetchone()[0])
+        cursor.execute("""
+            SELECT year, month, payment_date,
+                   CASE
+                       WHEN status = 'declared' AND vat_due_eur > 0 THEN vat_due_eur
+                       ELSE COALESCE(vat_due_estimated, 0)
+                   END AS amount
+            FROM vat_periods
+            WHERE payment_date BETWEEN %s AND %s
+              AND status IN ('estimated', 'declared')
+            ORDER BY payment_date
+        """, (range_start, range_end))
+        vat_rows = cursor.fetchall()
 
-            cursor.execute("""
-                SELECT COALESCE(SUM(invoice_amount_eur), 0)
-                FROM events
-                WHERE expected_payment_date BETWEEN %s AND %s
-                  AND payment_status = 'pending'
-                  AND status = 'won'
-            """, (week_start, week_end))
-            inflows_events = float(cursor.fetchone()[0])
+        cursor.execute("""
+            SELECT expected_payment_date, COALESCE(SUM(invoice_amount_eur), 0) AS total
+            FROM events
+            WHERE expected_payment_date BETWEEN %s AND %s
+              AND payment_status = 'pending'
+              AND status = 'won'
+            GROUP BY expected_payment_date
+        """, (range_start, range_end))
+        event_rows = {r['expected_payment_date']: float(r['total']) for r in cursor.fetchall()}
 
-            cursor.execute("""
-                SELECT COALESCE(AVG(valor_euros), 0) * 7
-                FROM vendas
-                WHERE data >= %s
-            """, (today - timedelta(days=28),))
-            inflows_pos_est = float(cursor.fetchone()[0])
+        cursor.execute("""
+            SELECT COALESCE(AVG(valor_euros), 0) * 7 AS weekly_pos
+            FROM vendas
+            WHERE data >= %s
+        """, (today - timedelta(days=28),))
+        inflows_pos_est = float(cursor.fetchone()['weekly_pos'])
 
-            total_out = outflows_invoices + outflows_credit + outflows_vat
-            total_in = inflows_events + inflows_pos_est
-            balance = total_in - total_out
+    result = []
+    for w in range(weeks):
+        week_start = week_starts[w]
+        week_end = week_ends[w]
+        week_num = w + 1
 
-            result.append({
-                'week': w + 1,
-                'week_start': week_start,
-                'week_end': week_end,
-                'inflows_pos': round(inflows_pos_est, 2),
-                'inflows_events': round(inflows_events, 2),
-                'total_in': round(total_in, 2),
-                'outflows_invoices': round(outflows_invoices, 2),
-                'outflows_credit': round(outflows_credit, 2),
-                'outflows_vat': round(outflows_vat, 2),
-                'total_out': round(total_out, 2),
-                'balance': round(balance, 2),
-                'is_critical': balance < 0,
+        cats: dict = {}
+
+        for row in invoice_rows:
+            pd = row['payment_date']
+            if pd is None or not (week_start <= pd <= week_end):
+                continue
+            cid = row['category_id']
+            cname = row['category_name']
+            if cid not in cats:
+                cats[cid] = {'category_id': cid, 'category_name': cname, 'amount': 0.0, 'items': []}
+            amt = float(row['amount'] or 0)
+            cats[cid]['amount'] = round(cats[cid]['amount'] + amt, 2)
+            ref = row['invoice_number'] or ''
+            cats[cid]['items'].append({
+                'type': 'fatura',
+                'description': row['supplier_name'] or '(sem fornecedor)',
+                'reference': ref,
+                'amount': round(amt, 2),
+                'date': pd,
             })
+
+        outflows_by_category = sorted(
+            cats.values(),
+            key=lambda c: (c['category_id'] is None, (c['category_name'] or '').lower()),
+        )
+        outflows_invoices = sum(c['amount'] for c in outflows_by_category)
+
+        credit_items = []
+        outflows_credit = 0.0
+        for cc in credit_contracts:
+            debit_date = _credit_debit_date_in_week(int(cc['dia_debito'] or 1), week_start, week_end)
+            if debit_date is None:
+                continue
+            prestacao = float(cc['prestacao_mensal'] or 0)
+            outflows_credit = round(outflows_credit + prestacao, 2)
+            label = cc['label'] or ''
+            banco = cc['banco'] or ''
+            description = f"{label} – {banco}" if banco and banco not in label else label
+            credit_items.append({
+                'type': 'credito',
+                'description': description or '(contrato)',
+                'reference': str(cc['tipo'] or ''),
+                'amount': round(prestacao, 2),
+                'date': debit_date,
+            })
+
+        vat_items = []
+        outflows_vat = 0.0
+        for vr in vat_rows:
+            if vr['payment_date'] is None:
+                continue
+            vpd = vr['payment_date']
+            if not (week_start <= vpd <= week_end):
+                continue
+            vamt = float(vr['amount'] or 0)
+            if vamt <= 0:
+                continue
+            outflows_vat = round(outflows_vat + vamt, 2)
+            mes = _MESES_PT[int(vr['month'])] if vr['month'] else '?'
+            vat_items.append({
+                'type': 'iva',
+                'description': f"IVA {mes} {vr['year']}",
+                'reference': '',
+                'amount': round(vamt, 2),
+                'date': vpd,
+            })
+
+        inflows_events = sum(
+            v for d, v in event_rows.items()
+            if week_start <= d <= week_end
+        )
+
+        total_out = round(outflows_invoices + outflows_credit + outflows_vat, 2)
+        total_in = round(inflows_events + inflows_pos_est, 2)
+        balance = round(total_in - total_out, 2)
+
+        result.append({
+            'week': week_num,
+            'week_start': week_start,
+            'week_end': week_end,
+            'outflows_by_category': outflows_by_category,
+            'outflows_invoices': round(outflows_invoices, 2),
+            'outflows_credit': round(outflows_credit, 2),
+            'outflows_credit_items': credit_items,
+            'outflows_vat': round(outflows_vat, 2),
+            'outflows_vat_items': vat_items,
+            'inflows_pos': round(inflows_pos_est, 2),
+            'inflows_events': round(inflows_events, 2),
+            'total_in': total_in,
+            'total_out': total_out,
+            'balance': balance,
+            'is_critical': balance < 0,
+        })
     return result
 
 
