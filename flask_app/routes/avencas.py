@@ -11,15 +11,26 @@ from database import (
 
 avencas_bp = Blueprint('avencas', __name__)
 
-_PERIOD_MONTHS = {'mensal': 12, 'trimestral': 4, 'semestral': 2, 'anual': 1}
+_ANNUALIZATION_FACTOR = {'mensal': 12, 'trimestral': 4, 'semestral': 2, 'anual': 1}
 _PERIOD_LABEL = {
     'mensal': 'Mensal', 'trimestral': 'Trimestral',
     'semestral': 'Semestral', 'anual': 'Anual',
 }
 
 
+def _safe_int(raw: str):
+    """Return int if raw is a non-empty digit string, else None."""
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return None
+
+
 def _annual_value(avenca):
-    factor = _PERIOD_MONTHS.get(avenca['periodicidade'], 1)
+    factor = _ANNUALIZATION_FACTOR.get(avenca['periodicidade'], 1)
     return round(float(avenca['valor']) * factor, 2)
 
 
@@ -84,10 +95,10 @@ def nova():
                 data_fim = date.fromisoformat(data_fim_str)
             except ValueError:
                 errors.append('Data de fim inválida.')
-        centro_id_raw = request.form.get('centro_custo_id', '').strip()
-        centro_id = int(centro_id_raw) if centro_id_raw else None
-        cat_id_raw = request.form.get('categoria_custo_id', '').strip()
-        cat_id = int(cat_id_raw) if cat_id_raw else None
+        if data_fim and not errors and data_fim < data_inicio:
+            errors.append('A data de fim não pode ser anterior à data de início.')
+        centro_id = _safe_int(request.form.get('centro_custo_id', ''))
+        cat_id = _safe_int(request.form.get('categoria_custo_id', ''))
         descricao = request.form.get('descricao', '').strip() or None
         observacoes = request.form.get('observacoes', '').strip() or None
 
@@ -156,10 +167,10 @@ def editar(avenca_id):
                 data_fim = date.fromisoformat(data_fim_str)
             except ValueError:
                 errors.append('Data de fim inválida.')
-        centro_id_raw = request.form.get('centro_custo_id', '').strip()
-        centro_id = int(centro_id_raw) if centro_id_raw else None
-        cat_id_raw = request.form.get('categoria_custo_id', '').strip()
-        cat_id = int(cat_id_raw) if cat_id_raw else None
+        if data_fim and not errors and data_fim < data_inicio:
+            errors.append('A data de fim não pode ser anterior à data de início.')
+        centro_id = _safe_int(request.form.get('centro_custo_id', ''))
+        cat_id = _safe_int(request.form.get('categoria_custo_id', ''))
         descricao = request.form.get('descricao', '').strip() or None
         observacoes = request.form.get('observacoes', '').strip() or None
         ativo = request.form.get('ativo') == '1'
