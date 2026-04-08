@@ -17,6 +17,7 @@ FINANCEIRO_GROUPS = [
             {'key': 'credito',    'label': 'Crédito',           'icon': '💳', 'active': True,  'url': '/financeiro/credito/'},
             {'key': 'iva',        'label': 'IVA',               'icon': '📋', 'active': True,  'url': '/financeiro/pagamentos/iva'},
             {'key': 'liquidez',   'label': 'Liquidez',          'icon': '📈', 'active': True,  'url': '/financeiro/pagamentos/liquidez'},
+            {'key': 'avencas',    'label': 'Avenças',           'icon': '🔁', 'active': True,  'url_func': 'avencas.index'},
         ],
     },
     {

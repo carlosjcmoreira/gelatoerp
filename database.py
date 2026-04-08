@@ -14,3 +14,4 @@ from db.cashflow import *     # noqa: F401,F403 — Fase 8 M3: Cash Flow 13 sema
 from db.fecho_caixa import *  # noqa: F401,F403 — Fecho de Caixa diário + reconciliação
 from db.materiais import *    # noqa: F401,F403 — Stock de materiais / consumíveis
 from db.centros_custo import *  # noqa: F401,F403 — Cost centers, categories, colaboradores
+from db.avencas import *        # noqa: F401,F403 — Avenças (recurring fixed costs)

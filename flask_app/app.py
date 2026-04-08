@@ -20,6 +20,7 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_migrations_preco_caixa_kg,
                         run_migrations_stock_producao_lojas)
 from db.tiles import run_migrations_tile_config
+from db.avencas import run_migrations_avencas
 
 
 def _start_sheets_sync_scheduler():
@@ -106,6 +107,7 @@ def create_app():
         run_migrations_preco_caixa_kg()
         run_migrations_centros_custo()
         run_migrations_stock_producao_lojas()
+        run_migrations_avencas()
         run_migrations_tile_config()
         _seed_all_tiles()
         sync_produtos_vendas_config()
@@ -132,6 +134,7 @@ def create_app():
     from flask_app.routes.cashflow import cashflow_bp
     from flask_app.routes.centros_custo import centros_custo_bp
     from flask_app.routes.categorias_custo import categorias_custo_bp
+    from flask_app.routes.avencas import avencas_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -154,6 +157,7 @@ def create_app():
     app.register_blueprint(cashflow_bp, url_prefix='/financeiro/cashflow')
     app.register_blueprint(centros_custo_bp, url_prefix='/financeiro/centros-custo')
     app.register_blueprint(categorias_custo_bp, url_prefix='/financeiro/categorias')
+    app.register_blueprint(avencas_bp, url_prefix='/financeiro/avencas')
 
     import weather_scheduler
     weather_scheduler.start_weather_scheduler()

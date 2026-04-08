@@ -503,6 +503,9 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         """, (today - timedelta(days=28),))
         inflows_pos_est = float(cursor.fetchone()['weekly_pos'])
 
+    from db.avencas import get_avencas as _get_avencas, next_due_date as _avenca_next_due_date
+    avencas_ativas = list(_get_avencas(ativo_only=True))
+
     result = []
     for w in range(weeks):
         week_start = week_starts[w]
@@ -528,6 +531,24 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
                 'reference': ref,
                 'amount': round(amt, 2),
                 'date': pd,
+            })
+
+        for av in avencas_ativas:
+            due = _avenca_next_due_date(av, week_start)
+            if due is None or not (week_start <= due <= week_end):
+                continue
+            cid = av['categoria_custo_id']
+            cname = av['categoria_custo_nome'] or 'Sem categoria'
+            if cid not in cats:
+                cats[cid] = {'category_id': cid, 'category_name': cname, 'amount': 0.0, 'items': []}
+            amt = float(av['valor'] or 0)
+            cats[cid]['amount'] = round(cats[cid]['amount'] + amt, 2)
+            cats[cid]['items'].append({
+                'type': 'avenca',
+                'description': av['nome'],
+                'reference': av['periodicidade'].capitalize() if av['periodicidade'] else '',
+                'amount': round(amt, 2),
+                'date': due,
             })
 
         outflows_by_category = sorted(
