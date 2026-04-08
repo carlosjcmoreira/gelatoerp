@@ -31,9 +31,9 @@ _MONTH_ABBR_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
 
 _DEFAULT_FOLDER = 'Scoopy/2. Contabilidade/Registo de Faturas'
 _LEGACY_DEFAULTS = {
-    'NivaPorto/Faturas',
-    'Scoopy/Faturas',
-    'Niva Porto/2. Contabilidade/Registo de Faturas',
+    'NivaPorto/Faturas',              # pre-Scoopy legacy alias
+    'Scoopy/Faturas',                 # transitional alias
+    'Niva Porto/2. Contabilidade/Registo de Faturas',  # pre-Scoopy default
 }
 
 GRAPH_BASE = 'https://graph.microsoft.com/v1.0'

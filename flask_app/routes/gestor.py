@@ -971,9 +971,9 @@ def metodos_pagamento():
 def configuracoes():
     _ONEDRIVE_DEFAULT_FOLDER = 'Scoopy/2. Contabilidade/Registo de Faturas'
     _ONEDRIVE_LEGACY_DEFAULTS = {
-        'NivaPorto/Faturas',
-        'Scoopy/Faturas',
-        'Niva Porto/2. Contabilidade/Registo de Faturas',
+        'NivaPorto/Faturas',              # pre-Scoopy legacy alias
+        'Scoopy/Faturas',                 # transitional alias
+        'Niva Porto/2. Contabilidade/Registo de Faturas',  # pre-Scoopy default
     }
 
     if request.method == 'POST':
