@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0 fw-bold">Dashboard</h5>
+        <span class="text-muted small">{{ today.strftime('%d %b %Y') }}</span>
+    </div>
+
+    {% if widgets %}
+    <div class="dashboard-grid">
+        {% for w in widgets %}
+        <a href="{{ w.url }}" class="dashboard-widget text-decoration-none">
+            <div class="dashboard-widget-header">
+                <span class="dashboard-widget-icon" aria-hidden="true">{{ w.icon }}</span>
+                <span class="dashboard-widget-title">{{ w.label }}</span>
+            </div>
+            <div class="dashboard-widget-body">
+                {% for stat in w.stats %}
+                <div class="dashboard-stat">
+                    <span class="dashboard-stat-label">{{ stat.label }}</span>
+                    <span class="dashboard-stat-value {% if stat.cls %}{{ stat.cls }}{% endif %}">{{ stat.value }}</span>
+                </div>
+                {% endfor %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info mt-3">
+        Sem módulos disponíveis para o seu utilizador.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

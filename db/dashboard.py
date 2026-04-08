@@ -1,0 +1,277 @@
+"""Lightweight widget queries for the global dashboard.
+
+Each function returns a small dict of display-ready values.
+Functions must never raise — they return safe defaults on any error.
+"""
+import logging
+from datetime import date, timedelta
+from db.connection import get_connection, release_connection
+
+logger = logging.getLogger(__name__)
+
+
+def _safe(fn):
+    """Decorator: catch all exceptions and return an error-state dict."""
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            logger.warning("dashboard widget %s failed: %s", fn.__name__, exc)
+            return {'_error': True}
+    return wrapper
+
+
+@_safe
+def widget_eurokg() -> dict:
+    today = date.today()
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT MAX(data) FROM stock_gelado WHERE tipo IN ('fim','inicio')"
+        )
+        ultima_pesagem = cur.fetchone()[0]
+        cur.execute(
+            "SELECT preco_kg FROM config_preco_caixa_kg ORDER BY data_inicio DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+        preco_atual = float(row[0]) if row else None
+    finally:
+        release_connection(conn)
+    dias_sem_pesagem = (today - ultima_pesagem).days if ultima_pesagem else None
+    return {
+        'ultima_pesagem': ultima_pesagem,
+        'dias_sem_pesagem': dias_sem_pesagem,
+        'preco_atual': preco_atual,
+    }
+
+
+@_safe
+def widget_producao_gelado() -> dict:
+    today = date.today()
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COALESCE(SUM(quantidade_kg), 0) FROM producao WHERE data = %s AND tipo = 'producao'",
+            (today,)
+        )
+        kg_hoje = float(cur.fetchone()[0])
+        cur.execute(
+            "SELECT MAX(data) FROM producao WHERE tipo = 'producao'"
+        )
+        ultima_producao = cur.fetchone()[0]
+    finally:
+        release_connection(conn)
+    return {
+        'kg_hoje': kg_hoje,
+        'ultima_producao': ultima_producao,
+    }
+
+
+@_safe
+def widget_pastelaria() -> dict:
+    today = date.today()
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COALESCE(SUM(quantidade), 0) FROM producao_pastelaria WHERE data = %s",
+            (today,)
+        )
+        itens_hoje = int(cur.fetchone()[0])
+        cur.execute(
+            "SELECT MAX(data) FROM producao_pastelaria"
+        )
+        ultima_producao = cur.fetchone()[0]
+    finally:
+        release_connection(conn)
+    return {
+        'itens_hoje': itens_hoje,
+        'ultima_producao': ultima_producao,
+    }
+
+
+@_safe
+def widget_confeitaria() -> dict:
+    today = date.today()
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COALESCE(SUM(quantidade), 0) FROM producao_confeitaria WHERE data = %s",
+            (today,)
+        )
+        itens_hoje = int(cur.fetchone()[0])
+        cur.execute(
+            "SELECT COUNT(DISTINCT produto) FROM producao_confeitaria"
+        )
+        n_produtos = int(cur.fetchone()[0])
+    finally:
+        release_connection(conn)
+    return {
+        'itens_hoje': itens_hoje,
+        'n_produtos': n_produtos,
+    }
+
+
+@_safe
+def widget_faturas() -> dict:
+    today = date.today()
+    first_of_month = today.replace(day=1)
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM invoices WHERE status = 'pending_review'"
+        )
+        pending = int(cur.fetchone()[0])
+        cur.execute(
+            "SELECT COUNT(*) FROM invoices WHERE status = 'scheduled'"
+        )
+        agendadas = int(cur.fetchone()[0])
+        cur.execute(
+            "SELECT COUNT(*) FROM invoices WHERE status = 'scheduled' AND due_date < %s",
+            (today,)
+        )
+        vencidas = int(cur.fetchone()[0])
+        cur.execute(
+            "SELECT COUNT(*) FROM invoices WHERE status = 'paid' AND paid_date >= %s",
+            (first_of_month,)
+        )
+        pagas_mes = int(cur.fetchone()[0])
+    finally:
+        release_connection(conn)
+    return {
+        'pending': pending,
+        'agendadas': agendadas,
+        'vencidas': vencidas,
+        'pagas_mes': pagas_mes,
+    }
+
+
+@_safe
+def widget_logistica() -> dict:
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM ordens_transferencia WHERE status = 'pendente'"
+        )
+        pendentes = int(cur.fetchone()[0])
+        cur.execute(
+            "SELECT COUNT(*) FROM ordens_transferencia WHERE status = 'em_curso'"
+        )
+        em_curso = int(cur.fetchone()[0])
+    finally:
+        release_connection(conn)
+    return {
+        'pendentes': pendentes,
+        'em_curso': em_curso,
+    }
+
+
+@_safe
+def widget_gestor() -> dict:
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM users WHERE ativo = TRUE")
+        ativos = int(cur.fetchone()[0])
+        cur.execute("SELECT COUNT(*) FROM users WHERE ativo = FALSE")
+        inativos = int(cur.fetchone()[0])
+    finally:
+        release_connection(conn)
+    return {
+        'ativos': ativos,
+        'inativos': inativos,
+    }
+
+
+@_safe
+def widget_financeiro() -> dict:
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM credit_contracts WHERE estado = 'ativo'"
+        )
+        creditos = int(cur.fetchone()[0])
+        cur.execute(
+            "SELECT COUNT(*) FROM credit_contracts WHERE tipo = 'confirming' AND estado = 'ativo'"
+        )
+        confirming = int(cur.fetchone()[0])
+    finally:
+        release_connection(conn)
+    return {
+        'creditos': creditos,
+        'confirming': confirming,
+    }
+
+
+@_safe
+def widget_vendas(store_id: int, store_name: str) -> dict:
+    today = date.today()
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT total_caixa, updated_at
+               FROM fecho_caixa
+               WHERE loja_id = %s AND data = %s
+               LIMIT 1""",
+            (store_id, today)
+        )
+        row = cur.fetchone()
+        vendas_hoje = float(row[0]) if row and row[0] is not None else None
+        registado_hoje = row is not None
+        cur.execute(
+            "SELECT MAX(data) FROM fecho_caixa WHERE loja_id = %s",
+            (store_id,)
+        )
+        ultima_data = cur.fetchone()[0]
+    finally:
+        release_connection(conn)
+    return {
+        'store_id': store_id,
+        'store_name': store_name,
+        'vendas_hoje': vendas_hoje,
+        'registado_hoje': registado_hoje,
+        'ultima_data': ultima_data,
+    }
+
+
+@_safe
+def widget_eventos() -> dict:
+    today = date.today()
+    em_7_dias = today + timedelta(days=7)
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT COUNT(*) FROM events
+               WHERE status = 'won' AND event_date BETWEEN %s AND %s""",
+            (today, em_7_dias)
+        )
+        proximos_confirmados = int(cur.fetchone()[0])
+        cur.execute(
+            """SELECT event_name, event_date FROM events
+               WHERE status = 'won' AND event_date >= %s
+               ORDER BY event_date ASC LIMIT 1""",
+            (today,)
+        )
+        prox = cur.fetchone()
+        proximo_nome = prox[0] if prox else None
+        proximo_data = prox[1] if prox else None
+        cur.execute(
+            "SELECT COUNT(*) FROM lead_requests WHERE status = 'lead'"
+        )
+        leads_pendentes = int(cur.fetchone()[0])
+    finally:
+        release_connection(conn)
+    return {
+        'proximos_confirmados': proximos_confirmados,
+        'proximo_nome': proximo_nome,
+        'proximo_data': proximo_data,
+        'leads_pendentes': leads_pendentes,
+    }

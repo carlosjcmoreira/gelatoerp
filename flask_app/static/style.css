@@ -977,3 +977,106 @@ body.sidebar-collapsed .sidebar-toggle {
 [data-bs-theme="dark"] .more-drawer-item:hover {
     background: var(--scoopy-border);
 }
+
+/* ── Dashboard ────────────────────────────────────────────────────── */
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (min-width: 1200px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.dashboard-widget {
+    display: flex;
+    flex-direction: column;
+    background: var(--scoopy-bg-card);
+    border: 1px solid var(--scoopy-border);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    color: var(--scoopy-text);
+    transition: box-shadow 0.15s, transform 0.1s;
+}
+
+.dashboard-widget:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    transform: translateY(-1px);
+    color: var(--scoopy-text);
+}
+
+.dashboard-widget:active {
+    transform: scale(0.98);
+}
+
+.dashboard-widget-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.75rem;
+    background: var(--scoopy-accent);
+    color: #fff;
+}
+
+.dashboard-widget-icon {
+    font-size: 1.1rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.dashboard-widget-title {
+    font-weight: 600;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-widget-body {
+    padding: 0.6rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex: 1;
+}
+
+.dashboard-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+}
+
+.dashboard-stat-label {
+    font-size: 0.68rem;
+    color: var(--scoopy-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+}
+
+.dashboard-stat-value {
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.2;
+    word-break: break-word;
+}
+
+[data-bs-theme="dark"] .dashboard-widget {
+    background: var(--scoopy-bg-card);
+    border-color: var(--scoopy-border);
+}
+
+[data-bs-theme="dark"] .dashboard-widget-header {
+    background: var(--scoopy-accent);
+}

@@ -26,6 +26,7 @@ _PAGE_DEFS = [
 def compute_nav_pages(user: dict) -> list:
     """Return list of navigable module dicts for *user*.
 
+    The first entry is always the dashboard (home) link.
     Each dict has: icon, label, short_label, url, prefix.
     Vendas entries additionally carry a loja_id key for precise active-state
     detection when multiple stores share the /vendas prefix.
@@ -33,6 +34,12 @@ def compute_nav_pages(user: dict) -> list:
     Must be called inside a Flask request/application context (url_for).
     """
     pages = []
+
+    pages.append({
+        'icon': '🏠', 'label': 'Dashboard', 'short_label': 'Início',
+        'url': url_for('home.index'), 'prefix': '/',
+        'is_home': True,
+    })
 
     for perm, icon, label, short_label, route, prefix in _PAGE_DEFS:
         if user.get(perm) or user.get('acesso_gestor'):

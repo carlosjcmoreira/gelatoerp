@@ -2,6 +2,9 @@
 {% set _path = request.path %}
 {% set _loja_id = request.args.get('loja_id', '') %}
 
+{# ── Active state helper macro ────────────────────────────────────── #}
+{# home entry: exact match only so it doesn't colour every page active #}
+
 {# ── Desktop Sidebar ─────────────────────────────────────────────── #}
 <nav class="app-sidebar" id="appSidebar" aria-label="Navegação principal">
     <button class="sidebar-toggle" id="sidebarToggle" title="Expandir/Colapsar menu" aria-label="Expandir/Colapsar menu">
@@ -9,7 +12,9 @@
     </button>
     <ul class="sidebar-nav" role="list">
         {% for page in nav_pages %}
-        {% if page.loja_id is defined %}
+        {% if page.is_home is defined and page.is_home %}
+            {% set is_active = (_path == '/') %}
+        {% elif page.loja_id is defined %}
             {% set is_active = _path.startswith(page.prefix) and _loja_id == page.loja_id %}
         {% else %}
             {% set is_active = _path.startswith(page.prefix) %}
@@ -34,7 +39,9 @@
 
 <nav class="bottom-nav" id="bottomNav" aria-label="Navegação rápida">
     {% for page in primary_pages %}
-    {% if page.loja_id is defined %}
+    {% if page.is_home is defined and page.is_home %}
+        {% set is_active = (_path == '/') %}
+    {% elif page.loja_id is defined %}
         {% set is_active = _path.startswith(page.prefix) and _loja_id == page.loja_id %}
     {% else %}
         {% set is_active = _path.startswith(page.prefix) %}
@@ -63,7 +70,9 @@
     <div class="more-drawer-handle" aria-hidden="true"></div>
     <div class="more-drawer-grid">
         {% for page in secondary_pages %}
-        {% if page.loja_id is defined %}
+        {% if page.is_home is defined and page.is_home %}
+            {% set is_active = (_path == '/') %}
+        {% elif page.loja_id is defined %}
             {% set is_active = _path.startswith(page.prefix) and _loja_id == page.loja_id %}
         {% else %}
             {% set is_active = _path.startswith(page.prefix) %}
