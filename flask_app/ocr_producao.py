@@ -76,20 +76,20 @@ def extract_producao_sheet(image_bytes: bytes, filename: str = '') -> dict:
 
         image_b64 = base64.standard_b64encode(image_bytes).decode('utf-8')
 
-        prompt = """Analisa esta imagem de uma folha de registo de produção de gelado.
+        prompt = """Analisa esta fotografia de uma folha de planeamento de produção de gelado artesanal.
 
-A folha tem linhas por sabor e colunas para:
-- Pesagem Matosinhos: peso atual do gelado em produção (kg), também pode aparecer como "Pesagem Mat", "Mat kg", "Peso Mat" ou similar
-- Produção Bolhão: quantidade produzida para Bolhão (kg)
-- Produção Matosinhos: quantidade produzida para Matosinhos (kg)  
-- Produção Mouzinho: quantidade produzida para Mouzinho (kg)
-- Produção B2B / Outros / Eventos: quantidade produzida para B2B ou eventos (kg)
+A folha tem uma linha por sabor (gelado) e 5 colunas numéricas:
+1. PESAGEM MATOSINHOS — peso atual do gelado no início do dia (kg)
+2. PRODUÇÃO BOLHÃO — kg produzidos para a loja Bolhão
+3. PRODUÇÃO MATOSINHOS — kg produzidos para a loja Matosinhos
+4. PRODUÇÃO MOUZINHO — kg produzidos para a loja Mouzinho
+5. PRODUÇÃO B2B / OUTROS / EVENTOS — kg produzidos para B2B ou eventos
 
 Extrai APENAS um objeto JSON válido (sem markdown, sem texto extra) com esta estrutura:
 
 {
   "date": "YYYY-MM-DD",
-  "confidence": 0.85,
+  "confidence": 0.90,
   "sabores": {
     "NomeSabor": {
       "pesagem_mat": 0.0,
@@ -101,20 +101,52 @@ Extrai APENAS um objeto JSON válido (sem markdown, sem texto extra) com esta es
   }
 }
 
-Regras:
+REGRAS GERAIS:
 - Se a data não for visível, usa null para "date".
-- Para datas usa formato YYYY-MM-DD.
-- Se um valor não existir ou estiver em branco, usa 0.0.
-- Se um valor aparecer como soma "N+M" (ex: "2+3"), calcula e devolve o total (5.0).
-- Se os valores estiverem em gramas (ex: 1500), converte para kg (1.5).
-- O nome do sabor deve ser exatamente como aparece na folha.
-- Inclui apenas sabores com pelo menos um valor não nulo/zero.
-- confidence é a tua confiança geral na extração (0 a 1).
-- Devolve APENAS o JSON, sem qualquer texto adicional."""
+- Para datas usa o formato YYYY-MM-DD.
+- Se um valor estiver em branco ou ausente, usa 0.0.
+- Se os valores estiverem claramente em gramas (ex: 1500), converte para kg (1.5).
+- O nome do sabor deve ser exactamente como aparece escrito na folha.
+- Inclui APENAS sabores com pelo menos um valor diferente de zero.
+- "confidence" é a tua confiança global na extracção (0.0 a 1.0).
+- Devolve APENAS o JSON, sem qualquer texto adicional.
+
+ATENÇÃO — ESCRITA MANUAL (muito importante):
+Esta folha é preenchida à mão. Sê extremamente cuidadoso com os seguintes erros frequentes de leitura:
+
+DÍGITOS AMBÍGUOS — verifica sempre o contexto do número inteiro antes de decidir:
+  • "1" vs "4": em manuscrito são frequentemente confundidos. O "1" tem traço recto; o "4" tem ângulo no topo.
+  • "0" vs "8": o "0" é uma elipse simples; o "8" tem o nó a meio.
+  • "3" vs "2": o "3" tem duas curvas à direita; o "2" tem base plana.
+  • "5" vs "6": o "5" tem o topo plano; o "6" tem a cauda fechada em baixo.
+  • "7" vs "4": ambos têm traço diagonal, mas o "7" é mais simples.
+  • "9" vs "4": o "9" tem cauda descendente; o "4" tem ângulo no topo.
+
+ZEROS/DÍGITOS INICIAIS — nunca elimines dígitos iniciais:
+  • Valores como "2,476" NÃO devem ser lidos como "0,476" — verifica se existe um "2" antes da vírgula.
+  • Valores escritos como "0,xxx" têm mesmo o zero no início; não os ignores.
+
+VÍRGULA DECIMAL — o separador decimal é sempre a vírgula (formato português):
+  • "1,906" = 1.906 kg (não "1906" nem "1,9")
+  • "0,650" = 0.650 kg
+
+SOMA DE PARCELAS (notação "N+M"):
+  • Alguns valores podem estar escritos como "1,158+2,400" indicando duas pesagens.
+  • Se encontrares esta notação, CALCULA o total e devolve apenas o número final (ex: 3.558).
+  • Nunca devolvas uma string com "+" no JSON — apenas o resultado numérico.
+
+ZEROS E TRAÇOS:
+  • Um "0" ou "—" numa célula significa zero (0.0); não confundas com valor em falta.
+  • Uma célula vazia é também 0.0.
+
+CONTEXTO DO NÚMERO:
+  • Os pesos de gelado nesta folha estão normalmente entre 0.0 e 10.0 kg por célula.
+  • Valores acima de 15 kg numa única célula são muito raros — confirma se não é um erro de leitura.
+  • Se tiveres dúvida entre dois dígitos, escolhe o que produz um valor no intervalo 0.0–10.0 kg."""
 
         message = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=2048,
+            model="claude-sonnet-4-5",
+            max_tokens=4096,
             messages=[{
                 "role": "user",
                 "content": [
