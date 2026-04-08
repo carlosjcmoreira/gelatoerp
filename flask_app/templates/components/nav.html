@@ -28,8 +28,9 @@
 </nav>
 
 {# ── Mobile Bottom Nav ───────────────────────────────────────────── #}
-{% set primary_pages = nav_pages[:4] %}
-{% set secondary_pages = nav_pages[4:] %}
+{% set _n = mobile_nav_primary_count | default(4) %}
+{% set primary_pages = nav_pages[:_n] %}
+{% set secondary_pages = nav_pages[_n:] %}
 
 <nav class="bottom-nav" id="bottomNav" aria-label="Navegação rápida">
     {% for page in primary_pages %}
