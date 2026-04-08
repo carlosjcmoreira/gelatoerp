@@ -24,6 +24,7 @@ def _safe(fn):
 @_safe
 def widget_eurokg() -> dict:
     today = date.today()
+    first_of_month = today.replace(day=1)
     conn = get_connection()
     try:
         cur = conn.cursor()
@@ -32,17 +33,27 @@ def widget_eurokg() -> dict:
         )
         ultima_pesagem = cur.fetchone()[0]
         cur.execute(
-            "SELECT preco_kg FROM config_preco_caixa_kg ORDER BY data_inicio DESC LIMIT 1"
+            """SELECT COALESCE(SUM(v.valor_euros), 0), COALESCE(SUM(p.quantidade_kg), 0)
+               FROM vendas v
+               CROSS JOIN (
+                   SELECT COALESCE(SUM(quantidade_kg), 0) as quantidade_kg
+                   FROM producao
+                   WHERE data >= %s AND tipo = 'producao'
+               ) p
+               WHERE v.data >= %s""",
+            (first_of_month, first_of_month)
         )
         row = cur.fetchone()
-        preco_atual = float(row[0]) if row else None
+        total_vendas = float(row[0]) if row else 0
+        total_prod = float(row[1]) if row else 0
+        media_euro_kg = round(total_vendas / total_prod, 2) if total_prod > 0 else None
     finally:
         release_connection(conn)
     dias_sem_pesagem = (today - ultima_pesagem).days if ultima_pesagem else None
     return {
         'ultima_pesagem': ultima_pesagem,
         'dias_sem_pesagem': dias_sem_pesagem,
-        'preco_atual': preco_atual,
+        'media_euro_kg': media_euro_kg,
     }
 
 
@@ -81,14 +92,15 @@ def widget_pastelaria() -> dict:
         )
         itens_hoje = int(cur.fetchone()[0])
         cur.execute(
-            "SELECT MAX(data) FROM producao_pastelaria"
+            """SELECT COUNT(*) FROM ordens_transferencia
+               WHERE area_origem = 'Pastelaria' AND status = 'pendente'"""
         )
-        ultima_producao = cur.fetchone()[0]
+        transferencias_pendentes = int(cur.fetchone()[0])
     finally:
         release_connection(conn)
     return {
         'itens_hoje': itens_hoje,
-        'ultima_producao': ultima_producao,
+        'transferencias_pendentes': transferencias_pendentes,
     }
 
 
@@ -104,14 +116,14 @@ def widget_confeitaria() -> dict:
         )
         itens_hoje = int(cur.fetchone()[0])
         cur.execute(
-            "SELECT COUNT(DISTINCT produto) FROM producao_confeitaria"
+            "SELECT COALESCE(SUM(quantidade), 0) FROM producao_confeitaria"
         )
-        n_produtos = int(cur.fetchone()[0])
+        stock_total = int(cur.fetchone()[0])
     finally:
         release_connection(conn)
     return {
         'itens_hoje': itens_hoje,
-        'n_produtos': n_produtos,
+        'stock_total': stock_total,
     }
 
 
@@ -178,13 +190,17 @@ def widget_gestor() -> dict:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM users WHERE ativo = TRUE")
         ativos = int(cur.fetchone()[0])
-        cur.execute("SELECT COUNT(*) FROM users WHERE ativo = FALSE")
-        inativos = int(cur.fetchone()[0])
+        cur.execute(
+            """SELECT MAX(expires_at - INTERVAL '30 days')
+               FROM sessions
+               WHERE expires_at > NOW()"""
+        )
+        ultimo_login = cur.fetchone()[0]
     finally:
         release_connection(conn)
     return {
         'ativos': ativos,
-        'inativos': inativos,
+        'ultimo_login': ultimo_login,
     }
 
 
@@ -194,18 +210,26 @@ def widget_financeiro() -> dict:
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT COUNT(*) FROM credit_contracts WHERE estado = 'ativo'"
+            "SELECT COUNT(*), COALESCE(SUM(plafond), 0) FROM credit_contracts WHERE estado = 'ativo' AND tipo != 'confirming'"
         )
-        creditos = int(cur.fetchone()[0])
+        row = cur.fetchone()
+        creditos = int(row[0])
         cur.execute(
-            "SELECT COUNT(*) FROM credit_contracts WHERE tipo = 'confirming' AND estado = 'ativo'"
+            """SELECT COUNT(*), COALESCE(SUM(cp.montante), 0)
+               FROM credit_contracts c
+               LEFT JOIN confirming_parcelas cp ON cp.confirming_contract_id = c.id
+                   AND cp.estado IN ('scheduled', 'confirmed')
+               WHERE c.tipo = 'confirming' AND c.estado = 'ativo'"""
         )
-        confirming = int(cur.fetchone()[0])
+        row2 = cur.fetchone()
+        confirming = int(row2[0])
+        exposicao = float(row2[1]) if row2[1] else 0.0
     finally:
         release_connection(conn)
     return {
         'creditos': creditos,
         'confirming': confirming,
+        'exposicao': exposicao,
     }
 
 

@@ -1,5 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+import logging
 from datetime import date
 from flask import Blueprint, render_template, session, url_for
 from flask_app.auth import login_required
@@ -7,14 +8,15 @@ from flask_app.services.navigation import compute_nav_pages
 import database as db
 from db import dashboard as dash
 
+logger = logging.getLogger(__name__)
+
 home_bp = Blueprint('home', __name__)
 
 
-def _build_widgets(user: dict, nav_pages: list) -> list:
+def _build_widgets(user: dict) -> list:
     """Build the list of dashboard widget dicts based on user permissions.
 
     Each widget dict has: id, icon, label, url, stats (list of {label, value, cls}).
-    An optional `_error` key is set to True when data could not be loaded.
     """
     widgets = []
     is_gestor = bool(user.get('acesso_gestor'))
@@ -25,8 +27,10 @@ def _build_widgets(user: dict, nav_pages: list) -> list:
         if data.get('_error'):
             stats.append({'label': 'Sem dados', 'value': '—', 'cls': 'text-muted'})
         else:
-            if data['preco_atual'] is not None:
-                stats.append({'label': 'Preço/kg atual', 'value': f"{data['preco_atual']:.2f} €/kg", 'cls': ''})
+            if data['media_euro_kg'] is not None:
+                stats.append({'label': 'Média €/kg (mês)', 'value': f"{data['media_euro_kg']:.2f} €/kg", 'cls': ''})
+            else:
+                stats.append({'label': 'Média €/kg (mês)', 'value': 'Sem dados', 'cls': 'text-muted'})
             if data['ultima_pesagem']:
                 dias = data['dias_sem_pesagem']
                 cls = 'text-warning' if dias and dias > 7 else ''
@@ -60,8 +64,9 @@ def _build_widgets(user: dict, nav_pages: list) -> list:
         else:
             cls = 'text-success' if data['itens_hoje'] > 0 else 'text-muted'
             stats.append({'label': 'Itens hoje', 'value': str(data['itens_hoje']), 'cls': cls})
-            if data['ultima_producao']:
-                stats.append({'label': 'Última produção', 'value': data['ultima_producao'].strftime('%d/%m/%Y'), 'cls': ''})
+            n = data['transferencias_pendentes']
+            cls2 = 'text-warning' if n > 0 else 'text-muted'
+            stats.append({'label': 'Transferências pendentes', 'value': str(n), 'cls': cls2})
         widgets.append({
             'id': 'pastelaria', 'icon': '🍡', 'label': 'Produção Pastelaria',
             'url': url_for('pastelaria.index'), 'stats': stats,
@@ -75,7 +80,7 @@ def _build_widgets(user: dict, nav_pages: list) -> list:
         else:
             cls = 'text-success' if data['itens_hoje'] > 0 else 'text-muted'
             stats.append({'label': 'Itens hoje', 'value': str(data['itens_hoje']), 'cls': cls})
-            stats.append({'label': 'Produtos ativos', 'value': str(data['n_produtos']), 'cls': ''})
+            stats.append({'label': 'Stock acumulado', 'value': str(data['stock_total']), 'cls': ''})
         widgets.append({
             'id': 'confeitaria', 'icon': '🍪', 'label': 'Produção Confeitaria',
             'url': url_for('confeitaria.index'), 'stats': stats,
@@ -88,9 +93,10 @@ def _build_widgets(user: dict, nav_pages: list) -> list:
             stats.append({'label': 'Sem dados', 'value': '—', 'cls': 'text-muted'})
         else:
             cls = 'text-danger' if data['pending'] > 0 else 'text-muted'
-            stats.append({'label': 'Para rever', 'value': str(data['pending']), 'cls': cls})
+            stats.append({'label': 'Por rever', 'value': str(data['pending']), 'cls': cls})
             cls2 = 'text-warning' if data['vencidas'] > 0 else ''
             stats.append({'label': 'Agendadas / vencidas', 'value': f"{data['agendadas']} / {data['vencidas']}", 'cls': cls2})
+            stats.append({'label': 'Pagas este mês', 'value': str(data['pagas_mes']), 'cls': 'text-muted'})
         widgets.append({
             'id': 'faturas', 'icon': '🛍️', 'label': 'Compras e Faturas',
             'url': url_for('compras.index'), 'stats': stats,
@@ -116,8 +122,8 @@ def _build_widgets(user: dict, nav_pages: list) -> list:
             stats.append({'label': 'Sem dados', 'value': '—', 'cls': 'text-muted'})
         else:
             stats.append({'label': 'Utilizadores ativos', 'value': str(data['ativos']), 'cls': ''})
-            if data['inativos']:
-                stats.append({'label': 'Inativos', 'value': str(data['inativos']), 'cls': 'text-muted'})
+            if data.get('ultimo_login'):
+                stats.append({'label': 'Último login', 'value': data['ultimo_login'].strftime('%d/%m/%Y %H:%M'), 'cls': ''})
         widgets.append({
             'id': 'gestor', 'icon': '👔', 'label': 'Gestor',
             'url': url_for('gestor.index'), 'stats': stats,
@@ -130,7 +136,10 @@ def _build_widgets(user: dict, nav_pages: list) -> list:
             stats.append({'label': 'Sem dados', 'value': '—', 'cls': 'text-muted'})
         else:
             stats.append({'label': 'Contratos crédito', 'value': str(data['creditos']), 'cls': ''})
-            stats.append({'label': 'Confirming ativos', 'value': str(data['confirming']), 'cls': ''})
+            if data['confirming'] > 0:
+                stats.append({'label': 'Confirming (exposição)', 'value': f"{data['exposicao']:,.0f} €", 'cls': ''})
+            else:
+                stats.append({'label': 'Confirming ativos', 'value': str(data['confirming']), 'cls': 'text-muted'})
         widgets.append({
             'id': 'financeiro', 'icon': '💰', 'label': 'Financeiro',
             'url': url_for('financeiro.index'), 'stats': stats,
@@ -158,8 +167,7 @@ def _build_widgets(user: dict, nav_pages: list) -> list:
                     'stats': stats,
                 })
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("home dashboard: failed to load vendas stores: %s", exc)
+        logger.warning("home dashboard: failed to load vendas stores: %s", exc)
 
     if user.get('acesso_eventos') or is_gestor:
         data = dash.widget_eventos()
@@ -170,7 +178,7 @@ def _build_widgets(user: dict, nav_pages: list) -> list:
             stats.append({'label': 'Confirmados (7 dias)', 'value': str(data['proximos_confirmados']), 'cls': ''})
             if data['proximo_nome']:
                 d_str = data['proximo_data'].strftime('%d/%m') if data['proximo_data'] else ''
-                stats.append({'label': 'Próximo', 'value': f"{data['proximo_nome'][:24]} {d_str}", 'cls': ''})
+                stats.append({'label': 'Próximo', 'value': f"{data['proximo_nome'][:22]} {d_str}".strip(), 'cls': ''})
             if data['leads_pendentes']:
                 stats.append({'label': 'Leads pendentes', 'value': str(data['leads_pendentes']), 'cls': 'text-warning'})
         widgets.append({
@@ -187,9 +195,10 @@ def index():
     user = session['user']
     pages = compute_nav_pages(user)
 
-    if not pages:
+    real_pages = [p for p in pages if not p.get('is_home')]
+    if not real_pages:
         return render_template('home.html', no_access=True)
 
-    widgets = _build_widgets(user, pages)
+    widgets = _build_widgets(user)
     today = date.today()
     return render_template('dashboard.html', widgets=widgets, today=today)
