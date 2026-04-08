@@ -969,8 +969,8 @@ def metodos_pagamento():
 @gestor_bp.route('/configuracoes', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def configuracoes():
-    _ONEDRIVE_DEFAULT_FOLDER = 'Niva Porto/2. Contabilidade/Registo de Faturas'
-    _ONEDRIVE_OLD_DEFAULT = 'NivaPorto/Faturas'
+    _ONEDRIVE_DEFAULT_FOLDER = 'Scoopy/2. Contabilidade/Registo de Faturas'
+    _ONEDRIVE_OLD_DEFAULT = 'Scoopy/Faturas'
 
     if request.method == 'POST':
         folder = request.form.get('onedrive_folder', '').strip()

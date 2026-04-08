@@ -12,11 +12,11 @@ system_config keys used:
   onedrive_refresh_token  — OAuth2 refresh token (set on callback)
   onedrive_user_email     — email of the authorised Microsoft account
   onedrive_folder         — base folder path in OneDrive
-                            (default: 'Niva Porto/2. Contabilidade/Registo de Faturas')
+                            (default: 'Scoopy/2. Contabilidade/Registo de Faturas')
 
 Upload path structure:
   {base}/{year}/{MonAA}/Faturas/{subfolder}/{filename}
-  e.g. Niva Porto/2. Contabilidade/Registo de Faturas/2026/Mar26/Faturas/Matosinhos (M)/file.pdf
+  e.g. Scoopy/2. Contabilidade/Registo de Faturas/2026/Mar26/Faturas/Matosinhos (M)/file.pdf
 """
 import logging
 import os
@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 _MONTH_ABBR_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
                   'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
-_OLD_DEFAULT_FOLDER = 'NivaPorto/Faturas'
-_DEFAULT_FOLDER = 'Niva Porto/2. Contabilidade/Registo de Faturas'
+_OLD_DEFAULT_FOLDER = 'Scoopy/Faturas'
+_DEFAULT_FOLDER = 'Scoopy/2. Contabilidade/Registo de Faturas'
 
 GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
 TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
@@ -273,7 +273,7 @@ def test_connection() -> dict:
     except RuntimeError as e:
         return {'ok': False, 'error': str(e)}
 
-    test_filename = '_nivaportoteste_.pdf'
+    test_filename = '_scoopyteste_.pdf'
     test_bytes = b'%PDF-1.0\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n%%EOF'
     base = _get_base_folder()
     try:
@@ -281,9 +281,9 @@ def test_connection() -> dict:
     except Exception as e:
         return {'ok': False, 'error': f'Erro ao aceder à pasta: {e}'}
     if drive_id:
-        upload_url = f'{GRAPH_BASE}/drives/{drive_id}/items/{folder_id}:/_nivaportoteste_.pdf:/content'
+        upload_url = f'{GRAPH_BASE}/drives/{drive_id}/items/{folder_id}:/_scoopyteste_.pdf:/content'
     else:
-        upload_url = f'{GRAPH_BASE}/me/drive/items/{folder_id}:/_nivaportoteste_.pdf:/content'
+        upload_url = f'{GRAPH_BASE}/me/drive/items/{folder_id}:/_scoopyteste_.pdf:/content'
 
     try:
         resp = requests.put(
