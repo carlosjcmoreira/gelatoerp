@@ -35,9 +35,10 @@
             </div>
         </div>
     </nav>
+    {% include 'components/nav.html' %}
     {% endif %}
 
-    <main class="{% if user %}pt-navbar{% endif %} {% if back_url is defined and back_url %}has-back-bar-content{% endif %}">
+    <main class="{% if user %}pt-navbar with-nav{% endif %} {% if back_url is defined and back_url %}has-back-bar-content{% endif %}">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
         <div class="container-fluid px-3 mt-2">

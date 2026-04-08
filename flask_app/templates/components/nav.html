@@ -1,0 +1,107 @@
+{% if user and nav_pages %}
+{% set _path = request.path %}
+
+{# ── Desktop Sidebar ─────────────────────────────────────────────── #}
+<nav class="app-sidebar" id="appSidebar" aria-label="Navegação principal">
+    <button class="sidebar-toggle" id="sidebarToggle" title="Expandir/Colapsar menu" aria-label="Expandir/Colapsar menu">
+        <span class="sidebar-toggle-icon" aria-hidden="true">&#8249;</span>
+    </button>
+    <ul class="sidebar-nav" role="list">
+        {% for page in nav_pages %}
+        {% set is_active = _path.startswith(page.prefix) %}
+        <li role="listitem">
+            <a href="{{ page.url }}"
+               class="sidebar-item{% if is_active %} active{% endif %}"
+               title="{{ page.label }}"
+               aria-current="{% if is_active %}page{% else %}false{% endif %}">
+                <span class="sidebar-item-icon" aria-hidden="true">{{ page.icon }}</span>
+                <span class="sidebar-item-label">{{ page.label }}</span>
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+</nav>
+
+{# ── Mobile Bottom Nav ───────────────────────────────────────────── #}
+{% set primary_pages = nav_pages[:4] %}
+{% set secondary_pages = nav_pages[4:] %}
+
+<nav class="bottom-nav" id="bottomNav" aria-label="Navegação rápida">
+    {% for page in primary_pages %}
+    {% set is_active = _path.startswith(page.prefix) %}
+    <a href="{{ page.url }}"
+       class="bottom-nav-item{% if is_active %} active{% endif %}"
+       aria-current="{% if is_active %}page{% else %}false{% endif %}">
+        <span class="bottom-nav-icon" aria-hidden="true">{{ page.icon }}</span>
+        <span class="bottom-nav-label">{{ page.short_label }}</span>
+    </a>
+    {% endfor %}
+    {% if secondary_pages %}
+    <button class="bottom-nav-item bottom-nav-more" id="bottomNavMore"
+            aria-label="Ver mais módulos" aria-expanded="false" aria-controls="moreDrawer"
+            onclick="toggleMoreDrawer()">
+        <span class="bottom-nav-icon" aria-hidden="true">&#8943;</span>
+        <span class="bottom-nav-label">Mais</span>
+    </button>
+    {% endif %}
+</nav>
+
+{# ── More Drawer (mobile) ────────────────────────────────────────── #}
+{% if secondary_pages %}
+<div class="more-drawer-backdrop" id="moreDrawerBackdrop" onclick="toggleMoreDrawer()" aria-hidden="true"></div>
+<div class="more-drawer" id="moreDrawer" role="dialog" aria-label="Mais módulos" aria-modal="true" hidden>
+    <div class="more-drawer-handle" aria-hidden="true"></div>
+    <div class="more-drawer-grid">
+        {% for page in secondary_pages %}
+        {% set is_active = _path.startswith(page.prefix) %}
+        <a href="{{ page.url }}"
+           class="more-drawer-item{% if is_active %} active{% endif %}"
+           aria-current="{% if is_active %}page{% else %}false{% endif %}">
+            <span class="more-drawer-icon" aria-hidden="true">{{ page.icon }}</span>
+            <span class="more-drawer-label">{{ page.label }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<script>
+(function(){
+    var sidebar = document.getElementById('appSidebar');
+    var toggle = document.getElementById('sidebarToggle');
+    var toggleIcon = toggle ? toggle.querySelector('.sidebar-toggle-icon') : null;
+
+    function applyCollapsed(collapsed) {
+        if (collapsed) {
+            document.body.classList.add('sidebar-collapsed');
+            if (toggleIcon) toggleIcon.innerHTML = '&#8250;';
+        } else {
+            document.body.classList.remove('sidebar-collapsed');
+            if (toggleIcon) toggleIcon.innerHTML = '&#8249;';
+        }
+    }
+
+    var stored = localStorage.getItem('sidebar_collapsed');
+    applyCollapsed(stored === 'true');
+
+    if (toggle) {
+        toggle.addEventListener('click', function() {
+            var collapsed = document.body.classList.contains('sidebar-collapsed');
+            localStorage.setItem('sidebar_collapsed', !collapsed);
+            applyCollapsed(!collapsed);
+        });
+    }
+})();
+
+function toggleMoreDrawer() {
+    var drawer = document.getElementById('moreDrawer');
+    var backdrop = document.getElementById('moreDrawerBackdrop');
+    var btn = document.getElementById('bottomNavMore');
+    if (!drawer) return;
+    var isOpen = !drawer.hidden;
+    drawer.hidden = isOpen;
+    if (backdrop) backdrop.classList.toggle('active', !isOpen);
+    if (btn) btn.setAttribute('aria-expanded', !isOpen);
+}
+</script>
+{% endif %}

@@ -8,7 +8,7 @@ from functools import wraps
 logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, sync_produtos_vendas_config, seed_artigos_administrativos, authenticate_user, create_session
+from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, sync_produtos_vendas_config, seed_artigos_administrativos, authenticate_user, create_session, get_active_venda_stores, get_active_landing_stores
 from db.cashflow import run_migrations_cashflow
 from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_data_fix_pesagem_april2026, run_migrations_centros_custo,
@@ -44,6 +44,73 @@ def _start_sheets_sync_scheduler():
 
     t = threading.Thread(target=_worker, daemon=True, name="sheets-sync")
     t.start()
+
+
+def _compute_nav_pages(user):
+    """Compute the list of navigable modules for the given user dict.
+
+    Returns a list of dicts with keys: icon, label, short_label, url, prefix.
+    Mirrors the logic in home.py but is callable from a context processor.
+    """
+    page_defs = [
+        ('acesso_eurokg',        '📊', 'Euro/kg',              'Euro/kg',   'eurokg.index',    '/eurokg'),
+        ('acesso_producao',      '🍨', 'Produção Gelado',       'Gelado',    'producao.index',  '/producao'),
+        ('acesso_pastelaria',    '🍡', 'Produção Pastelaria',   'Pastelaria','pastelaria.index','/pastelaria'),
+        ('acesso_confeitaria',   '🍪', 'Produção Confeitaria',  'Confeit.',  'confeitaria.index','/confeitaria'),
+        ('acesso_administrativo','🛍️', 'Compras e Faturas',     'Compras',   'compras.index',   '/compras'),
+        ('acesso_administrativo','🚚', 'Logística',             'Logística', 'logistica.index', '/logistica'),
+        ('acesso_gestor',        '👔', 'Gestor',                'Gestor',    'gestor.index',    '/gestor'),
+        ('acesso_financeiro',    '💰', 'Financeiro',            'Financeiro','financeiro.index','/financeiro'),
+    ]
+
+    pages = []
+    for perm, icon, label, short_label, route, prefix in page_defs:
+        if user.get(perm) or user.get('acesso_gestor'):
+            pages.append({
+                'icon': icon, 'label': label, 'short_label': short_label,
+                'url': url_for(route), 'prefix': prefix,
+            })
+
+    try:
+        venda_stores = get_active_venda_stores()
+        is_gestor = user.get('acesso_gestor')
+        vendas_store_ids = set(user.get('vendas_store_ids') or [])
+        for s in venda_stores:
+            if is_gestor or s['id'] in vendas_store_ids:
+                sname = s['name']
+                pages.append({
+                    'icon': '🛒',
+                    'label': f'Vendas {sname}',
+                    'short_label': sname[:7],
+                    'url': url_for('vendas.index', loja_id=s['id']),
+                    'prefix': '/vendas',
+                })
+    except Exception:
+        pass
+
+    if user.get('acesso_gestor'):
+        try:
+            for s in get_active_landing_stores():
+                pages.append({
+                    'icon': '🏪',
+                    'label': s['name'],
+                    'short_label': s['name'][:7],
+                    'url': url_for('store_placeholder.index', store_id=s['id']),
+                    'prefix': f"/loja/{s['id']}",
+                })
+        except Exception:
+            pass
+
+    if user.get('acesso_eventos') or user.get('acesso_gestor'):
+        pages.append({
+            'icon': '🎪',
+            'label': 'Eventos',
+            'short_label': 'Eventos',
+            'url': url_for('eventos.index'),
+            'prefix': '/eventos',
+        })
+
+    return pages
 
 
 def _seed_all_tiles():
@@ -189,7 +256,14 @@ def create_app():
             ('Privado', 'Privado/ Private'),
             ('Outro', 'Other:'),
         ]
-        return dict(user=g.get('user'), time_slots=time_slots, event_type_options=event_type_options)
+        user = g.get('user')
+        nav_pages = []
+        if user:
+            try:
+                nav_pages = _compute_nav_pages(user)
+            except Exception:
+                pass
+        return dict(user=user, time_slots=time_slots, event_type_options=event_type_options, nav_pages=nav_pages)
 
     return app
 
