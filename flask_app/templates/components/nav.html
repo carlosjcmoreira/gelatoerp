@@ -1,5 +1,6 @@
 {% if user and nav_pages %}
 {% set _path = request.path %}
+{% set _loja_id = request.args.get('loja_id', '') %}
 
 {# ── Desktop Sidebar ─────────────────────────────────────────────── #}
 <nav class="app-sidebar" id="appSidebar" aria-label="Navegação principal">
@@ -8,7 +9,11 @@
     </button>
     <ul class="sidebar-nav" role="list">
         {% for page in nav_pages %}
-        {% set is_active = _path.startswith(page.prefix) %}
+        {% if page.loja_id is defined %}
+            {% set is_active = _path.startswith(page.prefix) and _loja_id == page.loja_id %}
+        {% else %}
+            {% set is_active = _path.startswith(page.prefix) %}
+        {% endif %}
         <li role="listitem">
             <a href="{{ page.url }}"
                class="sidebar-item{% if is_active %} active{% endif %}"
@@ -28,7 +33,11 @@
 
 <nav class="bottom-nav" id="bottomNav" aria-label="Navegação rápida">
     {% for page in primary_pages %}
-    {% set is_active = _path.startswith(page.prefix) %}
+    {% if page.loja_id is defined %}
+        {% set is_active = _path.startswith(page.prefix) and _loja_id == page.loja_id %}
+    {% else %}
+        {% set is_active = _path.startswith(page.prefix) %}
+    {% endif %}
     <a href="{{ page.url }}"
        class="bottom-nav-item{% if is_active %} active{% endif %}"
        aria-current="{% if is_active %}page{% else %}false{% endif %}">
@@ -53,7 +62,11 @@
     <div class="more-drawer-handle" aria-hidden="true"></div>
     <div class="more-drawer-grid">
         {% for page in secondary_pages %}
-        {% set is_active = _path.startswith(page.prefix) %}
+        {% if page.loja_id is defined %}
+            {% set is_active = _path.startswith(page.prefix) and _loja_id == page.loja_id %}
+        {% else %}
+            {% set is_active = _path.startswith(page.prefix) %}
+        {% endif %}
         <a href="{{ page.url }}"
            class="more-drawer-item{% if is_active %} active{% endif %}"
            aria-current="{% if is_active %}page{% else %}false{% endif %}">

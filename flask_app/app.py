@@ -84,6 +84,7 @@ def _compute_nav_pages(user):
                     'short_label': sname[:7],
                     'url': url_for('vendas.index', loja_id=s['id']),
                     'prefix': '/vendas',
+                    'loja_id': str(s['id']),
                 })
     except Exception:
         pass
