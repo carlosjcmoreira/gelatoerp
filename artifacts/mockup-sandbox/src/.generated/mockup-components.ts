@@ -6,5 +6,6 @@ export const modules: ModuleMap = {
   "./components/mockups/scoopy-brand/ColorPalette.tsx": () => import("../components/mockups/scoopy-brand/ColorPalette.tsx"),
   "./components/mockups/scoopy-brand/LogoModern.tsx": () => import("../components/mockups/scoopy-brand/LogoModern.tsx"),
   "./components/mockups/scoopy-brand/LogoPlayful.tsx": () => import("../components/mockups/scoopy-brand/LogoPlayful.tsx"),
+  "./components/mockups/scoopy-brand/ScoopyPresentation.tsx": () => import("../components/mockups/scoopy-brand/ScoopyPresentation.tsx"),
   "./components/mockups/scoopy-brand/SocialPost.tsx": () => import("../components/mockups/scoopy-brand/SocialPost.tsx")
 };
