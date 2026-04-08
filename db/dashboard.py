@@ -215,7 +215,7 @@ def widget_financeiro() -> dict:
         row = cur.fetchone()
         creditos = int(row[0])
         cur.execute(
-            """SELECT COUNT(*), COALESCE(SUM(cp.montante), 0)
+            """SELECT COUNT(DISTINCT c.id), COALESCE(SUM(cp.montante), 0)
                FROM credit_contracts c
                LEFT JOIN confirming_parcelas cp ON cp.confirming_contract_id = c.id
                    AND cp.estado IN ('scheduled', 'confirmed')
