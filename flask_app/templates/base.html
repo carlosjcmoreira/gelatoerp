@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <title>Nivà Porto</title>
+    <title>Scoopy</title>
     <script>
     (function(){
         var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -22,7 +22,12 @@
     <nav class="navbar navbar-dark bg-dark fixed-top px-3">
         <div class="container-fluid p-0">
             <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('home.index') }}">
-                🍦 <span class="fw-bold">Nivà Porto</span>
+                <svg width="22" height="22" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M50 82 C32 82 18 67 18 50 C18 33 33 18 50 18 C67 18 82 33 82 50 C82 67 68 82 50 82 Z" fill="#FFF8F2"/>
+                    <ellipse cx="50" cy="48" rx="16" ry="13" fill="#2BB5A0" opacity="0.7"/>
+                    <rect x="44" y="77" width="12" height="16" rx="4" fill="#FFF8F2" opacity="0.85"/>
+                </svg>
+                <span class="fw-bold">Scoopy</span>
             </a>
             <div class="d-flex align-items-center gap-3">
                 <span class="text-light small opacity-75">👤 {{ user.username }}</span>
@@ -54,7 +59,13 @@
     {% endif %}
 
     <div id="loading-overlay" aria-hidden="true">
-        <span class="loading-icon">🍦</span>
+        <span class="loading-icon">
+            <svg width="48" height="48" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M50 82 C32 82 18 67 18 50 C18 33 33 18 50 18 C67 18 82 33 82 50 C82 67 68 82 50 82 Z" fill="#FFF8F2"/>
+                <ellipse cx="50" cy="48" rx="16" ry="13" fill="#2BB5A0" opacity="0.8"/>
+                <rect x="44" y="77" width="12" height="16" rx="4" fill="#FFF8F2" opacity="0.9"/>
+            </svg>
+        </span>
         <span class="loading-text">A carregar…</span>
     </div>
 
