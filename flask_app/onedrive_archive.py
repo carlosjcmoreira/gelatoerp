@@ -29,8 +29,12 @@ logger = logging.getLogger(__name__)
 _MONTH_ABBR_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
                   'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
-_OLD_DEFAULT_FOLDER = 'Scoopy/Faturas'
 _DEFAULT_FOLDER = 'Scoopy/2. Contabilidade/Registo de Faturas'
+_LEGACY_DEFAULTS = {
+    'NivaPorto/Faturas',
+    'Scoopy/Faturas',
+    'Niva Porto/2. Contabilidade/Registo de Faturas',
+}
 
 GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
 TOKEN_URL = 'https://login.microsoftonline.com/common/oauth2/v2.0/token'
@@ -90,7 +94,7 @@ def _get_base_folder() -> str:
         folder = (_db().get_system_config('onedrive_folder') or '').strip('/')
     except Exception:
         folder = ''
-    if not folder or folder == _OLD_DEFAULT_FOLDER:
+    if not folder or folder in _LEGACY_DEFAULTS:
         try:
             _db().set_system_config('onedrive_folder', _DEFAULT_FOLDER)
         except Exception as e:

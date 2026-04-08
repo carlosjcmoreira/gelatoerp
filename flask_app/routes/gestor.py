@@ -970,7 +970,11 @@ def metodos_pagamento():
 @perm_required('acesso_gestor')
 def configuracoes():
     _ONEDRIVE_DEFAULT_FOLDER = 'Scoopy/2. Contabilidade/Registo de Faturas'
-    _ONEDRIVE_OLD_DEFAULT = 'Scoopy/Faturas'
+    _ONEDRIVE_LEGACY_DEFAULTS = {
+        'NivaPorto/Faturas',
+        'Scoopy/Faturas',
+        'Niva Porto/2. Contabilidade/Registo de Faturas',
+    }
 
     if request.method == 'POST':
         folder = request.form.get('onedrive_folder', '').strip()
@@ -981,7 +985,7 @@ def configuracoes():
     onedrive_user = db.get_system_config('onedrive_user_email') or ''
     onedrive_token = db.get_system_config('onedrive_refresh_token') or ''
     _stored_folder = (db.get_system_config('onedrive_folder') or '').strip('/')
-    if not _stored_folder or _stored_folder == _ONEDRIVE_OLD_DEFAULT:
+    if not _stored_folder or _stored_folder in _ONEDRIVE_LEGACY_DEFAULTS:
         onedrive_folder = _ONEDRIVE_DEFAULT_FOLDER
         try:
             db.set_system_config('onedrive_folder', _ONEDRIVE_DEFAULT_FOLDER)
