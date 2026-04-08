@@ -53,7 +53,7 @@
                 <div class="col-md-2">
                     <label class="form-label small mb-1">
                         ID Zonesoft / POS
-                        <span class="text-muted ms-1" title="ID numérico desta loja no Zonesoft (sistema POS). Aparece nos ficheiros Excel como 'Loja: X - Nome'. Ex: Matosinhos → 1, Bolhão/Niva Porto → 3. Necessário para importação automática de 'Evolução de Vendas'.">ⓘ</span>
+                        <span class="text-muted ms-1" title="ID numérico desta loja no Zonesoft (sistema POS). Aparece nos ficheiros Excel como 'Loja: X - Nome'. Ex: Matosinhos → 1, Bolhão → 3. Necessário para importação automática de 'Evolução de Vendas'.">ⓘ</span>
                     </label>
                     <input type="text" name="pos_store_code" class="form-control form-control-sm"
                            value="{{ edit_store.pos_store_code or '' if edit_store else '' }}"
@@ -140,7 +140,7 @@
         <h6 class="card-title">🏷️ Nomes Alternativos (Aliases) — {{ edit_store.name }}</h6>
         <p class="text-muted small mb-2">
             Aliases permitem que o sistema mapeie automaticamente nomes ou códigos alternativos usados nos ficheiros de importação para esta loja.
-            Por exemplo, se o ficheiro diz <code>Niva Porto</code> mas a loja se chama <code>Bolhão</code>, adicione <code>Niva Porto</code> como alias de nome.
+            Por exemplo, se o ficheiro do Zonesoft usa um nome histórico (ex: <code>Bolhão</code> referenciado como <code>B</code> ou por código), adicione-o como alias.
         </p>
         {% if edit_store_aliases %}
         <table class="table table-sm table-bordered mb-2" style="max-width:600px">
@@ -174,9 +174,9 @@
             <div class="col-auto">
                 <label class="form-label small mb-1">
                     Nome alternativo
-                    <span class="text-muted ms-1" title="Nome como aparece no ficheiro (ex: Niva Porto). Pode ficar vazio se só precisar de código.">ⓘ</span>
+                    <span class="text-muted ms-1" title="Nome como aparece no ficheiro de importação (ex: Bolhão, B-Centro). Pode ficar vazio se só precisar de código.">ⓘ</span>
                 </label>
-                <input type="text" name="alias_name" class="form-control form-control-sm" placeholder="ex: Niva Porto" style="width:200px">
+                <input type="text" name="alias_name" class="form-control form-control-sm" placeholder="ex: nome histórico no Zonesoft" style="width:200px">
             </div>
             <div class="col-auto">
                 <label class="form-label small mb-1">

@@ -16,11 +16,11 @@
         <div class="card-body">
             <h6 class="card-title">⬆️ Importar Histórico de Vendas</h6>
             <p class="text-muted small">
-                <strong>Formatos suportados:</strong> XLS/HTML (Zonesoft — loja identificada pelo ID Zonesoft configurado na gestão de lojas), XLSX <em>Evolução de Vendas por Data/Hora</em> (Zonesoft — loja identificada automaticamente pelo ID numérico presente no ficheiro, ex: <code>Loja: 3 - Niva Porto</code>) ou CSV (loja selecionada manualmente).<br>
+                <strong>Formatos suportados:</strong> XLS/HTML (Zonesoft — loja identificada pelo ID Zonesoft configurado na gestão de lojas), XLSX <em>Evolução de Vendas por Data/Hora</em> (Zonesoft — loja identificada automaticamente pelo ID numérico presente no ficheiro, ex: <code>Loja: 3 - Bolhão</code>) ou CSV (loja selecionada manualmente).<br>
                 O <strong>Ano de Referência</strong> é opcional para XLSX — se não preenchido, é inferido automaticamente a partir das datas no ficheiro. Para CSV e HTML/XLS é obrigatório.<br>
                 <strong>Linhas ignoradas com "sem loja mapeada"?</strong> Configure o <strong>ID Zonesoft</strong> ou adicione <strong>Aliases</strong> em
                 <a href="{{ url_for('gestor.gestao_lojas') }}" class="text-decoration-none">Gestor → Lojas ✏️</a>
-                (ex: Bolhão/Niva Porto → ID <code>3</code> ou alias de nome <code>Niva Porto</code>).
+                (ex: Bolhão → ID <code>3</code>; se o ficheiro Zonesoft usar um nome histórico, adicione-o como alias de nome).
                 Em alternativa, selecione a loja manualmente no campo "Loja" abaixo (aplica-se apenas a secções não identificadas automaticamente).
             </p>
             <form method="POST" enctype="multipart/form-data">
