@@ -21,12 +21,12 @@
     {% endif %}
 
     <div class="table-responsive">
-    <table class="table table-sm table-bordered align-middle mb-0" id="liquidez-table">
-        <thead class="table-dark">
-            <tr>
+    <table class="table table-sm table-bordered table-hover align-middle mb-0" id="liquidez-table">
+        <thead>
+            <tr class="table-dark">
                 <th style="min-width:160px">Rubrica</th>
                 {% for w in weekly %}
-                <th class="text-center {% if w.is_critical %}text-danger-emphasis bg-danger bg-opacity-25{% endif %}" style="min-width:100px">
+                <th class="text-center {% if w.is_critical %}table-danger{% endif %}" style="min-width:100px">
                     <div class="fw-bold">S{{ w.week }}</div>
                     <div class="fw-normal" style="font-size:0.7rem;white-space:nowrap">
                         {{ w.week_start.strftime('%d/%m') }}–{{ w.week_end.strftime('%d/%m') }}
@@ -34,7 +34,7 @@
                     </div>
                 </th>
                 {% endfor %}
-                <th class="text-center" style="min-width:90px">Total</th>
+                <th class="text-center table-dark" style="min-width:90px">Total</th>
             </tr>
         </thead>
         <tbody>
