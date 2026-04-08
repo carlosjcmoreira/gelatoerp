@@ -1,19 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container-fluid px-3 d-flex flex-column fullpage-container">
+<div class="container-fluid px-3 mt-3">
     {% if no_access %}
-    <div class="alert alert-warning mt-3">
+    <div class="alert alert-warning">
         O seu utilizador não tem acesso a nenhuma área. Contacte o administrador.
-    </div>
-    {% else %}
-    <div class="nav-grid nav-grid-fill" data-items="{{ pages|length }}">
-        {% for page in pages %}
-        <a href="{{ page.url }}" class="nav-card">
-            <span class="nav-card-icon">{{ page.icon }}</span>
-            <span class="nav-card-label">{{ page.label }}</span>
-        </a>
-        {% endfor %}
     </div>
     {% endif %}
 </div>
