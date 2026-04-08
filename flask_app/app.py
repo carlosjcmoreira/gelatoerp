@@ -197,8 +197,8 @@ def create_app():
                 from flask_app.services.navigation import compute_nav_pages, MOBILE_NAV_PRIMARY_COUNT
                 nav_pages = compute_nav_pages(user)
                 mobile_nav_primary_count = MOBILE_NAV_PRIMARY_COUNT
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("inject_globals: failed to compute nav_pages: %s", exc)
         return dict(user=user, time_slots=time_slots, event_type_options=event_type_options,
                     nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count)
 

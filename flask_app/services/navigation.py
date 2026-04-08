@@ -3,8 +3,11 @@
 Shared between the Jinja2 context processor (injected globally into all
 templates) and the home route (used to compute the redirect target).
 """
+import logging
 from flask import url_for
 import database as db
+
+logger = logging.getLogger(__name__)
 
 MOBILE_NAV_PRIMARY_COUNT = 4
 
@@ -53,8 +56,8 @@ def compute_nav_pages(user: dict) -> list:
                     'prefix': '/vendas',
                     'loja_id': str(s['id']),
                 })
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("compute_nav_pages: failed to load vendas stores: %s", exc)
 
     if user.get('acesso_gestor'):
         try:
@@ -66,8 +69,8 @@ def compute_nav_pages(user: dict) -> list:
                     'url': url_for('store_placeholder.index', store_id=s['id']),
                     'prefix': f"/loja/{s['id']}",
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("compute_nav_pages: failed to load landing stores: %s", exc)
 
     if user.get('acesso_eventos') or user.get('acesso_gestor'):
         pages.append({

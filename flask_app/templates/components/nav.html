@@ -107,15 +107,20 @@
     }
 })();
 
-function toggleMoreDrawer() {
+function toggleMoreDrawer(forceClose) {
     var drawer = document.getElementById('moreDrawer');
     var backdrop = document.getElementById('moreDrawerBackdrop');
     var btn = document.getElementById('bottomNavMore');
     if (!drawer) return;
     var isOpen = !drawer.hidden;
-    drawer.hidden = isOpen;
-    if (backdrop) backdrop.classList.toggle('active', !isOpen);
-    if (btn) btn.setAttribute('aria-expanded', !isOpen);
+    var shouldClose = forceClose === true ? true : isOpen;
+    drawer.hidden = shouldClose;
+    if (backdrop) backdrop.classList.toggle('active', !shouldClose);
+    if (btn) btn.setAttribute('aria-expanded', !shouldClose);
 }
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { toggleMoreDrawer(true); }
+});
 </script>
 {% endif %}
