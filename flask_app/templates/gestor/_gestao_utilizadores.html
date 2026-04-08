@@ -4,11 +4,25 @@
         <p class="text-muted small">Gerir acessos dos utilizadores. Marque as áreas a que cada utilizador tem acesso.</p>
 
         {% if users %}
+
+        {# ── Per-user forms (outside the batch-save form) ─────────────────── #}
+        {% for u in users %}
+        <form id="toggle-form-{{ u.id }}"
+              method="POST"
+              action="{{ url_for('gestor.toggle_ativo_utilizador', user_id=u.id) }}">
+        </form>
+        <form id="delete-form-{{ u.id }}"
+              method="POST"
+              action="{{ url_for('gestor.eliminar_utilizador', user_id=u.id) }}">
+            <input type="hidden" name="confirm_text" class="delete-confirm-input" data-uid="{{ u.id }}">
+        </form>
+        {% endfor %}
+
         <form method="POST">
             <input type="hidden" name="action" value="save_users_perms">
             <input type="hidden" name="section" value="gestao_utilizadores">
             <div class="table-responsive">
-                <table class="table table-sm">
+                <table class="table table-sm align-middle">
                     <thead>
                         <tr>
                             <th>Utilizador</th>
@@ -24,12 +38,18 @@
                             <th class="text-center">Financ.</th>
                             <th class="text-center">Eventos</th>
                             <th class="text-center">Ativo</th>
+                            <th class="text-center">Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for u in users %}
-                        <tr>
-                            <td class="small">{{ u.username }}</td>
+                        {% set is_self = (u.id == session.user.id) %}
+                        <tr class="{% if not u.ativo %}text-muted{% endif %}" style="{% if not u.ativo %}opacity:0.55;font-style:italic{% endif %}">
+                            <td class="small fw-semibold">
+                                {{ u.username }}
+                                {% if not u.ativo %}<span class="badge bg-secondary ms-1" style="font-style:normal;font-size:0.65em">inativo</span>{% endif %}
+                                {% if is_self %}<span class="badge bg-info ms-1" style="font-style:normal;font-size:0.65em">eu</span>{% endif %}
+                            </td>
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_eurokg_{{ u.id }}" {% if u.acesso_eurokg %}checked{% endif %}></td>
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_producao_{{ u.id }}" {% if u.acesso_producao %}checked{% endif %}></td>
                             {% for loja in lojas_venda %}
@@ -42,6 +62,24 @@
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_financeiro_{{ u.id }}" {% if u.acesso_financeiro %}checked{% endif %}></td>
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_eventos_{{ u.id }}" {% if u.acesso_eventos %}checked{% endif %}></td>
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="ativo_{{ u.id }}" {% if u.ativo %}checked{% endif %}></td>
+                            <td class="text-center text-nowrap">
+                                {% if is_self %}
+                                <span class="text-muted small">—</span>
+                                {% else %}
+                                <button type="submit"
+                                        form="toggle-form-{{ u.id }}"
+                                        class="btn btn-sm {% if u.ativo %}btn-outline-warning{% else %}btn-outline-success{% endif %} py-0 px-1 me-1"
+                                        title="{% if u.ativo %}Desativar{% else %}Reativar{% endif %} utilizador">
+                                    {% if u.ativo %}⏸{% else %}▶{% endif %}
+                                </button>
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-danger py-0 px-1"
+                                        title="Eliminar utilizador"
+                                        onclick="openDeleteModal({{ u.id }}, '{{ u.username | e }}')">
+                                    🗑️
+                                </button>
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -99,3 +137,74 @@
     </div>
 </div>
 {% endif %}
+
+{# ── Delete confirmation modal ─────────────────────────────────────────────── #}
+<div class="modal fade" id="deleteUserModal" tabindex="-1" aria-labelledby="deleteUserModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white py-2">
+                <h6 class="modal-title" id="deleteUserModalLabel">🗑️ Eliminar Utilizador</h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small mb-2">Tem a certeza que quer eliminar o utilizador <strong id="delete-username-display"></strong>?</p>
+                <p class="small text-danger mb-2">Esta acção é <strong>irreversível</strong>. Todas as sessões ativas serão encerradas.</p>
+                <label class="form-label small fw-semibold">Para confirmar, escreva <code>ELIMINAR</code>:</label>
+                <input type="text"
+                       id="delete-confirm-text"
+                       class="form-control form-control-sm"
+                       placeholder="ELIMINAR"
+                       autocomplete="off">
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button"
+                        class="btn btn-danger btn-sm"
+                        id="confirm-delete-btn"
+                        disabled
+                        onclick="submitDeleteForm()">Eliminar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    var _pendingDeleteUid = null;
+
+    window.openDeleteModal = function (uid, username) {
+        _pendingDeleteUid = uid;
+        document.getElementById('delete-username-display').textContent = username;
+        var input = document.getElementById('delete-confirm-text');
+        input.value = '';
+        document.getElementById('confirm-delete-btn').disabled = true;
+        var modal = new bootstrap.Modal(document.getElementById('deleteUserModal'));
+        modal.show();
+        setTimeout(function () { input.focus(); }, 400);
+    };
+
+    window.submitDeleteForm = function () {
+        if (!_pendingDeleteUid) return;
+        var val = document.getElementById('delete-confirm-text').value.trim();
+        if (val !== 'ELIMINAR') return;
+        var form = document.getElementById('delete-form-' + _pendingDeleteUid);
+        form.querySelector('.delete-confirm-input').value = val;
+        form.submit();
+    };
+
+    document.addEventListener('DOMContentLoaded', function () {
+        var input = document.getElementById('delete-confirm-text');
+        if (input) {
+            input.addEventListener('input', function () {
+                document.getElementById('confirm-delete-btn').disabled =
+                    this.value.trim() !== 'ELIMINAR';
+            });
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' && this.value.trim() === 'ELIMINAR') {
+                    window.submitDeleteForm();
+                }
+            });
+        }
+    });
+}());
+</script>

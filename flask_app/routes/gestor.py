@@ -532,6 +532,64 @@ def gestao_utilizadores():
                            lojas_venda=db.get_active_venda_stores())
 
 
+@gestor_bp.route('/utilizadores/<int:user_id>/eliminar', methods=['POST'])
+@perm_required('acesso_gestor')
+def eliminar_utilizador(user_id: int):
+    current_user = session['user']
+
+    if user_id == current_user['id']:
+        flash('Não pode eliminar a sua própria conta.', 'danger')
+        return redirect(url_for('gestor.gestao_utilizadores'))
+
+    all_users = db.get_all_users()
+    target = next((u for u in all_users if u['id'] == user_id), None)
+    if not target:
+        flash('Utilizador não encontrado.', 'warning')
+        return redirect(url_for('gestor.gestao_utilizadores'))
+
+    if target.get('role') == 'admin' and db.count_admin_users() <= 1:
+        flash('Não pode eliminar o único administrador ativo.', 'danger')
+        return redirect(url_for('gestor.gestao_utilizadores'))
+
+    confirm = request.form.get('confirm_text', '').strip()
+    if confirm != 'ELIMINAR':
+        flash('Confirmação inválida. Escreva ELIMINAR para confirmar a eliminação.', 'warning')
+        return redirect(url_for('gestor.gestao_utilizadores'))
+
+    username = target['username']
+    db.delete_user(user_id)
+    logger.info("User %s deleted by %s", username, current_user.get('username'))
+    flash(f"Utilizador '{username}' eliminado com sucesso.", 'success')
+    return redirect(url_for('gestor.gestao_utilizadores'))
+
+
+@gestor_bp.route('/utilizadores/<int:user_id>/toggle-ativo', methods=['POST'])
+@perm_required('acesso_gestor')
+def toggle_ativo_utilizador(user_id: int):
+    current_user = session['user']
+
+    if user_id == current_user['id']:
+        flash('Não pode desativar a sua própria conta.', 'danger')
+        return redirect(url_for('gestor.gestao_utilizadores'))
+
+    all_users = db.get_all_users()
+    target = next((u for u in all_users if u['id'] == user_id), None)
+    if not target:
+        flash('Utilizador não encontrado.', 'warning')
+        return redirect(url_for('gestor.gestao_utilizadores'))
+
+    new_ativo = not target['ativo']
+    db.update_user(user_id, ativo=new_ativo)
+
+    if not new_ativo:
+        db.revoke_user_sessions(user_id)
+
+    status = 'reativado' if new_ativo else 'desativado'
+    logger.info("User %s %s by %s", target['username'], status, current_user.get('username'))
+    flash(f"Utilizador '{target['username']}' {status} com sucesso.", 'success')
+    return redirect(url_for('gestor.gestao_utilizadores'))
+
+
 def _handle_config_post(action, config_option):
     section = request.form.get('section', config_option)
 

@@ -250,3 +250,22 @@ def delete_user(user_id: int):
     conn.commit()
     release_connection(conn)
 
+
+def revoke_user_sessions(user_id: int):
+    """Delete all active sessions for a given user (e.g. after deactivation)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM sessions WHERE user_id = %s", (user_id,))
+    conn.commit()
+    release_connection(conn)
+
+
+def count_admin_users() -> int:
+    """Return the number of users with role='admin'."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin' AND ativo = TRUE")
+    count = cursor.fetchone()[0]
+    release_connection(conn)
+    return int(count)
+
