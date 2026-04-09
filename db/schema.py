@@ -2291,6 +2291,116 @@ def run_migrations_transferencias_motivo():
         release_connection(conn)
 
 
+def run_migrations_transferencias_eventos():
+    """Idempotent migration: creates transferencias_eventos audit log table.
+    Advisory lock 202617."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202617)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_transferencias_eventos: lock held by another worker, skipping")
+            return
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transferencias_eventos (
+                id          SERIAL PRIMARY KEY,
+                ordem_id    INTEGER NOT NULL REFERENCES ordens_transferencia(id) ON DELETE CASCADE,
+                event_type  VARCHAR(20) NOT NULL,  -- criado | confirmado | rejeitado
+                utilizador  VARCHAR(100),
+                motivo      TEXT,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transf_eventos_ordem ON transferencias_eventos(ordem_id)"
+        )
+        conn.commit()
+        logger.info("run_migrations_transferencias_eventos: table ready")
+    except Exception as exc:
+        logger.error("run_migrations_transferencias_eventos failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(202617)")
+            conn.commit()
+        except Exception:
+            pass
+        release_connection(conn)
+
+
+def run_backfill_transferencias_eventos():
+    """Backfill synthetic events for existing ordens_transferencia rows that have none.
+
+    Inserts:
+      - 'criado'     from created_at / criado_por
+      - 'confirmado' from confirmado_em / confirmado_por  (if status=confirmada)
+      - 'rejeitado'  from confirmado_em / confirmado_por  (if status=rejeitada), with motivo
+    Already-backfilled orders (any event exists) are skipped via LEFT JOIN.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Guard: table must exist before backfill (migration may not have run yet in another worker)
+        cursor.execute("""
+            SELECT 1 FROM information_schema.tables
+            WHERE table_name = 'transferencias_eventos'
+        """)
+        if not cursor.fetchone():
+            logger.info("run_backfill_transferencias_eventos: table not yet created, skipping")
+            return
+        # Insert 'criado' events for orders with no existing events
+        cursor.execute("""
+            INSERT INTO transferencias_eventos (ordem_id, event_type, utilizador, motivo, created_at)
+            SELECT o.id, 'criado', o.criado_por, NULL,
+                   COALESCE(o.created_at, o.data::timestamptz)
+            FROM ordens_transferencia o
+            LEFT JOIN transferencias_eventos e ON e.ordem_id = o.id
+            WHERE e.id IS NULL
+        """)
+        n_criado = cursor.rowcount
+
+        # Insert 'confirmado' events for confirmed orders with no 'confirmado' event
+        cursor.execute("""
+            INSERT INTO transferencias_eventos (ordem_id, event_type, utilizador, motivo, created_at)
+            SELECT o.id, 'confirmado', o.confirmado_por, NULL,
+                   COALESCE(o.confirmado_em, o.created_at, o.data::timestamptz)
+            FROM ordens_transferencia o
+            LEFT JOIN transferencias_eventos e
+                   ON e.ordem_id = o.id AND e.event_type = 'confirmado'
+            WHERE o.status = 'confirmada' AND e.id IS NULL
+        """)
+        n_conf = cursor.rowcount
+
+        # Insert 'rejeitado' events for rejected orders with no 'rejeitado' event
+        cursor.execute("""
+            INSERT INTO transferencias_eventos (ordem_id, event_type, utilizador, motivo, created_at)
+            SELECT o.id, 'rejeitado', o.confirmado_por, o.motivo_rejeicao,
+                   COALESCE(o.confirmado_em, o.created_at, o.data::timestamptz)
+            FROM ordens_transferencia o
+            LEFT JOIN transferencias_eventos e
+                   ON e.ordem_id = o.id AND e.event_type = 'rejeitado'
+            WHERE o.status = 'rejeitada' AND e.id IS NULL
+        """)
+        n_rej = cursor.rowcount
+
+        conn.commit()
+        logger.info(
+            "run_backfill_transferencias_eventos: inserted %d criado, %d confirmado, %d rejeitado events",
+            n_criado, n_conf, n_rej,
+        )
+    except Exception as exc:
+        logger.error("run_backfill_transferencias_eventos failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+
 def run_migrations_colaboradores_smart():
     """Idempotent migration: adds CCT+IRS smart-salary columns to colaboradores.
     Advisory lock 202615."""

@@ -3,64 +3,148 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-<h5 class="mb-2">Ordens de Transferência</h5>
-<p class="text-muted small mb-3">Todas as ordens de transferência de todas as áreas.</p>
+<h5 class="mb-1">Ordens de Transferência</h5>
+<p class="text-muted small mb-3">Histórico completo de todas as áreas, com rastreabilidade de eventos.</p>
 
+<!-- ── Filter bar ──────────────────────────────────────────────────────── -->
+<form method="GET" class="mb-3">
+    <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Área</label>
+            <select name="area_origem" class="form-select form-select-sm">
+                <option value="">Todas</option>
+                {% for a in areas %}
+                <option value="{{ a }}" {% if filtro_area == a %}selected{% endif %}>{{ a }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Estado</label>
+            <select name="status" class="form-select form-select-sm">
+                <option value="">Todos</option>
+                {% for val, lbl in statuses %}
+                <option value="{{ val }}" {% if filtro_status == val %}selected{% endif %}>{{ lbl }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Destino</label>
+            <select name="loja_destino" class="form-select form-select-sm">
+                <option value="">Todas</option>
+                {% for l in lojas %}
+                <option value="{{ l }}" {% if filtro_loja == l %}selected{% endif %}>{{ l }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">De</label>
+            <input type="date" name="data_inicio" class="form-control form-control-sm"
+                   value="{{ filtro_data_inicio }}">
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Até</label>
+            <input type="date" name="data_fim" class="form-control form-control-sm"
+                   value="{{ filtro_data_fim }}">
+        </div>
+        <div class="col-6 col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary btn-sm flex-grow-1">Filtrar</button>
+            <a href="{{ url_for('logistica.ordens') }}" class="btn btn-outline-secondary btn-sm">✕</a>
+        </div>
+    </div>
+</form>
+
+<!-- ── Results ────────────────────────────────────────────────────────── -->
 {% if ordens %}
-{% set current_date = namespace(val='') %}
-{% for o in ordens %}
-{% set data_str = o.data.strftime('%d/%m/%Y') %}
-{% if data_str != current_date.val %}
-{% if current_date.val != '' %}
-            </tbody>
-        </table>
-    </div>
+<p class="text-muted small mb-2">{{ ordens|length }} ordem(ns) encontrada(s)</p>
+
+<div class="table-responsive">
+<table class="table table-sm table-hover align-middle" style="font-size:0.82rem;">
+    <thead class="table-dark">
+        <tr>
+            <th style="width:36px;">#</th>
+            <th>Área</th>
+            <th>Produto</th>
+            <th class="text-center">Qty</th>
+            <th class="text-center">Destino</th>
+            <th class="text-center">Data</th>
+            <th class="text-center">Entrega</th>
+            <th class="text-center">Estado</th>
+            <th class="text-center" style="width:36px;"></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for o in ordens %}
+    {% set area_color = 'primary' if o.area_origem == 'Gelado' else ('warning text-dark' if o.area_origem == 'Pastelaria' else ('info' if o.area_origem == 'Confeitaria' else ('secondary' if o.area_origem == 'Compras' else 'dark'))) %}
+    {% set status_color = 'warning text-dark' if o.status == 'pendente' else ('success' if o.status == 'confirmada' else 'danger') %}
+    {% set status_label = 'Pendente' if o.status == 'pendente' else ('Confirmada' if o.status == 'confirmada' else 'Rejeitada') %}
+    <tr class="ordem-row" style="cursor:pointer;" onclick="toggleEventos({{ o.id }})">
+        <td class="text-muted">{{ o.id }}</td>
+        <td><span class="badge bg-{{ area_color }}" style="font-size:0.7rem;">{{ o.area_origem }}</span></td>
+        <td>{{ o.produto }}{% if o.sabor and o.sabor != o.produto %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
+        <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
+        <td class="text-center">{{ o.loja_destino }}</td>
+        <td class="text-center">{{ o.data.strftime('%d/%m/%Y') if o.data else '—' }}</td>
+        <td class="text-center">{% if o.data_prevista %}{{ o.data_prevista.strftime('%d/%m') }}{% else %}—{% endif %}</td>
+        <td class="text-center"><span class="badge bg-{{ status_color }}" style="font-size:0.7rem;">{{ status_label }}</span></td>
+        <td class="text-center text-muted" id="chevron-{{ o.id }}">▶</td>
+    </tr>
+    <!-- Expandable event detail row -->
+    <tr id="eventos-{{ o.id }}" style="display:none;">
+        <td colspan="9" class="p-0">
+            <div class="px-3 py-2 bg-light border-bottom">
+                {% if o.status == 'rejeitada' and o.motivo_rejeicao %}
+                <div class="alert alert-danger py-1 px-2 mb-2" style="font-size:0.8rem;">
+                    <strong>Motivo de rejeição:</strong> {{ o.motivo_rejeicao }}
+                </div>
+                {% endif %}
+                <div class="d-flex flex-column gap-1">
+                {% if o.eventos %}
+                    {% for ev in o.eventos %}
+                    {% if ev.event_type == 'criado' %}
+                        {% set ev_icon = '🆕' %}{% set ev_color = 'secondary' %}{% set ev_label = 'Criado' %}
+                    {% elif ev.event_type == 'confirmado' %}
+                        {% set ev_icon = '✅' %}{% set ev_color = 'success' %}{% set ev_label = 'Confirmado' %}
+                    {% else %}
+                        {% set ev_icon = '❌' %}{% set ev_color = 'danger' %}{% set ev_label = 'Rejeitado' %}
+                    {% endif %}
+                    <div class="d-flex align-items-start gap-2">
+                        <span class="badge bg-{{ ev_color }}" style="font-size:0.68rem; min-width:72px;">{{ ev_icon }} {{ ev_label }}</span>
+                        <span style="font-size:0.8rem;">
+                            <strong>{{ ev.utilizador or '—' }}</strong>
+                            {% if ev.created_at %}
+                            &nbsp;·&nbsp; {{ ev.created_at.strftime('%d/%m/%Y %H:%M') }}
+                            {% endif %}
+                            {% if ev.motivo %}
+                            &nbsp;·&nbsp; <em class="text-danger">{{ ev.motivo }}</em>
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <span class="text-muted small">Sem eventos registados.</span>
+                {% endif %}
+                </div>
+            </div>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
 </div>
-{% endif %}
-{% set current_date.val = data_str %}
-<div class="card mb-3">
-    <div class="card-header py-1 px-2">
-        <strong class="small">{{ data_str }}</strong>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-sm mb-0" style="font-size:0.82rem;">
-            <thead>
-                <tr>
-                    <th>Área</th>
-                    <th>Produto</th>
-                    <th class="text-center">Qty</th>
-                    <th class="text-center">Destino</th>
-                    <th class="text-center">Entrega</th>
-                    <th class="text-center">Estado</th>
-                </tr>
-            </thead>
-            <tbody>
-{% endif %}
-                <tr>
-                    <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.7rem;">{{ o.area_origem }}</span></td>
-                    <td>{{ o.produto }}</td>
-                    <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
-                    <td class="text-center">{{ o.loja_destino }}</td>
-                    <td class="text-center">{% if o.data_prevista %}{{ o.data_prevista.strftime('%d/%m') }}{% else %}—{% endif %}</td>
-                    <td class="text-center">
-                        {% if o.status == 'pendente' %}
-                        <span class="badge bg-warning text-dark" style="font-size:0.7rem;">Pendente</span>
-                        {% elif o.status == 'confirmada' %}
-                        <span class="badge bg-success" style="font-size:0.7rem;">Confirmada</span>
-                        {% else %}
-                        <span class="badge bg-danger" style="font-size:0.7rem;">Rejeitada</span>
-                        {% endif %}
-                    </td>
-                </tr>
-{% endfor %}
-{% if current_date.val != '' %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
+
 {% else %}
-<div class="alert alert-info">Sem ordens de transferência.</div>
+<div class="alert alert-info">Sem ordens de transferência para os filtros seleccionados.</div>
 {% endif %}
 </div>
+
+<script>
+function toggleEventos(id) {
+    const row = document.getElementById('eventos-' + id);
+    const chev = document.getElementById('chevron-' + id);
+    if (!row) return;
+    const open = row.style.display !== 'none';
+    row.style.display = open ? 'none' : '';
+    if (chev) chev.textContent = open ? '▶' : '▼';
+}
+</script>
 {% endblock %}

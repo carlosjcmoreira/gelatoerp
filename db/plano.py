@@ -503,6 +503,17 @@ def get_latest_pesagem_por_sabor(loja: str) -> dict:
     return {r[0]: {'kg': float(r[1]), 'data': r[2]} for r in rows}
 
 
+def _insert_evento(cursor, ordem_id: int, event_type: str, utilizador: str | None, motivo: str | None = None):
+    """Insert an audit event into transferencias_eventos within an existing transaction."""
+    try:
+        cursor.execute("""
+            INSERT INTO transferencias_eventos (ordem_id, event_type, utilizador, motivo)
+            VALUES (%s, %s, %s, %s)
+        """, (ordem_id, event_type, utilizador, motivo))
+    except Exception:
+        pass
+
+
 def criar_ordem_transferencia(data: date, area_origem: str, produto: str, quantidade: float, unidade: str = 'kg', loja_destino: str = 'Bolhão', sabor: str = None, criado_por: str = None, data_prevista: date = None):
     conn = get_connection()
     cursor = conn.cursor()
@@ -512,6 +523,7 @@ def criar_ordem_transferencia(data: date, area_origem: str, produto: str, quanti
         RETURNING id
     """, (data, area_origem, produto, sabor, quantidade, unidade, loja_destino, criado_por, data_prevista or data))
     order_id = cursor.fetchone()[0]
+    _insert_evento(cursor, order_id, 'criado', criado_por)
     conn.commit()
     release_connection(conn)
     return order_id
@@ -561,6 +573,87 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
     } for r in rows]
 
 
+def get_ordens_transferencia_with_events(
+    status: str = None,
+    loja_destino: str = None,
+    area_origem: str = None,
+    data_inicio: date = None,
+    data_fim: date = None,
+    limit: int = 200,
+) -> list:
+    """Return orders with their audit events embedded, newest first.
+
+    Each returned dict is the same as get_ordens_transferencia() plus:
+        'eventos': [{'event_type', 'utilizador', 'motivo', 'created_at'}, ...]
+    The events list is ordered oldest-first so the UI can display a timeline.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        query = """
+            SELECT o.id, o.data, o.area_origem, o.produto, o.sabor,
+                   o.quantidade, o.unidade, o.loja_destino, o.status,
+                   o.criado_por, o.confirmado_por, o.confirmado_em,
+                   o.created_at, o.data_prevista, o.motivo_rejeicao
+            FROM ordens_transferencia o
+            WHERE 1=1
+        """
+        params = []
+        if status:
+            query += " AND o.status = %s"
+            params.append(status)
+        if loja_destino:
+            query += " AND o.loja_destino = %s"
+            params.append(loja_destino)
+        if area_origem:
+            query += " AND o.area_origem = %s"
+            params.append(area_origem)
+        if data_inicio:
+            query += " AND o.data >= %s"
+            params.append(data_inicio)
+        if data_fim:
+            query += " AND o.data <= %s"
+            params.append(data_fim)
+        query += " ORDER BY o.created_at DESC LIMIT %s"
+        params.append(limit)
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        ordens = [{
+            'id': r[0], 'data': r[1], 'area_origem': r[2], 'produto': r[3], 'sabor': r[4],
+            'quantidade': float(r[5]), 'unidade': r[6], 'loja_destino': r[7], 'status': r[8],
+            'criado_por': r[9], 'confirmado_por': r[10], 'confirmado_em': r[11],
+            'created_at': r[12], 'data_prevista': r[13], 'motivo_rejeicao': r[14],
+            'eventos': [],
+        } for r in rows]
+
+        if not ordens:
+            return ordens
+
+        # Fetch events in one query for all orders
+        ordem_ids = [o['id'] for o in ordens]
+        cursor.execute("""
+            SELECT ordem_id, event_type, utilizador, motivo, created_at
+            FROM transferencias_eventos
+            WHERE ordem_id = ANY(%s)
+            ORDER BY created_at ASC
+        """, (ordem_ids,))
+        idx = {o['id']: o for o in ordens}
+        for ev_row in cursor.fetchall():
+            ev = {
+                'event_type': ev_row[1],
+                'utilizador': ev_row[2],
+                'motivo': ev_row[3],
+                'created_at': ev_row[4],
+            }
+            if ev_row[0] in idx:
+                idx[ev_row[0]]['eventos'].append(ev)
+
+        return ordens
+    finally:
+        release_connection(conn)
+
+
 def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
     conn = get_connection()
     cursor = conn.cursor()
@@ -593,6 +686,8 @@ def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
                 VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
             """, (today, loja_destino, produto, int(quantidade), area_origem.lower()))
+    if updated:
+        _insert_evento(cursor, ordem_id, 'confirmado', confirmado_por)
     conn.commit()
     release_connection(conn)
     return updated
@@ -608,6 +703,8 @@ def rejeitar_ordem_transferencia(ordem_id: int, confirmado_por: str, motivo: str
         WHERE id = %s AND status = 'pendente'
     """, (confirmado_por, motivo or None, ordem_id))
     updated = cursor.rowcount > 0
+    if updated:
+        _insert_evento(cursor, ordem_id, 'rejeitado', confirmado_por, motivo)
     conn.commit()
     release_connection(conn)
     return updated

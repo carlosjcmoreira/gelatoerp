@@ -1,10 +1,11 @@
 from flask import Blueprint, render_template, url_for, request, redirect, flash, session
 from flask_app.auth import perm_required
-from datetime import date
+from datetime import date, datetime
 from collections import defaultdict
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import get_ordens_transferencia
+from db.plano import get_ordens_transferencia_with_events
 import db.materiais as mat_db
 
 logistica_bp = Blueprint('logistica', __name__)
@@ -59,8 +60,49 @@ def transferencias_agendadas():
 @logistica_bp.route('/ordens')
 @perm_required('acesso_administrativo')
 def ordens():
-    todas_ordens = get_ordens_transferencia()
-    return render_template('logistica/ordens.html', ordens=todas_ordens)
+    area_origem  = request.args.get('area_origem', '').strip() or None
+    status       = request.args.get('status', '').strip() or None
+    loja_destino = request.args.get('loja_destino', '').strip() or None
+    data_inicio_str = request.args.get('data_inicio', '').strip()
+    data_fim_str    = request.args.get('data_fim', '').strip()
+
+    data_inicio = None
+    data_fim    = None
+    try:
+        if data_inicio_str:
+            data_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+    try:
+        if data_fim_str:
+            data_fim = datetime.strptime(data_fim_str, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+
+    ordens_list = get_ordens_transferencia_with_events(
+        status=status,
+        loja_destino=loja_destino,
+        area_origem=area_origem,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+    )
+
+    lojas       = sorted({o['loja_destino'] for o in get_ordens_transferencia()})
+    areas       = ['Gelado', 'Pastelaria', 'Confeitaria', 'Compras']
+    statuses    = [('pendente', 'Pendente'), ('confirmada', 'Confirmada'), ('rejeitada', 'Rejeitada')]
+
+    return render_template(
+        'logistica/ordens.html',
+        ordens=ordens_list,
+        areas=areas,
+        lojas=lojas,
+        statuses=statuses,
+        filtro_area=area_origem or '',
+        filtro_status=status or '',
+        filtro_loja=loja_destino or '',
+        filtro_data_inicio=data_inicio_str,
+        filtro_data_fim=data_fim_str,
+    )
 
 
 # ── Stock de Materiais ──────────────────────────────────────────────────────────

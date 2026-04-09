@@ -24,6 +24,9 @@
             {% if t.n_confirmadas > 0 %}
             <span class="badge bg-success ms-1" style="font-size:0.65rem;">{{ t.n_confirmadas }} conf.</span>
             {% endif %}
+            {% if t.n_rejeitadas > 0 %}
+            <span class="badge bg-danger ms-1" style="font-size:0.65rem;">{{ t.n_rejeitadas }} rej.</span>
+            {% endif %}
         </div>
     </div>
     <div class="collapse" id="transf-{{ loop.index }}">
@@ -50,6 +53,9 @@
                             <span class="badge bg-success" style="font-size:0.65rem;">Confirmada</span>
                             {% else %}
                             <span class="badge bg-danger" style="font-size:0.65rem;">Rejeitada</span>
+                            {% if o.motivo_rejeicao %}
+                            <div class="text-danger" style="font-size:0.68rem; margin-top:2px;">{{ o.motivo_rejeicao }}</div>
+                            {% endif %}
                             {% endif %}
                         </td>
                     </tr>
