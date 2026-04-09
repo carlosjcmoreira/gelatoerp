@@ -458,6 +458,8 @@ def pesagem_ocr():
     if not _check_vendas_access():
         return jsonify({'ok': False, 'error': 'Sem acesso'}), 403
 
+    loja_id, loja_nome = _get_user_loja()
+
     img = request.files.get('imagem')
     if not img or img.filename == '':
         return jsonify({'ok': False, 'error': 'Imagem em falta'}), 400
@@ -468,7 +470,20 @@ def pesagem_ocr():
     resultado = ocr_pesagem(img_bytes, img.filename)
 
     if not resultado.get('ok'):
-        return jsonify({'ok': False, 'error': resultado.get('error', 'Erro OCR')}), 422
+        return jsonify({'ok': False, 'error': 'Falha ao processar imagem'}), 422
+
+    # Persist uploaded image for audit/debug traceability
+    try:
+        import uuid
+        upload_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'uploads', 'pesagem_ocr')
+        os.makedirs(upload_dir, exist_ok=True)
+        ext = img.filename.rsplit('.', 1)[-1].lower() if '.' in img.filename else 'jpg'
+        fname = f"{date.today()}_{loja_id}_{uuid.uuid4().hex[:8]}.{ext}"
+        with open(os.path.join(upload_dir, fname), 'wb') as fh:
+            fh.write(img_bytes)
+    except Exception as save_err:
+        import logging as _log
+        _log.getLogger(__name__).warning("pesagem OCR image save failed: %s", save_err)
 
     return jsonify({
         'ok': True,

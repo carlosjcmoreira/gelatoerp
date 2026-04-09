@@ -291,23 +291,14 @@ function atualizarBotao() {
 
 function submeterOCR() {
     const form = document.getElementById('ocr-bulk-form');
-    const checks = document.querySelectorAll('.ocr-check');
-
-    // Remove hidden fields from previous calls
-    form.querySelectorAll('input[type=hidden][name="sabor[]"]').forEach(e => e.remove());
-    form.querySelectorAll('input[type=hidden][name="quantidade[]"]').forEach(e => e.remove());
-
-    // Build arrays only for checked rows
     const cards = document.getElementById('ocr-rows-container').querySelectorAll('.card');
     cards.forEach((card, idx) => {
         const chk = document.getElementById('chk-' + idx);
         if (!chk || !chk.checked) {
-            // Disable the visible inputs so they are not submitted
             card.querySelectorAll('input[name="sabor[]"], input[name="quantidade[]"]')
-                .forEach(inp => inp.disabled = true);
+                .forEach(inp => { inp.disabled = true; });
         }
     });
-
     form.submit();
 }
 
