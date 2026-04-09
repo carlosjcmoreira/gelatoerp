@@ -4,7 +4,7 @@
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
     <div class="d-flex align-items-center justify-content-between mb-3">
-        <h5 class="mb-0">🧾 Faturas</h5>
+        <h5 class="mb-0">📄 Documentos</h5>
         <div class="d-flex gap-2 flex-wrap">
             <div class="btn-group btn-group-sm" role="group" aria-label="Vista">
                 <a href="{{ url_for('faturas.index') }}"
@@ -25,9 +25,99 @@
                 </a>
             </div>
             <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm">Fornecedores</a>
-            <a href="{{ url_for('faturas.upload') }}" class="btn btn-primary btn-sm">+ Novo Documento</a>
+            <a href="{{ url_for('faturas.registar') }}" class="btn btn-primary btn-sm">+ Registar Documento</a>
         </div>
     </div>
+
+{% if view == 'documento' and (pending_docs is defined) %}
+    <!-- ── KPI Dashboard ──────────────────────────────────────────────────── -->
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3">
+            <div class="card text-center h-100 border-warning">
+                <div class="card-body py-2">
+                    <div class="fs-6 fw-bold text-warning">{{ "%.0f €"|format(total_pending) }}</div>
+                    <div class="small text-muted">Por confirmar</div>
+                    <div class="small text-muted" style="font-size:0.7rem;">({{ pending_docs|length }} doc.)</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card text-center h-100 border-info">
+                <div class="card-body py-2">
+                    <div class="fs-6 fw-bold text-info">{{ "%.0f €"|format(total_scheduled) }}</div>
+                    <div class="small text-muted">Agendado</div>
+                    <div class="small text-muted" style="font-size:0.7rem;">({{ scheduled_docs|length }} doc.)</div>
+                </div>
+            </div>
+        </div>
+        {% if next_vat %}
+        <div class="col-6 col-md-3">
+            <div class="card text-center h-100 border-danger">
+                <div class="card-body py-2">
+                    <div class="fs-6 fw-bold text-danger">{{ "%.0f €"|format(next_vat.vat_due_eur or next_vat.vat_due_estimated or 0) }}</div>
+                    <div class="small text-muted">IVA a pagar</div>
+                    <div class="small text-muted" style="font-size:0.7rem;">{{ next_vat.month }}/{{ next_vat.year }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card text-center h-100">
+                <div class="card-body py-2">
+                    <div class="fs-6 fw-bold {% if next_vat.payment_date %}text-primary{% else %}text-muted{% endif %}">
+                        {% if next_vat.payment_date %}{{ next_vat.payment_date.strftime('%d/%m/%y') }}{% else %}—{% endif %}
+                    </div>
+                    <div class="small text-muted">Data pag. IVA</div>
+                    <div class="small" style="font-size:0.7rem;">&nbsp;</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if pending_docs %}
+    <div class="card mb-3">
+        <div class="card-body py-2 px-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 small fw-semibold">⏳ Por confirmar</h6>
+                <a href="{{ url_for('faturas.index') }}?status=pending_review" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem;">Ver todos</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0" style="font-size:0.8rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Fornecedor / Entidade</th>
+                            <th class="text-end">Valor</th>
+                            <th>Vencimento</th>
+                            <th>Pag. proposto</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for inv in pending_docs[:8] %}
+                    <tr>
+                        <td class="fw-semibold">{{ inv.supplier_name or '—' }}</td>
+                        <td class="text-end">{{ "%.2f €"|format(inv.amount_eur|float) }}</td>
+                        <td class="{% if inv.due_date and inv.due_date < today %}text-danger fw-semibold{% endif %}">
+                            {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                        </td>
+                        <td class="text-muted">
+                            {% if inv.proposed_date %}{{ inv.proposed_date.strftime('%d/%m/%Y') }}{% else %}—{% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:0.75rem;">Ver</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if pending_docs|length > 8 %}
+            <div class="mt-1 small text-muted">E mais {{ pending_docs|length - 8 }} documentos…</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+{% endif %}
 
 {% if view == 'fornecedor' %}
     <!-- ── Por Fornecedor view ────────────────────────────────────────────── -->
@@ -173,7 +263,7 @@
 
 {% elif view == 'centro_custo' %}
     <!-- ── Por Centro de Custo view ─────────────────────────────────────── -->
-    <p class="text-muted small mb-3">Todas as faturas agrupadas por centro de custo.</p>
+    <p class="text-muted small mb-3">Todos os documentos agrupados por centro de custo.</p>
     {% if grupos_cc %}
     {% for grupo in grupos_cc %}
     <div class="card mb-3">
@@ -187,7 +277,7 @@
                 <thead class="table-light">
                     <tr>
                         <th>Fornecedor</th>
-                        <th>Nº Fatura</th>
+                        <th>Nº Documento</th>
                         <th>Emissão</th>
                         <th>Vencimento</th>
                         <th class="text-end">Total</th>
@@ -229,13 +319,13 @@
     {% endfor %}
     {% else %}
     <div class="text-center text-muted py-5">
-        <p>Nenhuma fatura registada.</p>
+        <p>Nenhum documento registado.</p>
     </div>
     {% endif %}
 
 {% elif view == 'categoria_custo' %}
     <!-- ── Por Categoria de Custo view ──────────────────────────────────── -->
-    <p class="text-muted small mb-3">Todas as faturas agrupadas por categoria de custo.</p>
+    <p class="text-muted small mb-3">Todos os documentos agrupados por categoria de custo.</p>
     {% if grupos_cat %}
     {% for grupo in grupos_cat %}
     <div class="card mb-3">
@@ -249,7 +339,7 @@
                 <thead class="table-light">
                     <tr>
                         <th>Fornecedor</th>
-                        <th>Nº Fatura</th>
+                        <th>Nº Documento</th>
                         <th>Emissão</th>
                         <th>Vencimento</th>
                         <th class="text-end">Total</th>
@@ -291,7 +381,7 @@
     {% endfor %}
     {% else %}
     <div class="text-center text-muted py-5">
-        <p>Nenhuma fatura registada.</p>
+        <p>Nenhum documento registado.</p>
     </div>
     {% endif %}
 
@@ -305,7 +395,7 @@
         <div class="row g-2">
             <div class="col-12 col-sm-6 col-md-5">
                 <input type="text" name="q" class="form-control form-control-sm"
-                       placeholder="Pesquisar fornecedor ou nº fatura" value="{{ search }}">
+                       placeholder="Pesquisar fornecedor ou nº documento" value="{{ search }}">
             </div>
             <div class="col-6 col-sm-3 col-md-2">
                 <select name="status" class="form-select form-select-sm">
@@ -428,7 +518,7 @@
                         <input type="checkbox" id="cb-all" class="form-check-input">
                     </th>
                     {{ sort_th('supplier_name', 'Fornecedor', order_by, order_dir, filter_qs) }}
-                    {{ sort_th('invoice_number', 'Nº Fatura', order_by, order_dir, filter_qs) }}
+                    {{ sort_th('invoice_number', 'Nº Documento', order_by, order_dir, filter_qs) }}
                     {{ sort_th('category', 'Categoria', order_by, order_dir, filter_qs, 'd-none d-md-table-cell') }}
                     {{ sort_th('store_name', 'Loja', order_by, order_dir, filter_qs, 'd-none d-md-table-cell') }}
                     {{ sort_th('issue_date', 'Emissão', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell') }}
@@ -498,9 +588,9 @@
     </form>
     {% else %}
     <div class="text-center text-muted py-5">
-        <div style="font-size:2rem;">🧾</div>
-        <p class="mt-2">Nenhuma fatura encontrada.</p>
-        <a href="{{ url_for('faturas.upload') }}" class="btn btn-primary btn-sm">+ Novo Documento</a>
+        <div style="font-size:2rem;">📄</div>
+        <p class="mt-2">Nenhum documento encontrado.</p>
+        <a href="{{ url_for('faturas.registar') }}" class="btn btn-primary btn-sm">+ Novo Documento</a>
     </div>
     {% endif %}
 

@@ -91,6 +91,9 @@ def faturas():
 @pagamentos_bp.route('/faturas/nova', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def nova_fatura():
+    """Backward-compat redirect — canonical form is now at /financeiro/faturas/registar."""
+    if request.method == 'GET':
+        return redirect(url_for('faturas.registar'), code=302)
     if request.method == 'POST':
         supplier_name = request.form.get('supplier_name', '').strip()
         supplier_nif = request.form.get('supplier_nif', '').strip() or None

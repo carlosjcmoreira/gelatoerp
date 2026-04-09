@@ -11,7 +11,7 @@
                 <div class="card-body py-3">
                     <div class="fs-5 fw-bold text-warning">{{ "%.0f €"|format(total_pending) }}</div>
                     <div class="small text-muted">Por confirmar</div>
-                    <div class="small text-muted">({{ invoices_pending|length }} faturas)</div>
+                    <div class="small text-muted">({{ invoices_pending|length }} documentos)</div>
                 </div>
             </div>
         </div>
@@ -20,7 +20,7 @@
                 <div class="card-body py-3">
                     <div class="fs-5 fw-bold text-info">{{ "%.0f €"|format(total_scheduled) }}</div>
                     <div class="small text-muted">Agendado</div>
-                    <div class="small text-muted">({{ invoices_scheduled|length }} faturas)</div>
+                    <div class="small text-muted">({{ invoices_scheduled|length }} documentos)</div>
                 </div>
             </div>
         </div>
@@ -51,7 +51,7 @@
     <div class="card mb-4">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="card-title mb-0">⏳ Faturas por confirmar</h6>
+                <h6 class="card-title mb-0">⏳ Documentos por confirmar</h6>
                 <a href="{{ url_for('faturas.index') }}?status=pending_review" class="btn btn-sm btn-outline-secondary">Ver todas</a>
             </div>
             <div class="table-responsive">
@@ -89,7 +89,7 @@
                 </table>
             </div>
             {% if invoices_pending|length > 10 %}
-            <div class="mt-2 small text-muted">E mais {{ invoices_pending|length - 10 }} faturas…</div>
+            <div class="mt-2 small text-muted">E mais {{ invoices_pending|length - 10 }} documentos…</div>
             {% endif %}
         </div>
     </div>

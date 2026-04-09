@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% set back_url = url_for("faturas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <h5 class="mb-3">📄 Registar Documento</h5>
+
+    <!-- Canal 1: Email / Upload PDF → OCR automático -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title mb-1">📧 Carregar por Email/Upload</h6>
+            <p class="text-muted small mb-3">PDF recebido por email ou digitalizado — extracção OCR automática</p>
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('faturas.upload') }}">
+                <input type="hidden" name="channel" value="email_upload">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Ficheiro PDF / Excel <span class="text-danger">*</span></label>
+                    <input type="file" name="pdf_file" class="form-control"
+                           accept=".pdf,.xlsx,.xls" required>
+                    <div class="form-text">PDF de fatura (extracção OCR automática) ou Excel de histórico para importação em batch.</div>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Processar ficheiro</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Canal 2: Fotografia de Entrega → OCR automático -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title mb-1">📷 Fotografia de Entrega</h6>
+            <p class="text-muted small mb-3">Fotografia tirada com telemóvel na recepção da mercadoria</p>
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('faturas.upload') }}">
+                <input type="hidden" name="channel" value="photo">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Fotografia <span class="text-danger">*</span></label>
+                    <input type="file" name="photo_file" class="form-control"
+                           accept="image/*" capture="environment" required>
+                    <div class="form-text">Imagem JPG, PNG ou HEIC. O OCR extrai os dados automaticamente.</div>
+                </div>
+                <button type="submit" class="btn btn-success w-100">Processar fotografia</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Canal 3: Entrada Manual -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="card-title mb-1">✏️ Entrada Manual</h6>
+            <p class="text-muted small mb-3">Introduzir dados do documento manualmente</p>
+            <form method="post" enctype="multipart/form-data">
+                <div class="mb-3">
+                    <label class="form-label small" id="reg-supplier-label">Fornecedor / Entidade <span id="reg-supplier-req" class="text-danger">*</span></label>
+                    <input type="text" name="supplier_name" id="reg-supplier-name" class="form-control form-control-sm"
+                           list="reg-suppliers-list" placeholder="Nome do fornecedor ou entidade">
+                    <datalist id="reg-suppliers-list">
+                        {% for s in suppliers %}
+                        <option value="{{ s.name }}">{{ s.name }} {% if s.nif %}(NIF: {{ s.nif }}){% endif %}</option>
+                        {% endfor %}
+                    </datalist>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small">Tipo de Documento <span class="text-danger">*</span></label>
+                    <select name="document_type" id="reg-doc-type" class="form-select form-select-sm">
+                        {% for key, label in document_type_labels.items() %}
+                        <option value="{{ key }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div id="reg-supplier-extra">
+                    <div class="row g-2 mb-3">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">NIF do Fornecedor</label>
+                            <input type="text" name="supplier_nif" class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Método de Pagamento</label>
+                            <select name="payment_method" class="form-select form-select-sm">
+                                <option value="">— Não especificado —</option>
+                                {% for m in payment_methods %}
+                                <option value="{{ m.metodo }}">{{ m.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small">Nº Documento</label>
+                        <input type="text" name="invoice_number" class="form-control form-control-sm" placeholder="Ex: FT 2025/001">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Valor Total (€) <span class="text-danger">*</span></label>
+                        <input type="number" name="amount_eur" class="form-control form-control-sm" step="0.01" min="0" required placeholder="0.00">
+                    </div>
+                    <div class="col-6" id="reg-vat-field">
+                        <label class="form-label small">IVA (€)</label>
+                        <input type="number" name="vat_amount_eur" class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Data de Emissão</label>
+                        <input type="date" name="issue_date" class="form-control form-control-sm" value="{{ today }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Data de Vencimento</label>
+                        <input type="date" name="due_date" class="form-control form-control-sm">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">Loja/Unidade</label>
+                        <select name="store_id" class="form-select form-select-sm">
+                            <option value="">— Geral —</option>
+                            {% for s in stores %}
+                            <option value="{{ s.id }}">{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% if cost_centers or cost_categories_tree %}
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small">Centro de Custo</label>
+                        <select name="centro_custo_id" class="form-select form-select-sm">
+                            <option value="">— Não atribuído —</option>
+                            {% for cc in cost_centers %}
+                            <option value="{{ cc.id }}">{{ cc.code }} — {{ cc.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small">Categoria de Custo</label>
+                        <select name="categoria_custo_id" class="form-select form-select-sm">
+                            <option value="">— Não atribuída —</option>
+                            {% for top in cost_categories_tree %}
+                            <optgroup label="{{ top.name }}">
+                                {% for sub in top.children %}
+                                <option value="{{ sub.id }}">{{ sub.name }}</option>
+                                {% endfor %}
+                                {% if not top.children %}
+                                <option value="{{ top.id }}">({{ top.name }})</option>
+                                {% endif %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    <div class="col-12">
+                        <label class="form-label small">Notas</label>
+                        <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="Observações opcionais"></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">Ficheiro PDF / Imagem <span class="text-muted">(opcional)</span></label>
+                        <input type="file" name="pdf_file" class="form-control form-control-sm"
+                               accept=".pdf,image/*">
+                        <div class="form-text">Anexa o PDF ou fotografia do documento para arquivo no OneDrive.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small">Subpasta OneDrive</label>
+                        <select name="onedrive_subfolder" class="form-select form-select-sm">
+                            <option value="">— Não arquivar —</option>
+                            {% for sf in subfolders %}
+                            <option value="{{ sf }}">{{ sf }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Pasta de destino no OneDrive (só aplicável se anexares um ficheiro).</div>
+                    </div>
+                </div>
+
+                <div class="d-grid mt-3">
+                    <button type="submit" class="btn btn-primary">Registar Documento</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var docType = document.getElementById('reg-doc-type');
+    var supplierExtra = document.getElementById('reg-supplier-extra');
+    var vatField = document.getElementById('reg-vat-field');
+    var reqMark = document.getElementById('reg-supplier-req');
+    var supplierInput = document.getElementById('reg-supplier-name');
+
+    function toggleFields() {
+        var isFatura = (docType.value === 'fatura');
+        supplierExtra.style.display = isFatura ? '' : 'none';
+        vatField.style.display = isFatura ? '' : 'none';
+        reqMark.style.display = isFatura ? '' : 'none';
+        supplierInput.required = isFatura;
+    }
+
+    docType.addEventListener('change', toggleFields);
+    toggleFields();
+})();
+</script>
+{% endblock %}

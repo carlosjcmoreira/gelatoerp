@@ -28,6 +28,8 @@ from database import (
     registar_entradas_stock_fatura, derive_local_from_store,
     list_materiais, LOCAIS_STOCK, UNIDADES_MATERIAIS,
     get_cost_centers, get_cost_categories_tree,
+    get_invoices_with_payments, get_vat_periods,
+    propose_invoice_payment, suggest_payment_date,
 )
 
 import flask_app.services.faturas as faturas_svc
@@ -228,6 +230,18 @@ def index():
     stores = get_stores_list()
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
+
+    # KPI dashboard — pending / scheduled / next VAT
+    pending_docs = [dict(r) for r in get_invoices_with_payments(status='pending_review')]
+    scheduled_docs = [dict(r) for r in get_invoices_with_payments(status='scheduled')]
+    total_pending = sum(float(i.get('amount_eur') or 0) for i in pending_docs)
+    total_scheduled = sum(float(i.get('amount_eur') or 0) for i in scheduled_docs)
+    vat_periods = list(get_vat_periods(limit=4))
+    next_vat = next(
+        (p for p in reversed(vat_periods) if p['status'] in ('estimated', 'declared')),
+        None
+    )
+
     return render_template(
         'financeiro/faturas/index.html',
         view='documento',
@@ -248,6 +262,11 @@ def index():
         centro_custo_filter=centro_custo_filter,
         categoria_custo_filter=categoria_custo_filter,
         document_type_labels=DOCUMENT_TYPE_LABELS,
+        pending_docs=pending_docs,
+        scheduled_docs=scheduled_docs,
+        total_pending=total_pending,
+        total_scheduled=total_scheduled,
+        next_vat=next_vat,
     )
 
 
@@ -394,6 +413,145 @@ def bulk_action():
         flash('Acção inválida.', 'warning')
 
     return redirect(return_url)
+
+
+# ── Registar Documento (unified entry: manual + OCR channels) ──────────────────
+
+@faturas_bp.route('/registar', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def registar():
+    """Unified document registration: manual entry, PDF upload, or photo channel."""
+    if request.method == 'POST':
+        supplier_name = request.form.get('supplier_name', '').strip()
+        supplier_nif = request.form.get('supplier_nif', '').strip() or None
+        invoice_number = request.form.get('invoice_number', '').strip() or None
+        amount_str = request.form.get('amount_eur', '').replace(',', '.')
+        vat_str = request.form.get('vat_amount_eur', '').replace(',', '.') or '0'
+        issue_date_str = request.form.get('issue_date', '')
+        due_date_str = request.form.get('due_date', '')
+        store_id = request.form.get('store_id') or None
+        notes_raw = request.form.get('notes', '').strip() or ''
+        payment_method = request.form.get('payment_method', '').strip() or None
+        document_type = request.form.get('document_type', 'fatura')
+        if document_type not in DOCUMENT_TYPE_LABELS:
+            document_type = 'fatura'
+        onedrive_subfolder = request.form.get('onedrive_subfolder', '').strip() or None
+        centro_custo_raw = request.form.get('centro_custo_id', '').strip()
+        centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
+        categoria_custo_raw = request.form.get('categoria_custo_id', '').strip()
+        categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
+
+        if not supplier_name and document_type == 'fatura':
+            flash('Nome do fornecedor é obrigatório para faturas.', 'warning')
+            return redirect(url_for('faturas.registar'))
+        try:
+            amount_eur = float(amount_str)
+        except (ValueError, TypeError):
+            flash('Valor inválido.', 'warning')
+            return redirect(url_for('faturas.registar'))
+
+        try:
+            vat_amount_eur = float(vat_str)
+        except (ValueError, TypeError):
+            vat_amount_eur = 0.0
+
+        issue_date = _parse_date(issue_date_str)
+        due_date = _parse_date(due_date_str)
+
+        _ALLOWED_MANUAL_EXTS = {'pdf', 'jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'}
+        pdf_file = request.files.get('pdf_file')
+        pdf_data = None
+        pdf_filename = None
+        if pdf_file and pdf_file.filename:
+            ext = _ext(pdf_file.filename)
+            if ext not in _ALLOWED_MANUAL_EXTS:
+                flash(f'Tipo de ficheiro não suportado (.{ext}). Usa PDF ou imagem.', 'warning')
+                return redirect(url_for('faturas.registar'))
+            pdf_data = pdf_file.read()
+            pdf_filename = pdf_file.filename
+
+        notes_parts = []
+        if payment_method:
+            notes_parts.append(f'Método: {payment_method}')
+        if notes_raw:
+            notes_parts.append(notes_raw)
+        notes = ' | '.join(notes_parts) or None
+
+        store_id_int = int(store_id) if store_id else None
+        current_user = session.get('user', {}).get('username', 'sistema')
+        invoice_id = create_invoice({
+            'supplier_id': None,
+            'supplier_name': supplier_name,
+            'supplier_nif': supplier_nif,
+            'invoice_number': invoice_number,
+            'amount_eur': amount_eur,
+            'vat_amount_eur': vat_amount_eur,
+            'issue_date': issue_date,
+            'due_date': due_date,
+            'store_id': store_id_int,
+            'category': None,
+            'onedrive_subfolder': onedrive_subfolder,
+            'onedrive_path': None,
+            'onedrive_web_url': None,
+            'pdf_filename': pdf_filename,
+            'pdf_data': pdf_data,
+            'status': 'pending_review',
+            'ocr_confidence': None,
+            'ocr_raw': None,
+            'created_by': current_user,
+            'notes': notes,
+            'document_type': document_type,
+            'centro_custo_id': centro_custo_id,
+            'categoria_custo_id': categoria_custo_id,
+        })
+
+        if pdf_data and onedrive_subfolder:
+            try:
+                from flask_app.onedrive_archive import upload_invoice_pdf
+                result = upload_invoice_pdf(pdf_data, pdf_filename or 'documento.pdf',
+                                            onedrive_subfolder, issue_date)
+                if result.get('onedrive_path'):
+                    update_invoice_onedrive(invoice_id, result['onedrive_path'],
+                                            onedrive_subfolder,
+                                            onedrive_web_url=result.get('web_url'))
+                elif result.get('warning'):
+                    flash(f'Documento registado. Aviso OneDrive: {result["warning"]}', 'warning')
+            except Exception as exc:
+                logger.warning('OneDrive upload failed for manual doc %s: %s', invoice_id, exc)
+                flash(f'Documento registado. Erro ao arquivar no OneDrive: {exc}', 'warning')
+
+        _doc_label = DOCUMENT_TYPE_LABELS.get(document_type, 'Documento')
+        _entity = f' de {supplier_name}' if supplier_name else ''
+        if due_date:
+            suggested_date, is_fallback, _ = suggest_payment_date(
+                invoice_id, amount_eur, due_date=due_date
+            )
+            propose_invoice_payment(invoice_id, suggested_date, amount_eur)
+            if is_fallback:
+                flash(f'{_doc_label} registado. Data de pagamento sugerida = vencimento ({due_date.strftime("%d/%m/%Y")}) — sem semana com liquidez suficiente nas próximas 8 semanas.', 'warning')
+            else:
+                flash(f'{_doc_label}{_entity} registado. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
+        else:
+            flash(f'{_doc_label}{_entity} registado com sucesso!', 'success')
+
+        return redirect(url_for('faturas.index'))
+
+    suppliers = get_suppliers()
+    stores = get_stores_list()
+    cost_centers = get_cost_centers(ativo_only=True)
+    cost_categories_tree = get_cost_categories_tree()
+    payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
+    return render_template(
+        'financeiro/faturas/registar.html',
+        suppliers=suppliers,
+        stores=stores,
+        cost_centers=cost_centers,
+        cost_categories_tree=cost_categories_tree,
+        payment_methods=payment_methods,
+        subfolders=ONEDRIVE_SUBFOLDERS,
+        today=str(date.today()),
+        document_type_labels=DOCUMENT_TYPE_LABELS,
+    )
 
 
 # ── Upload & OCR ───────────────────────────────────────────────────────────────

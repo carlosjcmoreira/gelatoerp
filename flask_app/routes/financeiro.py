@@ -12,12 +12,12 @@ FINANCEIRO_GROUPS = [
     {
         'label': 'Gestão de Pagamentos',
         'modules': [
-            {'key': 'faturas',    'label': 'Faturas',          'icon': '🧾', 'active': True,  'url': '/financeiro/faturas/'},
-            {'key': 'pagamentos', 'label': 'Pagamentos',        'icon': '💸', 'active': True,  'url': '/financeiro/pagamentos/'},
+            {'key': 'faturas',    'label': 'Documentos',       'icon': '📄', 'active': True,  'url': '/financeiro/faturas/'},
             {'key': 'credito',    'label': 'Crédito',           'icon': '💳', 'active': True,  'url': '/financeiro/credito/'},
             {'key': 'iva',        'label': 'IVA',               'icon': '📋', 'active': True,  'url': '/financeiro/pagamentos/iva'},
             {'key': 'liquidez',   'label': 'Liquidez',          'icon': '📈', 'active': True,  'url': '/financeiro/pagamentos/liquidez'},
             {'key': 'avencas',    'label': 'Avenças',           'icon': '🔁', 'active': True,  'url_func': 'avencas.index'},
+            {'key': 'debitos',    'label': 'Débitos Diretos',   'icon': '🔄', 'active': True,  'url_func': 'cashflow.debitos'},
         ],
     },
     {
@@ -25,7 +25,6 @@ FINANCEIRO_GROUPS = [
         'modules': [
             {'key': 'cashflow',      'label': 'Cash Flow',           'icon': '📊', 'active': True,  'url_func': 'cashflow.index'},
             {'key': 'salarios',      'label': 'Salários',            'icon': '👥', 'active': True,  'url_func': 'cashflow.salarios'},
-            {'key': 'debitos',       'label': 'Débitos Diretos',     'icon': '🔄', 'active': True,  'url_func': 'cashflow.debitos'},
             {'key': 'previsao',      'label': 'Previsão de Vendas',  'icon': '🔮', 'active': True,  'url_func': 'forecast.index'},
             {'key': 'modelo',        'label': 'Modelo de Previsão',  'icon': '📉', 'active': True,  'url_func': 'forecast.modelo'},
             {'key': 'meteorologia',  'label': 'Meteorologia',        'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
