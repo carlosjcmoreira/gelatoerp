@@ -139,7 +139,7 @@ def transferencias():
 @logistica_bp.route('/transferencias-agendadas')
 @perm_required('acesso_administrativo')
 def transferencias_agendadas():
-    return redirect(url_for('logistica.transferencias', tab='ativas'), 301)
+    return redirect(url_for('logistica.transferencias', tab='ativas'), 302)
 
 
 @logistica_bp.route('/ordens')
@@ -147,7 +147,7 @@ def transferencias_agendadas():
 def ordens():
     args = dict(request.args)
     args['tab'] = 'historico'
-    return redirect(url_for('logistica.transferencias', **args), 301)
+    return redirect(url_for('logistica.transferencias', **args), 302)
 
 
 # ── Stock de Materiais (unified: Stock Atual + Histórico + Catálogo) ───────────
@@ -346,4 +346,4 @@ def historico_movimentos():
     args['tab'] = 'historico'
     if 'local' in args:
         args['local_hist'] = args.pop('local')
-    return redirect(url_for('logistica.stock_materiais', **args), 301)
+    return redirect(url_for('logistica.stock_materiais', **args), 302)

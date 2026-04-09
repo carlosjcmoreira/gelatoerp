@@ -91,13 +91,13 @@
 <ul class="nav nav-tabs mb-3">
     <li class="nav-item">
         <a class="nav-link {% if tab == 'stock' %}active{% endif %}"
-           href="{{ url_for('logistica.stock_materiais', tab='stock', local=local) }}">
+           href="{{ url_for('logistica.stock_materiais', tab='stock', local=(filtro_local_hist or local)) }}">
             📦 Stock Atual
         </a>
     </li>
     <li class="nav-item">
         <a class="nav-link {% if tab == 'historico' %}active{% endif %}"
-           href="{{ url_for('logistica.stock_materiais', tab='historico', local=local) }}">
+           href="{{ url_for('logistica.stock_materiais', tab='historico', local=local, local_hist=local) }}">
             🕒 Histórico
         </a>
     </li>
