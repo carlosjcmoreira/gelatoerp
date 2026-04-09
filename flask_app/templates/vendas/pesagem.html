@@ -4,30 +4,94 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
     <h5 class="mb-3">🛒 Vendas {{ loja_nome }}</h5>
-    
+    <h6 class="mb-2">Pesagem de Gelado — Fim do Dia</h6>
 
-    <h6 class="mb-3">Pesagem de Gelado — Fim do Dia</h6>
+    <!-- Mode toggle -->
+    <div class="btn-group w-100 mb-3" role="group">
+        <button type="button" class="btn btn-primary" id="btn-modo-manual" onclick="setModo('manual')">
+            ✏️ Manual
+        </button>
+        <button type="button" class="btn btn-outline-primary" id="btn-modo-ocr" onclick="setModo('ocr')">
+            📷 Fotografar Folha
+        </button>
+    </div>
 
-    <form method="POST" class="mb-4">
-        <input type="hidden" name="action" value="add">
+    <!-- ── MODO MANUAL ─────────────────────────────────────── -->
+    <div id="secao-manual">
+        <form method="POST" class="mb-4">
+            <input type="hidden" name="action" value="add">
 
-        <div class="mb-3">
-            <label class="form-label fw-semibold">Sabor</label>
-            <select name="sabor" class="form-select" required>
-                {% for s in sabores %}
-                <option value="{{ s }}">{{ s }}</option>
-                {% endfor %}
-            </select>
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Sabor</label>
+                <select name="sabor" class="form-select" required>
+                    {% for s in sabores %}
+                    <option value="{{ s }}">{{ s }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label fw-semibold">Pesagem (kg)</label>
+                <input type="text" name="quantidade" class="form-control" placeholder="0,000"
+                       inputmode="decimal" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100">Registar Pesagem</button>
+        </form>
+    </div>
+
+    <!-- ── MODO OCR ────────────────────────────────────────── -->
+    <div id="secao-ocr" style="display:none;">
+
+        <!-- Camera / file input (hidden) -->
+        <input type="file" id="ocr-file-input" accept="image/*" capture="environment" style="display:none;"
+               onchange="iniciarOCR(this)">
+
+        <!-- Big camera button -->
+        <div class="text-center mb-3" id="ocr-camera-btn-wrap">
+            <button class="btn btn-lg btn-outline-primary px-5 py-4" style="font-size:1.1rem;"
+                    onclick="document.getElementById('ocr-file-input').click()">
+                📷 Fotografar Folha de Rastreabilidade
+            </button>
+            <div class="text-muted mt-2" style="font-size:0.82rem;">
+                Ou seleccione uma foto existente
+            </div>
         </div>
 
-        <div class="mb-3">
-            <label class="form-label fw-semibold">Pesagem (kg)</label>
-            <input type="text" name="quantidade" class="form-control" placeholder="0,000" inputmode="decimal" required>
+        <!-- Loading spinner -->
+        <div id="ocr-loading" style="display:none;" class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="mt-2 text-muted">A processar imagem com OCR…</div>
         </div>
 
-        <button type="submit" class="btn btn-primary w-100">Registar Pesagem</button>
-    </form>
+        <!-- Confidence / error banner (filled by JS) -->
+        <div id="ocr-banner" style="display:none;"></div>
 
+        <!-- Review table (filled by JS) -->
+        <div id="ocr-review" style="display:none;">
+            <h6 class="mt-3 mb-2 fw-semibold">Rever pesagens extraídas</h6>
+            <p class="text-muted" style="font-size:0.82rem;">
+                Confirme os valores, ajuste se necessário, e desmarque as linhas que não deve registar.
+            </p>
+
+            <form method="POST" id="ocr-bulk-form">
+                <input type="hidden" name="action" value="add_bulk">
+                <div id="ocr-rows-container"></div>
+
+                <button type="button" class="btn btn-success w-100 mt-3"
+                        onclick="submeterOCR()" id="btn-registar">
+                    Registar pesagens
+                </button>
+            </form>
+
+            <button type="button" class="btn btn-outline-secondary w-100 mt-2"
+                    onclick="document.getElementById('ocr-file-input').click()">
+                📷 Nova fotografia
+            </button>
+        </div>
+    </div>
+
+    <!-- ── Pesagens Registadas Hoje ────────────────────────── -->
     <hr>
     <h6 class="mb-3">Pesagens Registadas Hoje</h6>
 
@@ -65,4 +129,191 @@
     <div class="alert alert-info">Sem pesagens registadas para hoje.</div>
     {% endif %}
 </div>
+
+<script>
+const SABORES_CONHECIDOS = {{ sabores | tojson }};
+const OCR_URL = "{{ url_for('vendas.pesagem_ocr') }}";
+
+function setModo(modo) {
+    const isOcr = modo === 'ocr';
+    document.getElementById('secao-manual').style.display = isOcr ? 'none' : '';
+    document.getElementById('secao-ocr').style.display   = isOcr ? ''     : 'none';
+    document.getElementById('btn-modo-manual').className = isOcr
+        ? 'btn btn-outline-primary' : 'btn btn-primary';
+    document.getElementById('btn-modo-ocr').className = isOcr
+        ? 'btn btn-primary' : 'btn btn-outline-primary';
+}
+
+function iniciarOCR(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    document.getElementById('ocr-camera-btn-wrap').style.display = 'none';
+    document.getElementById('ocr-loading').style.display = '';
+    document.getElementById('ocr-banner').style.display = 'none';
+    document.getElementById('ocr-review').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('imagem', file);
+
+    fetch(OCR_URL, { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('ocr-loading').style.display = 'none';
+            document.getElementById('ocr-camera-btn-wrap').style.display = '';
+
+            if (!data.ok) {
+                mostrarBanner('danger', '⚠️ Erro OCR: ' + (data.error || 'Falha desconhecida'));
+                return;
+            }
+
+            const conf = Math.round((data.confidence || 0) * 100);
+            const confClass = conf >= 80 ? 'success' : conf >= 60 ? 'warning' : 'danger';
+            mostrarBanner(confClass,
+                `OCR concluído — Confiança: <strong>${conf}%</strong>` +
+                (data.data_ocr ? ` &nbsp;·&nbsp; Data: <strong>${data.data_ocr}</strong>` : '')
+            );
+
+            renderLinhas(data.linhas || []);
+        })
+        .catch(err => {
+            document.getElementById('ocr-loading').style.display = 'none';
+            document.getElementById('ocr-camera-btn-wrap').style.display = '';
+            mostrarBanner('danger', '⚠️ Falha na ligação: ' + err.message);
+        });
+}
+
+function mostrarBanner(type, html) {
+    const el = document.getElementById('ocr-banner');
+    el.className = `alert alert-${type}`;
+    el.innerHTML = html;
+    el.style.display = '';
+}
+
+function normalizarNome(nome) {
+    return nome.trim().toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function saboresNormalizados() {
+    return SABORES_CONHECIDOS.map(s => ({
+        original: s,
+        norm: normalizarNome(s),
+    }));
+}
+
+function encontrarSabor(nomeOCR) {
+    const norm = normalizarNome(nomeOCR);
+    const lista = saboresNormalizados();
+    // exact match
+    for (const s of lista) {
+        if (s.norm === norm) return s.original;
+    }
+    // starts-with match
+    for (const s of lista) {
+        if (s.norm.startsWith(norm) || norm.startsWith(s.norm)) return s.original;
+    }
+    return null;
+}
+
+function renderLinhas(linhas) {
+    const container = document.getElementById('ocr-rows-container');
+    container.innerHTML = '';
+
+    if (linhas.length === 0) {
+        container.innerHTML = '<div class="alert alert-warning">Nenhuma linha extraída. Tente com uma foto mais nítida.</div>';
+        document.getElementById('ocr-review').style.display = '';
+        return;
+    }
+
+    linhas.forEach((linha, idx) => {
+        const saborMatch = encontrarSabor(linha.nome_produto);
+        const conhecido  = saborMatch !== null;
+        const saborVal   = saborMatch || linha.nome_produto;
+
+        const card = document.createElement('div');
+        card.className = 'card mb-2' + (conhecido ? '' : ' border-warning');
+
+        card.innerHTML = `
+<div class="card-body py-2 px-3">
+  <div class="d-flex align-items-center gap-2 mb-1">
+    <input type="checkbox" class="form-check-input ocr-check mt-0" id="chk-${idx}" checked
+           onchange="atualizarBotao()">
+    <label for="chk-${idx}" class="fw-semibold mb-0" style="font-size:0.95rem;">
+      ${escHtml(linha.nome_produto)}
+      ${!conhecido ? '<span class="badge bg-warning text-dark ms-1" title="Sabor não reconhecido — verifique">⚠️</span>' : ''}
+    </label>
+  </div>
+  <div class="row g-2 align-items-center">
+    <div class="col">
+      <label class="form-label mb-0" style="font-size:0.78rem;">Sabor a registar</label>
+      <input type="text" class="form-control form-control-sm" name="sabor[]" value="${escHtml(saborVal)}"
+             list="sabores-dl" required>
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-0" style="font-size:0.78rem;">Total (kg)</label>
+      <input type="text" class="form-control form-control-sm" name="quantidade[]"
+             value="${linha.total_kg.toFixed(3).replace('.', ',')}"
+             inputmode="decimal" style="width:90px;" required>
+    </div>
+  </div>
+  <div class="text-muted mt-1" style="font-size:0.75rem;">
+    Remanescente: <strong>${linha.peso_remanescente.toFixed(3)}</strong> kg
+    ${linha.peso_acrescido !== null
+        ? ' + Acrescido: <strong>' + linha.peso_acrescido.toFixed(3) + '</strong> kg'
+        : ''}
+  </div>
+</div>`;
+        container.appendChild(card);
+    });
+
+    // datalist for sabor autocomplete
+    const dl = document.createElement('datalist');
+    dl.id = 'sabores-dl';
+    SABORES_CONHECIDOS.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        dl.appendChild(opt);
+    });
+    container.appendChild(dl);
+
+    atualizarBotao();
+    document.getElementById('ocr-review').style.display = '';
+}
+
+function atualizarBotao() {
+    const checks = document.querySelectorAll('.ocr-check');
+    const total = Array.from(checks).filter(c => c.checked).length;
+    document.getElementById('btn-registar').textContent =
+        total > 0 ? `Registar ${total} pesagem(ns)` : 'Nenhuma selecionada';
+    document.getElementById('btn-registar').disabled = total === 0;
+}
+
+function submeterOCR() {
+    const form = document.getElementById('ocr-bulk-form');
+    const checks = document.querySelectorAll('.ocr-check');
+
+    // Remove hidden fields from previous calls
+    form.querySelectorAll('input[type=hidden][name="sabor[]"]').forEach(e => e.remove());
+    form.querySelectorAll('input[type=hidden][name="quantidade[]"]').forEach(e => e.remove());
+
+    // Build arrays only for checked rows
+    const cards = document.getElementById('ocr-rows-container').querySelectorAll('.card');
+    cards.forEach((card, idx) => {
+        const chk = document.getElementById('chk-' + idx);
+        if (!chk || !chk.checked) {
+            // Disable the visible inputs so they are not submitted
+            card.querySelectorAll('input[name="sabor[]"], input[name="quantidade[]"]')
+                .forEach(inp => inp.disabled = true);
+        }
+    });
+
+    form.submit();
+}
+
+function escHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+</script>
 {% endblock %}

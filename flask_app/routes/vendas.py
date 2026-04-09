@@ -255,6 +255,27 @@ def pesagem():
                 flash('Insira um valor válido.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id))
 
+        elif action == 'add_bulk':
+            sabores_list = request.form.getlist('sabor[]')
+            qtds_list = request.form.getlist('quantidade[]')
+            saved = 0
+            for sabor, qtd_str in zip(sabores_list, qtds_list):
+                sabor = sabor.strip()
+                if not sabor:
+                    continue
+                try:
+                    pesagem_kg = float(qtd_str.replace(',', '.'))
+                except (ValueError, TypeError):
+                    continue
+                if pesagem_kg >= 0:
+                    add_stock_gelado(date.today(), loja_nome, sabor, pesagem_kg, 'fim')
+                    saved += 1
+            if saved:
+                flash(f'{saved} pesagem(ns) registada(s) via fotografia!', 'success')
+            else:
+                flash('Nenhuma pesagem válida para registar.', 'error')
+            return redirect(url_for('vendas.pesagem', loja_id=loja_id))
+
         elif action == 'delete':
             s_id = request.form.get('id')
             if s_id:
@@ -427,6 +448,33 @@ def fecho_caixa_ocr():
             'ubereats_pos': resultado.get('ubereats_pos'),
             'tpa_getnet': resultado.get('tpa_getnet'),
         }
+    })
+
+
+@vendas_bp.route('/pesagem/ocr', methods=['POST'])
+@login_required
+def pesagem_ocr():
+    """JSON endpoint: receive weighing sheet photo, run OCR, return extracted rows."""
+    if not _check_vendas_access():
+        return jsonify({'ok': False, 'error': 'Sem acesso'}), 403
+
+    img = request.files.get('imagem')
+    if not img or img.filename == '':
+        return jsonify({'ok': False, 'error': 'Imagem em falta'}), 400
+
+    img_bytes = img.read()
+
+    from flask_app.services.pesagem_ocr import ocr_pesagem
+    resultado = ocr_pesagem(img_bytes, img.filename)
+
+    if not resultado.get('ok'):
+        return jsonify({'ok': False, 'error': resultado.get('error', 'Erro OCR')}), 422
+
+    return jsonify({
+        'ok': True,
+        'confidence': resultado.get('confidence', 0.0),
+        'data_ocr': resultado.get('data'),
+        'linhas': resultado.get('linhas', []),
     })
 
 
