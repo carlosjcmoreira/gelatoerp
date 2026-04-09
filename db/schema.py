@@ -2339,11 +2339,17 @@ def run_backfill_transferencias_eventos():
       - 'confirmado' from confirmado_em / confirmado_por  (if status=confirmada)
       - 'rejeitado'  from confirmado_em / confirmado_por  (if status=rejeitada), with motivo
     Already-backfilled orders (any event exists) are skipped via LEFT JOIN.
+    Advisory lock 202618 ensures only one worker runs the backfill.
     """
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        # Guard: table must exist before backfill (migration may not have run yet in another worker)
+        cursor.execute("SELECT pg_try_advisory_lock(202618)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_backfill_transferencias_eventos: lock held by another worker, skipping")
+            return
+
+        # Guard: table must exist before backfill (migration may not have committed yet)
         cursor.execute("""
             SELECT 1 FROM information_schema.tables
             WHERE table_name = 'transferencias_eventos'
@@ -2398,6 +2404,11 @@ def run_backfill_transferencias_eventos():
         except Exception:
             pass
     finally:
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(202618)")
+            conn.commit()
+        except Exception:
+            pass
         release_connection(conn)
 
 
