@@ -7,31 +7,28 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="mb-0">📦 Stock de Materiais</h5>
     {% if modo == 'ver' %}
-    <div class="d-flex gap-2">
-        <a href="{{ url_for('logistica.stock_materiais_contagem', local=local) }}"
-           class="btn btn-primary btn-sm">✏️ Registar Contagem</a>
-        <a href="{{ url_for('logistica.historico_movimentos', local=local) }}"
-           class="btn btn-outline-secondary btn-sm">🕒 Histórico</a>
-    </div>
+    <a href="{{ url_for('logistica.stock_materiais_contagem', local=local) }}"
+       class="btn btn-primary btn-sm">✏️ Registar Contagem</a>
     {% endif %}
 </div>
 
+{% if modo == 'contagem' %}
+{# ── Counting form (no tab bar — dedicated page) ────────────────────────── #}
 <ul class="nav nav-tabs mb-3">
     {% for l in locais %}
     <li class="nav-item">
         <a class="nav-link {% if l == local %}active{% endif %}"
-           href="{{ url_for('logistica.stock_materiais_contagem' if modo == 'contagem' else 'logistica.stock_materiais', local=l) }}">
+           href="{{ url_for('logistica.stock_materiais_contagem', local=l) }}">
             {{ l }}
         </a>
     </li>
     {% endfor %}
 </ul>
 
-{% if modo == 'contagem' %}
-{# ── Counting form ───────────────────────────────── #}
 <div class="alert alert-info py-2 small mb-3">
     <strong>Contagem física em {{ local }}.</strong>
-    Preencha apenas os campos que contou. Campos em branco não são registados. Ao submeter, o stock é atualizado com os valores introduzidos.
+    Preencha apenas os campos que contou. Campos em branco não são registados.
+    Ao submeter, o stock é atualizado com os valores introduzidos.
 </div>
 <form method="POST" action="{{ url_for('logistica.stock_materiais_post') }}">
     <input type="hidden" name="action" value="registar_contagem">
@@ -54,9 +51,7 @@
             {% for item in items %}
             <tr>
                 <td class="small">{{ item.nome }}</td>
-                <td class="text-end small text-muted">
-                    {{ "%.3g"|format(item.quantidade) }} {{ item.unidade }}
-                </td>
+                <td class="text-end small text-muted">{{ "%.3g"|format(item.quantidade) }} {{ item.unidade }}</td>
                 <td class="text-end">
                     <div class="input-group input-group-sm justify-content-end" style="max-width:140px;margin-left:auto">
                         <input type="number" name="qtd_{{ item.material_id }}"
@@ -91,9 +86,42 @@
 </form>
 
 {% else %}
-{# ── Stock view ──────────────────────────────────── #}
+{# ── View mode: tab bar (Stock Atual | Histórico) ────────────────────────── #}
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link {% if tab == 'stock' %}active{% endif %}"
+           href="{{ url_for('logistica.stock_materiais', tab='stock', local=local) }}">
+            📦 Stock Atual
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if tab == 'historico' %}active{% endif %}"
+           href="{{ url_for('logistica.stock_materiais', tab='historico', local=local) }}">
+            🕒 Histórico
+        </a>
+    </li>
+</ul>
+
+{% if tab == 'stock' %}
+{# ── Stock Atual tab ──────────────────────────────────────────────────────── #}
+
+<!-- Location sub-tabs -->
+<ul class="nav nav-pills mb-3">
+    {% for l in locais %}
+    <li class="nav-item">
+        <a class="nav-link py-1 px-3 {% if l == local %}active{% endif %}"
+           href="{{ url_for('logistica.stock_materiais', tab='stock', local=l) }}">
+            {{ l }}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+
 {% if not stock %}
-<div class="alert alert-warning">Sem materiais ativos no catálogo. Adicione materiais no <a href="{{ url_for('gestor.materiais') }}">Gestor</a>.</div>
+<div class="alert alert-warning">
+    Sem materiais ativos no catálogo. Adicione materiais no <a href="{{ url_for('gestor.materiais') }}">Gestor</a>.
+</div>
 {% else %}
 {% for cat in categorias %}
 {% set items = por_categoria.get(cat, []) %}
@@ -137,16 +165,169 @@
 {% endif %}
 {% endfor %}
 {% endif %}
+
+{# ── Catálogo de Artigos de Fornecimento ──────────────────────────────────── #}
+{% if artigos_por_fornecedor %}
+<hr class="mt-4">
+<div class="mb-2">
+    <button class="btn btn-outline-secondary btn-sm" type="button"
+            data-bs-toggle="collapse" data-bs-target="#catalogoArtigos"
+            aria-expanded="false">
+        🗂 Catálogo de Artigos de Fornecimento
+    </button>
+</div>
+<div class="collapse" id="catalogoArtigos">
+    <div class="card card-body py-2 px-3" style="font-size:0.82rem;">
+        <p class="text-muted small mb-3">
+            Artigos do catálogo de fornecimento (usado nas compras e ordens de transferência).
+            Para gerir este catálogo, vá a <strong>Compras → Artigos de Fornecimento</strong>.
+        </p>
+        <div class="row g-3">
+        {% for fornecedor, produtos in artigos_por_fornecedor | dictsort %}
+        <div class="col-12 col-md-6 col-lg-4">
+            <div class="fw-semibold text-secondary small text-uppercase mb-1">{{ fornecedor }}</div>
+            <ul class="list-unstyled mb-0">
+            {% for p in produtos %}
+            <li class="text-muted py-0" style="font-size:0.8rem; border-bottom:1px solid #f0f0f0;">{{ p }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+        </div>
+    </div>
+</div>
 {% endif %}
+
+{% else %}
+{# ── Histórico tab ────────────────────────────────────────────────────────── #}
+
+<form method="GET" action="{{ url_for('logistica.stock_materiais') }}" class="row g-2 mb-3">
+    <input type="hidden" name="tab" value="historico">
+    <div class="col-auto">
+        <select name="local_hist" class="form-select form-select-sm">
+            <option value="">Todos os locais</option>
+            {% for l in locais %}
+            <option value="{{ l }}" {% if l == filtro_local_hist %}selected{% endif %}>{{ l }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <select name="tipo" class="form-select form-select-sm">
+            <option value="">Todos os tipos</option>
+            {% for t in tipos %}
+            <option value="{{ t }}" {% if t == filtro_tipo_hist %}selected{% endif %}>{{ t | capitalize }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+    </div>
+    {% if filtro_local_hist or filtro_tipo_hist %}
+    <div class="col-auto">
+        <a href="{{ url_for('logistica.stock_materiais', tab='historico') }}"
+           class="btn btn-outline-secondary btn-sm">Limpar</a>
+    </div>
+    {% endif %}
+</form>
+
+{% if mov_total > 0 %}
+<p class="text-muted small mb-2">
+    {{ mov_total }} movimento(s) no total — a mostrar {{ movimentos | length }}
+    (página {{ mov_page }} de {{ mov_total_pages }}).
+</p>
+{% endif %}
+
+{% if movimentos %}
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle" style="font-size:0.85rem;">
+        <thead class="table-light">
+            <tr>
+                <th>Data</th>
+                <th>Material</th>
+                <th class="d-none d-md-table-cell">Local</th>
+                <th>Tipo</th>
+                <th class="text-end">Quantidade</th>
+                <th class="d-none d-sm-table-cell">Nota</th>
+                <th class="d-none d-sm-table-cell">Utilizador</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for mv in movimentos %}
+        <tr>
+            <td class="text-nowrap">{{ mv.data.strftime('%d/%m/%Y') if mv.data else '—' }}</td>
+            <td>{{ mv.nome }}</td>
+            <td class="text-muted d-none d-md-table-cell">{{ mv.local }}</td>
+            <td>
+                {% if mv.tipo == 'entrada' %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle">entrada</span>
+                {% elif mv.tipo == 'saida' %}
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">saída</span>
+                {% elif mv.tipo == 'contagem' %}
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">contagem</span>
+                {% else %}
+                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">{{ mv.tipo }}</span>
+                {% endif %}
+            </td>
+            <td class="text-end text-nowrap">
+                {% if mv.tipo == 'saida' %}
+                <span class="text-danger">−{{ "%.3g"|format(mv.quantidade) }}</span>
+                {% elif mv.tipo == 'entrada' %}
+                <span class="text-success">+{{ "%.3g"|format(mv.quantidade) }}</span>
+                {% else %}
+                {{ "%.3g"|format(mv.quantidade) }}
+                {% endif %}
+                {{ mv.unidade }}
+            </td>
+            <td class="text-muted small d-none d-sm-table-cell">{{ mv.notas or '—' }}</td>
+            <td class="text-muted small d-none d-sm-table-cell">{{ mv.utilizador or '—' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if mov_total_pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center flex-wrap">
+        <li class="page-item {% if mov_page <= 1 %}disabled{% endif %}">
+            <a class="page-link" href="?tab=historico&local_hist={{ filtro_local_hist }}&tipo={{ filtro_tipo_hist }}&page={{ mov_page - 1 }}">‹ Anterior</a>
+        </li>
+        {% for p in range(1, mov_total_pages + 1) %}
+        {% if p == 1 or p == mov_total_pages or (p >= mov_page - 2 and p <= mov_page + 2) %}
+        <li class="page-item {% if p == mov_page %}active{% endif %}">
+            <a class="page-link" href="?tab=historico&local_hist={{ filtro_local_hist }}&tipo={{ filtro_tipo_hist }}&page={{ p }}">{{ p }}</a>
+        </li>
+        {% elif p == mov_page - 3 or p == mov_page + 3 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {% endfor %}
+        <li class="page-item {% if mov_page >= mov_total_pages %}disabled{% endif %}">
+            <a class="page-link" href="?tab=historico&local_hist={{ filtro_local_hist }}&tipo={{ filtro_tipo_hist }}&page={{ mov_page + 1 }}">Seguinte ›</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="alert alert-info">
+    Sem movimentos de stock registados
+    {% if filtro_local_hist %} em {{ filtro_local_hist }}{% endif %}
+    {% if filtro_tipo_hist %} do tipo {{ filtro_tipo_hist }}{% endif %}.
+</div>
+{% endif %}
+
+{% endif %}{# end tab == 'historico' #}
+{% endif %}{# end modo != 'contagem' #}
 
 </div>
 
-{# ── Ajuste Modal ──────────────────────────────────────────────────────────── #}
-<div class="modal fade" id="ajusteModal" tabindex="-1" aria-labelledby="ajusteModalLabel" aria-hidden="true">
+{# ── Ajuste Modal (only in view mode) ──────────────────────────────────────── #}
+{% if modo == 'ver' and tab == 'stock' %}
+<div class="modal fade" id="ajusteModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h6 class="modal-title" id="ajusteModalLabel">Ajuste Manual de Stock</h6>
+                <h6 class="modal-title">Ajuste Manual de Stock</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="POST" action="{{ url_for('logistica.stock_materiais_post') }}">
@@ -198,4 +379,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 });
 </script>
+{% endif %}
+
 {% endblock %}

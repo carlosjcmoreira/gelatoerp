@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% set back_url = url_for("logistica.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+<h5 class="mb-3">🚚 Transferências</h5>
+
+<!-- ── Tab bar ──────────────────────────────────────────────────────────── -->
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link {% if tab == 'ativas' %}active{% endif %}"
+           href="{{ url_for('logistica.transferencias', tab='ativas') }}">
+            📅 Ativas
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if tab == 'historico' %}active{% endif %}"
+           href="{{ url_for('logistica.transferencias', tab='historico') }}">
+            📄 Histórico
+        </a>
+    </li>
+</ul>
+
+{% if tab == 'ativas' %}
+{# ═══ ATIVAS tab ══════════════════════════════════════════════════════════ #}
+<p class="text-muted small mb-3">Vista consolidada das transferências agrupadas por data prevista e loja de destino.</p>
+
+{% if transferencias %}
+{% for t in transferencias %}
+<div class="card mb-3">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center"
+         data-bs-toggle="collapse" data-bs-target="#transf-{{ loop.index }}" role="button"
+         style="cursor:pointer;">
+        <div>
+            <span class="fw-bold">{{ t.data_prevista.strftime('%d/%m/%Y') if t.data_prevista else '—' }}</span>
+            <span class="text-muted ms-2 small">{{ t.loja_destino }}</span>
+        </div>
+        <div class="d-flex gap-1 align-items-center flex-wrap justify-content-end">
+            {% for area in t.areas %}
+            <span class="badge bg-{% if area == 'Gelado' %}primary{% elif area == 'Pastelaria' %}warning text-dark{% elif area == 'Confeitaria' %}info{% elif area == 'Compras' %}secondary{% else %}dark{% endif %}"
+                  style="font-size:0.65rem;">{{ area }}</span>
+            {% endfor %}
+            {% if t.n_pendentes > 0 %}
+            <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">{{ t.n_pendentes }} pend.</span>
+            {% endif %}
+            {% if t.n_confirmadas > 0 %}
+            <span class="badge bg-success ms-1" style="font-size:0.65rem;">{{ t.n_confirmadas }} conf.</span>
+            {% endif %}
+            {% if t.n_rejeitadas > 0 %}
+            <span class="badge bg-danger ms-1" style="font-size:0.65rem;">{{ t.n_rejeitadas }} rej.</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="collapse show" id="transf-{{ loop.index }}">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0" style="font-size:0.82rem;">
+                <thead>
+                    <tr>
+                        <th>Área</th>
+                        <th>Produto</th>
+                        <th class="text-center">Qty</th>
+                        <th class="text-center">Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for o in t.ordens %}
+                    <tr>
+                        <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}"
+                                  style="font-size:0.65rem;">{{ o.area_origem }}</span></td>
+                        <td>{{ o.produto }}</td>
+                        <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
+                        <td class="text-center">
+                            {% if o.status == 'pendente' %}
+                            <span class="badge bg-warning text-dark" style="font-size:0.65rem;">Pendente</span>
+                            {% elif o.status == 'confirmada' %}
+                            <span class="badge bg-success" style="font-size:0.65rem;">Confirmada</span>
+                            {% else %}
+                            <span class="badge bg-danger" style="font-size:0.65rem;">Rejeitada</span>
+                            {% if o.motivo_rejeicao %}
+                            <div class="text-danger" style="font-size:0.68rem; margin-top:2px;">{{ o.motivo_rejeicao }}</div>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="alert alert-info">Sem transferências agendadas.</div>
+{% endif %}
+
+
+{% else %}
+{# ═══ HISTÓRICO tab ════════════════════════════════════════════════════════ #}
+<p class="text-muted small mb-3">Histórico completo de todas as áreas, com rastreabilidade de eventos.</p>
+
+<!-- ── Filter bar ─────────────────────────────────────────────────────── -->
+<form method="GET" action="{{ url_for('logistica.transferencias') }}" class="mb-3">
+    <input type="hidden" name="tab" value="historico">
+    <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Área</label>
+            <select name="area_origem" class="form-select form-select-sm">
+                <option value="">Todas</option>
+                {% for a in areas %}
+                <option value="{{ a }}" {% if filtro_area == a %}selected{% endif %}>{{ a }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Estado</label>
+            <select name="status" class="form-select form-select-sm">
+                <option value="">Todos</option>
+                {% for val, lbl in statuses %}
+                <option value="{{ val }}" {% if filtro_status == val %}selected{% endif %}>{{ lbl }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Destino</label>
+            <select name="loja_destino" class="form-select form-select-sm">
+                <option value="">Todas</option>
+                {% for l in lojas %}
+                <option value="{{ l }}" {% if filtro_loja == l %}selected{% endif %}>{{ l }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">De</label>
+            <input type="date" name="data_inicio" class="form-control form-control-sm"
+                   value="{{ filtro_data_inicio }}">
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Até</label>
+            <input type="date" name="data_fim" class="form-control form-control-sm"
+                   value="{{ filtro_data_fim }}">
+        </div>
+        <div class="col-6 col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary btn-sm flex-grow-1">Filtrar</button>
+            <a href="{{ url_for('logistica.transferencias', tab='historico') }}"
+               class="btn btn-outline-secondary btn-sm">✕</a>
+        </div>
+    </div>
+</form>
+
+<!-- ── Results ─────────────────────────────────────────────────────────── -->
+{% if ordens or total > 0 %}
+<p class="text-muted small mb-2">
+    {{ total }} ordem(ns) encontrada(s)
+    {% if total_pages > 1 %}&nbsp;·&nbsp; Página {{ page }} de {{ total_pages }}{% endif %}
+</p>
+
+<!-- Desktop table / Mobile cards -->
+<div class="d-none d-md-block">
+<div class="table-responsive">
+<table class="table table-sm table-hover align-middle" style="font-size:0.82rem;">
+    <thead class="table-dark">
+        <tr>
+            <th style="width:36px;">#</th>
+            <th>Área</th>
+            <th>Produto</th>
+            <th class="text-center">Qty</th>
+            <th class="text-center">Destino</th>
+            <th class="text-center">Data</th>
+            <th class="text-center">Entrega</th>
+            <th class="text-center">Estado</th>
+            <th class="text-center" style="width:36px;"></th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for o in ordens %}
+    {% set area_color = 'primary' if o.area_origem == 'Gelado' else ('warning text-dark' if o.area_origem == 'Pastelaria' else ('info' if o.area_origem == 'Confeitaria' else ('secondary' if o.area_origem == 'Compras' else 'dark'))) %}
+    {% set status_color = 'warning text-dark' if o.status == 'pendente' else ('success' if o.status == 'confirmada' else 'danger') %}
+    {% set status_label = 'Pendente' if o.status == 'pendente' else ('Confirmada' if o.status == 'confirmada' else 'Rejeitada') %}
+    <tr class="ordem-row" style="cursor:pointer;" onclick="toggleEventos({{ o.id }})">
+        <td class="text-muted">{{ o.id }}</td>
+        <td><span class="badge bg-{{ area_color }}" style="font-size:0.7rem;">{{ o.area_origem }}</span></td>
+        <td>{{ o.produto }}{% if o.sabor and o.sabor != o.produto %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
+        <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
+        <td class="text-center">{{ o.loja_destino }}</td>
+        <td class="text-center">{{ o.data.strftime('%d/%m/%Y') if o.data else '—' }}</td>
+        <td class="text-center">{% if o.data_prevista %}{{ o.data_prevista.strftime('%d/%m') }}{% else %}—{% endif %}</td>
+        <td class="text-center"><span class="badge bg-{{ status_color }}" style="font-size:0.7rem;">{{ status_label }}</span></td>
+        <td class="text-center text-muted" id="chevron-{{ o.id }}">▶</td>
+    </tr>
+    <tr id="eventos-{{ o.id }}" style="display:none;">
+        <td colspan="9" class="p-0">
+            <div class="px-3 py-2 bg-light border-bottom">
+                {% if o.status == 'rejeitada' and o.motivo_rejeicao %}
+                <div class="alert alert-danger py-1 px-2 mb-2" style="font-size:0.8rem;">
+                    <strong>Motivo de rejeição:</strong> {{ o.motivo_rejeicao }}
+                </div>
+                {% endif %}
+                <div class="d-flex flex-column gap-1">
+                {% for ev in o.eventos %}
+                {% if ev.event_type == 'criado' %}{% set ev_icon = '🆕' %}{% set ev_color = 'secondary' %}{% set ev_label = 'Criado' %}
+                {% elif ev.event_type == 'confirmado' %}{% set ev_icon = '✅' %}{% set ev_color = 'success' %}{% set ev_label = 'Confirmado' %}
+                {% else %}{% set ev_icon = '❌' %}{% set ev_color = 'danger' %}{% set ev_label = 'Rejeitado' %}{% endif %}
+                <div class="d-flex align-items-start gap-2">
+                    <span class="badge bg-{{ ev_color }}" style="font-size:0.68rem; min-width:72px;">{{ ev_icon }} {{ ev_label }}</span>
+                    <span style="font-size:0.8rem;">
+                        <strong>{{ ev.utilizador or '—' }}</strong>
+                        {% if ev.created_at %}&nbsp;·&nbsp; {{ ev.created_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                        {% if ev.motivo %}&nbsp;·&nbsp; <em class="text-danger">{{ ev.motivo }}</em>{% endif %}
+                    </span>
+                </div>
+                {% endfor %}
+                </div>
+            </div>
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+</div>
+
+<!-- Mobile card list -->
+<div class="d-md-none">
+{% for o in ordens %}
+{% set area_color = 'primary' if o.area_origem == 'Gelado' else ('warning text-dark' if o.area_origem == 'Pastelaria' else ('info' if o.area_origem == 'Confeitaria' else ('secondary' if o.area_origem == 'Compras' else 'dark'))) %}
+{% set status_color = 'warning text-dark' if o.status == 'pendente' else ('success' if o.status == 'confirmada' else 'danger') %}
+{% set status_label = 'Pendente' if o.status == 'pendente' else ('Confirmada' if o.status == 'confirmada' else 'Rejeitada') %}
+<div class="card mb-2" style="font-size:0.83rem;">
+    <div class="card-body py-2 px-3" style="cursor:pointer;" onclick="toggleEventosMob({{ o.id }})">
+        <div class="d-flex justify-content-between align-items-start">
+            <div>
+                <span class="badge bg-{{ area_color }}" style="font-size:0.65rem;">{{ o.area_origem }}</span>
+                <span class="fw-semibold ms-1">{{ o.produto }}</span>
+                {% if o.sabor and o.sabor != o.produto %}<span class="text-muted"> ({{ o.sabor }})</span>{% endif %}
+            </div>
+            <span class="badge bg-{{ status_color }} ms-2 flex-shrink-0" style="font-size:0.65rem;">{{ status_label }}</span>
+        </div>
+        <div class="mt-1 text-muted" style="font-size:0.78rem;">
+            <span>{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</span>
+            &nbsp;·&nbsp;<span>{{ o.loja_destino }}</span>
+            &nbsp;·&nbsp;<span>{{ o.data.strftime('%d/%m/%Y') if o.data else '—' }}</span>
+        </div>
+        <div id="mob-eventos-{{ o.id }}" style="display:none; margin-top:8px;">
+            {% if o.status == 'rejeitada' and o.motivo_rejeicao %}
+            <div class="text-danger small mb-1"><strong>Motivo:</strong> {{ o.motivo_rejeicao }}</div>
+            {% endif %}
+            {% for ev in o.eventos %}
+            {% if ev.event_type == 'criado' %}{% set ev_icon = '🆕' %}{% set ev_label = 'Criado' %}
+            {% elif ev.event_type == 'confirmado' %}{% set ev_icon = '✅' %}{% set ev_label = 'Confirmado' %}
+            {% else %}{% set ev_icon = '❌' %}{% set ev_label = 'Rejeitado' %}{% endif %}
+            <div class="small text-muted">
+                {{ ev_icon }} {{ ev_label }}
+                {% if ev.utilizador %} · {{ ev.utilizador }}{% endif %}
+                {% if ev.created_at %} · {{ ev.created_at.strftime('%d/%m %H:%M') }}{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endfor %}
+</div>
+
+{% if total_pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm justify-content-center flex-wrap">
+        <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+            <a class="page-link" href="?tab=historico&area_origem={{ filtro_area }}&status={{ filtro_status }}&loja_destino={{ filtro_loja }}&data_inicio={{ filtro_data_inicio }}&data_fim={{ filtro_data_fim }}&page={{ page - 1 }}">‹</a>
+        </li>
+        {% for p in range(1, total_pages + 1) %}
+        {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+            <a class="page-link" href="?tab=historico&area_origem={{ filtro_area }}&status={{ filtro_status }}&loja_destino={{ filtro_loja }}&data_inicio={{ filtro_data_inicio }}&data_fim={{ filtro_data_fim }}&page={{ p }}">{{ p }}</a>
+        </li>
+        {% elif p == page - 3 or p == page + 3 %}
+        <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+        {% endfor %}
+        <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+            <a class="page-link" href="?tab=historico&area_origem={{ filtro_area }}&status={{ filtro_status }}&loja_destino={{ filtro_loja }}&data_inicio={{ filtro_data_inicio }}&data_fim={{ filtro_data_fim }}&page={{ page + 1 }}">›</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+
+{% else %}
+<div class="alert alert-info">Sem ordens de transferência para os filtros seleccionados.</div>
+{% endif %}
+
+{% endif %}{# end tab #}
+
+</div>
+
+<style>
+@media print {
+    .btn, form, nav, [id^="chevron-"] { display: none !important; }
+    .table-responsive { overflow: visible !important; }
+    table { font-size: 0.75rem !important; width: 100% !important; }
+    th, td { padding: 4px 6px !important; }
+    tr[id^="eventos-"] { display: table-row !important; }
+    .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+
+<script>
+function toggleEventos(id) {
+    const row = document.getElementById('eventos-' + id);
+    const chev = document.getElementById('chevron-' + id);
+    if (!row) return;
+    const open = row.style.display !== 'none';
+    row.style.display = open ? 'none' : '';
+    if (chev) chev.textContent = open ? '▶' : '▼';
+}
+function toggleEventosMob(id) {
+    const el = document.getElementById('mob-eventos-' + id);
+    if (!el) return;
+    el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+</script>
+{% endblock %}
