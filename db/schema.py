@@ -2305,7 +2305,7 @@ def run_migrations_transferencias_eventos():
             CREATE TABLE IF NOT EXISTS transferencias_eventos (
                 id          SERIAL PRIMARY KEY,
                 ordem_id    INTEGER NOT NULL REFERENCES ordens_transferencia(id) ON DELETE CASCADE,
-                event_type  VARCHAR(20) NOT NULL,  -- criado | confirmado | rejeitado
+                event_type  VARCHAR(20) NOT NULL CHECK (event_type IN ('criado', 'confirmado', 'rejeitado')),
                 utilizador  VARCHAR(100),
                 motivo      TEXT,
                 created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()

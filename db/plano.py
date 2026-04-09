@@ -504,14 +504,23 @@ def get_latest_pesagem_por_sabor(loja: str) -> dict:
 
 
 def _insert_evento(cursor, ordem_id: int, event_type: str, utilizador: str | None, motivo: str | None = None):
-    """Insert an audit event into transferencias_eventos within an existing transaction."""
+    """Insert an audit event into transferencias_eventos within the caller's transaction.
+
+    Any DB error is logged and re-raised so the enclosing transaction is rolled back.
+    This ensures that a transfer state change never commits without a corresponding
+    audit event — the audit trail is atomic with the state transition.
+    """
     try:
         cursor.execute("""
             INSERT INTO transferencias_eventos (ordem_id, event_type, utilizador, motivo)
             VALUES (%s, %s, %s, %s)
         """, (ordem_id, event_type, utilizador, motivo))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error(
+            "_insert_evento failed: ordem_id=%s event_type=%s utilizador=%s — %s",
+            ordem_id, event_type, utilizador, exc,
+        )
+        raise
 
 
 def criar_ordem_transferencia(data: date, area_origem: str, produto: str, quantidade: float, unidade: str = 'kg', loja_destino: str = 'Bolhão', sabor: str = None, criado_por: str = None, data_prevista: date = None):
