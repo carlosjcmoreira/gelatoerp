@@ -2260,3 +2260,38 @@ def run_data_fix_pesagem_matosinhos_backfill():
         release_connection(conn)
 
 
+
+def run_migrations_colaboradores_smart():
+    """Idempotent migration: adds CCT+IRS smart-salary columns to colaboradores.
+    Advisory lock 202615."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202615)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_colaboradores_smart: lock held by another worker, skipping")
+            return
+
+        cursor.execute('''
+            ALTER TABLE colaboradores
+                ADD COLUMN IF NOT EXISTS categoria_profissional VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS nivel_remuneratorio    SMALLINT DEFAULT 1,
+                ADD COLUMN IF NOT EXISTS estado_civil           VARCHAR(20) DEFAULT 'solteiro',
+                ADD COLUMN IF NOT EXISTS num_dependentes        SMALLINT DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS irs_override           BOOLEAN DEFAULT FALSE
+        ''')
+        conn.commit()
+        logger.info("run_migrations_colaboradores_smart: columns added/verified on colaboradores")
+    except Exception as exc:
+        logger.error("run_migrations_colaboradores_smart failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(202615)")
+            conn.commit()
+        except Exception:
+            pass
+        release_connection(conn)
