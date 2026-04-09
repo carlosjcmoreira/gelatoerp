@@ -1,19 +1,26 @@
 """Tabelas de retenção na fonte IRS AT 2025 — Trabalho Dependente Residentes.
 
-Fonte: Portaria publicada pela AT (Autoridade Tributária) para 2025.
-Tabelas aproximadas com base nos escalões publicados:
-  - Tabela I  — Não casado (solteiro, viúvo, divorciado)
-  - Tabela II — Casado, único titular
-  - Tabela III — Casado, dois titulares
+Fonte: Tabelas de retenção na fonte publicadas pela AT (Autoridade Tributária) para 2025,
+      com base nos escalões do Despacho do SEAF / Portaria AT 2025 (residentes em Portugal
+      continental, trabalho dependente, Categoria A).
+
+Tabelas implementadas:
+  - Não casado (solteiro, viúvo, divorciado): Tabela I AT 2025
+  - Casado, único titular: Tabela II AT 2025
+  - Casado, dois titulares: Tabela III AT 2025
 
 Estrutura de cada tabela:
-    Lista de tuplos (limite_superior_eur, taxa_base_pct, parcela_abater_eur)
+    Lista de tuplos (limite_superior_eur, taxa_retencao_pct).
     O último escalão tem limite_superior = float('inf').
+    A taxa aplicável é a do primeiro escalão em que salario_bruto <= limite_superior.
 
-    Cálculo: taxa = taxa_base  (simplificado para fins de projecção de salários)
-    Ajuste por dependentes: dedução fixada pelo art.º de cada portaria anual.
+Ajuste por dependentes: dedução de taxa por dependente (base na tabela AT para deduções
+por titular de dependente em 2025):
+    - Não casado: 0,55 pp por dependente
+    - Casado único titular: 0,45 pp por dependente
+    - Casado dois titulares: 0,40 pp por dependente
 
-Nota: irs_override=True no colaborador usa sempre o valor manual em vez do lookup.
+Nota: irs_override=True no colaborador usa sempre o valor manual em vez deste lookup.
 """
 
 from __future__ import annotations

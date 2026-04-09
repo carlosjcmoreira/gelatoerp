@@ -201,7 +201,7 @@ def _calc_colabs(colaboradores: list) -> tuple:
         nivel = int(c.get('nivel_remuneratorio') or 1)
         irs_override = bool(c.get('irs_override', False))
 
-        if cat and cat != 'outro' and not irs_override:
+        if cat and cat != 'outro':
             cct_base = lookup_salario_cct(cat, nivel)
             if cct_base > 0:
                 c['salario_bruto'] = cct_base

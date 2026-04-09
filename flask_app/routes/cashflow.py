@@ -133,7 +133,7 @@ def salarios():
                 num_dep = int(request.form.get('num_dependentes', '0') or 0)
                 irs_override_flag = request.form.get('irs_override', '0') == '1'
 
-                if categoria != 'outro' and not irs_override_flag:
+                if categoria != 'outro':
                     bruto = lookup_salario_cct(categoria, nivel)
                 else:
                     bruto = float(request.form.get('salario_bruto', '0').replace(',', '.') or 0)
