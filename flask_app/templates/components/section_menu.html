@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% set back_url = menu_back_url if menu_back_url is defined else url_for('home.index') %}
+{% if menu_back_url is defined %}{% set back_url = menu_back_url %}{% endif %}
 
 {% block content %}
 <div class="container-fluid px-3 pt-3 pb-5 section-menu-container">

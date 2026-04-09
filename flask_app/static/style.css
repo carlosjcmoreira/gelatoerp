@@ -807,6 +807,7 @@ body.sidebar-collapsed .sidebar-toggle {
     transition: color 0.15s;
     -webkit-user-select: none;
     user-select: none;
+    position: relative;
 }
 
 .bottom-nav-item:hover,
@@ -817,6 +818,19 @@ body.sidebar-collapsed .sidebar-toggle {
 
 .bottom-nav-item.active {
     color: var(--scoopy-accent);
+    font-weight: 600;
+}
+
+.bottom-nav-item.active::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 3px;
+    background: var(--scoopy-accent);
+    border-radius: 0 0 3px 3px;
 }
 
 .bottom-nav-icon {
