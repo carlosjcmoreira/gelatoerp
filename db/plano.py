@@ -588,45 +588,64 @@ def get_ordens_transferencia_with_events(
     area_origem: str = None,
     data_inicio: date = None,
     data_fim: date = None,
-    limit: int = 200,
-) -> list:
-    """Return orders with their audit events embedded, newest first.
+    page: int = 1,
+    per_page: int = 50,
+) -> dict:
+    """Return paginated orders with their audit events embedded, newest first.
 
-    Each returned dict is the same as get_ordens_transferencia() plus:
-        'eventos': [{'event_type', 'utilizador', 'motivo', 'created_at'}, ...]
-    The events list is ordered oldest-first so the UI can display a timeline.
+    Returns:
+        {
+            'ordens': [...],   # list of order dicts with 'eventos' key
+            'total': int,      # total matching rows (for pagination)
+            'page': int,
+            'per_page': int,
+            'total_pages': int,
+        }
+    Each order dict has 'eventos': [{'event_type', 'utilizador', 'motivo', 'created_at'}, ...]
+    ordered oldest-first.
     """
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        query = """
-            SELECT o.id, o.data, o.area_origem, o.produto, o.sabor,
-                   o.quantidade, o.unidade, o.loja_destino, o.status,
-                   o.criado_por, o.confirmado_por, o.confirmado_em,
-                   o.created_at, o.data_prevista, o.motivo_rejeicao
-            FROM ordens_transferencia o
-            WHERE 1=1
-        """
+        where = " WHERE 1=1"
         params = []
         if status:
-            query += " AND o.status = %s"
+            where += " AND o.status = %s"
             params.append(status)
         if loja_destino:
-            query += " AND o.loja_destino = %s"
+            where += " AND o.loja_destino = %s"
             params.append(loja_destino)
         if area_origem:
-            query += " AND o.area_origem = %s"
+            where += " AND o.area_origem = %s"
             params.append(area_origem)
         if data_inicio:
-            query += " AND o.data >= %s"
+            where += " AND o.data >= %s"
             params.append(data_inicio)
         if data_fim:
-            query += " AND o.data <= %s"
+            where += " AND o.data <= %s"
             params.append(data_fim)
-        query += " ORDER BY o.created_at DESC LIMIT %s"
-        params.append(limit)
 
-        cursor.execute(query, params)
+        # Total count
+        cursor.execute(
+            f"SELECT COUNT(*) FROM ordens_transferencia o{where}", params
+        )
+        total = cursor.fetchone()[0]
+
+        page = max(1, page)
+        per_page = max(1, min(per_page, 500))
+        total_pages = max(1, -(-total // per_page))
+        page = min(page, total_pages)
+        offset = (page - 1) * per_page
+
+        query = (
+            "SELECT o.id, o.data, o.area_origem, o.produto, o.sabor,"
+            " o.quantidade, o.unidade, o.loja_destino, o.status,"
+            " o.criado_por, o.confirmado_por, o.confirmado_em,"
+            " o.created_at, o.data_prevista, o.motivo_rejeicao"
+            f" FROM ordens_transferencia o{where}"
+            " ORDER BY o.created_at DESC LIMIT %s OFFSET %s"
+        )
+        cursor.execute(query, params + [per_page, offset])
         rows = cursor.fetchall()
         ordens = [{
             'id': r[0], 'data': r[1], 'area_origem': r[2], 'produto': r[3], 'sabor': r[4],
@@ -636,29 +655,33 @@ def get_ordens_transferencia_with_events(
             'eventos': [],
         } for r in rows]
 
-        if not ordens:
-            return ordens
+        if ordens:
+            # Fetch events in one batch for all orders on this page
+            ordem_ids = [o['id'] for o in ordens]
+            cursor.execute("""
+                SELECT ordem_id, event_type, utilizador, motivo, created_at
+                FROM transferencias_eventos
+                WHERE ordem_id = ANY(%s)
+                ORDER BY created_at ASC
+            """, (ordem_ids,))
+            idx = {o['id']: o for o in ordens}
+            for ev_row in cursor.fetchall():
+                ev = {
+                    'event_type': ev_row[1],
+                    'utilizador': ev_row[2],
+                    'motivo': ev_row[3],
+                    'created_at': ev_row[4],
+                }
+                if ev_row[0] in idx:
+                    idx[ev_row[0]]['eventos'].append(ev)
 
-        # Fetch events in one query for all orders
-        ordem_ids = [o['id'] for o in ordens]
-        cursor.execute("""
-            SELECT ordem_id, event_type, utilizador, motivo, created_at
-            FROM transferencias_eventos
-            WHERE ordem_id = ANY(%s)
-            ORDER BY created_at ASC
-        """, (ordem_ids,))
-        idx = {o['id']: o for o in ordens}
-        for ev_row in cursor.fetchall():
-            ev = {
-                'event_type': ev_row[1],
-                'utilizador': ev_row[2],
-                'motivo': ev_row[3],
-                'created_at': ev_row[4],
-            }
-            if ev_row[0] in idx:
-                idx[ev_row[0]]['eventos'].append(ev)
-
-        return ordens
+        return {
+            'ordens': ordens,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': total_pages,
+        }
     finally:
         release_connection(conn)
 

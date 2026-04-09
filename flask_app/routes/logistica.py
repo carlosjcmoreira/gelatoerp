@@ -79,12 +79,20 @@ def ordens():
     except ValueError:
         pass
 
-    ordens_list = get_ordens_transferencia_with_events(
+    PER_PAGE = 50
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except (ValueError, TypeError):
+        page = 1
+
+    result = get_ordens_transferencia_with_events(
         status=status,
         loja_destino=loja_destino,
         area_origem=area_origem,
         data_inicio=data_inicio,
         data_fim=data_fim,
+        page=page,
+        per_page=PER_PAGE,
     )
 
     lojas       = sorted({o['loja_destino'] for o in get_ordens_transferencia()})
@@ -93,7 +101,11 @@ def ordens():
 
     return render_template(
         'logistica/ordens.html',
-        ordens=ordens_list,
+        ordens=result['ordens'],
+        total=result['total'],
+        page=result['page'],
+        per_page=result['per_page'],
+        total_pages=result['total_pages'],
         areas=areas,
         lojas=lojas,
         statuses=statuses,
