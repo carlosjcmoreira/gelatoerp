@@ -530,7 +530,7 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
     conn = get_connection()
     cursor = conn.cursor()
     query = """
-        SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista
+        SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista, motivo_rejeicao
         FROM ordens_transferencia WHERE 1=1
     """
     params = []
@@ -557,7 +557,7 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
         'id': r[0], 'data': r[1], 'area_origem': r[2], 'produto': r[3], 'sabor': r[4],
         'quantidade': float(r[5]), 'unidade': r[6], 'loja_destino': r[7], 'status': r[8],
         'criado_por': r[9], 'confirmado_por': r[10], 'confirmado_em': r[11], 'created_at': r[12],
-        'data_prevista': r[13]
+        'data_prevista': r[13], 'motivo_rejeicao': r[14]
     } for r in rows]
 
 
@@ -598,14 +598,15 @@ def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
     return updated
 
 
-def rejeitar_ordem_transferencia(ordem_id: int, confirmado_por: str):
+def rejeitar_ordem_transferencia(ordem_id: int, confirmado_por: str, motivo: str = None):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE ordens_transferencia
-        SET status = 'rejeitada', confirmado_por = %s, confirmado_em = NOW()
+        SET status = 'rejeitada', confirmado_por = %s, confirmado_em = NOW(),
+            motivo_rejeicao = %s
         WHERE id = %s AND status = 'pendente'
-    """, (confirmado_por, ordem_id))
+    """, (confirmado_por, motivo or None, ordem_id))
     updated = cursor.rowcount > 0
     conn.commit()
     release_connection(conn)

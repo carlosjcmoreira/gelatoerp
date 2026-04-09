@@ -2261,6 +2261,36 @@ def run_data_fix_pesagem_matosinhos_backfill():
 
 
 
+def run_migrations_transferencias_motivo():
+    """Idempotent migration: adds motivo_rejeicao column to ordens_transferencia.
+    Advisory lock 202616."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202616)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_transferencias_motivo: lock held by another worker, skipping")
+            return
+        cursor.execute(
+            "ALTER TABLE ordens_transferencia ADD COLUMN IF NOT EXISTS motivo_rejeicao TEXT"
+        )
+        conn.commit()
+        logger.info("run_migrations_transferencias_motivo: motivo_rejeicao column added/verified")
+    except Exception as exc:
+        logger.error("run_migrations_transferencias_motivo failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(202616)")
+            conn.commit()
+        except Exception:
+            pass
+        release_connection(conn)
+
+
 def run_migrations_colaboradores_smart():
     """Idempotent migration: adds CCT+IRS smart-salary columns to colaboradores.
     Advisory lock 202615."""

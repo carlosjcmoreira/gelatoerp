@@ -17,6 +17,7 @@ from database import (
 
 import flask_app.services.vendas as vendas_svc
 from flask_app.services import ServiceError
+from db.plano import get_ordem_transferencia_by_id
 
 vendas_bp = Blueprint('vendas', __name__)
 
@@ -298,22 +299,24 @@ def transferencias():
         ordem_id = request.form.get('ordem_id')
         username = session.get('user', {}).get('username', '')
 
-        if action == 'confirmar' and ordem_id:
-            from database import get_ordem_transferencia_by_id
-            ordem = get_ordem_transferencia_by_id(int(ordem_id))
-            if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                confirmar_ordem_transferencia(int(ordem_id), username)
-                flash('Transferência confirmada e stock atualizado!', 'success')
-            else:
-                flash('Sem permissão para confirmar esta transferência.', 'error')
-        elif action == 'rejeitar' and ordem_id:
-            from database import get_ordem_transferencia_by_id
-            ordem = get_ordem_transferencia_by_id(int(ordem_id))
-            if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                rejeitar_ordem_transferencia(int(ordem_id), username)
-                flash('Transferência rejeitada.', 'info')
-            else:
-                flash('Sem permissão para rejeitar esta transferência.', 'error')
+        try:
+            if action == 'confirmar' and ordem_id:
+                ordem = get_ordem_transferencia_by_id(int(ordem_id))
+                if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
+                    confirmar_ordem_transferencia(int(ordem_id), username)
+                    flash('Transferência confirmada e stock atualizado!', 'success')
+                else:
+                    flash('Sem permissão para confirmar esta transferência.', 'warning')
+            elif action == 'rejeitar' and ordem_id:
+                motivo = request.form.get('motivo_rejeicao', '').strip() or None
+                ordem = get_ordem_transferencia_by_id(int(ordem_id))
+                if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
+                    rejeitar_ordem_transferencia(int(ordem_id), username, motivo=motivo)
+                    flash('Transferência rejeitada.', 'info')
+                else:
+                    flash('Sem permissão para rejeitar esta transferência.', 'warning')
+        except Exception as exc:
+            flash(f'Erro ao processar transferência: {exc}', 'danger')
 
         return redirect(url_for('vendas.transferencias', loja_id=loja_id))
 
