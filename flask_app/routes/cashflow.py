@@ -175,7 +175,7 @@ def salarios():
                     flash('Nome do colaborador é obrigatório.', 'warning')
                 else:
                     upsert_colaborador(colab_id, nome, bruto, premio, irs, data_inicio, centros,
-                                       categoria_profissional=categoria if categoria != 'outro' else None,
+                                       categoria_profissional=categoria,
                                        nivel_remuneratorio=nivel,
                                        estado_civil=estado_civil,
                                        num_dependentes=num_dep,

@@ -270,7 +270,7 @@ def upsert_colaborador(colaborador_id: int | None, nome: str,
                    WHERE id=%s''',
                 (nome.strip(), salario_bruto, premio_bruto, irs_taxa,
                  data_inicio or None,
-                 categoria_profissional or None, nivel_remuneratorio,
+                 categoria_profissional or 'outro', nivel_remuneratorio,
                  estado_civil, num_dependentes, irs_override,
                  colaborador_id)
             )
@@ -283,7 +283,7 @@ def upsert_colaborador(colaborador_id: int | None, nome: str,
                         estado_civil, num_dependentes, irs_override)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id''',
                 (nome.strip(), salario_bruto, premio_bruto, irs_taxa, data_inicio or None,
-                 categoria_profissional or None, nivel_remuneratorio,
+                 categoria_profissional or 'outro', nivel_remuneratorio,
                  estado_civil, num_dependentes, irs_override)
             )
             cid = cursor.fetchone()[0]
