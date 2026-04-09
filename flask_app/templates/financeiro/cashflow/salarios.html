@@ -57,39 +57,96 @@
 
     <!-- ── Adicionar colaborador ───────────────────────────────────────────── -->
     <div class="card mb-3">
-        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center">
-            <span>Adicionar Colaborador</span>
-        </div>
+        <div class="card-header small fw-semibold">Adicionar Colaborador</div>
         <div class="card-body">
-            <form method="post">
+            <form method="post" id="addColabForm">
                 <input type="hidden" name="action" value="upsert_colaborador">
                 <input type="hidden" name="colab_id" value="">
                 <div class="row g-2 mb-2">
                     <div class="col-sm-4">
-                        <label class="form-label small">Nome</label>
+                        <label class="form-label small">Nome <span class="text-danger">*</span></label>
                         <input type="text" name="nome" class="form-control form-control-sm"
                                placeholder="Nome completo" required>
                     </div>
-                    <div class="col-sm-2">
-                        <label class="form-label small">Salário Bruto (€)</label>
-                        <input type="number" name="salario_bruto" class="form-control form-control-sm"
-                               step="0.01" min="0" placeholder="0.00">
+                    <div class="col-sm-4">
+                        <label class="form-label small">Categoria Profissional (CCT)</label>
+                        <select name="categoria_profissional" id="addCategoria" class="form-select form-select-sm">
+                            {% for key, label in cct_categorias %}
+                            <option value="{{ key }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
-                    <div class="col-sm-2">
+                    <div class="col-sm-4 col-6">
+                        <label class="form-label small">Nível Remuneratório</label>
+                        <select name="nivel_remuneratorio" id="addNivel" class="form-select form-select-sm">
+                            {% for n, label in niveis_labels.items() %}
+                            <option value="{{ n }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Manual salary override (only shown when category='outro') -->
+                <div id="addManualSalario" class="row g-2 mb-2" style="display:none;">
+                    <div class="col-sm-4">
+                        <label class="form-label small">Salário Bruto (€) <span class="text-danger">*</span></label>
+                        <input type="number" name="salario_bruto" id="addBrutoManual"
+                               class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00">
+                    </div>
+                </div>
+
+                <!-- Computed salary preview (shown for CCT categories) -->
+                <div id="addSalarioPreview" class="mb-2 p-2 bg-light rounded border small">
+                    <span class="text-muted">Salário base CCT:</span>
+                    <span id="addBrutoDisplay" class="fw-semibold ms-1">—</span>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-sm-4">
+                        <label class="form-label small">Estado Civil</label>
+                        <select name="estado_civil" id="addEstadoCivil" class="form-select form-select-sm">
+                            {% for key, label in estado_civil_labels.items() %}
+                            <option value="{{ key }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-sm-2 col-4">
+                        <label class="form-label small">Nº Dependentes</label>
+                        <input type="number" name="num_dependentes" id="addNumDep"
+                               class="form-control form-control-sm" min="0" max="10" value="0">
+                    </div>
+                    <div class="col-sm-2 col-4">
                         <label class="form-label small">Prémio Bruto (€)</label>
-                        <input type="number" name="premio_bruto" class="form-control form-control-sm"
-                               step="0.01" min="0" placeholder="0.00">
+                        <input type="number" name="premio_bruto" id="addPremio"
+                               class="form-control form-control-sm" step="0.01" min="0" placeholder="0.00" value="0">
                     </div>
-                    <div class="col-sm-2">
-                        <label class="form-label small">IRS (%)</label>
-                        <input type="number" name="irs_taxa" class="form-control form-control-sm"
-                               step="0.1" min="0" max="100" placeholder="0">
-                    </div>
-                    <div class="col-sm-2">
+                    <div class="col-sm-2 col-4">
                         <label class="form-label small">Data Início</label>
                         <input type="date" name="data_inicio" class="form-control form-control-sm">
                     </div>
                 </div>
+
+                <!-- IRS override toggle -->
+                <div class="form-check form-switch mb-2">
+                    <input class="form-check-input" type="checkbox" id="addIrsOverride" name="irs_override" value="1">
+                    <label class="form-check-label small" for="addIrsOverride">Inserir IRS % manualmente (override)</label>
+                </div>
+                <div id="addIrsOverrideField" class="row g-2 mb-2" style="display:none;">
+                    <div class="col-sm-2">
+                        <label class="form-label small">IRS (%)</label>
+                        <input type="number" name="irs_taxa" id="addIrsTaxa"
+                               class="form-control form-control-sm" step="0.1" min="0" max="100" placeholder="0.0">
+                    </div>
+                </div>
+
+                <!-- IRS preview badge -->
+                <div id="addIrsPreview" class="mb-2 p-2 bg-light rounded border small">
+                    <span class="text-muted">IRS calculado (AT 2025):</span>
+                    <span id="addIrsDisplay" class="fw-semibold text-primary ms-1">—</span>
+                    <span class="text-muted ms-3">Líquido estimado:</span>
+                    <span id="addLiqDisplay" class="fw-semibold ms-1">—</span>
+                </div>
+
                 {% if cost_centers %}
                 <div class="mb-2">
                     <label class="form-label small">Alocação a centros de custo (opcional)</label>
@@ -119,13 +176,12 @@
     <!-- ── Lista de colaboradores ──────────────────────────────────────────── -->
     <div class="card mb-3">
         <div class="card-header small fw-semibold">Colaboradores</div>
-        {% set active = colaboradores | selectattr('ativo') | list %}
-        {% set inactive = colaboradores | rejectattr('ativo') | list %}
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
                 <thead class="table-light">
                     <tr style="font-size:0.78rem;">
                         <th>Nome</th>
+                        <th>Categoria</th>
                         <th class="text-end">Bruto (€)</th>
                         <th class="text-end">Prémio (€)</th>
                         <th class="text-center">IRS %</th>
@@ -142,10 +198,24 @@
                     <td class="align-middle">
                         {{ c.nome }}
                         {% if not c.ativo %}<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle ms-1" style="font-size:0.65rem;">Inactivo</span>{% endif %}
+                        {% if c.irs_override %}<span class="badge bg-warning-subtle text-warning border border-warning-subtle ms-1" style="font-size:0.65rem;">IRS manual</span>{% endif %}
+                    </td>
+                    <td class="align-middle small text-muted">
+                        {% if c.categoria_profissional %}
+                            {{ dict(cct_categorias).get(c.categoria_profissional, c.categoria_profissional) }}
+                            <span class="text-muted" style="font-size:0.7rem;">N{{ c.nivel_remuneratorio or 1 }}</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
                     </td>
                     <td class="text-end align-middle">{{ "{:,.2f}".format(c.salario_bruto | float) }}€</td>
                     <td class="text-end align-middle">{{ "{:,.2f}".format(c.premio_bruto | float) }}€</td>
-                    <td class="text-center align-middle">{{ c.irs_taxa | float | round(1) }}%</td>
+                    <td class="text-center align-middle">
+                        {{ c.irs_taxa | float | round(1) }}%
+                        {% if not (c.irs_override) and c.categoria_profissional and c.categoria_profissional != 'outro' %}
+                        <span class="text-success" title="Calculado automaticamente" style="font-size:0.7rem;">●</span>
+                        {% endif %}
+                    </td>
                     <td class="text-end align-middle fw-semibold">{{ "{:,.2f}".format(c.salario_liq | float) }}€</td>
                     <td class="text-end align-middle text-danger">{{ "{:,.2f}".format(c.impostos_dia15 | float) }}€</td>
                     <td class="text-end align-middle text-muted">{{ "{:,.2f}".format(c.custo_empresa | float) }}€</td>
@@ -165,7 +235,12 @@
                                 data-premio="{{ c.premio_bruto }}"
                                 data-irs="{{ c.irs_taxa }}"
                                 data-inicio="{{ c.data_inicio.isoformat() if c.data_inicio else '' }}"
-                                data-centros="{{ centros_js | tojson | e }}">Editar</button>
+                                data-centros="{{ centros_js | tojson | e }}"
+                                data-categoria="{{ c.categoria_profissional or '' }}"
+                                data-nivel="{{ c.nivel_remuneratorio or 1 }}"
+                                data-estadocivil="{{ c.estado_civil or 'solteiro' }}"
+                                data-numdep="{{ c.num_dependentes or 0 }}"
+                                data-override="{{ '1' if c.irs_override else '0' }}">Editar</button>
                         <form method="post" class="d-inline">
                             <input type="hidden" name="action" value="toggle_colaborador">
                             <input type="hidden" name="colab_id" value="{{ c.id }}">
@@ -177,7 +252,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="9" class="text-center text-muted small py-3">Nenhum colaborador registado.</td></tr>
+                <tr><td colspan="10" class="text-center text-muted small py-3">Nenhum colaborador registado.</td></tr>
                 {% endfor %}
                 </tbody>
                 {% if colaboradores %}
@@ -190,7 +265,9 @@
                 <tfoot class="table-light fw-semibold small">
                     <tr>
                         <td>Total (activos)</td>
-                        <td colspan="3"></td>
+                        <td></td>
+                        <td colspan="2"></td>
+                        <td></td>
                         <td class="text-end">{{ "{:,.2f}".format(ns.liq) }}€</td>
                         <td class="text-end text-danger">{{ "{:,.2f}".format(ns.imp) }}€</td>
                         <td class="text-end text-muted">{{ "{:,.2f}".format(ns.custo) }}€</td>
@@ -234,54 +311,113 @@
     {% endif %}
 </div>
 
-<!-- Edit Colaborador Modal -->
+<!-- ── Edit Colaborador Modal ──────────────────────────────────────────────── -->
 <div class="modal fade" id="editColabModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header py-2">
                 <h6 class="modal-title small fw-semibold">Editar Colaborador</h6>
                 <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
             </div>
-            <form method="post">
+            <form method="post" id="editColabForm">
                 <div class="modal-body">
                     <input type="hidden" name="action" value="upsert_colaborador">
                     <input type="hidden" name="colab_id" id="editColabId">
                     <div class="row g-2 mb-2">
-                        <div class="col-12">
+                        <div class="col-12 col-sm-4">
                             <label class="form-label small">Nome</label>
                             <input type="text" name="nome" id="editColabNome"
                                    class="form-control form-control-sm" required>
                         </div>
-                        <div class="col-4">
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label small">Categoria Profissional (CCT)</label>
+                            <select name="categoria_profissional" id="editCategoria" class="form-select form-select-sm">
+                                {% for key, label in cct_categorias %}
+                                <option value="{{ key }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6 col-sm-4">
+                            <label class="form-label small">Nível</label>
+                            <select name="nivel_remuneratorio" id="editNivel" class="form-select form-select-sm">
+                                {% for n, label in niveis_labels.items() %}
+                                <option value="{{ n }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Manual salary (only for 'outro') -->
+                    <div id="editManualSalario" class="row g-2 mb-2" style="display:none;">
+                        <div class="col-sm-4">
                             <label class="form-label small">Salário Bruto (€)</label>
                             <input type="number" name="salario_bruto" id="editColabBruto"
                                    class="form-control form-control-sm" step="0.01" min="0">
                         </div>
-                        <div class="col-4">
+                    </div>
+
+                    <!-- CCT salary preview -->
+                    <div id="editSalarioPreview" class="mb-2 p-2 bg-light rounded border small">
+                        <span class="text-muted">Salário base CCT:</span>
+                        <span id="editBrutoDisplay" class="fw-semibold ms-1">—</span>
+                    </div>
+
+                    <div class="row g-2 mb-2">
+                        <div class="col-sm-4">
+                            <label class="form-label small">Estado Civil</label>
+                            <select name="estado_civil" id="editEstadoCivil" class="form-select form-select-sm">
+                                {% for key, label in estado_civil_labels.items() %}
+                                <option value="{{ key }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-sm-2 col-4">
+                            <label class="form-label small">Nº Dependentes</label>
+                            <input type="number" name="num_dependentes" id="editNumDep"
+                                   class="form-control form-control-sm" min="0" max="10" value="0">
+                        </div>
+                        <div class="col-sm-2 col-4">
                             <label class="form-label small">Prémio Bruto (€)</label>
                             <input type="number" name="premio_bruto" id="editColabPremio"
                                    class="form-control form-control-sm" step="0.01" min="0">
                         </div>
-                        <div class="col-4">
-                            <label class="form-label small">IRS (%)</label>
-                            <input type="number" name="irs_taxa" id="editColabIrs"
-                                   class="form-control form-control-sm" step="0.1" min="0" max="100">
-                        </div>
-                        <div class="col-6">
+                        <div class="col-6 col-sm-2">
                             <label class="form-label small">Data Início</label>
                             <input type="date" name="data_inicio" id="editColabInicio"
                                    class="form-control form-control-sm">
                         </div>
                     </div>
+
+                    <!-- IRS override toggle -->
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="editIrsOverride" name="irs_override" value="1">
+                        <label class="form-check-label small" for="editIrsOverride">Inserir IRS % manualmente (override)</label>
+                    </div>
+                    <div id="editIrsOverrideField" class="row g-2 mb-2" style="display:none;">
+                        <div class="col-sm-2">
+                            <label class="form-label small">IRS (%)</label>
+                            <input type="number" name="irs_taxa" id="editColabIrs"
+                                   class="form-control form-control-sm" step="0.1" min="0" max="100">
+                        </div>
+                    </div>
+
+                    <!-- IRS preview badge -->
+                    <div id="editIrsPreview" class="mb-2 p-2 bg-light rounded border small">
+                        <span class="text-muted">IRS calculado (AT 2025):</span>
+                        <span id="editIrsDisplay" class="fw-semibold text-primary ms-1">—</span>
+                        <span class="text-muted ms-3">Líquido estimado:</span>
+                        <span id="editLiqDisplay" class="fw-semibold ms-1">—</span>
+                    </div>
+
                     {% if cost_centers %}
                     <label class="form-label small">Alocação a centros de custo</label>
-                    <div class="row g-2">
+                    <div class="row g-2 mb-2">
                         {% for cc in cost_centers %}
                         <div class="col-auto">
                             <div class="input-group input-group-sm">
                                 <span class="input-group-text">{{ cc.code }}</span>
                                 <input type="hidden" name="cc_id[]" value="{{ cc.id }}">
-                                <input type="number" name="cc_pct[]"
+                                <input type="number" name="cc_pct[]" id="editCcPct_{{ cc.id }}"
                                        class="form-control form-control-sm"
                                        style="width:70px" step="1" min="0" max="100"
                                        placeholder="%" title="{{ cc.name }}">
@@ -305,29 +441,193 @@
 {% block scripts %}
 <script>
 (function () {
+    var IRS_PREVIEW_URL = '{{ url_for("cashflow.salarios_irs_preview") }}';
+    var CCT_SALARIOS = {{ cct_salarios | tojson }};
+
+    function fmt(v) { return isNaN(v) ? '—' : v.toLocaleString('pt-PT', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €'; }
+    function fmtPct(v) { return isNaN(v) ? '—' : v.toFixed(1) + '%'; }
+
+    /* ── ADD FORM ─────────────────────────────────────────────────────────── */
+    var addCat     = document.getElementById('addCategoria');
+    var addNivel   = document.getElementById('addNivel');
+    var addEstado  = document.getElementById('addEstadoCivil');
+    var addNumDep  = document.getElementById('addNumDep');
+    var addPremio  = document.getElementById('addPremio');
+    var addManual  = document.getElementById('addManualSalario');
+    var addBrutoM  = document.getElementById('addBrutoManual');
+    var addPrev    = document.getElementById('addSalarioPreview');
+    var addBrutoD  = document.getElementById('addBrutoDisplay');
+    var addIrsPrev = document.getElementById('addIrsPreview');
+    var addIrsD    = document.getElementById('addIrsDisplay');
+    var addLiqD    = document.getElementById('addLiqDisplay');
+    var addOvCheck = document.getElementById('addIrsOverride');
+    var addOvField = document.getElementById('addIrsOverrideField');
+    var addIrsTaxa = document.getElementById('addIrsTaxa');
+
+    function addToggleCategory() {
+        var isOutro = (addCat.value === 'outro');
+        addManual.style.display  = isOutro ? '' : 'none';
+        addPrev.style.display    = isOutro ? 'none' : '';
+        addIrsPrev.style.display = isOutro ? 'none' : '';
+        if (!isOutro) addUpdatePreview('add');
+    }
+
+    function addToggleOverride() {
+        var isOverride = addOvCheck.checked;
+        addOvField.style.display = isOverride ? '' : 'none';
+        addIrsPrev.style.display = (isOverride || addCat.value === 'outro') ? 'none' : '';
+        if (!isOverride && addCat.value !== 'outro') addUpdatePreview('add');
+    }
+
+    var _addTimer = null;
+    function addUpdatePreview(src) {
+        clearTimeout(_addTimer);
+        _addTimer = setTimeout(function () {
+            var cat    = addCat.value;
+            var nivel  = addNivel.value;
+            var estado = addEstado.value;
+            var ndep   = addNumDep.value;
+            var premio = addPremio.value || 0;
+            var brutoM = (cat === 'outro') ? (addBrutoM ? addBrutoM.value : 0) : '';
+
+            if (cat !== 'outro') {
+                var tbl = CCT_SALARIOS[cat] || {};
+                var b = tbl[parseInt(nivel)] || 0;
+                addBrutoD.textContent = fmt(b);
+            }
+
+            if (cat === 'outro' || addOvCheck.checked) return;
+
+            var url = IRS_PREVIEW_URL +
+                '?categoria=' + encodeURIComponent(cat) +
+                '&nivel=' + encodeURIComponent(nivel) +
+                '&estado_civil=' + encodeURIComponent(estado) +
+                '&num_dep=' + encodeURIComponent(ndep) +
+                '&premio=' + encodeURIComponent(premio) +
+                '&bruto_manual=' + encodeURIComponent(brutoM);
+
+            fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+                addIrsD.textContent = fmtPct(d.irs_taxa);
+                addLiqD.textContent = fmt(d.salario_liq);
+                addBrutoD.textContent = fmt(d.salario_bruto);
+            }).catch(function () {});
+        }, 400);
+    }
+
+    if (addCat) {
+        addCat.addEventListener('change', function () { addToggleCategory(); addUpdatePreview('cat'); });
+        addNivel.addEventListener('change', function () { addUpdatePreview('nivel'); });
+        addEstado.addEventListener('change', function () { addUpdatePreview('estado'); });
+        addNumDep.addEventListener('input', function () { addUpdatePreview('dep'); });
+        addPremio.addEventListener('input', function () { addUpdatePreview('premio'); });
+        addOvCheck.addEventListener('change', addToggleOverride);
+        addToggleCategory();
+    }
+
+    /* ── EDIT MODAL ───────────────────────────────────────────────────────── */
     var modal = document.getElementById('editColabModal');
     if (!modal) return;
 
+    var editCat    = document.getElementById('editCategoria');
+    var editNivel  = document.getElementById('editNivel');
+    var editEstado = document.getElementById('editEstadoCivil');
+    var editNumDep = document.getElementById('editNumDep');
+    var editPremio = document.getElementById('editColabPremio');
+    var editManual = document.getElementById('editManualSalario');
+    var editPrev   = document.getElementById('editSalarioPreview');
+    var editBrutoD = document.getElementById('editBrutoDisplay');
+    var editIrsPrev= document.getElementById('editIrsPreview');
+    var editIrsD   = document.getElementById('editIrsDisplay');
+    var editLiqD   = document.getElementById('editLiqDisplay');
+    var editOvCk   = document.getElementById('editIrsOverride');
+    var editOvFld  = document.getElementById('editIrsOverrideField');
+    var editBruto  = document.getElementById('editColabBruto');
+
+    function editToggleCategory() {
+        var isOutro = (editCat.value === 'outro');
+        editManual.style.display  = isOutro ? '' : 'none';
+        editPrev.style.display    = isOutro ? 'none' : '';
+        editIrsPrev.style.display = (isOutro || editOvCk.checked) ? 'none' : '';
+        if (!isOutro) editUpdatePreview();
+    }
+
+    function editToggleOverride() {
+        var isOverride = editOvCk.checked;
+        editOvFld.style.display  = isOverride ? '' : 'none';
+        editIrsPrev.style.display = (isOverride || editCat.value === 'outro') ? 'none' : '';
+        if (!isOverride && editCat.value !== 'outro') editUpdatePreview();
+    }
+
+    var _editTimer = null;
+    function editUpdatePreview() {
+        clearTimeout(_editTimer);
+        _editTimer = setTimeout(function () {
+            if (editOvCk.checked || editCat.value === 'outro') return;
+            var cat    = editCat.value;
+            var nivel  = editNivel.value;
+            var estado = editEstado.value;
+            var ndep   = editNumDep.value;
+            var premio = editPremio.value || 0;
+
+            var tbl = CCT_SALARIOS[cat] || {};
+            editBrutoD.textContent = fmt(tbl[parseInt(nivel)] || 0);
+
+            var url = IRS_PREVIEW_URL +
+                '?categoria=' + encodeURIComponent(cat) +
+                '&nivel=' + encodeURIComponent(nivel) +
+                '&estado_civil=' + encodeURIComponent(estado) +
+                '&num_dep=' + encodeURIComponent(ndep) +
+                '&premio=' + encodeURIComponent(premio);
+
+            fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+                editIrsD.textContent = fmtPct(d.irs_taxa);
+                editLiqD.textContent = fmt(d.salario_liq);
+                editBrutoD.textContent = fmt(d.salario_bruto);
+            }).catch(function () {});
+        }, 400);
+    }
+
+    editCat.addEventListener('change', function () { editToggleCategory(); });
+    editNivel.addEventListener('change', editUpdatePreview);
+    editEstado.addEventListener('change', editUpdatePreview);
+    editNumDep.addEventListener('input', editUpdatePreview);
+    editPremio.addEventListener('input', editUpdatePreview);
+    editOvCk.addEventListener('change', editToggleOverride);
+
     modal.addEventListener('show.bs.modal', function (e) {
         var btn = e.relatedTarget;
-        document.getElementById('editColabId').value     = btn.dataset.id;
-        document.getElementById('editColabNome').value   = btn.dataset.nome;
-        document.getElementById('editColabBruto').value  = btn.dataset.bruto;
-        document.getElementById('editColabPremio').value = btn.dataset.premio;
-        document.getElementById('editColabIrs').value    = btn.dataset.irs;
-        document.getElementById('editColabInicio').value = btn.dataset.inicio || '';
+        document.getElementById('editColabId').value    = btn.dataset.id;
+        document.getElementById('editColabNome').value  = btn.dataset.nome;
+        editBruto.value   = btn.dataset.bruto;
+        editPremio.value  = btn.dataset.premio;
+        document.getElementById('editColabIrs').value   = btn.dataset.irs;
+        document.getElementById('editColabInicio').value= btn.dataset.inicio || '';
+
+        var cat    = btn.dataset.categoria || 'outro';
+        var nivel  = btn.dataset.nivel || '1';
+        var estado = btn.dataset.estadocivil || 'solteiro';
+        var ndep   = btn.dataset.numdep || '0';
+        var override = btn.dataset.override === '1';
+
+        editCat.value    = cat;
+        editNivel.value  = nivel;
+        editEstado.value = estado;
+        editNumDep.value = ndep;
+        editOvCk.checked = override;
 
         // Preload centro allocations
         var centros = [];
-        try { centros = JSON.parse(btn.dataset.centros || '[]'); } catch(e) {}
+        try { centros = JSON.parse(btn.dataset.centros || '[]'); } catch(ex) {}
         var allocMap = {};
         centros.forEach(function (a) { allocMap[a.centro_custo_id] = a.percentagem; });
-
         modal.querySelectorAll('input[name="cc_pct[]"]').forEach(function (inp, idx) {
             var hiddenIds = modal.querySelectorAll('input[name="cc_id[]"]');
             var ccId = hiddenIds[idx] ? parseInt(hiddenIds[idx].value) : 0;
             inp.value = ccId && allocMap[ccId] !== undefined ? allocMap[ccId] : '';
         });
+
+        editToggleCategory();
+        editToggleOverride();
     });
 
     // Validate allocation sum on edit form submit
@@ -335,8 +635,7 @@
     if (editForm) {
         editForm.addEventListener('submit', function (e) {
             var inputs = modal.querySelectorAll('input[name="cc_pct[]"]');
-            var total = 0;
-            var hasAny = false;
+            var total = 0, hasAny = false;
             inputs.forEach(function (inp) {
                 var v = parseFloat(inp.value) || 0;
                 if (v > 0) { hasAny = true; total += v; }

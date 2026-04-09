@@ -14,6 +14,8 @@ from db.centros_custo import (
     migrate_colaboradores_from_json,
     _calc_colabs, get_cost_centers,
 )
+from db.tabelas_cct import CCT_CATEGORIAS, CCT_SALARIOS, NIVEIS_LABELS, lookup_salario_cct
+from db.tabelas_irs import lookup_irs, ESTADO_CIVIL_LABELS
 
 SS_TRAB = 0.11
 SS_PATR = 0.2375
@@ -125,10 +127,25 @@ def salarios():
             colab_id = int(colab_id_raw) if colab_id_raw else None
             nome = request.form.get('nome', '').strip()
             try:
-                bruto  = float(request.form.get('salario_bruto', '0').replace(',', '.') or 0)
-                premio = float(request.form.get('premio_bruto',  '0').replace(',', '.') or 0)
-                irs    = min(100.0, max(0.0, float(
-                    request.form.get('irs_taxa', '0').replace(',', '.') or 0)))
+                categoria = request.form.get('categoria_profissional', 'outro').strip() or 'outro'
+                nivel = int(request.form.get('nivel_remuneratorio', '1') or 1)
+                estado_civil = request.form.get('estado_civil', 'solteiro').strip() or 'solteiro'
+                num_dep = int(request.form.get('num_dependentes', '0') or 0)
+                irs_override_flag = request.form.get('irs_override', '0') == '1'
+
+                if categoria != 'outro' and not irs_override_flag:
+                    bruto = lookup_salario_cct(categoria, nivel)
+                else:
+                    bruto = float(request.form.get('salario_bruto', '0').replace(',', '.') or 0)
+
+                premio = float(request.form.get('premio_bruto', '0').replace(',', '.') or 0)
+
+                if irs_override_flag or categoria == 'outro':
+                    irs = min(100.0, max(0.0, float(
+                        request.form.get('irs_taxa', '0').replace(',', '.') or 0)))
+                else:
+                    irs = lookup_irs(bruto + premio, estado_civil, num_dep)
+
                 data_inicio_s = request.form.get('data_inicio', '').strip() or None
                 from datetime import datetime as _dt
                 data_inicio = _dt.strptime(data_inicio_s, '%Y-%m-%d').date() if data_inicio_s else None
@@ -157,7 +174,12 @@ def salarios():
                 if not nome:
                     flash('Nome do colaborador é obrigatório.', 'warning')
                 else:
-                    upsert_colaborador(colab_id, nome, bruto, premio, irs, data_inicio, centros)
+                    upsert_colaborador(colab_id, nome, bruto, premio, irs, data_inicio, centros,
+                                       categoria_profissional=categoria if categoria != 'outro' else None,
+                                       nivel_remuneratorio=nivel,
+                                       estado_civil=estado_civil,
+                                       num_dependentes=num_dep,
+                                       irs_override=irs_override_flag)
                     # Sync aggregates
                     colabs = get_colaboradores_calculados(ativo_only=True)
                     total_liq = round(sum(c.get('salario_liq', 0) for c in colabs), 2)
@@ -205,7 +227,50 @@ def salarios():
                            colaboradores=colaboradores,
                            cost_centers=cost_centers,
                            SS_TRAB=SS_TRAB,
-                           SS_PATR=SS_PATR)
+                           SS_PATR=SS_PATR,
+                           cct_categorias=CCT_CATEGORIAS,
+                           cct_salarios=CCT_SALARIOS,
+                           niveis_labels=NIVEIS_LABELS,
+                           estado_civil_labels=ESTADO_CIVIL_LABELS)
+
+
+@cashflow_bp.route('/salarios/irs-preview')
+@perm_required('acesso_gestor')
+def salarios_irs_preview():
+    """AJAX: return CCT base salary and IRS rate for given params."""
+    categoria = request.args.get('categoria', 'outro')
+    nivel = int(request.args.get('nivel', 1) or 1)
+    estado_civil = request.args.get('estado_civil', 'solteiro')
+    num_dep = int(request.args.get('num_dep', 0) or 0)
+    premio = float(request.args.get('premio', 0) or 0)
+    bruto_manual_str = request.args.get('bruto_manual', '')
+
+    if categoria != 'outro':
+        bruto = lookup_salario_cct(categoria, nivel)
+    else:
+        try:
+            bruto = float(bruto_manual_str.replace(',', '.') or 0)
+        except (ValueError, TypeError):
+            bruto = 0.0
+
+    total = bruto + premio
+    irs = lookup_irs(total, estado_civil, num_dep)
+    ss_trab = round(total * SS_TRAB, 2)
+    ss_patr = round(total * SS_PATR, 2)
+    irs_ret = round(total * irs / 100, 2)
+    liq = round(total - ss_trab - irs_ret, 2)
+    custo = round(total * (1 + SS_PATR), 2)
+
+    return jsonify({
+        'salario_bruto': round(bruto, 2),
+        'total_bruto': round(total, 2),
+        'irs_taxa': irs,
+        'ss_trabalhador': ss_trab,
+        'ss_patronal': ss_patr,
+        'irs_retido': irs_ret,
+        'salario_liq': liq,
+        'custo_empresa': custo,
+    })
 
 
 @cashflow_bp.route('/debitos', methods=['GET', 'POST'])

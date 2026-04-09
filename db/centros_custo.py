@@ -5,6 +5,8 @@ import logging
 from psycopg2.extras import RealDictCursor
 
 from db.core import db_connection, get_connection, release_connection
+from db.tabelas_cct import lookup_salario_cct
+from db.tabelas_irs import lookup_irs
 
 logger = logging.getLogger(__name__)
 
@@ -183,23 +185,46 @@ def get_colaboradores(ativo_only: bool = False):
 
 
 def _calc_colabs(colaboradores: list) -> tuple:
-    """Recalculate derived fields and return (enriched_list, total_liq, total_imp)."""
+    """Recalculate derived fields and return (enriched_list, total_liq, total_imp).
+
+    When irs_override=False and categoria_profissional is set, the IRS rate is
+    determined automatically via lookup_irs (AT 2025 tables).  Otherwise the
+    stored irs_taxa value is used unchanged.
+    """
     total_liq = 0.0
     total_imp = 0.0
     enriched = []
     for c in colaboradores:
+        c = dict(c)
+
+        cat = c.get('categoria_profissional') or 'outro'
+        nivel = int(c.get('nivel_remuneratorio') or 1)
+        irs_override = bool(c.get('irs_override', False))
+
+        if cat and cat != 'outro' and not irs_override:
+            cct_base = lookup_salario_cct(cat, nivel)
+            if cct_base > 0:
+                c['salario_bruto'] = cct_base
+
         bruto = float(c.get('salario_bruto') or 0)
         premio = float(c.get('premio_bruto') or 0)
-        irs_taxa = float(c.get('irs_taxa') or 0)
-        irs_frac = irs_taxa / 100.0
         total_b = bruto + premio
+
+        if not irs_override and cat and cat != 'outro':
+            estado_civil = c.get('estado_civil') or 'solteiro'
+            num_dep = int(c.get('num_dependentes') or 0)
+            irs_taxa = lookup_irs(total_b, estado_civil, num_dep)
+            c['irs_taxa'] = irs_taxa
+        else:
+            irs_taxa = float(c.get('irs_taxa') or 0)
+
+        irs_frac = irs_taxa / 100.0
         ss_trab = round(total_b * SS_TRAB, 2)
         ss_patr = round(total_b * SS_PATR, 2)
         irs_ret = round(total_b * irs_frac, 2)
         liq = round(total_b * (1 - SS_TRAB - irs_frac), 2)
         imp = round(ss_trab + ss_patr + irs_ret, 2)
         custo = round(total_b * (1 + SS_PATR), 2)
-        c = dict(c)
         c.update({
             'ss_trabalhador': ss_trab,
             'ss_patronal': ss_patr,
@@ -224,7 +249,12 @@ def get_colaboradores_calculados(ativo_only: bool = True):
 def upsert_colaborador(colaborador_id: int | None, nome: str,
                        salario_bruto: float, premio_bruto: float,
                        irs_taxa: float, data_inicio=None,
-                       centros: list = None) -> int:
+                       centros: list = None,
+                       categoria_profissional: str = None,
+                       nivel_remuneratorio: int = 1,
+                       estado_civil: str = 'solteiro',
+                       num_dependentes: int = 0,
+                       irs_override: bool = False) -> int:
     """Insert or update a colaborador and their centro_custo allocations.
     centros = [{'centro_custo_id': int, 'percentagem': float}, ...]"""
     with db_connection() as conn:
@@ -233,17 +263,28 @@ def upsert_colaborador(colaborador_id: int | None, nome: str,
             cursor.execute(
                 '''UPDATE colaboradores
                    SET nome=%s, salario_bruto=%s, premio_bruto=%s, irs_taxa=%s,
-                       data_inicio=%s, updated_at=NOW()
+                       data_inicio=%s,
+                       categoria_profissional=%s, nivel_remuneratorio=%s,
+                       estado_civil=%s, num_dependentes=%s, irs_override=%s,
+                       updated_at=NOW()
                    WHERE id=%s''',
                 (nome.strip(), salario_bruto, premio_bruto, irs_taxa,
-                 data_inicio or None, colaborador_id)
+                 data_inicio or None,
+                 categoria_profissional or None, nivel_remuneratorio,
+                 estado_civil, num_dependentes, irs_override,
+                 colaborador_id)
             )
             cid = colaborador_id
         else:
             cursor.execute(
-                '''INSERT INTO colaboradores (nome, salario_bruto, premio_bruto, irs_taxa, data_inicio)
-                   VALUES (%s, %s, %s, %s, %s) RETURNING id''',
-                (nome.strip(), salario_bruto, premio_bruto, irs_taxa, data_inicio or None)
+                '''INSERT INTO colaboradores
+                       (nome, salario_bruto, premio_bruto, irs_taxa, data_inicio,
+                        categoria_profissional, nivel_remuneratorio,
+                        estado_civil, num_dependentes, irs_override)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id''',
+                (nome.strip(), salario_bruto, premio_bruto, irs_taxa, data_inicio or None,
+                 categoria_profissional or None, nivel_remuneratorio,
+                 estado_civil, num_dependentes, irs_override)
             )
             cid = cursor.fetchone()[0]
 
