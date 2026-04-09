@@ -239,10 +239,19 @@ def salarios():
 def salarios_irs_preview():
     """AJAX: return CCT base salary and IRS rate for given params."""
     categoria = request.args.get('categoria', 'outro')
-    nivel = int(request.args.get('nivel', 1) or 1)
+    try:
+        nivel = max(1, min(5, int(request.args.get('nivel', 1) or 1)))
+    except (ValueError, TypeError):
+        nivel = 1
     estado_civil = request.args.get('estado_civil', 'solteiro')
-    num_dep = int(request.args.get('num_dep', 0) or 0)
-    premio = float(request.args.get('premio', 0) or 0)
+    try:
+        num_dep = max(0, int(request.args.get('num_dep', 0) or 0))
+    except (ValueError, TypeError):
+        num_dep = 0
+    try:
+        premio = max(0.0, float(request.args.get('premio', 0) or 0))
+    except (ValueError, TypeError):
+        premio = 0.0
     bruto_manual_str = request.args.get('bruto_manual', '')
 
     if categoria != 'outro':

@@ -468,15 +468,17 @@
         var isOutro = (addCat.value === 'outro');
         addManual.style.display  = isOutro ? '' : 'none';
         addPrev.style.display    = isOutro ? 'none' : '';
-        addIrsPrev.style.display = isOutro ? 'none' : '';
-        if (!isOutro) addUpdatePreview('add');
+        addIrsPrev.style.display = (!isOutro && !addOvCheck.checked) ? '' : 'none';
+        addOvField.style.display = (isOutro || addOvCheck.checked) ? '' : 'none';
+        if (!isOutro) { addOvCheck.checked = false; addUpdatePreview('add'); }
     }
 
     function addToggleOverride() {
         var isOverride = addOvCheck.checked;
-        addOvField.style.display = isOverride ? '' : 'none';
-        addIrsPrev.style.display = (isOverride || addCat.value === 'outro') ? 'none' : '';
-        if (!isOverride && addCat.value !== 'outro') addUpdatePreview('add');
+        var isOutro = (addCat.value === 'outro');
+        addOvField.style.display = (isOverride || isOutro) ? '' : 'none';
+        addIrsPrev.style.display = (!isOverride && !isOutro) ? '' : 'none';
+        if (!isOverride && !isOutro) addUpdatePreview('add');
     }
 
     var _addTimer = null;
@@ -547,15 +549,17 @@
         var isOutro = (editCat.value === 'outro');
         editManual.style.display  = isOutro ? '' : 'none';
         editPrev.style.display    = isOutro ? 'none' : '';
-        editIrsPrev.style.display = (isOutro || editOvCk.checked) ? 'none' : '';
-        if (!isOutro) editUpdatePreview();
+        editIrsPrev.style.display = (!isOutro && !editOvCk.checked) ? '' : 'none';
+        editOvFld.style.display   = (isOutro || editOvCk.checked) ? '' : 'none';
+        if (!isOutro) { editOvCk.checked = false; editUpdatePreview(); }
     }
 
     function editToggleOverride() {
         var isOverride = editOvCk.checked;
-        editOvFld.style.display  = isOverride ? '' : 'none';
-        editIrsPrev.style.display = (isOverride || editCat.value === 'outro') ? 'none' : '';
-        if (!isOverride && editCat.value !== 'outro') editUpdatePreview();
+        var isOutro = (editCat.value === 'outro');
+        editOvFld.style.display  = (isOverride || isOutro) ? '' : 'none';
+        editIrsPrev.style.display = (!isOverride && !isOutro) ? '' : 'none';
+        if (!isOverride && !isOutro) editUpdatePreview();
     }
 
     var _editTimer = null;
