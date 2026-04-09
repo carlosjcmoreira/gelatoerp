@@ -162,6 +162,19 @@
 {% endif %}
 </div>
 
+<style>
+@media print {
+    .btn, form, nav, #back-btn { display: none !important; }
+    .table-responsive { overflow: visible !important; }
+    table { font-size: 0.75rem !important; width: 100% !important; }
+    th, td { padding: 4px 6px !important; }
+    tr[id^="eventos-"] { display: table-row !important; }
+    #chevron-* { display: none !important; }
+    .badge { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .bg-light { background-color: #f8f9fa !important; }
+}
+</style>
+
 <script>
 function toggleEventos(id) {
     const row = document.getElementById('eventos-' + id);

@@ -675,6 +675,17 @@ def get_ordens_transferencia_with_events(
                 if ev_row[0] in idx:
                     idx[ev_row[0]]['eventos'].append(ev)
 
+            # Synthetic fallback: orders with no events get a 'criado' event
+            # derived from their own columns (robustness if backfill was skipped)
+            for o in ordens:
+                if not o['eventos']:
+                    o['eventos'] = [{
+                        'event_type': 'criado',
+                        'utilizador': o.get('criado_por'),
+                        'motivo': None,
+                        'created_at': o.get('created_at'),
+                    }]
+
         return {
             'ordens': ordens,
             'total': total,
