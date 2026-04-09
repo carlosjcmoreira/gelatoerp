@@ -2,7 +2,8 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_app.auth import login_required
 from datetime import date, datetime
 from collections import defaultdict
-import sys, os
+import sys, os, logging
+logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_sabores_list, get_sabores_mapping, get_produtos_rececao,
@@ -303,20 +304,27 @@ def transferencias():
             if action == 'confirmar' and ordem_id:
                 ordem = get_ordem_transferencia_by_id(int(ordem_id))
                 if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                    confirmar_ordem_transferencia(int(ordem_id), username)
-                    flash('Transferência confirmada e stock atualizado!', 'success')
+                    updated = confirmar_ordem_transferencia(int(ordem_id), username)
+                    if updated:
+                        flash('Transferência confirmada e stock atualizado!', 'success')
+                    else:
+                        flash('Transferência já processada anteriormente.', 'warning')
                 else:
                     flash('Sem permissão para confirmar esta transferência.', 'warning')
             elif action == 'rejeitar' and ordem_id:
                 motivo = request.form.get('motivo_rejeicao', '').strip() or None
                 ordem = get_ordem_transferencia_by_id(int(ordem_id))
                 if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                    rejeitar_ordem_transferencia(int(ordem_id), username, motivo=motivo)
-                    flash('Transferência rejeitada.', 'info')
+                    updated = rejeitar_ordem_transferencia(int(ordem_id), username, motivo=motivo)
+                    if updated:
+                        flash('Transferência rejeitada.', 'info')
+                    else:
+                        flash('Transferência já processada anteriormente.', 'warning')
                 else:
                     flash('Sem permissão para rejeitar esta transferência.', 'warning')
         except Exception as exc:
-            flash(f'Erro ao processar transferência: {exc}', 'danger')
+            logger.exception('Erro ao processar transferência ordem_id=%s action=%s', ordem_id, action)
+            flash('Erro interno ao processar a transferência. Tente novamente.', 'danger')
 
         return redirect(url_for('vendas.transferencias', loja_id=loja_id))
 
