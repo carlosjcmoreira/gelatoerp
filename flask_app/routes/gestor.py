@@ -1283,38 +1283,61 @@ def gestao_tarefas():
     if request.method == 'POST':
         action = request.form.get('action', '')
 
-        if action == 'create':
+        def _parse_tarefa_fields():
             nome = request.form.get('nome', '').strip()
             tipo = request.form.get('tipo', '')
             frequencia = request.form.get('frequencia', '')
-            dia_semana = request.form.get('dia_semana') or None
-            dia_mes = request.form.get('dia_mes') or None
+            raw_dia_semana = request.form.get('dia_semana') or None
+            raw_dia_mes = request.form.get('dia_mes') or None
             utilizador_id = request.form.get('utilizador_id') or None
+            errors = []
+            if not nome:
+                errors.append('O nome da tarefa é obrigatório.')
+            if tipo not in TIPOS:
+                errors.append('Momento inválido (abertura ou fecho).')
+            if frequencia not in FREQUENCIAS:
+                errors.append('Frequência inválida.')
+            dia_semana = None
+            dia_mes = None
+            if frequencia == 'semanal':
+                if raw_dia_semana is None:
+                    errors.append('Selecione o dia da semana para tarefas semanais.')
+                else:
+                    try:
+                        dia_semana = int(raw_dia_semana)
+                        if not 0 <= dia_semana <= 6:
+                            raise ValueError
+                    except ValueError:
+                        errors.append('Dia da semana inválido.')
+            elif frequencia == 'mensal':
+                if raw_dia_mes is None:
+                    errors.append('Indique o dia do mês para tarefas mensais.')
+                else:
+                    try:
+                        dia_mes = int(raw_dia_mes)
+                        if not 1 <= dia_mes <= 31:
+                            raise ValueError
+                    except ValueError:
+                        errors.append('Dia do mês deve estar entre 1 e 31.')
+            uid = int(utilizador_id) if utilizador_id else None
+            return nome, tipo, frequencia, dia_semana, dia_mes, uid, errors
 
-            if not nome or tipo not in TIPOS or frequencia not in FREQUENCIAS:
-                flash('Preencha todos os campos obrigatórios corretamente.', 'warning')
+        if action == 'create':
+            nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, errors = _parse_tarefa_fields()
+            if errors:
+                for e in errors:
+                    flash(e, 'warning')
             else:
-                dia_semana = int(dia_semana) if dia_semana is not None and frequencia == 'semanal' else None
-                dia_mes = int(dia_mes) if dia_mes is not None and frequencia == 'mensal' else None
-                utilizador_id = int(utilizador_id) if utilizador_id else None
                 create_tarefa(nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id)
                 flash(f"Tarefa '{nome}' criada com sucesso.", 'success')
 
         elif action == 'edit':
             tarefa_id = int(request.form.get('tarefa_id', 0))
-            nome = request.form.get('nome', '').strip()
-            tipo = request.form.get('tipo', '')
-            frequencia = request.form.get('frequencia', '')
-            dia_semana = request.form.get('dia_semana') or None
-            dia_mes = request.form.get('dia_mes') or None
-            utilizador_id = request.form.get('utilizador_id') or None
-
-            if not nome or tipo not in TIPOS or frequencia not in FREQUENCIAS:
-                flash('Preencha todos os campos obrigatórios corretamente.', 'warning')
+            nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, errors = _parse_tarefa_fields()
+            if errors:
+                for e in errors:
+                    flash(e, 'warning')
             else:
-                dia_semana = int(dia_semana) if dia_semana is not None and frequencia == 'semanal' else None
-                dia_mes = int(dia_mes) if dia_mes is not None and frequencia == 'mensal' else None
-                utilizador_id = int(utilizador_id) if utilizador_id else None
                 update_tarefa(tarefa_id, nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id)
                 flash('Tarefa atualizada com sucesso.', 'success')
 

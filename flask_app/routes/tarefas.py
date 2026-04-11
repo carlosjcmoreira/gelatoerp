@@ -52,6 +52,21 @@ def marcar():
         flash('Não tem permissão para marcar esta tarefa.', 'danger')
         return redirect(url_for('tarefas.index'))
 
+    if not tarefa.get('ativo'):
+        flash('Esta tarefa está inativa e não pode ser marcada.', 'warning')
+        return redirect(url_for('tarefas.index'))
+
+    hoje = date.today()
+    freq = tarefa.get('frequencia')
+    due = (
+        freq == 'diaria'
+        or (freq == 'semanal' and tarefa.get('dia_semana') == hoje.weekday())
+        or (freq == 'mensal' and tarefa.get('dia_mes') == hoje.day)
+    )
+    if not due:
+        flash('Esta tarefa não é devida hoje.', 'warning')
+        return redirect(url_for('tarefas.index'))
+
     if estado == 'bloqueada' and not motivo:
         flash('Indique o motivo para marcar como bloqueada.', 'warning')
         return redirect(url_for('tarefas.index'))
