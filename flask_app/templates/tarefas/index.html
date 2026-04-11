@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% set back_url = url_for("home.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+  <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
+    <h5 class="mb-0">✅ Tarefas do Dia</h5>
+    <a href="{{ url_for('tarefas.historico') }}" class="btn btn-sm btn-outline-secondary">📋 Histórico</a>
+  </div>
+  <p class="text-muted small mb-3">{{ hoje.strftime('%d/%m/%Y') }}</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="alert alert-{{ 'danger' if cat == 'danger' else ('warning' if cat == 'warning' else 'success') }} alert-dismissible fade show py-2 small" role="alert">
+        {{ msg }}<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  {% for grupo_tarefas, grupo_icon, grupo_label in [
+      (abertura, '🌅', 'Abertura'),
+      (fecho, '🌙', 'Fecho')
+  ] %}
+  <div class="card mb-3">
+    <div class="card-header py-2 d-flex align-items-center justify-content-between">
+      <strong>{{ grupo_icon }} {{ grupo_label }}</strong>
+      {% if grupo_tarefas %}
+        {% set feitas = grupo_tarefas | selectattr('registo') | selectattr('registo.estado', 'equalto', 'feita') | list | length %}
+        {% set total = grupo_tarefas | length %}
+        <span class="badge {% if feitas == total %}bg-success{% elif feitas > 0 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+          {{ feitas }}/{{ total }}
+        </span>
+      {% endif %}
+    </div>
+    <div class="card-body p-0">
+      {% if grupo_tarefas %}
+      <ul class="list-group list-group-flush">
+        {% for t in grupo_tarefas %}
+        {% set reg = t.registo %}
+        {% set is_mine = (t.utilizador_id == user.id) or user.acesso_gestor %}
+        <li class="list-group-item py-2 px-3">
+          <div class="d-flex align-items-start justify-content-between gap-2">
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                {# Status badge #}
+                {% if reg %}
+                  {% if reg.estado == 'feita' %}
+                    <span class="badge bg-success">✅ Feita</span>
+                  {% else %}
+                    <span class="badge bg-danger">🚫 Bloqueada</span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge bg-light text-dark border">⏳ Pendente</span>
+                {% endif %}
+                <span class="fw-semibold small">{{ t.nome }}</span>
+                <span class="badge bg-light text-muted border small">{{ frequencias.get(t.frequencia, t.frequencia) }}</span>
+              </div>
+              {% if t.utilizador_nome %}
+              <div class="text-muted" style="font-size:0.75rem;margin-top:2px;">
+                👤 {{ t.utilizador_nome }}
+                {% if reg %}
+                  · {{ reg.utilizador_registo or t.utilizador_nome }}
+                  {% if reg.created_at %}
+                    · {{ reg.created_at.strftime('%H:%M') if reg.created_at else '' }}
+                  {% endif %}
+                {% endif %}
+              </div>
+              {% endif %}
+              {% if reg and reg.motivo %}
+              <div class="text-danger small mt-1">
+                <strong>Motivo:</strong> {{ reg.motivo }}
+              </div>
+              {% endif %}
+            </div>
+            {# Action buttons — only for responsible user or gestor #}
+            {% if is_mine %}
+            <div class="d-flex gap-1 flex-shrink-0">
+              {% if not reg or reg.estado != 'feita' %}
+              <form method="POST" action="{{ url_for('tarefas.marcar') }}" class="d-inline">
+                <input type="hidden" name="tarefa_id" value="{{ t.id }}">
+                <input type="hidden" name="estado" value="feita">
+                <button type="submit" class="btn btn-sm btn-success py-0 px-2" title="Marcar como feita">✅</button>
+              </form>
+              {% endif %}
+              {% if not reg or reg.estado != 'bloqueada' %}
+              <button type="button"
+                      class="btn btn-sm btn-outline-danger py-0 px-2"
+                      title="Marcar como bloqueada"
+                      onclick="openBloquearModal({{ t.id }}, {{ t.nome | tojson }})">🚫</button>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted small p-3 mb-0">Sem tarefas de {{ grupo_label | lower }} para hoje.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── Modal: Marcar Bloqueada ──────────────────────────────────────────────── #}
+<div class="modal fade" id="modalBloquear" tabindex="-1" aria-labelledby="modalBloquearLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('tarefas.marcar') }}">
+        <input type="hidden" name="estado" value="bloqueada">
+        <input type="hidden" name="tarefa_id" id="bloquear-tarefa-id">
+        <div class="modal-header py-2 bg-danger text-white">
+          <h6 class="modal-title" id="modalBloquearLabel">🚫 Marcar como Bloqueada</h6>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small mb-2">Tarefa: <strong id="bloquear-nome"></strong></p>
+          <label class="form-label small fw-semibold">Motivo <span class="text-danger">*</span></label>
+          <textarea name="motivo" class="form-control form-control-sm" rows="3"
+                    placeholder="Descreva o motivo do bloqueio..." required></textarea>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-danger btn-sm">Confirmar Bloqueio</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function openBloquearModal(tarefaId, nome) {
+    document.getElementById('bloquear-tarefa-id').value = tarefaId;
+    document.getElementById('bloquear-nome').textContent = nome;
+    var modal = new bootstrap.Modal(document.getElementById('modalBloquear'));
+    modal.show();
+}
+</script>
+{% endblock %}

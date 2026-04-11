@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% set back_url = url_for("tarefas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+  <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
+    <h5 class="mb-0">📋 Histórico de Tarefas</h5>
+    <a href="{{ url_for('tarefas.index') }}" class="btn btn-sm btn-outline-primary">✅ Hoje</a>
+  </div>
+
+  {# ── Filters ─────────────────────────────────────────────────────────────── #}
+  <form method="GET" class="card mb-3">
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-3">
+          <label class="form-label small fw-semibold mb-0">De</label>
+          <input type="date" name="data_inicio" class="form-control form-control-sm" value="{{ data_inicio }}">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small fw-semibold mb-0">Até</label>
+          <input type="date" name="data_fim" class="form-control form-control-sm" value="{{ data_fim }}">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small fw-semibold mb-0">Momento</label>
+          <select name="tipo" class="form-select form-select-sm">
+            <option value="">Todos</option>
+            <option value="abertura" {% if tipo == 'abertura' %}selected{% endif %}>🌅 Abertura</option>
+            <option value="fecho"    {% if tipo == 'fecho'    %}selected{% endif %}>🌙 Fecho</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small fw-semibold mb-0">Estado</label>
+          <select name="estado" class="form-select form-select-sm">
+            <option value="">Todos</option>
+            <option value="feita"    {% if estado == 'feita'    %}selected{% endif %}>✅ Feita</option>
+            <option value="bloqueada"{% if estado == 'bloqueada'%}selected{% endif %}>🚫 Bloqueada</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-2">
+          <button type="submit" class="btn btn-primary btn-sm w-100">Filtrar</button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  {% if registos %}
+  <div class="card mb-3">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead class="table-dark">
+            <tr>
+              <th class="ps-3">Data</th>
+              <th>Tarefa</th>
+              <th class="d-none d-md-table-cell">Momento</th>
+              <th class="d-none d-md-table-cell">Frequência</th>
+              <th>Estado</th>
+              <th class="d-none d-md-table-cell">Motivo</th>
+              <th class="d-none d-md-table-cell">Utilizador</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in registos %}
+            <tr>
+              <td class="ps-3 small text-nowrap">{{ r.data.strftime('%d/%m/%Y') if r.data else '—' }}</td>
+              <td class="small fw-semibold">{{ r.nome }}</td>
+              <td class="d-none d-md-table-cell small">
+                {% if r.tipo == 'abertura' %}🌅 Abertura{% else %}🌙 Fecho{% endif %}
+              </td>
+              <td class="d-none d-md-table-cell small">{{ frequencias.get(r.frequencia, r.frequencia) }}</td>
+              <td>
+                {% if r.estado == 'feita' %}
+                  <span class="badge bg-success">✅ Feita</span>
+                {% else %}
+                  <span class="badge bg-danger">🚫 Bloqueada</span>
+                {% endif %}
+              </td>
+              <td class="d-none d-md-table-cell small">
+                {% if r.motivo %}
+                  <span class="text-danger" title="{{ r.motivo }}">
+                    {{ r.motivo | truncate(50) }}
+                  </span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td class="d-none d-md-table-cell small text-muted">{{ r.utilizador_registo or '—' }}</td>
+            </tr>
+            {# Mobile: show motivo below if blocked #}
+            {% if r.motivo %}
+            <tr class="d-md-none">
+              <td colspan="3" class="pt-0 pb-2 px-3">
+                <small class="text-danger"><strong>Motivo:</strong> {{ r.motivo }}</small>
+              </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Pagination ────────────────────────────────────────────────────────── #}
+  {% if total_pages > 1 %}
+  <nav>
+    <ul class="pagination pagination-sm justify-content-center flex-wrap">
+      <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+        <a class="page-link" href="{{ url_for('tarefas.historico', page=page-1, data_inicio=data_inicio, data_fim=data_fim, tipo=tipo, estado=estado) }}">‹</a>
+      </li>
+      {% for p in range(1, total_pages + 1) %}
+        {% if p == page or (p >= page - 2 and p <= page + 2) or p == 1 or p == total_pages %}
+          {% if p == page %}
+          <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+          {% else %}
+          <li class="page-item"><a class="page-link" href="{{ url_for('tarefas.historico', page=p, data_inicio=data_inicio, data_fim=data_fim, tipo=tipo, estado=estado) }}">{{ p }}</a></li>
+          {% endif %}
+        {% elif p == page - 3 or p == page + 3 %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+      {% endfor %}
+      <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+        <a class="page-link" href="{{ url_for('tarefas.historico', page=page+1, data_inicio=data_inicio, data_fim=data_fim, tipo=tipo, estado=estado) }}">›</a>
+      </li>
+    </ul>
+  </nav>
+  <p class="text-center text-muted small">{{ total }} registos</p>
+  {% else %}
+  <p class="text-muted small text-end">{{ total }} registos</p>
+  {% endif %}
+
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <div style="font-size:2rem">📋</div>
+    <p class="mt-2 small">Sem registos para os filtros selecionados.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+  <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
+    <h5 class="mb-0">✅ Gestão de Tarefas</h5>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#modalCriarTarefa">
+      + Nova Tarefa
+    </button>
+  </div>
+  <p class="text-muted small mb-3">Configure as tarefas de abertura e fecho de loja e aloque-as a colaboradores.</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="alert alert-{{ 'danger' if cat == 'danger' else ('warning' if cat == 'warning' else 'success') }} alert-dismissible fade show py-2 small" role="alert">
+        {{ msg }}<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  {# ── Abertura ────────────────────────────────────────────────────────────── #}
+  {% for tipo_key, tipo_label in tipos.items() %}
+  <div class="card mb-3">
+    <div class="card-header py-2">
+      <strong>{{ '🌅' if tipo_key == 'abertura' else '🌙' }} {{ tipo_label }}</strong>
+    </div>
+    <div class="card-body p-0">
+      {% set tipo_tarefas = tarefas | selectattr('tipo', 'equalto', tipo_key) | list %}
+      {% if tipo_tarefas %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Nome</th>
+              <th>Frequência</th>
+              <th>Dia</th>
+              <th>Responsável</th>
+              <th class="text-center">Estado</th>
+              <th class="text-center">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in tipo_tarefas %}
+            <tr class="{% if not t.ativo %}text-muted{% endif %}" style="{% if not t.ativo %}opacity:0.5;font-style:italic{% endif %}">
+              <td class="ps-3 fw-semibold small">{{ t.nome }}</td>
+              <td class="small">{{ frequencias.get(t.frequencia, t.frequencia) }}</td>
+              <td class="small">
+                {% if t.frequencia == 'semanal' and t.dia_semana is not none %}
+                  {{ dias_semana[t.dia_semana] }}
+                {% elif t.frequencia == 'mensal' and t.dia_mes is not none %}
+                  Dia {{ t.dia_mes }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td class="small">{{ t.utilizador_nome or '<span class="text-muted">Sem responsável</span>' | safe }}</td>
+              <td class="text-center">
+                {% if t.ativo %}
+                  <span class="badge bg-success">Ativa</span>
+                {% else %}
+                  <span class="badge bg-secondary">Inativa</span>
+                {% endif %}
+              </td>
+              <td class="text-center text-nowrap">
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1 me-1"
+                        onclick="openEditModal({{ t | tojson }})"
+                        title="Editar">✏️</button>
+                <form method="POST" class="d-inline">
+                  <input type="hidden" name="action" value="toggle">
+                  <input type="hidden" name="tarefa_id" value="{{ t.id }}">
+                  <button type="submit" class="btn btn-sm py-0 px-1 {% if t.ativo %}btn-outline-warning{% else %}btn-outline-success{% endif %}"
+                          title="{% if t.ativo %}Desativar{% else %}Ativar{% endif %}">
+                    {% if t.ativo %}⏸{% else %}▶{% endif %}
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted small p-3 mb-0">Sem tarefas de {{ tipo_label | lower }} configuradas.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── Modal: Criar Tarefa ──────────────────────────────────────────────────── #}
+<div class="modal fade" id="modalCriarTarefa" tabindex="-1" aria-labelledby="modalCriarLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST">
+        <input type="hidden" name="action" value="create">
+        <div class="modal-header py-2">
+          <h6 class="modal-title" id="modalCriarLabel">✅ Nova Tarefa</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Nome da Tarefa <span class="text-danger">*</span></label>
+            <input type="text" name="nome" class="form-control form-control-sm" placeholder="Ex: Ligar alarme" required>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Momento <span class="text-danger">*</span></label>
+              <select name="tipo" class="form-select form-select-sm" required>
+                {% for key, label in tipos.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Frequência <span class="text-danger">*</span></label>
+              <select name="frequencia" class="form-select form-select-sm" id="criar-frequencia" required onchange="toggleDiaFields('criar')">
+                {% for key, label in frequencias.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="mb-3 d-none" id="criar-dia-semana-group">
+            <label class="form-label small fw-semibold">Dia da semana</label>
+            <select name="dia_semana" class="form-select form-select-sm">
+              {% for dia in dias_semana %}
+              <option value="{{ loop.index0 }}">{{ dia }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3 d-none" id="criar-dia-mes-group">
+            <label class="form-label small fw-semibold">Dia do mês (1–31)</label>
+            <input type="number" name="dia_mes" class="form-control form-control-sm" min="1" max="31" value="1">
+          </div>
+          <div class="mb-0">
+            <label class="form-label small fw-semibold">Responsável</label>
+            <select name="utilizador_id" class="form-select form-select-sm">
+              <option value="">— Sem responsável —</option>
+              {% for u in users %}
+              <option value="{{ u.id }}">{{ u.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Criar Tarefa</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ── Modal: Editar Tarefa ─────────────────────────────────────────────────── #}
+<div class="modal fade" id="modalEditarTarefa" tabindex="-1" aria-labelledby="modalEditarLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST">
+        <input type="hidden" name="action" value="edit">
+        <input type="hidden" name="tarefa_id" id="edit-tarefa-id">
+        <div class="modal-header py-2">
+          <h6 class="modal-title" id="modalEditarLabel">✏️ Editar Tarefa</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">Nome da Tarefa <span class="text-danger">*</span></label>
+            <input type="text" name="nome" id="edit-nome" class="form-control form-control-sm" required>
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Momento <span class="text-danger">*</span></label>
+              <select name="tipo" id="edit-tipo" class="form-select form-select-sm" required>
+                {% for key, label in tipos.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Frequência <span class="text-danger">*</span></label>
+              <select name="frequencia" id="edit-frequencia" class="form-select form-select-sm" required onchange="toggleDiaFields('edit')">
+                {% for key, label in frequencias.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="mb-3 d-none" id="edit-dia-semana-group">
+            <label class="form-label small fw-semibold">Dia da semana</label>
+            <select name="dia_semana" id="edit-dia-semana" class="form-select form-select-sm">
+              {% for dia in dias_semana %}
+              <option value="{{ loop.index0 }}">{{ dia }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3 d-none" id="edit-dia-mes-group">
+            <label class="form-label small fw-semibold">Dia do mês (1–31)</label>
+            <input type="number" name="dia_mes" id="edit-dia-mes" class="form-control form-control-sm" min="1" max="31">
+          </div>
+          <div class="mb-0">
+            <label class="form-label small fw-semibold">Responsável</label>
+            <select name="utilizador_id" id="edit-utilizador" class="form-select form-select-sm">
+              <option value="">— Sem responsável —</option>
+              {% for u in users %}
+              <option value="{{ u.id }}">{{ u.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Guardar Alterações</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleDiaFields(prefix) {
+    var freq = document.getElementById(prefix + '-frequencia').value;
+    var semanaGroup = document.getElementById(prefix + '-dia-semana-group');
+    var mesGroup = document.getElementById(prefix + '-dia-mes-group');
+    if (semanaGroup) semanaGroup.classList.toggle('d-none', freq !== 'semanal');
+    if (mesGroup) mesGroup.classList.toggle('d-none', freq !== 'mensal');
+}
+
+function openEditModal(t) {
+    document.getElementById('edit-tarefa-id').value = t.id;
+    document.getElementById('edit-nome').value = t.nome;
+    document.getElementById('edit-tipo').value = t.tipo;
+    var freqSel = document.getElementById('edit-frequencia');
+    freqSel.value = t.frequencia;
+    toggleDiaFields('edit');
+    if (t.dia_semana !== null && t.dia_semana !== undefined) {
+        document.getElementById('edit-dia-semana').value = t.dia_semana;
+    }
+    if (t.dia_mes !== null && t.dia_mes !== undefined) {
+        document.getElementById('edit-dia-mes').value = t.dia_mes;
+    }
+    var uSel = document.getElementById('edit-utilizador');
+    uSel.value = t.utilizador_id !== null && t.utilizador_id !== undefined ? t.utilizador_id : '';
+    var modal = new bootstrap.Modal(document.getElementById('modalEditarTarefa'));
+    modal.show();
+}
+</script>
+{% endblock %}

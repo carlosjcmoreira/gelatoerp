@@ -177,12 +177,12 @@ def update_user_permissoes_batch(updates: list):
         cursor.execute(
             """UPDATE users SET acesso_eurokg = %s, acesso_producao = %s, acesso_vendas = %s,
                acesso_pastelaria = %s, acesso_confeitaria = %s, acesso_gestor = %s, acesso_administrativo = %s,
-               acesso_financeiro = %s, acesso_eventos = %s,
+               acesso_financeiro = %s, acesso_eventos = %s, acesso_tarefas = %s,
                role = %s, ativo = %s
                WHERE id = %s""",
             (u['acesso_eurokg'], u['acesso_producao'], has_vendas,
              u['acesso_pastelaria'], u['acesso_confeitaria'], u['acesso_gestor'], u.get('acesso_administrativo', False),
-             u.get('acesso_financeiro', False), u.get('acesso_eventos', True),
+             u.get('acesso_financeiro', False), u.get('acesso_eventos', True), u.get('acesso_tarefas', False),
              role, u['ativo'], u['id'])
         )
         cursor.execute("DELETE FROM user_store_vendas WHERE user_id = %s", (u['id'],))

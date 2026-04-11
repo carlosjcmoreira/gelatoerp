@@ -34,6 +34,7 @@ TABS = [
     {'id': 'materiais', 'label': 'Catálogo de Materiais', 'icon': '🗂️', 'url_endpoint': 'gestor.materiais'},
     {'id': 'centros_custo', 'label': 'Centros de Custo', 'icon': '🏷️', 'url_endpoint': 'centros_custo.index'},
     {'id': 'categorias_custo', 'label': 'Categorias de Custo', 'icon': '📂', 'url_endpoint': 'categorias_custo.index'},
+    {'id': 'gestao_tarefas', 'label': 'Gestão de Tarefas', 'icon': '✅', 'url_endpoint': 'gestor.gestao_tarefas'},
     {'id': 'configuracoes', 'label': 'Configurações', 'icon': '⚙️', 'url_endpoint': 'gestor.configuracoes'},
     {'id': 'gestao_tiles', 'label': 'Gestão de Tiles', 'icon': '🔲', 'url_endpoint': 'gestor.gestao_tiles'},
 ]
@@ -797,6 +798,7 @@ def _handle_config_post(action, config_option):
                 'acesso_gestor': request.form.get(f'acesso_gestor_{uid}') == 'on',
                 'acesso_financeiro': request.form.get(f'acesso_financeiro_{uid}') == 'on',
                 'acesso_eventos': request.form.get(f'acesso_eventos_{uid}') == 'on',
+                'acesso_tarefas': request.form.get(f'acesso_tarefas_{uid}') == 'on',
                 'ativo': request.form.get(f'ativo_{uid}') == 'on',
                 'vendas_store_ids': vendas_store_ids,
             })
@@ -1267,6 +1269,75 @@ def materiais_post():
         flash(f'Material {estado}.', 'success')
 
     return redirect(url_for('gestor.materiais'))
+
+
+@gestor_bp.route('/gestao-tarefas', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def gestao_tarefas():
+    from db.tarefas import (
+        get_all_tarefas, get_tarefa_by_id,
+        create_tarefa, update_tarefa, toggle_tarefa_ativa,
+        DIAS_SEMANA, FREQUENCIAS, TIPOS,
+    )
+
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+
+        if action == 'create':
+            nome = request.form.get('nome', '').strip()
+            tipo = request.form.get('tipo', '')
+            frequencia = request.form.get('frequencia', '')
+            dia_semana = request.form.get('dia_semana') or None
+            dia_mes = request.form.get('dia_mes') or None
+            utilizador_id = request.form.get('utilizador_id') or None
+
+            if not nome or tipo not in TIPOS or frequencia not in FREQUENCIAS:
+                flash('Preencha todos os campos obrigatórios corretamente.', 'warning')
+            else:
+                dia_semana = int(dia_semana) if dia_semana is not None and frequencia == 'semanal' else None
+                dia_mes = int(dia_mes) if dia_mes is not None and frequencia == 'mensal' else None
+                utilizador_id = int(utilizador_id) if utilizador_id else None
+                create_tarefa(nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id)
+                flash(f"Tarefa '{nome}' criada com sucesso.", 'success')
+
+        elif action == 'edit':
+            tarefa_id = int(request.form.get('tarefa_id', 0))
+            nome = request.form.get('nome', '').strip()
+            tipo = request.form.get('tipo', '')
+            frequencia = request.form.get('frequencia', '')
+            dia_semana = request.form.get('dia_semana') or None
+            dia_mes = request.form.get('dia_mes') or None
+            utilizador_id = request.form.get('utilizador_id') or None
+
+            if not nome or tipo not in TIPOS or frequencia not in FREQUENCIAS:
+                flash('Preencha todos os campos obrigatórios corretamente.', 'warning')
+            else:
+                dia_semana = int(dia_semana) if dia_semana is not None and frequencia == 'semanal' else None
+                dia_mes = int(dia_mes) if dia_mes is not None and frequencia == 'mensal' else None
+                utilizador_id = int(utilizador_id) if utilizador_id else None
+                update_tarefa(tarefa_id, nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id)
+                flash('Tarefa atualizada com sucesso.', 'success')
+
+        elif action == 'toggle':
+            tarefa_id = int(request.form.get('tarefa_id', 0))
+            novo_estado = toggle_tarefa_ativa(tarefa_id)
+            estado_label = 'ativada' if novo_estado else 'desativada'
+            flash(f'Tarefa {estado_label}.', 'success')
+
+        return redirect(url_for('gestor.gestao_tarefas'))
+
+    tarefas = get_all_tarefas()
+    users = db.get_all_users()
+    users_ativos = [u for u in users if u.get('ativo')]
+    return render_template(
+        'gestor/gestao_tarefas.html',
+        tarefas=tarefas,
+        users=users_ativos,
+        dias_semana=DIAS_SEMANA,
+        frequencias=FREQUENCIAS,
+        tipos=TIPOS,
+        back_url=url_for('gestor.index'),
+    )
 
 
 @gestor_bp.route('/gestao-tiles', methods=['GET'])

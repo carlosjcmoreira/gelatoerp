@@ -18,6 +18,7 @@ _PAGE_DEFS = [
     ('acesso_confeitaria',   '🍪', 'Produção Confeitaria', 'Confeit.',   'confeitaria.index','/confeitaria'),
     ('acesso_administrativo','🛍️', 'Compras e Faturas',    'Compras',    'compras.index',    '/compras'),
     ('acesso_administrativo','🚚', 'Logística',            'Logística',  'logistica.index',  '/logistica'),
+    ('acesso_tarefas',       '✅', 'Tarefas',              'Tarefas',    'tarefas.index',    '/tarefas'),
     ('acesso_gestor',        '👔', 'Gestor',               'Gestor',     'gestor.index',     '/gestor'),
     ('acesso_financeiro',    '💰', 'Financeiro',           'Financeiro', 'financeiro.index', '/financeiro'),
 ]

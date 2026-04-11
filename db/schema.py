@@ -2412,6 +2412,73 @@ def run_backfill_transferencias_eventos():
         release_connection(conn)
 
 
+_LOCK_TAREFAS = 202619
+
+
+def run_migrations_tarefas():
+    """Create tarefas + tarefas_registos tables; add acesso_tarefas to users.
+    Advisory lock 202619."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_TAREFAS,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_tarefas: lock held by another worker, skipping")
+            return
+
+        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS acesso_tarefas BOOLEAN DEFAULT FALSE")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tarefas (
+                id            SERIAL PRIMARY KEY,
+                nome          VARCHAR(200) NOT NULL,
+                tipo          VARCHAR(20)  NOT NULL CHECK (tipo IN ('abertura','fecho')),
+                frequencia    VARCHAR(20)  NOT NULL CHECK (frequencia IN ('diaria','semanal','mensal')),
+                dia_semana    SMALLINT     CHECK (dia_semana BETWEEN 0 AND 6),
+                dia_mes       SMALLINT     CHECK (dia_mes BETWEEN 1 AND 31),
+                utilizador_id INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+                ativo         BOOLEAN      NOT NULL DEFAULT TRUE,
+                created_at    TIMESTAMP    DEFAULT NOW()
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tarefas_registos (
+                id            SERIAL PRIMARY KEY,
+                tarefa_id     INTEGER NOT NULL REFERENCES tarefas(id) ON DELETE CASCADE,
+                data          DATE    NOT NULL,
+                estado        VARCHAR(20) NOT NULL CHECK (estado IN ('feita','bloqueada')),
+                motivo        TEXT,
+                utilizador_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                created_at    TIMESTAMP DEFAULT NOW(),
+                UNIQUE (tarefa_id, data)
+            )
+        """)
+
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tarefas_registos_data ON tarefas_registos(data)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tarefas_utilizador ON tarefas(utilizador_id)"
+        )
+
+        conn.commit()
+        logger.info("run_migrations_tarefas: tables and column created/verified")
+    except Exception as exc:
+        logger.error("run_migrations_tarefas failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_TAREFAS,))
+            conn.commit()
+        except Exception:
+            pass
+        release_connection(conn)
+
+
 def run_migrations_colaboradores_smart():
     """Idempotent migration: adds CCT+IRS smart-salary columns to colaboradores.
     Advisory lock 202615."""
