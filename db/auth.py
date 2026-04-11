@@ -40,7 +40,7 @@ def get_session_user(token: str):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT u.id, u.username, u.role, u.nome, u.acesso_eurokg, u.acesso_producao, u.acesso_vendas, u.acesso_pastelaria, u.acesso_confeitaria, u.acesso_gestor, u.acesso_administrativo, u.loja_id, u.acesso_financeiro, u.acesso_eventos
+            SELECT u.id, u.username, u.role, u.nome, u.acesso_eurokg, u.acesso_producao, u.acesso_vendas, u.acesso_pastelaria, u.acesso_confeitaria, u.acesso_gestor, u.acesso_administrativo, u.loja_id, u.acesso_financeiro, u.acesso_eventos, u.acesso_tarefas
             FROM sessions s JOIN users u ON s.user_id = u.id
             WHERE s.token = %s AND s.expires_at > NOW() AND u.ativo = TRUE
         """, (token,))
@@ -54,6 +54,7 @@ def get_session_user(token: str):
                 'acesso_pastelaria': row[7], 'acesso_confeitaria': row[8], 'acesso_gestor': row[9],
                 'acesso_administrativo': row[10], 'loja_id': row[11],
                 'acesso_financeiro': row[12], 'acesso_eventos': row[13],
+                'acesso_tarefas': row[14],
                 'vendas_store_ids': vendas_store_ids,
             }
         return None
@@ -77,7 +78,7 @@ def authenticate_user(username: str, password: str):
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, username, password, role, nome, acesso_eurokg, acesso_producao, acesso_vendas, acesso_pastelaria, acesso_confeitaria, acesso_gestor, acesso_administrativo, loja_id, acesso_financeiro, acesso_eventos FROM users WHERE LOWER(username) = LOWER(%s) AND ativo = TRUE",
+            "SELECT id, username, password, role, nome, acesso_eurokg, acesso_producao, acesso_vendas, acesso_pastelaria, acesso_confeitaria, acesso_gestor, acesso_administrativo, loja_id, acesso_financeiro, acesso_eventos, acesso_tarefas FROM users WHERE LOWER(username) = LOWER(%s) AND ativo = TRUE",
             (username,)
         )
         user = cursor.fetchone()
@@ -91,6 +92,7 @@ def authenticate_user(username: str, password: str):
                 'acesso_pastelaria': user[8], 'acesso_confeitaria': user[9], 'acesso_gestor': user[10],
                 'acesso_administrativo': user[11], 'loja_id': user[12],
                 'acesso_financeiro': user[13], 'acesso_eventos': user[14],
+                'acesso_tarefas': user[15],
                 'vendas_store_ids': vendas_store_ids,
             }
         release_connection(conn)
@@ -102,7 +104,7 @@ def authenticate_user(username: str, password: str):
 def get_all_users():
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, username, role, nome, ativo, acesso_eurokg, acesso_producao, acesso_vendas, acesso_pastelaria, acesso_confeitaria, acesso_gestor, acesso_administrativo, loja_id, acesso_financeiro, acesso_eventos FROM users ORDER BY username")
+    cursor.execute("SELECT id, username, role, nome, ativo, acesso_eurokg, acesso_producao, acesso_vendas, acesso_pastelaria, acesso_confeitaria, acesso_gestor, acesso_administrativo, loja_id, acesso_financeiro, acesso_eventos, acesso_tarefas FROM users ORDER BY username")
     rows = cursor.fetchall()
     users = []
     for row in rows:
@@ -114,6 +116,7 @@ def get_all_users():
             'acesso_pastelaria': row[8], 'acesso_confeitaria': row[9], 'acesso_gestor': row[10],
             'acesso_administrativo': row[11], 'loja_id': row[12],
             'acesso_financeiro': row[13], 'acesso_eventos': row[14],
+            'acesso_tarefas': row[15],
             'vendas_store_ids': vendas_store_ids,
         })
     release_connection(conn)
