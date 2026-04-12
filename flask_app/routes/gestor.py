@@ -1327,8 +1327,22 @@ def gestao_tarefas():
                             raise ValueError
                     except ValueError:
                         errors.append('Dia do mês deve estar entre 1 e 31.')
-            uid = int(utilizador_id) if utilizador_id else None
-            lid = int(loja_id) if loja_id else None
+            uid = None
+            if utilizador_id:
+                try:
+                    uid = int(utilizador_id)
+                except (ValueError, TypeError):
+                    errors.append('Responsável inválido.')
+            lid = None
+            if loja_id:
+                try:
+                    lid = int(loja_id)
+                    valid_loja_ids = {s['id'] for s in get_all_active_stores()}
+                    if lid not in valid_loja_ids:
+                        errors.append('Loja selecionada não é válida ou está inativa.')
+                        lid = None
+                except (ValueError, TypeError):
+                    errors.append('Loja inválida.')
             return nome, tipo, frequencia, dia_semana, dia_mes, uid, lid, equipa, errors
 
         if action == 'create':
