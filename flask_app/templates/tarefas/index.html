@@ -74,9 +74,8 @@
             <td class="text-center pe-3">
               {% if is_mine %}
               <div class="dropdown d-inline-block">
-                <button class="border-0 bg-transparent p-0 dropdown-toggle-no-caret"
+                <button class="border-0 bg-transparent p-0 dropdown-toggle-no-caret estado-dropdown-toggle"
                         data-bs-toggle="dropdown"
-                        data-bs-strategy="fixed"
                         aria-expanded="false"
                         style="cursor:pointer;line-height:1;">
                   {# Mobile: coloured square only #}
@@ -209,5 +208,15 @@ function openBloquearModal(tarefaId, nome) {
     var modal = new bootstrap.Modal(document.getElementById('modalBloquear'));
     modal.show();
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.estado-dropdown-toggle').forEach(function (el) {
+        new bootstrap.Dropdown(el, {
+            popperConfig: function (defaultConfig) {
+                return Object.assign({}, defaultConfig, { strategy: 'fixed' });
+            }
+        });
+    });
+});
 </script>
 {% endblock %}
