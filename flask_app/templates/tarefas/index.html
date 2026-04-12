@@ -38,7 +38,7 @@
           <tr>
             <th class="ps-3">Tarefa</th>
             <th class="d-none d-md-table-cell" style="width:120px">Periodicidade</th>
-            <th class="text-center pe-3" style="width:44px">Estado</th>
+            <th class="text-center pe-3 th-estado">Estado</th>
           </tr>
         </thead>
         <tbody>
@@ -189,6 +189,11 @@
 
 <style>
 .dropdown-toggle-no-caret::after { display: none; }
+/* Estado column: narrow on mobile, full-width on desktop */
+.th-estado { width: 140px; }
+@media (max-width: 767.98px) {
+  .th-estado { width: 44px; }
+}
 </style>
 
 <script>
