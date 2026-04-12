@@ -19,7 +19,6 @@
     {% endfor %}
   {% endwith %}
 
-  {# ── Abertura ────────────────────────────────────────────────────────────── #}
   {% for tipo_key, tipo_label in tipos.items() %}
   <div class="card mb-3">
     <div class="card-header py-2">
@@ -33,6 +32,8 @@
           <thead class="table-light">
             <tr>
               <th class="ps-3">Nome</th>
+              <th>Loja</th>
+              <th>Equipa</th>
               <th>Frequência</th>
               <th>Dia</th>
               <th>Responsável</th>
@@ -44,7 +45,9 @@
             {% for t in tipo_tarefas %}
             <tr class="{% if not t.ativo %}text-muted{% endif %}" style="{% if not t.ativo %}opacity:0.5;font-style:italic{% endif %}">
               <td class="ps-3 fw-semibold small">{{ t.nome }}</td>
-              <td class="small">{{ frequencias.get(t.frequencia, t.frequencia) }}</td>
+              <td class="small">{{ t.loja_nome or '—' }}</td>
+              <td class="small">{{ t.equipa or '—' }}</td>
+              <td class="small">{{ frequencias.get(t.frequencia) or 'Sem recorrência' }}</td>
               <td class="small">
                 {% if t.frequencia == 'semanal' and t.dia_semana is not none %}
                   {{ dias_semana[t.dia_semana] }}
@@ -54,7 +57,7 @@
                   —
                 {% endif %}
               </td>
-              <td class="small">{{ t.utilizador_nome or '<span class="text-muted">Sem responsável</span>' | safe }}</td>
+              <td class="small">{{ t.utilizador_nome or '—' }}</td>
               <td class="text-center">
                 {% if t.ativo %}
                   <span class="badge bg-success">Ativa</span>
@@ -63,8 +66,8 @@
                 {% endif %}
               </td>
               <td class="text-center text-nowrap">
-                <button class="btn btn-sm btn-outline-secondary py-0 px-1 me-1"
-                        onclick="openEditModal({{ t | tojson }})"
+                <button class="btn btn-sm btn-outline-secondary py-0 px-1 me-1 btn-editar-tarefa"
+                        data-tarefa="{{ t | tojson | forceescape }}"
                         title="Editar">✏️</button>
                 <form method="POST" class="d-inline">
                   <input type="hidden" name="action" value="toggle">
@@ -113,8 +116,9 @@
               </select>
             </div>
             <div class="col-6">
-              <label class="form-label small fw-semibold">Frequência <span class="text-danger">*</span></label>
-              <select name="frequencia" class="form-select form-select-sm" id="criar-frequencia" required onchange="toggleDiaFields('criar')">
+              <label class="form-label small fw-semibold">Frequência</label>
+              <select name="frequencia" class="form-select form-select-sm" id="criar-frequencia" onchange="toggleDiaFields('criar')">
+                <option value="">Sem recorrência</option>
                 {% for key, label in frequencias.items() %}
                 <option value="{{ key }}">{{ label }}</option>
                 {% endfor %}
@@ -133,12 +137,32 @@
             <label class="form-label small fw-semibold">Dia do mês (1–31)</label>
             <input type="number" name="dia_mes" class="form-control form-control-sm" min="1" max="31" value="1">
           </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Loja <span class="text-danger">*</span></label>
+              <select name="loja_id" class="form-select form-select-sm" required>
+                <option value="">— Selecionar —</option>
+                {% for s in stores %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Equipa <span class="text-danger">*</span></label>
+              <select name="equipa" class="form-select form-select-sm" required>
+                <option value="">— Selecionar —</option>
+                {% for key, label in equipas.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
           <div class="mb-0">
-            <label class="form-label small fw-semibold">Responsável</label>
-            <select name="utilizador_id" class="form-select form-select-sm">
-              <option value="">— Sem responsável —</option>
+            <label class="form-label small fw-semibold">Responsável <span class="text-danger">*</span></label>
+            <select name="utilizador_id" class="form-select form-select-sm" required>
+              <option value="">— Selecionar —</option>
               {% for u in users %}
-              <option value="{{ u.id }}">{{ u.username }}</option>
+              <option value="{{ u.id }}">{{ u.nome or u.username }}</option>
               {% endfor %}
             </select>
           </div>
@@ -178,8 +202,9 @@
               </select>
             </div>
             <div class="col-6">
-              <label class="form-label small fw-semibold">Frequência <span class="text-danger">*</span></label>
-              <select name="frequencia" id="edit-frequencia" class="form-select form-select-sm" required onchange="toggleDiaFields('edit')">
+              <label class="form-label small fw-semibold">Frequência</label>
+              <select name="frequencia" id="edit-frequencia" class="form-select form-select-sm" onchange="toggleDiaFields('edit')">
+                <option value="">Sem recorrência</option>
                 {% for key, label in frequencias.items() %}
                 <option value="{{ key }}">{{ label }}</option>
                 {% endfor %}
@@ -198,12 +223,32 @@
             <label class="form-label small fw-semibold">Dia do mês (1–31)</label>
             <input type="number" name="dia_mes" id="edit-dia-mes" class="form-control form-control-sm" min="1" max="31">
           </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Loja <span class="text-danger">*</span></label>
+              <select name="loja_id" id="edit-loja" class="form-select form-select-sm" required>
+                <option value="">— Selecionar —</option>
+                {% for s in stores %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Equipa <span class="text-danger">*</span></label>
+              <select name="equipa" id="edit-equipa" class="form-select form-select-sm" required>
+                <option value="">— Selecionar —</option>
+                {% for key, label in equipas.items() %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
           <div class="mb-0">
-            <label class="form-label small fw-semibold">Responsável</label>
-            <select name="utilizador_id" id="edit-utilizador" class="form-select form-select-sm">
-              <option value="">— Sem responsável —</option>
+            <label class="form-label small fw-semibold">Responsável <span class="text-danger">*</span></label>
+            <select name="utilizador_id" id="edit-utilizador" class="form-select form-select-sm" required>
+              <option value="">— Selecionar —</option>
               {% for u in users %}
-              <option value="{{ u.id }}">{{ u.username }}</option>
+              <option value="{{ u.id }}">{{ u.nome or u.username }}</option>
               {% endfor %}
             </select>
           </div>
@@ -226,12 +271,21 @@ function toggleDiaFields(prefix) {
     if (mesGroup) mesGroup.classList.toggle('d-none', freq !== 'mensal');
 }
 
-function openEditModal(t) {
+document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.btn-editar-tarefa');
+    if (!btn) return;
+    var t;
+    try {
+        t = JSON.parse(btn.getAttribute('data-tarefa'));
+    } catch(err) {
+        console.error('Erro ao ler dados da tarefa:', err);
+        return;
+    }
     document.getElementById('edit-tarefa-id').value = t.id;
     document.getElementById('edit-nome').value = t.nome;
     document.getElementById('edit-tipo').value = t.tipo;
     var freqSel = document.getElementById('edit-frequencia');
-    freqSel.value = t.frequencia;
+    freqSel.value = t.frequencia !== null && t.frequencia !== undefined ? t.frequencia : '';
     toggleDiaFields('edit');
     if (t.dia_semana !== null && t.dia_semana !== undefined) {
         document.getElementById('edit-dia-semana').value = t.dia_semana;
@@ -239,10 +293,14 @@ function openEditModal(t) {
     if (t.dia_mes !== null && t.dia_mes !== undefined) {
         document.getElementById('edit-dia-mes').value = t.dia_mes;
     }
+    var lojaSel = document.getElementById('edit-loja');
+    lojaSel.value = t.loja_id !== null && t.loja_id !== undefined ? t.loja_id : '';
+    var equipaSel = document.getElementById('edit-equipa');
+    equipaSel.value = t.equipa !== null && t.equipa !== undefined ? t.equipa : '';
     var uSel = document.getElementById('edit-utilizador');
     uSel.value = t.utilizador_id !== null && t.utilizador_id !== undefined ? t.utilizador_id : '';
     var modal = new bootstrap.Modal(document.getElementById('modalEditarTarefa'));
     modal.show();
-}
+});
 </script>
 {% endblock %}

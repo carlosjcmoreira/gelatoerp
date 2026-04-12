@@ -53,19 +53,23 @@
                   <span class="badge bg-light text-dark border">⏳ Pendente</span>
                 {% endif %}
                 <span class="fw-semibold small">{{ t.nome }}</span>
-                <span class="badge bg-light text-muted border small">{{ frequencias.get(t.frequencia, t.frequencia) }}</span>
+                {% if frequencias.get(t.frequencia) %}
+                <span class="badge bg-light text-muted border small">{{ frequencias.get(t.frequencia) }}</span>
+                {% endif %}
               </div>
-              {% if t.utilizador_nome %}
               <div class="text-muted" style="font-size:0.75rem;margin-top:2px;">
-                👤 {{ t.utilizador_nome }}
+                {% if t.loja_nome %}<span>🏪 {{ t.loja_nome }}</span>{% endif %}
+                {% if t.equipa %}<span class="ms-2">👥 {{ t.equipa }}</span>{% endif %}
+                {% if t.utilizador_nome %}
+                <span class="ms-2">👤 {{ t.utilizador_nome }}</span>
                 {% if reg %}
                   · {{ reg.utilizador_registo or t.utilizador_nome }}
                   {% if reg.created_at %}
                     · {{ reg.created_at.strftime('%H:%M') if reg.created_at else '' }}
                   {% endif %}
                 {% endif %}
+                {% endif %}
               </div>
-              {% endif %}
               {% if reg and reg.motivo %}
               <div class="text-danger small mt-1">
                 <strong>Motivo:</strong> {{ reg.motivo }}

@@ -1275,9 +1275,9 @@ def materiais_post():
 @perm_required('acesso_gestor')
 def gestao_tarefas():
     from db.tarefas import (
-        get_all_tarefas, get_tarefa_by_id,
+        get_all_tarefas, get_all_active_stores,
         create_tarefa, update_tarefa, toggle_tarefa_ativa,
-        DIAS_SEMANA, FREQUENCIAS, TIPOS,
+        DIAS_SEMANA, FREQUENCIAS, TIPOS, EQUIPAS,
     )
 
     if request.method == 'POST':
@@ -1286,17 +1286,25 @@ def gestao_tarefas():
         def _parse_tarefa_fields():
             nome = request.form.get('nome', '').strip()
             tipo = request.form.get('tipo', '')
-            frequencia = request.form.get('frequencia', '')
+            frequencia = request.form.get('frequencia', '') or None
             raw_dia_semana = request.form.get('dia_semana') or None
             raw_dia_mes = request.form.get('dia_mes') or None
             utilizador_id = request.form.get('utilizador_id') or None
+            loja_id = request.form.get('loja_id') or None
+            equipa = request.form.get('equipa', '') or None
             errors = []
             if not nome:
                 errors.append('O nome da tarefa é obrigatório.')
             if tipo not in TIPOS:
                 errors.append('Momento inválido (abertura ou fecho).')
-            if frequencia not in FREQUENCIAS:
+            if frequencia is not None and frequencia not in FREQUENCIAS:
                 errors.append('Frequência inválida.')
+            if not utilizador_id:
+                errors.append('É obrigatório atribuir um responsável.')
+            if not loja_id:
+                errors.append('É obrigatório associar uma loja.')
+            if not equipa or equipa not in EQUIPAS:
+                errors.append('É obrigatório selecionar uma equipa (Produção, Vendas, Logística ou Compras).')
             dia_semana = None
             dia_mes = None
             if frequencia == 'semanal':
@@ -1320,25 +1328,26 @@ def gestao_tarefas():
                     except ValueError:
                         errors.append('Dia do mês deve estar entre 1 e 31.')
             uid = int(utilizador_id) if utilizador_id else None
-            return nome, tipo, frequencia, dia_semana, dia_mes, uid, errors
+            lid = int(loja_id) if loja_id else None
+            return nome, tipo, frequencia, dia_semana, dia_mes, uid, lid, equipa, errors
 
         if action == 'create':
-            nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, errors = _parse_tarefa_fields()
+            nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, loja_id, equipa, errors = _parse_tarefa_fields()
             if errors:
                 for e in errors:
                     flash(e, 'warning')
             else:
-                create_tarefa(nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id)
+                create_tarefa(nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, loja_id, equipa)
                 flash(f"Tarefa '{nome}' criada com sucesso.", 'success')
 
         elif action == 'edit':
             tarefa_id = int(request.form.get('tarefa_id', 0))
-            nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, errors = _parse_tarefa_fields()
+            nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, loja_id, equipa, errors = _parse_tarefa_fields()
             if errors:
                 for e in errors:
                     flash(e, 'warning')
             else:
-                update_tarefa(tarefa_id, nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id)
+                update_tarefa(tarefa_id, nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, loja_id, equipa)
                 flash('Tarefa atualizada com sucesso.', 'success')
 
         elif action == 'toggle':
@@ -1352,13 +1361,16 @@ def gestao_tarefas():
     tarefas = get_all_tarefas()
     users = db.get_all_users()
     users_ativos = [u for u in users if u.get('ativo')]
+    stores = get_all_active_stores()
     return render_template(
         'gestor/gestao_tarefas.html',
         tarefas=tarefas,
         users=users_ativos,
+        stores=stores,
         dias_semana=DIAS_SEMANA,
         frequencias=FREQUENCIAS,
         tipos=TIPOS,
+        equipas=EQUIPAS,
         back_url=url_for('gestor.index'),
     )
 

@@ -25,7 +25,7 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_backfill_transferencias_eventos)
 from db.tiles import run_migrations_tile_config
 from db.avencas import run_migrations_avencas
-from db.schema import run_migrations_tarefas
+from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2
 
 
 def _start_sheets_sync_scheduler():
@@ -118,6 +118,7 @@ def create_app():
         run_migrations_stock_producao_lojas()
         run_migrations_avencas()
         run_migrations_tarefas()
+        run_migrations_tarefas_v2()
         run_migrations_tile_config()
         _seed_all_tiles()
         sync_produtos_vendas_config()

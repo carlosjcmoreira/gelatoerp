@@ -59,7 +59,8 @@ def marcar():
     hoje = date.today()
     freq = tarefa.get('frequencia')
     due = (
-        freq == 'diaria'
+        freq is None
+        or freq == 'diaria'
         or (freq == 'semanal' and tarefa.get('dia_semana') == hoje.weekday())
         or (freq == 'mensal' and tarefa.get('dia_mes') == hoje.day)
     )

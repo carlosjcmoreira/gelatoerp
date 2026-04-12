@@ -7,6 +7,28 @@ logger = logging.getLogger(__name__)
 DIAS_SEMANA = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
 FREQUENCIAS = {'diaria': 'Diária', 'semanal': 'Semanal', 'mensal': 'Mensal'}
 TIPOS = {'abertura': 'Abertura', 'fecho': 'Fecho'}
+EQUIPAS = {'Produção': 'Produção', 'Vendas': 'Vendas', 'Logística': 'Logística', 'Compras': 'Compras'}
+
+_TAREFA_SELECT = """
+    SELECT t.id, t.nome, t.tipo, t.frequencia, t.dia_semana, t.dia_mes,
+           t.utilizador_id, t.ativo, t.created_at,
+           t.loja_id, t.equipa,
+           u.username AS utilizador_nome,
+           s.name     AS loja_nome
+    FROM tarefas t
+    LEFT JOIN users   u ON u.id = t.utilizador_id
+    LEFT JOIN stores  s ON s.id = t.loja_id
+"""
+
+
+def get_all_active_stores():
+    """Return all active stores as list of {id, name} dicts."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, name FROM stores WHERE is_active = TRUE ORDER BY name"
+        )
+        return [{'id': row[0], 'name': row[1]} for row in cursor.fetchall()]
 
 
 def get_all_tarefas(apenas_ativas=False):
@@ -14,13 +36,9 @@ def get_all_tarefas(apenas_ativas=False):
         cursor = conn.cursor()
         cond = "WHERE t.ativo = TRUE" if apenas_ativas else ""
         cursor.execute(f"""
-            SELECT t.id, t.nome, t.tipo, t.frequencia, t.dia_semana, t.dia_mes,
-                   t.utilizador_id, t.ativo, t.created_at,
-                   u.username AS utilizador_nome
-            FROM tarefas t
-            LEFT JOIN users u ON u.id = t.utilizador_id
+            {_TAREFA_SELECT}
             {cond}
-            ORDER BY t.tipo, t.frequencia, t.nome
+            ORDER BY t.tipo, t.frequencia NULLS LAST, t.nome
         """)
         cols = [d[0] for d in cursor.description]
         return [dict(zip(cols, row)) for row in cursor.fetchall()]
@@ -29,12 +47,8 @@ def get_all_tarefas(apenas_ativas=False):
 def get_tarefa_by_id(tarefa_id):
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT t.id, t.nome, t.tipo, t.frequencia, t.dia_semana, t.dia_mes,
-                   t.utilizador_id, t.ativo, t.created_at,
-                   u.username AS utilizador_nome
-            FROM tarefas t
-            LEFT JOIN users u ON u.id = t.utilizador_id
+        cursor.execute(f"""
+            {_TAREFA_SELECT}
             WHERE t.id = %s
         """, (tarefa_id,))
         row = cursor.fetchone()
@@ -44,28 +58,34 @@ def get_tarefa_by_id(tarefa_id):
         return dict(zip(cols, row))
 
 
-def create_tarefa(nome, tipo, frequencia, dia_semana=None, dia_mes=None, utilizador_id=None):
+def create_tarefa(nome, tipo, frequencia=None, dia_semana=None, dia_mes=None,
+                  utilizador_id=None, loja_id=None, equipa=None):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO tarefas (nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, ativo)
-            VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+            INSERT INTO tarefas
+                (nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id, loja_id, equipa, ativo)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE)
             RETURNING id
-        """, (nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id or None))
+        """, (nome, tipo, frequencia or None, dia_semana, dia_mes,
+              utilizador_id or None, loja_id or None, equipa or None))
         tarefa_id = cursor.fetchone()[0]
         conn.commit()
         return tarefa_id
 
 
-def update_tarefa(tarefa_id, nome, tipo, frequencia, dia_semana=None, dia_mes=None, utilizador_id=None):
+def update_tarefa(tarefa_id, nome, tipo, frequencia=None, dia_semana=None, dia_mes=None,
+                  utilizador_id=None, loja_id=None, equipa=None):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE tarefas
             SET nome = %s, tipo = %s, frequencia = %s,
-                dia_semana = %s, dia_mes = %s, utilizador_id = %s
+                dia_semana = %s, dia_mes = %s, utilizador_id = %s,
+                loja_id = %s, equipa = %s
             WHERE id = %s
-        """, (nome, tipo, frequencia, dia_semana, dia_mes, utilizador_id or None, tarefa_id))
+        """, (nome, tipo, frequencia or None, dia_semana, dia_mes,
+              utilizador_id or None, loja_id or None, equipa or None, tarefa_id))
         conn.commit()
 
 
@@ -81,7 +101,8 @@ def toggle_tarefa_ativa(tarefa_id):
 
 
 def get_tarefas_do_dia(data=None):
-    """Return active tasks for the given date, with today's registro if any."""
+    """Return active tasks for the given date, with today's registro if any.
+    Tasks with NULL frequencia appear every day (no recurrence = always shown)."""
     if data is None:
         data = date.today()
     dia_semana = data.weekday()  # 0=Monday .. 6=Sunday
@@ -89,14 +110,12 @@ def get_tarefas_do_dia(data=None):
 
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT t.id, t.nome, t.tipo, t.frequencia, t.dia_semana, t.dia_mes,
-                   t.utilizador_id, u.username AS utilizador_nome
-            FROM tarefas t
-            LEFT JOIN users u ON u.id = t.utilizador_id
+        cursor.execute(f"""
+            {_TAREFA_SELECT}
             WHERE t.ativo = TRUE
               AND (
-                    t.frequencia = 'diaria'
+                    t.frequencia IS NULL
+                OR  t.frequencia = 'diaria'
                 OR (t.frequencia = 'semanal' AND t.dia_semana = %s)
                 OR (t.frequencia = 'mensal'  AND t.dia_mes   = %s)
               )
@@ -140,10 +159,10 @@ def marcar_tarefa(tarefa_id, utilizador_id, estado, motivo=None, data=None):
             INSERT INTO tarefas_registos (tarefa_id, data, estado, motivo, utilizador_id)
             VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (tarefa_id, data) DO UPDATE
-            SET estado       = EXCLUDED.estado,
-                motivo       = EXCLUDED.motivo,
+            SET estado        = EXCLUDED.estado,
+                motivo        = EXCLUDED.motivo,
                 utilizador_id = EXCLUDED.utilizador_id,
-                created_at   = NOW()
+                created_at    = NOW()
         """, (tarefa_id, data, estado, motivo or None, utilizador_id))
         conn.commit()
 
@@ -181,11 +200,13 @@ def get_historico_tarefas(page=1, per_page=30, data_inicio=None, data_fim=None, 
 
         cursor.execute(f"""
             SELECT tr.id, tr.data, tr.estado, tr.motivo, tr.created_at,
-                   t.nome, t.tipo, t.frequencia,
-                   u.username AS utilizador_registo
+                   t.nome, t.tipo, t.frequencia, t.equipa,
+                   u.username AS utilizador_registo,
+                   s.name     AS loja_nome
             FROM tarefas_registos tr
-            JOIN tarefas t ON t.id = tr.tarefa_id
-            LEFT JOIN users u ON u.id = tr.utilizador_id
+            JOIN tarefas  t ON t.id = tr.tarefa_id
+            LEFT JOIN users   u ON u.id = tr.utilizador_id
+            LEFT JOIN stores  s ON s.id = t.loja_id
             {where}
             ORDER BY tr.data DESC, tr.created_at DESC
             LIMIT %s OFFSET %s

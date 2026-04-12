@@ -2413,6 +2413,7 @@ def run_backfill_transferencias_eventos():
 
 
 _LOCK_TAREFAS = 202619
+_LOCK_TAREFAS_V2 = 202620
 
 
 def run_migrations_tarefas():
@@ -2473,6 +2474,47 @@ def run_migrations_tarefas():
     finally:
         try:
             cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_TAREFAS,))
+            conn.commit()
+        except Exception:
+            pass
+        release_connection(conn)
+
+
+def run_migrations_tarefas_v2():
+    """Add loja_id + equipa columns to tarefas; make frequencia nullable.
+    Advisory lock 202620."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_TAREFAS_V2,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_tarefas_v2: lock held by another worker, skipping")
+            return
+
+        cursor.execute(
+            "ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS loja_id INTEGER REFERENCES stores(id)"
+        )
+        cursor.execute(
+            "ALTER TABLE tarefas ADD COLUMN IF NOT EXISTS equipa VARCHAR(50) "
+            "CHECK (equipa IN ('Produção','Vendas','Logística','Compras'))"
+        )
+        cursor.execute(
+            "ALTER TABLE tarefas ALTER COLUMN frequencia DROP NOT NULL"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tarefas_loja ON tarefas(loja_id)"
+        )
+        conn.commit()
+        logger.info("run_migrations_tarefas_v2: loja_id, equipa, nullable frequencia — done")
+    except Exception as exc:
+        logger.error("run_migrations_tarefas_v2 failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_TAREFAS_V2,))
             conn.commit()
         except Exception:
             pass
