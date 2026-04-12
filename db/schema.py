@@ -2533,15 +2533,10 @@ def run_migrations_tarefas_v3():
             logger.info("run_migrations_tarefas_v3: lock held by another worker, skipping")
             return
 
-        cursor.execute("""
-            SELECT conname FROM pg_constraint
-            WHERE conrelid = 'tarefas_registos'::regclass
-              AND contype = 'c'
-              AND pg_get_constraintdef(oid) LIKE '%%estado%%'
-        """)
-        for row in cursor.fetchall():
-            cursor.execute(f"ALTER TABLE tarefas_registos DROP CONSTRAINT IF EXISTS {row[0]}")
-
+        cursor.execute(
+            "ALTER TABLE tarefas_registos "
+            "DROP CONSTRAINT IF EXISTS tarefas_registos_estado_check"
+        )
         cursor.execute("""
             ALTER TABLE tarefas_registos
             ADD CONSTRAINT tarefas_registos_estado_check
