@@ -167,6 +167,19 @@ def marcar_tarefa(tarefa_id, utilizador_id, estado, motivo=None, data=None):
         conn.commit()
 
 
+def delete_tarefa_registo(tarefa_id, data=None):
+    """Remove the registro for this tarefa on the given date (reset to Pendente)."""
+    if data is None:
+        data = date.today()
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM tarefas_registos WHERE tarefa_id = %s AND data = %s",
+            (tarefa_id, data)
+        )
+        conn.commit()
+
+
 def get_historico_tarefas(page=1, per_page=30, data_inicio=None, data_fim=None, tipo=None, estado=None):
     """Paginated audit log of task registos."""
     offset = (page - 1) * per_page

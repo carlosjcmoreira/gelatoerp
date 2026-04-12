@@ -347,5 +347,16 @@ Sistema DB-backed de visibilidade de tiles por módulo.
 - Módulos com filtro: producao, pastelaria, vendas, gestor, financeiro
 - `seed_tile_config` é chamado no index de financeiro; restantes módulos são auto-seeded quando visitados via gestor
 
+## Módulo Tarefas (`/tarefas/`)
+
+- **Permissão:** `acesso_tarefas`
+- **Blueprints:** `flask_app/routes/tarefas.py` → `tarefas_bp` em `/tarefas`
+- **Templates:** `flask_app/templates/tarefas/index.html`, `historico.html`
+- **DB:** `db/tarefas.py` — tabelas `tarefas` e `tarefas_registos`
+- **Migrations:** `run_migrations_tarefas` (202619), `run_migrations_tarefas_v2` (202620), `run_migrations_tarefas_v3` (202621)
+- **Estados de registo:** `feita`, `bloqueada`, `em_curso` (CHECK constraint em `tarefas_registos.estado`)
+- **REGRA:** O template `tarefas/index.html` (página principal `/tarefas/`) NUNCA deve definir `back_url` — é um destino de navegação de topo, não tem botão Voltar.
+- **UI:** Estilo Monday/Asana — tabela com colunas Tarefa, Periodicidade, Estado. Badge de estado clicável que cicla: Pendente (cinza) → Em curso (âmbar) → Feito (verde) → Bloqueado (vermelho escuro) → Pendente. Bloqueado abre modal para motivo. Responsável não é mostrado na vista de operador.
+
 ## Última Atualização
-2026-04-07 - Task #87: Tile visibility management implementado. DB table tile_config, helpers em db/tiles.py, migration 202613, filtro em todos os módulos, UI gestor para toggle.
+2026-04-12 - Task #105: Tarefas UI redesenhada (Monday/Asana), heading renomeado para "Tarefas", Voltar removido, estado "em_curso" adicionado, migration 202621.

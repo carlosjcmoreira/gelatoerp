@@ -1,10 +1,9 @@
 {% extends "base.html" %}
-{% set back_url = url_for("home.index") %}
 
 {% block content %}
-<div class="container-fluid px-3 py-3 pb-5">
+<div class="container-fluid px-3 py-3 pb-4">
   <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
-    <h5 class="mb-0">✅ Tarefas do Dia</h5>
+    <h5 class="mb-0">✅ Tarefas</h5>
     <a href="{{ url_for('tarefas.historico') }}" class="btn btn-sm btn-outline-secondary">📋 Histórico</a>
   </div>
   <p class="text-muted small mb-3">{{ hoje.strftime('%d/%m/%Y') }}</p>
@@ -32,76 +31,90 @@
         </span>
       {% endif %}
     </div>
-    <div class="card-body p-0">
-      {% if grupo_tarefas %}
-      <ul class="list-group list-group-flush">
-        {% for t in grupo_tarefas %}
-        {% set reg = t.registo %}
-        {% set is_mine = (t.utilizador_id == user.id) or user.acesso_gestor %}
-        <li class="list-group-item py-2 px-3">
-          <div class="d-flex align-items-start justify-content-between gap-2">
-            <div class="flex-grow-1">
-              <div class="d-flex align-items-center gap-2 flex-wrap">
-                {# Status badge #}
-                {% if reg %}
-                  {% if reg.estado == 'feita' %}
-                    <span class="badge bg-success">✅ Feita</span>
-                  {% else %}
-                    <span class="badge bg-danger">🚫 Bloqueada</span>
-                  {% endif %}
-                {% else %}
-                  <span class="badge bg-light text-dark border">⏳ Pendente</span>
-                {% endif %}
-                <span class="fw-semibold small">{{ t.nome }}</span>
-                {% if frequencias.get(t.frequencia) %}
-                <span class="badge bg-light text-muted border small">{{ frequencias.get(t.frequencia) }}</span>
-                {% endif %}
-              </div>
-              <div class="text-muted" style="font-size:0.75rem;margin-top:2px;">
-                {% if t.loja_nome %}<span>🏪 {{ t.loja_nome }}</span>{% endif %}
-                {% if t.equipa %}<span class="ms-2">👥 {{ t.equipa }}</span>{% endif %}
-                {% if t.utilizador_nome %}
-                <span class="ms-2">👤 {{ t.utilizador_nome }}</span>
-                {% if reg %}
-                  · {{ reg.utilizador_registo or t.utilizador_nome }}
-                  {% if reg.created_at %}
-                    · {{ reg.created_at.strftime('%H:%M') if reg.created_at else '' }}
-                  {% endif %}
-                {% endif %}
-                {% endif %}
-              </div>
+    {% if grupo_tarefas %}
+    <div class="table-responsive">
+      <table class="table table-hover table-sm mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th class="ps-3">Tarefa</th>
+            <th style="width:120px">Periodicidade</th>
+            <th class="text-center pe-3" style="width:130px">Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in grupo_tarefas %}
+          {% set reg = t.registo %}
+          {% set is_mine = (t.utilizador_id == user.id) or user.acesso_gestor %}
+          {% set cur_estado = reg.estado if reg else 'pendente' %}
+
+          {# Determine next state in cycle: Pendente→Em curso→Feito→Bloqueado→Pendente #}
+          {% if cur_estado == 'pendente' %}
+            {% set next_estado = 'em_curso' %}
+            {% set badge_label = 'Pendente' %}
+            {% set badge_bg = '#6c757d' %}
+          {% elif cur_estado == 'em_curso' %}
+            {% set next_estado = 'feita' %}
+            {% set badge_label = 'Em curso' %}
+            {% set badge_bg = '#c07a00' %}
+          {% elif cur_estado == 'feita' %}
+            {% set next_estado = 'bloqueada' %}
+            {% set badge_label = 'Feito' %}
+            {% set badge_bg = '#198754' %}
+          {% else %}
+            {% set next_estado = 'pendente' %}
+            {% set badge_label = 'Bloqueado' %}
+            {% set badge_bg = '#842029' %}
+          {% endif %}
+
+          <tr>
+            <td class="ps-3">
+              <span class="fw-semibold">{{ t.nome }}</span>
               {% if reg and reg.motivo %}
-              <div class="text-danger small mt-1">
-                <strong>Motivo:</strong> {{ reg.motivo }}
-              </div>
+              <div class="text-danger" style="font-size:0.72rem;margin-top:2px;">{{ reg.motivo }}</div>
               {% endif %}
-            </div>
-            {# Action buttons — only for responsible user or gestor #}
-            {% if is_mine %}
-            <div class="d-flex gap-1 flex-shrink-0">
-              {% if not reg or reg.estado != 'feita' %}
-              <form method="POST" action="{{ url_for('tarefas.marcar') }}" class="d-inline">
-                <input type="hidden" name="tarefa_id" value="{{ t.id }}">
-                <input type="hidden" name="estado" value="feita">
-                <button type="submit" class="btn btn-sm btn-success py-0 px-2" title="Marcar como feita">✅</button>
-              </form>
+            </td>
+            <td class="text-muted small">
+              {{ frequencias.get(t.frequencia, '—') if t.frequencia else '—' }}
+            </td>
+            <td class="text-center pe-3">
+              {% if is_mine %}
+                {% if next_estado == 'bloqueada' %}
+                <button type="button"
+                        class="badge border-0 px-2 py-1"
+                        style="background-color:{{ badge_bg }};color:#fff;cursor:pointer;font-size:0.75rem;"
+                        onclick="openBloquearModal({{ t.id }}, {{ t.nome | tojson }})"
+                        title="Clique para avançar estado">
+                  {{ badge_label }}
+                </button>
+                {% else %}
+                <form method="POST" action="{{ url_for('tarefas.marcar') }}" class="d-inline">
+                  <input type="hidden" name="tarefa_id" value="{{ t.id }}">
+                  <input type="hidden" name="estado" value="{{ next_estado }}">
+                  <button type="submit"
+                          class="badge border-0 px-2 py-1"
+                          style="background-color:{{ badge_bg }};color:#fff;cursor:pointer;font-size:0.75rem;"
+                          title="Clique para avançar estado">
+                    {{ badge_label }}
+                  </button>
+                </form>
+                {% endif %}
+              {% else %}
+              <span class="badge px-2 py-1"
+                    style="background-color:{{ badge_bg }};color:#fff;font-size:0.75rem;">
+                {{ badge_label }}
+              </span>
               {% endif %}
-              {% if not reg or reg.estado != 'bloqueada' %}
-              <button type="button"
-                      class="btn btn-sm btn-outline-danger py-0 px-2"
-                      title="Marcar como bloqueada"
-                      onclick="openBloquearModal({{ t.id }}, {{ t.nome | tojson }})">🚫</button>
-              {% endif %}
-            </div>
-            {% endif %}
-          </div>
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p class="text-muted small p-3 mb-0">Sem tarefas de {{ grupo_label | lower }} para hoje.</p>
-      {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
+    {% else %}
+    <div class="card-body py-3">
+      <p class="text-muted small mb-0">Sem tarefas de {{ grupo_label | lower }} para hoje.</p>
+    </div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>
@@ -113,8 +126,8 @@
       <form method="POST" action="{{ url_for('tarefas.marcar') }}">
         <input type="hidden" name="estado" value="bloqueada">
         <input type="hidden" name="tarefa_id" id="bloquear-tarefa-id">
-        <div class="modal-header py-2 bg-danger text-white">
-          <h6 class="modal-title" id="modalBloquearLabel">🚫 Marcar como Bloqueada</h6>
+        <div class="modal-header py-2" style="background-color:#842029;">
+          <h6 class="modal-title text-white" id="modalBloquearLabel">🚫 Marcar como Bloqueado</h6>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
@@ -125,7 +138,7 @@
         </div>
         <div class="modal-footer py-2">
           <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-danger btn-sm">Confirmar Bloqueio</button>
+          <button type="submit" class="btn btn-sm text-white" style="background-color:#842029;">Confirmar Bloqueio</button>
         </div>
       </form>
     </div>

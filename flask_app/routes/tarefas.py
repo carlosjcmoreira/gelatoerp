@@ -33,13 +33,13 @@ def index():
 @tarefas_bp.route('/marcar', methods=['POST'])
 @perm_required('acesso_tarefas')
 def marcar():
-    from db.tarefas import marcar_tarefa, get_tarefa_by_id
+    from db.tarefas import marcar_tarefa, delete_tarefa_registo, get_tarefa_by_id
     user = session['user']
     tarefa_id = request.form.get('tarefa_id', type=int)
     estado = request.form.get('estado', '')
     motivo = request.form.get('motivo', '').strip() or None
 
-    if not tarefa_id or estado not in ('feita', 'bloqueada'):
+    if not tarefa_id or estado not in ('feita', 'bloqueada', 'em_curso', 'pendente'):
         flash('Pedido inválido.', 'warning')
         return redirect(url_for('tarefas.index'))
 
@@ -72,9 +72,13 @@ def marcar():
         flash('Indique o motivo para marcar como bloqueada.', 'warning')
         return redirect(url_for('tarefas.index'))
 
-    marcar_tarefa(tarefa_id, user['id'], estado, motivo)
-    label = 'como feita' if estado == 'feita' else 'como bloqueada'
-    flash(f"Tarefa marcada {label}.", 'success')
+    if estado == 'pendente':
+        delete_tarefa_registo(tarefa_id)
+        flash('Tarefa reposta como pendente.', 'success')
+    else:
+        marcar_tarefa(tarefa_id, user['id'], estado, motivo)
+        labels = {'feita': 'como feita', 'bloqueada': 'como bloqueada', 'em_curso': 'em curso'}
+        flash(f"Tarefa marcada {labels[estado]}.", 'success')
     return redirect(url_for('tarefas.index'))
 
 

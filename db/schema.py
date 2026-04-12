@@ -2414,6 +2414,7 @@ def run_backfill_transferencias_eventos():
 
 _LOCK_TAREFAS = 202619
 _LOCK_TAREFAS_V2 = 202620
+_LOCK_TAREFAS_V3 = 202621
 
 
 def run_migrations_tarefas():
@@ -2515,6 +2516,48 @@ def run_migrations_tarefas_v2():
     finally:
         try:
             cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_TAREFAS_V2,))
+            conn.commit()
+        except Exception:
+            pass
+        release_connection(conn)
+
+
+def run_migrations_tarefas_v3():
+    """Extend tarefas_registos.estado CHECK to include 'em_curso'.
+    Advisory lock 202621."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_TAREFAS_V3,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_tarefas_v3: lock held by another worker, skipping")
+            return
+
+        cursor.execute("""
+            SELECT conname FROM pg_constraint
+            WHERE conrelid = 'tarefas_registos'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) LIKE '%%estado%%'
+        """)
+        for row in cursor.fetchall():
+            cursor.execute(f"ALTER TABLE tarefas_registos DROP CONSTRAINT IF EXISTS {row[0]}")
+
+        cursor.execute("""
+            ALTER TABLE tarefas_registos
+            ADD CONSTRAINT tarefas_registos_estado_check
+            CHECK (estado IN ('feita','bloqueada','em_curso'))
+        """)
+        conn.commit()
+        logger.info("run_migrations_tarefas_v3: estado constraint extended to include em_curso")
+    except Exception as exc:
+        logger.error("run_migrations_tarefas_v3 failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_TAREFAS_V3,))
             conn.commit()
         except Exception:
             pass
