@@ -38,7 +38,7 @@
           <tr>
             <th class="ps-3">Tarefa</th>
             <th style="width:120px">Periodicidade</th>
-            <th class="text-center pe-3" style="width:130px">Estado</th>
+            <th class="text-center pe-3" style="width:140px">Estado</th>
           </tr>
         </thead>
         <tbody>
@@ -47,21 +47,16 @@
           {% set is_mine = (t.utilizador_id == user.id) or user.acesso_gestor %}
           {% set cur_estado = reg.estado if reg else 'pendente' %}
 
-          {# Determine next state in cycle: Pendente→Em curso→Feito→Bloqueado→Pendente #}
           {% if cur_estado == 'pendente' %}
-            {% set next_estado = 'em_curso' %}
             {% set badge_label = 'Pendente' %}
             {% set badge_bg = '#6c757d' %}
           {% elif cur_estado == 'em_curso' %}
-            {% set next_estado = 'feita' %}
             {% set badge_label = 'Em curso' %}
             {% set badge_bg = '#d4820a' %}
           {% elif cur_estado == 'feita' %}
-            {% set next_estado = 'bloqueada' %}
             {% set badge_label = 'Feito' %}
             {% set badge_bg = '#198754' %}
           {% else %}
-            {% set next_estado = 'pendente' %}
             {% set badge_label = 'Bloqueado' %}
             {% set badge_bg = '#842029' %}
           {% endif %}
@@ -78,26 +73,61 @@
             </td>
             <td class="text-center pe-3">
               {% if is_mine %}
-                {% if next_estado == 'bloqueada' %}
-                <button type="button"
-                        class="badge border-0 px-2 py-1"
-                        style="background-color:{{ badge_bg }};color:#fff;cursor:pointer;font-size:0.75rem;"
-                        onclick="openBloquearModal({{ t.id }}, {{ t.nome | tojson }})"
-                        title="Clique para avançar estado">
+              <div class="dropdown d-inline-block">
+                <button class="badge border-0 px-2 py-1 dropdown-toggle dropdown-toggle-no-caret"
+                        data-bs-toggle="dropdown"
+                        aria-expanded="false"
+                        style="background-color:{{ badge_bg }};color:#fff;cursor:pointer;font-size:0.75rem;">
                   {{ badge_label }}
                 </button>
-                {% else %}
-                <form method="POST" action="{{ url_for('tarefas.marcar') }}" class="d-inline">
-                  <input type="hidden" name="tarefa_id" value="{{ t.id }}">
-                  <input type="hidden" name="estado" value="{{ next_estado }}">
-                  <button type="submit"
-                          class="badge border-0 px-2 py-1"
-                          style="background-color:{{ badge_bg }};color:#fff;cursor:pointer;font-size:0.75rem;"
-                          title="Clique para avançar estado">
-                    {{ badge_label }}
-                  </button>
-                </form>
-                {% endif %}
+                <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:150px;font-size:0.85rem;">
+                  <li>
+                    <button type="button" class="dropdown-item d-flex align-items-center gap-2
+                      {{ 'fw-bold' if cur_estado == 'pendente' else '' }}"
+                      {{ 'disabled' if cur_estado == 'pendente' else '' }}
+                      onclick="submitEstado({{ t.id }}, 'pendente')">
+                      <span class="rounded-circle d-inline-block flex-shrink-0"
+                            style="width:10px;height:10px;background:#6c757d;"></span>
+                      Pendente
+                      {% if cur_estado == 'pendente' %}<span class="ms-auto">✓</span>{% endif %}
+                    </button>
+                  </li>
+                  <li>
+                    <button type="button" class="dropdown-item d-flex align-items-center gap-2
+                      {{ 'fw-bold' if cur_estado == 'em_curso' else '' }}"
+                      {{ 'disabled' if cur_estado == 'em_curso' else '' }}
+                      onclick="submitEstado({{ t.id }}, 'em_curso')">
+                      <span class="rounded-circle d-inline-block flex-shrink-0"
+                            style="width:10px;height:10px;background:#d4820a;"></span>
+                      Em curso
+                      {% if cur_estado == 'em_curso' %}<span class="ms-auto">✓</span>{% endif %}
+                    </button>
+                  </li>
+                  <li>
+                    <button type="button" class="dropdown-item d-flex align-items-center gap-2
+                      {{ 'fw-bold' if cur_estado == 'feita' else '' }}"
+                      {{ 'disabled' if cur_estado == 'feita' else '' }}
+                      onclick="submitEstado({{ t.id }}, 'feita')">
+                      <span class="rounded-circle d-inline-block flex-shrink-0"
+                            style="width:10px;height:10px;background:#198754;"></span>
+                      Feito
+                      {% if cur_estado == 'feita' %}<span class="ms-auto">✓</span>{% endif %}
+                    </button>
+                  </li>
+                  <li><hr class="dropdown-divider my-1"></li>
+                  <li>
+                    <button type="button" class="dropdown-item d-flex align-items-center gap-2
+                      {{ 'fw-bold' if cur_estado == 'bloqueada' else '' }}"
+                      {{ 'disabled' if cur_estado == 'bloqueada' else '' }}
+                      onclick="openBloquearModal({{ t.id }}, {{ t.nome | tojson }})">
+                      <span class="rounded-circle d-inline-block flex-shrink-0"
+                            style="width:10px;height:10px;background:#842029;"></span>
+                      Bloqueado
+                      {% if cur_estado == 'bloqueada' %}<span class="ms-auto">✓</span>{% endif %}
+                    </button>
+                  </li>
+                </ul>
+              </div>
               {% else %}
               <span class="badge px-2 py-1"
                     style="background-color:{{ badge_bg }};color:#fff;font-size:0.75rem;">
@@ -119,7 +149,13 @@
   {% endfor %}
 </div>
 
-{# ── Modal: Marcar Bloqueada ──────────────────────────────────────────────── #}
+{# ── Hidden shared form for state transitions ─────────────────────────────── #}
+<form id="form-marcar" method="POST" action="{{ url_for('tarefas.marcar') }}" style="display:none;">
+  <input type="hidden" name="tarefa_id" id="fm-tarefa-id">
+  <input type="hidden" name="estado" id="fm-estado">
+</form>
+
+{# ── Modal: Marcar Bloqueado ──────────────────────────────────────────────── #}
 <div class="modal fade" id="modalBloquear" tabindex="-1" aria-labelledby="modalBloquearLabel" aria-hidden="true">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
@@ -145,7 +181,16 @@
   </div>
 </div>
 
+<style>
+.dropdown-toggle-no-caret::after { display: none; }
+</style>
+
 <script>
+function submitEstado(tarefaId, estado) {
+    document.getElementById('fm-tarefa-id').value = tarefaId;
+    document.getElementById('fm-estado').value = estado;
+    document.getElementById('form-marcar').submit();
+}
 function openBloquearModal(tarefaId, nome) {
     document.getElementById('bloquear-tarefa-id').value = tarefaId;
     document.getElementById('bloquear-nome').textContent = nome;

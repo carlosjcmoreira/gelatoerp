@@ -358,5 +358,8 @@ Sistema DB-backed de visibilidade de tiles por módulo.
 - **REGRA:** O template `tarefas/index.html` (página principal `/tarefas/`) NUNCA deve definir `back_url` — é um destino de navegação de topo, não tem botão Voltar.
 - **UI:** Estilo Monday/Asana — tabela com colunas Tarefa, Periodicidade, Estado. Badge de estado clicável que cicla: Pendente (cinza) → Em curso (âmbar) → Feito (verde) → Bloqueado (vermelho escuro) → Pendente. Bloqueado abre modal para motivo. Responsável não é mostrado na vista de operador.
 
+## REGRA: Erro "Your Start application artifact encountered an error"
+Este erro aparece no painel de preview do Replit sempre que o servidor é reiniciado (`restart_workflow`). É um erro **TRANSITÓRIO** causado pela indisponibilidade momentânea do servidor durante o restart — NÃO é um erro de código. O servidor recupera em segundos automaticamente. **NÃO investigar nem debugar quando acontece imediatamente após um restart de workflow.** O utilizador vê este ecrã porque o iframe perde a ligação momentaneamente.
+
 ## Última Atualização
 2026-04-12 - Task #105: Tarefas UI redesenhada (Monday/Asana), heading renomeado para "Tarefas", Voltar removido, estado "em_curso" adicionado, migration 202621.
