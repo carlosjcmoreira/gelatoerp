@@ -37,8 +37,8 @@
         <thead class="table-light">
           <tr>
             <th class="ps-3">Tarefa</th>
-            <th style="width:120px">Periodicidade</th>
-            <th class="text-center pe-3" style="width:140px">Estado</th>
+            <th class="d-none d-md-table-cell" style="width:120px">Periodicidade</th>
+            <th class="text-center pe-3" style="width:44px">Estado</th>
           </tr>
         </thead>
         <tbody>
@@ -68,17 +68,22 @@
               <div class="text-danger" style="font-size:0.72rem;margin-top:2px;">{{ reg.motivo }}</div>
               {% endif %}
             </td>
-            <td class="text-muted small">
+            <td class="d-none d-md-table-cell text-muted small">
               {{ frequencias.get(t.frequencia, '—') if t.frequencia else '—' }}
             </td>
             <td class="text-center pe-3">
               {% if is_mine %}
               <div class="dropdown d-inline-block">
-                <button class="badge border-0 px-2 py-1 dropdown-toggle dropdown-toggle-no-caret"
+                <button class="border-0 bg-transparent p-0 dropdown-toggle-no-caret"
                         data-bs-toggle="dropdown"
                         aria-expanded="false"
-                        style="background-color:{{ badge_bg }};color:#fff;cursor:pointer;font-size:0.75rem;">
-                  {{ badge_label }}
+                        style="cursor:pointer;line-height:1;">
+                  {# Mobile: coloured square only #}
+                  <span class="d-inline-block d-md-none rounded"
+                        style="width:22px;height:22px;background:{{ badge_bg }};vertical-align:middle;"></span>
+                  {# Desktop: text badge #}
+                  <span class="badge d-none d-md-inline px-2 py-1"
+                        style="background-color:{{ badge_bg }};color:#fff;font-size:0.75rem;">{{ badge_label }}</span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:150px;font-size:0.85rem;">
                   <li>
@@ -129,10 +134,11 @@
                 </ul>
               </div>
               {% else %}
-              <span class="badge px-2 py-1"
-                    style="background-color:{{ badge_bg }};color:#fff;font-size:0.75rem;">
-                {{ badge_label }}
-              </span>
+              {# Read-only badge: square on mobile, text on desktop #}
+              <span class="d-inline-block d-md-none rounded"
+                    style="width:22px;height:22px;background:{{ badge_bg }};vertical-align:middle;"></span>
+              <span class="badge d-none d-md-inline px-2 py-1"
+                    style="background-color:{{ badge_bg }};color:#fff;font-size:0.75rem;">{{ badge_label }}</span>
               {% endif %}
             </td>
           </tr>
