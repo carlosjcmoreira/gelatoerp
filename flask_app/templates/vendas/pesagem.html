@@ -22,6 +22,11 @@
             <input type="hidden" name="action" value="add">
 
             <div class="mb-3">
+                <label class="form-label fw-semibold">Data</label>
+                <input type="date" name="data" class="form-control" value="{{ today }}" required>
+            </div>
+
+            <div class="mb-3">
                 <label class="form-label fw-semibold">Sabor</label>
                 <select name="sabor" class="form-select" required>
                     {% for s in sabores %}
@@ -76,6 +81,15 @@
 
             <form method="POST" id="ocr-bulk-form">
                 <input type="hidden" name="action" value="add_bulk">
+
+                <!-- Date detected from sheet — editable in case OCR misread it -->
+                <div class="mb-3" id="ocr-data-wrap">
+                    <label class="form-label small fw-semibold">Data da folha</label>
+                    <input type="date" name="data" id="ocr-data" class="form-control form-control-sm"
+                           value="{{ today }}" required>
+                    <div class="form-text" id="ocr-data-hint"></div>
+                </div>
+
                 <div id="ocr-rows-container"></div>
 
                 <button type="button" class="btn btn-success w-100 mt-3"
@@ -91,9 +105,9 @@
         </div>
     </div>
 
-    <!-- ── Pesagens Registadas Hoje ────────────────────────── -->
+    <!-- ── Pesagens Registadas ──────────────────────────────── -->
     <hr>
-    <h6 class="mb-3">Pesagens Registadas Hoje</h6>
+    <h6 class="mb-3">Pesagens Registadas — {{ data_sel.strftime('%d/%m/%Y') }}</h6>
 
     {% if pesagens_hoje %}
     <div class="table-responsive mb-3">
@@ -126,13 +140,14 @@
         <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
     </form>
     {% else %}
-    <div class="alert alert-info">Sem pesagens registadas para hoje.</div>
+    <div class="alert alert-info">Sem pesagens registadas para {{ data_sel.strftime('%d/%m/%Y') }}.</div>
     {% endif %}
 </div>
 
 <script>
 const SABORES_CONHECIDOS = {{ sabores | tojson }};
 const OCR_URL = "{{ url_for('vendas.pesagem_ocr') }}";
+const TODAY = "{{ today }}";
 
 function setModo(modo) {
     const isOcr = modo === 'ocr';
@@ -169,10 +184,18 @@ function iniciarOCR(input) {
 
             const conf = Math.round((data.confidence || 0) * 100);
             const confClass = conf >= 80 ? 'success' : conf >= 60 ? 'warning' : 'danger';
-            mostrarBanner(confClass,
-                `OCR concluído — Confiança: <strong>${conf}%</strong>` +
-                (data.data_ocr ? ` &nbsp;·&nbsp; Data: <strong>${data.data_ocr}</strong>` : '')
-            );
+            mostrarBanner(confClass, `OCR concluído — Confiança: <strong>${conf}%</strong>`);
+
+            // Populate date field from OCR result
+            const dataInput = document.getElementById('ocr-data');
+            const dataHint  = document.getElementById('ocr-data-hint');
+            if (data.data_ocr) {
+                dataInput.value = data.data_ocr;
+                dataHint.textContent = 'Data lida da folha. Corrija se necessário.';
+            } else {
+                dataInput.value = TODAY;
+                dataHint.textContent = 'Data não detectada na folha — a usar hoje como padrão.';
+            }
 
             renderLinhas(data.linhas || []);
         })

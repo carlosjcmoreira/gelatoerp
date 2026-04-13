@@ -238,26 +238,35 @@ def pesagem():
         reverse_mapping[nome_receita] = nome_corrente
         reverse_mapping[nome_corrente] = nome_corrente
 
+    def _parse_date_form(key='data'):
+        raw = request.form.get(key, '').strip()
+        try:
+            return datetime.strptime(raw, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return date.today()
+
     if request.method == 'POST':
         action = request.form.get('action')
 
         if action == 'add':
             sabor = request.form.get('sabor', '')
+            data_reg = _parse_date_form()
             try:
                 pesagem_kg = float(request.form.get('quantidade', '0').replace(',', '.'))
             except (ValueError, TypeError):
                 pesagem_kg = 0
 
             if pesagem_kg >= 0 and sabor:
-                add_stock_gelado(date.today(), loja_nome, sabor, pesagem_kg, 'fim')
+                add_stock_gelado(data_reg, loja_nome, sabor, pesagem_kg, 'fim')
                 flash(f'Pesagem de {pesagem_kg:.3f} kg de {sabor} registada!', 'success')
             else:
                 flash('Insira um valor válido.', 'error')
-            return redirect(url_for('vendas.pesagem', loja_id=loja_id))
+            return redirect(url_for('vendas.pesagem', loja_id=loja_id, data=str(data_reg)))
 
         elif action == 'add_bulk':
             sabores_list = request.form.getlist('sabor[]')
             qtds_list = request.form.getlist('quantidade[]')
+            data_reg = _parse_date_form()
             saved = 0
             for sabor, qtd_str in zip(sabores_list, qtds_list):
                 sabor = sabor.strip()
@@ -268,13 +277,13 @@ def pesagem():
                 except (ValueError, TypeError):
                     continue
                 if pesagem_kg >= 0:
-                    add_stock_gelado(date.today(), loja_nome, sabor, pesagem_kg, 'fim')
+                    add_stock_gelado(data_reg, loja_nome, sabor, pesagem_kg, 'fim')
                     saved += 1
             if saved:
                 flash(f'{saved} pesagem(ns) registada(s) via fotografia!', 'success')
             else:
                 flash('Nenhuma pesagem válida para registar.', 'error')
-            return redirect(url_for('vendas.pesagem', loja_id=loja_id))
+            return redirect(url_for('vendas.pesagem', loja_id=loja_id, data=str(data_reg)))
 
         elif action == 'delete':
             s_id = request.form.get('id')
@@ -288,7 +297,14 @@ def pesagem():
                     flash('Sem permissão para eliminar este registo.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id))
 
-    stock_rows = get_stock_gelado_df(loja=loja_nome, tipo='fim', data_inicio=date.today(), data_fim=date.today())
+    # GET — determine which date to display
+    data_str = request.args.get('data', '').strip()
+    try:
+        data_sel = datetime.strptime(data_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        data_sel = date.today()
+
+    stock_rows = get_stock_gelado_df(loja=loja_nome, tipo='fim', data_inicio=data_sel, data_fim=data_sel)
     pesagens_hoje = [
         {
             'id': r['id'],
@@ -305,6 +321,7 @@ def pesagem():
                            loja_id=loja_id,
                            sabores=sabores,
                            pesagens_hoje=pesagens_hoje,
+                           data_sel=data_sel,
                            today=str(date.today()))
 
 
