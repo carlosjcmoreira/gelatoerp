@@ -23,7 +23,7 @@
 
             <div class="mb-3">
                 <label class="form-label fw-semibold">Data</label>
-                <input type="date" name="data" class="form-control" value="{{ today }}" required>
+                <input type="date" name="data" class="form-control" value="{{ data_sel.isoformat() }}" required>
             </div>
 
             <div class="mb-3">
@@ -86,7 +86,7 @@
                 <div class="mb-3" id="ocr-data-wrap">
                     <label class="form-label small fw-semibold">Data da folha</label>
                     <input type="date" name="data" id="ocr-data" class="form-control form-control-sm"
-                           value="{{ today }}" required>
+                           value="{{ data_sel.isoformat() }}" required>
                     <div class="form-text" id="ocr-data-hint"></div>
                 </div>
 
@@ -133,6 +133,7 @@
 
     <form method="POST" class="d-flex gap-2 align-items-end">
         <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="data" value="{{ data_sel.isoformat() }}">
         <div>
             <label class="form-label fw-semibold mb-1" style="font-size:0.85rem;">ID a eliminar</label>
             <input type="number" name="id" class="form-control form-control-sm" min="1" required style="width:100px;">

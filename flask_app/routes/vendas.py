@@ -295,7 +295,9 @@ def pesagem():
                     flash('Pesagem eliminada!', 'success')
                 else:
                     flash('Sem permissão para eliminar este registo.', 'error')
-            return redirect(url_for('vendas.pesagem', loja_id=loja_id))
+            data_redirect = request.form.get('data', '').strip()
+            return redirect(url_for('vendas.pesagem', loja_id=loja_id,
+                                    data=data_redirect if data_redirect else None))
 
     # GET — determine which date to display
     data_str = request.args.get('data', '').strip()
