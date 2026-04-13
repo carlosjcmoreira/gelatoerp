@@ -781,13 +781,19 @@ def delete_stock_gelado(stock_id: int):
     conn.commit()
     release_connection(conn)
 
-def update_stock_gelado(stock_id: int, quantidade_kg: float):
+def update_stock_gelado(stock_id: int, quantidade_kg: float, loja: str = None):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE stock_gelado SET quantidade_kg = %s WHERE id = %s",
-        (quantidade_kg, stock_id)
-    )
+    if loja:
+        cursor.execute(
+            "UPDATE stock_gelado SET quantidade_kg = %s WHERE id = %s AND loja = %s",
+            (quantidade_kg, stock_id, loja)
+        )
+    else:
+        cursor.execute(
+            "UPDATE stock_gelado SET quantidade_kg = %s WHERE id = %s",
+            (quantidade_kg, stock_id)
+        )
     conn.commit()
     release_connection(conn)
 

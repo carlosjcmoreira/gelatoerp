@@ -302,17 +302,21 @@ def pesagem():
                                     data=data_redirect if data_redirect else None))
 
         elif action == 'edit':
-            s_id = request.form.get('id')
+            s_id_raw = request.form.get('id', '').strip()
             data_redirect = request.form.get('data', '').strip()
+            try:
+                s_id = int(s_id_raw)
+            except (ValueError, TypeError):
+                s_id = None
             if s_id:
                 from database import get_stock_gelado_by_id
-                record = get_stock_gelado_by_id(int(s_id))
+                record = get_stock_gelado_by_id(s_id)
                 if record and _user_owns_loja(record.get('loja', '')):
                     try:
                         nova_kg = round(float(request.form.get('quantidade', '0').replace(',', '.')), 3)
                         if nova_kg < 0:
                             raise ValueError
-                        update_stock_gelado(int(s_id), nova_kg)
+                        update_stock_gelado(s_id, nova_kg, loja=record.get('loja'))
                         flash(f'Pesagem actualizada para {nova_kg:.3f} kg.', 'success')
                     except (ValueError, TypeError):
                         flash('Valor inválido para edição.', 'error')
