@@ -105,43 +105,69 @@
         </div>
     </div>
 
-    <!-- ── Pesagens Registadas ──────────────────────────────── -->
+    <!-- ── Histórico de Pesagens ──────────────────────────── -->
     <hr>
-    <h6 class="mb-3">Pesagens Registadas — {{ data_sel.strftime('%d/%m/%Y') }}</h6>
+    <h6 class="mb-3">📅 Histórico de Pesagens — últimos 30 dias</h6>
 
-    {% if pesagens_hoje %}
-    <div class="table-responsive mb-3">
-        <table class="table table-sm table-bordered align-middle">
-            <thead class="table-dark">
+    {% if historico_dias %}
+    <div class="accordion" id="hist-acc">
+      {% for dia in historico_dias %}
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="hist-hd-{{ loop.index }}">
+          <button class="accordion-button {% if not dia.is_today %}collapsed{% endif %} py-2 px-3"
+                  type="button"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#hist-col-{{ loop.index }}"
+                  aria-expanded="{{ 'true' if dia.is_today else 'false' }}"
+                  aria-controls="hist-col-{{ loop.index }}">
+            <span class="fw-semibold me-2">{{ dia.data_str }}</span>
+            {% if dia.is_today %}<span class="badge bg-secondary me-2" style="font-size:0.7rem;">hoje</span>{% endif %}
+            <span class="text-muted small me-2">{{ dia.num_sabores }} sabor{{ 'es' if dia.num_sabores != 1 else '' }}</span>
+            <span class="badge bg-primary ms-auto">{{ '%.3f'|format(dia.total_kg) }} kg</span>
+          </button>
+        </h2>
+        <div id="hist-col-{{ loop.index }}"
+             class="accordion-collapse collapse {% if dia.is_today %}show{% endif %}"
+             aria-labelledby="hist-hd-{{ loop.index }}">
+          <div class="accordion-body p-0">
+            <table class="table table-sm mb-0 align-middle">
+              <thead class="table-light">
                 <tr>
-                    <th>ID</th>
-                    <th>Sabor</th>
-                    <th class="text-end">Pesagem (kg)</th>
+                  <th class="ps-3">Sabor</th>
+                  <th class="text-end" style="width:110px">kg</th>
+                  <th style="width:44px"></th>
                 </tr>
-            </thead>
-            <tbody>
-                {% for p in pesagens_hoje %}
+              </thead>
+              <tbody>
+                {% for linha in dia.linhas %}
                 <tr>
-                    <td>{{ p.id }}</td>
-                    <td>{{ p.sabor }}</td>
-                    <td class="text-end">{{ p.quantidade_kg }}</td>
+                  <td class="ps-3">{{ linha.sabor }}</td>
+                  <td class="text-end">{{ '%.3f'|format(linha.quantidade_kg) }}</td>
+                  <td class="text-center">
+                    <form method="POST" style="display:inline;"
+                          onsubmit="return confirm('Eliminar esta pesagem?')">
+                      <input type="hidden" name="action" value="delete">
+                      <input type="hidden" name="id" value="{{ linha.id }}">
+                      <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                              style="font-size:0.72rem;" title="Eliminar">🗑</button>
+                    </form>
+                  </td>
                 </tr>
                 {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <form method="POST" class="d-flex gap-2 align-items-end">
-        <input type="hidden" name="action" value="delete">
-        <input type="hidden" name="data" value="{{ data_sel.isoformat() }}">
-        <div>
-            <label class="form-label fw-semibold mb-1" style="font-size:0.85rem;">ID a eliminar</label>
-            <input type="number" name="id" class="form-control form-control-sm" min="1" required style="width:100px;">
+                <tr class="table-secondary">
+                  <td class="ps-3 fw-semibold">Total</td>
+                  <td class="text-end fw-semibold">{{ '%.3f'|format(dia.total_kg) }}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
-    </form>
+      </div>
+      {% endfor %}
+    </div>
     {% else %}
-    <div class="alert alert-info">Sem pesagens registadas para {{ data_sel.strftime('%d/%m/%Y') }}.</div>
+    <div class="alert alert-info">Sem pesagens registadas nos últimos 30 dias.</div>
     {% endif %}
 </div>
 

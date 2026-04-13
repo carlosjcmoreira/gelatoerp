@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_app.auth import login_required
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from collections import defaultdict
 import sys, os, logging
 logger = logging.getLogger(__name__)
@@ -299,21 +299,36 @@ def pesagem():
             return redirect(url_for('vendas.pesagem', loja_id=loja_id,
                                     data=data_redirect if data_redirect else None))
 
-    # GET — determine which date to display
+    # GET — determine form date context (used by add/OCR date inputs)
     data_str = request.args.get('data', '').strip()
     try:
         data_sel = datetime.strptime(data_str, '%Y-%m-%d').date()
     except (ValueError, TypeError):
         data_sel = date.today()
 
-    stock_rows = get_stock_gelado_df(loja=loja_nome, tipo='fim', data_inicio=data_sel, data_fim=data_sel)
-    pesagens_hoje = [
-        {
+    # 30-day history for the accordion table
+    data_inicio_hist = date.today() - timedelta(days=30)
+    hist_rows = get_stock_gelado_df(
+        loja=loja_nome, tipo='fim',
+        data_inicio=data_inicio_hist, data_fim=date.today()
+    )
+    _by_day = defaultdict(list)
+    for r in hist_rows:
+        _by_day[r['data']].append({
             'id': r['id'],
             'sabor': reverse_mapping.get(r.get('sabor', ''), r.get('sabor', '')),
-            'quantidade_kg': f"{r['quantidade_kg']:.3f}",
+            'quantidade_kg': float(r['quantidade_kg']),
+        })
+    historico_dias = [
+        {
+            'data': d,
+            'data_str': d.strftime('%d/%m/%Y'),
+            'is_today': d == date.today(),
+            'total_kg': round(sum(l['quantidade_kg'] for l in linhas), 3),
+            'num_sabores': len(linhas),
+            'linhas': sorted(linhas, key=lambda x: x['sabor']),
         }
-        for r in stock_rows
+        for d, linhas in sorted(_by_day.items(), reverse=True)
     ]
 
     return render_template('vendas/pesagem.html',
@@ -322,7 +337,7 @@ def pesagem():
                            loja_nome=loja_nome,
                            loja_id=loja_id,
                            sabores=sabores,
-                           pesagens_hoje=pesagens_hoje,
+                           historico_dias=historico_dias,
                            data_sel=data_sel,
                            today=str(date.today()))
 
