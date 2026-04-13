@@ -18,7 +18,7 @@
 
     <!-- ── MODO MANUAL ─────────────────────────────────────── -->
     <div id="secao-manual">
-        <form method="POST" class="mb-4">
+        <form method="POST" class="mb-4" id="form-manual">
             <input type="hidden" name="action" value="add">
 
             <div class="mb-3">
@@ -35,10 +35,19 @@
                 </select>
             </div>
 
-            <div class="mb-3">
-                <label class="form-label fw-semibold">Pesagem (kg)</label>
-                <input type="text" name="quantidade" class="form-control" placeholder="0,000"
-                       inputmode="decimal" required>
+            <div class="mb-2">
+                <label class="form-label fw-semibold">Carapina 1 (kg)</label>
+                <input type="text" name="quantidade_1" id="car1" class="form-control" placeholder="0,000"
+                       inputmode="decimal" oninput="atualizarTotal()">
+            </div>
+            <div class="mb-2">
+                <label class="form-label fw-semibold">Carapina 2 (kg) <span class="text-muted fw-normal" style="font-size:0.82rem;">opcional</span></label>
+                <input type="text" name="quantidade_2" id="car2" class="form-control" placeholder="0,000"
+                       inputmode="decimal" oninput="atualizarTotal()">
+            </div>
+            <div class="mb-3 p-2 rounded" style="background:#f0f4ff;">
+                <span class="fw-semibold">Total: </span>
+                <span id="total-display" class="fw-bold">0,000 kg</span>
             </div>
 
             <button type="submit" class="btn btn-primary w-100">Registar Pesagem</button>
@@ -114,32 +123,34 @@
         <table class="table table-sm table-bordered align-middle">
             <thead class="table-dark">
                 <tr>
-                    <th>ID</th>
                     <th>Sabor</th>
-                    <th class="text-end">Pesagem (kg)</th>
+                    <th class="text-end">kg</th>
+                    <th style="width:72px"></th>
                 </tr>
             </thead>
             <tbody>
                 {% for p in pesagens_hoje %}
                 <tr>
-                    <td>{{ p.id }}</td>
                     <td>{{ p.sabor }}</td>
-                    <td class="text-end">{{ p.quantidade_kg }}</td>
+                    <td class="text-end" id="val-{{ p.id }}">{{ p.quantidade_kg }}</td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
+                                style="font-size:0.72rem;" title="Editar"
+                                onclick="abrirEdit({{ p.id }}, '{{ p.quantidade_kg }}', '{{ data_sel.isoformat() }}')">✏️</button>
+                        <form method="POST" style="display:inline;"
+                              onsubmit="return confirm('Eliminar esta pesagem?')">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="id" value="{{ p.id }}">
+                            <input type="hidden" name="data" value="{{ data_sel.isoformat() }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
+                                    style="font-size:0.72rem;" title="Eliminar">🗑</button>
+                        </form>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-
-    <form method="POST" class="d-flex gap-2 align-items-end mb-3">
-        <input type="hidden" name="action" value="delete">
-        <input type="hidden" name="data" value="{{ data_sel.isoformat() }}">
-        <div>
-            <label class="form-label fw-semibold mb-1" style="font-size:0.85rem;">ID a eliminar</label>
-            <input type="number" name="id" class="form-control form-control-sm" min="1" required style="width:100px;">
-        </div>
-        <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
-    </form>
     {% else %}
     <div class="alert alert-info mb-3">Sem pesagens registadas para {{ data_sel.strftime('%d/%m/%Y') }}.</div>
     {% endif %}
@@ -172,16 +183,19 @@
               <thead class="table-light">
                 <tr>
                   <th class="ps-3">Sabor</th>
-                  <th class="text-end" style="width:110px">kg</th>
-                  <th style="width:44px"></th>
+                  <th class="text-end" style="width:90px">kg</th>
+                  <th style="width:72px"></th>
                 </tr>
               </thead>
               <tbody>
                 {% for linha in dia.linhas %}
                 <tr>
                   <td class="ps-3">{{ linha.sabor }}</td>
-                  <td class="text-end">{{ '%.3f'|format(linha.quantidade_kg) }}</td>
+                  <td class="text-end" id="val-{{ linha.id }}">{{ '%.3f'|format(linha.quantidade_kg) }}</td>
                   <td class="text-center">
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
+                            style="font-size:0.72rem;" title="Editar"
+                            onclick="abrirEdit({{ linha.id }}, '{{ '%.3f'|format(linha.quantidade_kg) }}', '{{ dia.data.isoformat() }}')">✏️</button>
                     <form method="POST" style="display:inline;"
                           onsubmit="return confirm('Eliminar esta pesagem?')">
                       <input type="hidden" name="action" value="delete">
@@ -222,6 +236,49 @@ function setModo(modo) {
         ? 'btn btn-outline-primary' : 'btn btn-primary';
     document.getElementById('btn-modo-ocr').className = isOcr
         ? 'btn btn-primary' : 'btn btn-outline-primary';
+}
+
+function parseKg(s) {
+    const v = parseFloat((s || '0').replace(',', '.'));
+    return isNaN(v) ? 0 : v;
+}
+
+function atualizarTotal() {
+    const v1 = parseKg(document.getElementById('car1').value);
+    const v2 = parseKg(document.getElementById('car2').value);
+    const total = (v1 + v2).toFixed(3).replace('.', ',');
+    document.getElementById('total-display').textContent = total + ' kg';
+}
+
+function abrirEdit(id, currentKg, dataStr) {
+    const el = document.getElementById('edit-modal');
+    if (el) el.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'edit-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+<div style="background:#fff;border-radius:12px;padding:1.2rem;width:min(90vw,340px);">
+  <h6 class="mb-3 fw-semibold">Editar Pesagem</h6>
+  <form method="POST" id="edit-form">
+    <input type="hidden" name="action" value="edit">
+    <input type="hidden" name="id" value="${id}">
+    <input type="hidden" name="data" value="${dataStr}">
+    <div class="mb-3">
+      <label class="form-label">Novo valor (kg)</label>
+      <input type="text" name="quantidade" id="edit-input" class="form-control"
+             value="${currentKg}" inputmode="decimal" required>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary flex-grow-1">Guardar</button>
+      <button type="button" class="btn btn-outline-secondary flex-grow-1"
+              onclick="document.getElementById('edit-modal').remove()">Cancelar</button>
+    </div>
+  </form>
+</div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    document.getElementById('edit-input').select();
 }
 
 function iniciarOCR(input) {

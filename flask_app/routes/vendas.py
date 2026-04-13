@@ -10,7 +10,7 @@ from database import (
     get_motivos_quebra, get_produtos_pastelaria, get_produtos_confeitaria,
     get_vendas_bolhao_dashboard_data,
     add_quebra, get_quebras_df, delete_quebra,
-    add_stock_gelado, get_stock_gelado_df, delete_stock_gelado,
+    add_stock_gelado, get_stock_gelado_df, delete_stock_gelado, update_stock_gelado,
     get_ordens_transferencia, confirmar_ordem_transferencia, rejeitar_ordem_transferencia,
     get_active_venda_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
@@ -251,10 +251,12 @@ def pesagem():
         if action == 'add':
             sabor = request.form.get('sabor', '')
             data_reg = _parse_date_form()
-            try:
-                pesagem_kg = float(request.form.get('quantidade', '0').replace(',', '.'))
-            except (ValueError, TypeError):
-                pesagem_kg = 0
+            def _parse_kg(key):
+                try:
+                    return float(request.form.get(key, '0').replace(',', '.'))
+                except (ValueError, TypeError):
+                    return 0.0
+            pesagem_kg = round(_parse_kg('quantidade_1') + _parse_kg('quantidade_2'), 3)
 
             if pesagem_kg >= 0 and sabor:
                 add_stock_gelado(data_reg, loja_nome, sabor, pesagem_kg, 'fim')
@@ -296,6 +298,26 @@ def pesagem():
                 else:
                     flash('Sem permissão para eliminar este registo.', 'error')
             data_redirect = request.form.get('data', '').strip()
+            return redirect(url_for('vendas.pesagem', loja_id=loja_id,
+                                    data=data_redirect if data_redirect else None))
+
+        elif action == 'edit':
+            s_id = request.form.get('id')
+            data_redirect = request.form.get('data', '').strip()
+            if s_id:
+                from database import get_stock_gelado_by_id
+                record = get_stock_gelado_by_id(int(s_id))
+                if record and _user_owns_loja(record.get('loja', '')):
+                    try:
+                        nova_kg = round(float(request.form.get('quantidade', '0').replace(',', '.')), 3)
+                        if nova_kg < 0:
+                            raise ValueError
+                        update_stock_gelado(int(s_id), nova_kg)
+                        flash(f'Pesagem actualizada para {nova_kg:.3f} kg.', 'success')
+                    except (ValueError, TypeError):
+                        flash('Valor inválido para edição.', 'error')
+                else:
+                    flash('Sem permissão para editar este registo.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id,
                                     data=data_redirect if data_redirect else None))
 

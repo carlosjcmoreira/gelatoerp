@@ -781,6 +781,16 @@ def delete_stock_gelado(stock_id: int):
     conn.commit()
     release_connection(conn)
 
+def update_stock_gelado(stock_id: int, quantidade_kg: float):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE stock_gelado SET quantidade_kg = %s WHERE id = %s",
+        (quantidade_kg, stock_id)
+    )
+    conn.commit()
+    release_connection(conn)
+
 def get_pesagens_recentes(n: int = 3) -> dict:
     """Return the last n pesagem dates and per-sabor kg.
     Matosinhos: reads pesagem_matosinhos from plano_producao (morning weigh-in during planning).
