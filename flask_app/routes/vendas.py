@@ -306,6 +306,17 @@ def pesagem():
     except (ValueError, TypeError):
         data_sel = date.today()
 
+    # Current date's records for "Pesagens Registadas" section
+    stock_rows = get_stock_gelado_df(loja=loja_nome, tipo='fim', data_inicio=data_sel, data_fim=data_sel)
+    pesagens_hoje = [
+        {
+            'id': r['id'],
+            'sabor': reverse_mapping.get(r.get('sabor', ''), r.get('sabor', '')),
+            'quantidade_kg': f"{r['quantidade_kg']:.3f}",
+        }
+        for r in stock_rows
+    ]
+
     # 30-day history for the accordion table
     data_inicio_hist = date.today() - timedelta(days=30)
     hist_rows = get_stock_gelado_df(
@@ -323,7 +334,6 @@ def pesagem():
         {
             'data': d,
             'data_str': d.strftime('%d/%m/%Y'),
-            'is_today': d == date.today(),
             'total_kg': round(sum(l['quantidade_kg'] for l in linhas), 3),
             'num_sabores': len(linhas),
             'linhas': sorted(linhas, key=lambda x: x['sabor']),
@@ -337,6 +347,7 @@ def pesagem():
                            loja_nome=loja_nome,
                            loja_id=loja_id,
                            sabores=sabores,
+                           pesagens_hoje=pesagens_hoje,
                            historico_dias=historico_dias,
                            data_sel=data_sel,
                            today=str(date.today()))
