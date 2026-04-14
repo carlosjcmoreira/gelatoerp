@@ -382,7 +382,7 @@ function mostrarBanner(type, html) {
 }
 
 function normalizarNome(nome) {
-    return nome.trim().toLowerCase()
+    return nome.trim().replace(/\s+/g, ' ').toLowerCase()
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
@@ -445,6 +445,10 @@ function verificarDuplicadosOCR() {
         } else {
             card.classList.remove('border-danger');
             if (existingBadge) existingBadge.remove();
+            // Restore warning border for originally-unknown flavours
+            if (card.dataset.conhecido === '0') {
+                card.classList.add('border-warning');
+            }
         }
     });
 
@@ -483,6 +487,7 @@ function renderLinhas(linhas) {
 
         const card = document.createElement('div');
         card.className = 'card mb-2' + (conhecido ? '' : ' border-warning');
+        card.dataset.conhecido = conhecido ? '1' : '0';
 
         card.innerHTML = `
 <div class="card-body py-2 px-3">
