@@ -359,11 +359,17 @@ def eliminar_quebras_bulk():
     return redirect(url_for('producao.registar_quebra'))
 
 
+_PESAGENS_LOJA_ORDER = ['Bolhão', 'Matosinhos', 'Mouzinho']
+
+
 @producao_bp.route('/pesagens-loja')
 @perm_required('acesso_producao')
 def pesagens_loja():
     pesagens_by_loja = get_latest_pesagem_por_sabor_all_lojas()
-    lojas = sorted(pesagens_by_loja.keys())
+    known = set(pesagens_by_loja.keys())
+    lojas = [l for l in _PESAGENS_LOJA_ORDER if l in known or l in ('Bolhão', 'Matosinhos')] + [
+        l for l in sorted(known) if l not in _PESAGENS_LOJA_ORDER
+    ]
     all_sabores = set()
     for loja_data in pesagens_by_loja.values():
         all_sabores.update(loja_data.keys())
