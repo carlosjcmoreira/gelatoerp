@@ -18,7 +18,7 @@
 
     <!-- ── MODO MANUAL ─────────────────────────────────────── -->
     <div id="secao-manual">
-        <form method="POST" class="mb-4" id="form-manual">
+        <form method="POST" class="mb-4" id="form-manual" onsubmit="return false;">
             <input type="hidden" name="action" value="add">
 
             <div class="mb-3">
@@ -586,7 +586,8 @@ function validarESubmeter() {
             const lbl = row ? row.querySelector('label') : null;
             return lbl ? lbl.textContent.replace('(kg)', '').trim() : 'Carapina';
         });
-        if (!confirm(numeros.join(', ') + ' está em branco — continuar apenas com os valores preenchidos?')) {
+        const verb = vazias.length === 1 ? ' está em branco' : ' estão em branco';
+        if (!confirm(numeros.join(', ') + verb + ' — continuar apenas com os valores preenchidos?')) {
             return;
         }
     }
