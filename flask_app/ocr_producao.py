@@ -173,18 +173,25 @@ CONTEXTO DO NÚMERO:
         parsed = json.loads(raw_text)
         confidence = float(parsed.get('confidence', 0.7))
 
+        from sabor_utils import normalise_sabor
         sabores_raw = parsed.get('sabores', {})
         sabores = {}
         for nome, vals in sabores_raw.items():
             if not isinstance(vals, dict):
                 continue
-            sabores[nome] = {
+            canonical = normalise_sabor(nome)
+            entry = {
                 'pesagem_mat': _parse_float(vals.get('pesagem_mat', 0)),
                 'prod_bolhao': _parse_float(vals.get('prod_bolhao', 0)),
                 'prod_matosinhos': _parse_float(vals.get('prod_matosinhos', 0)),
                 'prod_mouzinho': _parse_float(vals.get('prod_mouzinho', 0)),
                 'prod_b2b': _parse_float(vals.get('prod_b2b', 0)),
             }
+            if canonical in sabores:
+                existing = sabores[canonical]
+                sabores[canonical] = {k: existing[k] + entry[k] for k in entry}
+            else:
+                sabores[canonical] = entry
 
         return {
             'date': _parse_date(parsed.get('date')),

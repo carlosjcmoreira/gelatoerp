@@ -89,6 +89,7 @@ flask_app/
 └── static/
     └── style.css             # Mobile-first CSS, dark mode, nav-grid
 database.py                   # Shim de compatibilidade (re-exporta tudo de db/)
+sabor_utils.py                # Normalização de nomes de sabor (normalise_sabor); importado por db/ e flask_app/
 db/                           # Pacote de dados PostgreSQL (psycopg2)
 ├── __init__.py               # Re-exporta todos os módulos
 ├── cache.py                  # Cache TTL in-process (ttl_cache, invalidate)

@@ -1,6 +1,9 @@
+import logging
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_app.auth import perm_required
 import sys, os
+
+logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_producao_total_by_period, get_producao_daily_totals,
@@ -204,7 +207,14 @@ def stock_gelado_ajustar():
                               ('prod_mou_', 'Mouzinho'), ('prod_b2b_', 'B2B')):
             if key.startswith(prefix):
                 sabor = key[len(prefix):]
-                qty = _parse_decimal(val)
+                qty_raw = _parse_decimal(val)
+                qty, converted = _normalise_pesagem_kg(qty_raw)
+                if converted:
+                    logger.warning(
+                        "stock_gelado_ajustar: %s/%s — value %.2f looks like grams,"
+                        " stored as %.6f kg",
+                        loja, sabor, qty_raw, qty,
+                    )
                 set_stock_producao(sabor, loja, qty)
                 changes += 1
                 break

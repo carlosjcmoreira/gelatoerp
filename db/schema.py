@@ -2101,6 +2101,121 @@ def run_data_fix_gelado_kpi_classification():
         release_connection(conn)
 
 
+def run_data_fix_normalise_sabor_names():
+    """One-time idempotent fix: rename non-canonical sabor spellings in stock_gelado
+    and stock_producao to their canonical forms.
+
+    Covers ALL-CAPS OCR output from the Matosinhos production sheet,
+    abbreviated forms ("Choc. Branco"), and alternative spellings
+    ("Flor de leite" → "Fior di Latte", "Ricotta" → "Ricota", etc.).
+
+    Advisory lock 202622.  The fix is a pure no-op once all rows are canonical.
+    """
+    RENAMES = [
+        # canonical_name, [list of non-canonical lower(sabor) variants]
+        ("Açaí",               ["açai", "acai"]),
+        ("Café",               ["cafe"]),
+        ("Chocolate Branco",   ["chocolate branco", "choc. branco", "choc branco"]),
+        ("Fior di Latte",      ["flor de leite", "flor di latte", "fior de leite",
+                                 "fior di latte"]),
+        ("Maracujá",           ["maracuja"]),
+        ("Noz Pecan e Maple",  ["noz pecan e maple"]),
+        ("Pistacchio V.",      ["pistacchio vegan", "pistacchio v.",
+                                 "pistachio v.", "pistachio vegan"]),
+        ("Pistacchio",         ["pistacchio", "pistachio"]),
+        ("Ricota, Noz e Mel",  ["ricota, noz e mel", "ricotta, noz e mel"]),
+    ]
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202622)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_data_fix_normalise_sabor_names: lock held by another worker, skipping")
+            return
+
+        total = 0
+        for canonical, variants in RENAMES:
+            for table in ("stock_gelado", "stock_producao"):
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                    " WHERE lower(sabor) = ANY(%s) AND sabor != %s",
+                    (variants, canonical),
+                )
+                pending = cursor.fetchone()[0]
+                if pending == 0:
+                    continue
+                cursor.execute(
+                    f"UPDATE {table} SET sabor = %s"
+                    " WHERE lower(sabor) = ANY(%s) AND sabor != %s",
+                    (canonical, variants, canonical),
+                )
+                updated = cursor.rowcount
+                total += updated
+                logger.info(
+                    "run_data_fix_normalise_sabor_names: %s.sabor → %r: %d row(s) updated",
+                    table, canonical, updated,
+                )
+
+        conn.commit()
+        logger.info("run_data_fix_normalise_sabor_names: done — %d row(s) updated total", total)
+    except Exception as exc:
+        logger.error("run_data_fix_normalise_sabor_names failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+
+def run_data_fix_cremino_stock_producao():
+    """One-time idempotent fix: correct the Cremino/Matosinhos stock_producao entry
+    that was entered in grams instead of kg (≈47,412 g should be ≈47.4 kg).
+
+    The guard condition (quantidade_kg >= 50) makes this a pure no-op once the
+    value has been corrected.
+
+    Advisory lock 202623.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT pg_try_advisory_lock(202623)")
+        if not cursor.fetchone()[0]:
+            logger.info("run_data_fix_cremino_stock_producao: lock held by another worker, skipping")
+            return
+
+        cursor.execute(
+            "SELECT COUNT(*) FROM stock_producao"
+            " WHERE sabor = 'Cremino' AND loja = 'Matosinhos' AND quantidade_kg >= 50"
+        )
+        pending = cursor.fetchone()[0]
+        if pending == 0:
+            logger.info("run_data_fix_cremino_stock_producao: no bad rows found, skipping")
+            return
+
+        cursor.execute(
+            "UPDATE stock_producao"
+            " SET quantidade_kg = ROUND(quantidade_kg / 1000.0, 3)"
+            " WHERE sabor = 'Cremino' AND loja = 'Matosinhos' AND quantidade_kg >= 50"
+        )
+        updated = cursor.rowcount
+        conn.commit()
+        logger.info(
+            "run_data_fix_cremino_stock_producao: corrected %d row(s)"
+            " (divided Cremino/Matosinhos quantidade_kg by 1000)",
+            updated,
+        )
+    except Exception as exc:
+        logger.error("run_data_fix_cremino_stock_producao failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        release_connection(conn)
+
+
 def run_migrations_caixa_loja():
     """Add caixa_loja column to produtos_vendas_config and classify in-store boxes.
 

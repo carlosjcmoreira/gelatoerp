@@ -16,6 +16,8 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_data_fix_pesagem_matosinhos_backfill,
                         run_data_fix_march1_dedup,
                         run_data_fix_gelado_kpi_classification,
+                        run_data_fix_normalise_sabor_names,
+                        run_data_fix_cremino_stock_producao,
                         run_migrations_caixa_loja,
                         run_migrations_preco_caixa_kg,
                         run_migrations_stock_producao_lojas,
@@ -108,6 +110,8 @@ def create_app():
         run_data_fix_pesagem_matosinhos_backfill()
         run_data_fix_march1_dedup()
         run_data_fix_gelado_kpi_classification()
+        run_data_fix_normalise_sabor_names()
+        run_data_fix_cremino_stock_producao()
         run_migrations_caixa_loja()
         run_migrations_preco_caixa_kg()
         run_migrations_centros_custo()

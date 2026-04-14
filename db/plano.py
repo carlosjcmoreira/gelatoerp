@@ -780,6 +780,8 @@ def upsert_pesagem_matosinhos_inicio(data: date, sabor: str, quantidade_kg: floa
     inserts the new measurement.  This is the correct replacement semantics for
     the daily production start weighing.
     """
+    from sabor_utils import normalise_sabor
+    sabor = normalise_sabor(sabor)
     store_id = get_store_id_by_name('Matosinhos')
     conn = get_connection()
     cursor = conn.cursor()
@@ -796,16 +798,20 @@ def upsert_pesagem_matosinhos_inicio(data: date, sabor: str, quantidade_kg: floa
 
 
 def get_latest_pesagem_por_sabor_all_lojas() -> dict:
-    """Return the latest weighing per sabor for each balcão loja (from stock_gelado).
+    """Return the latest weighing per sabor for each loja (from stock_gelado).
 
-    Matosinhos is excluded — its stock_gelado 'inicio' rows represent production
-    inventory, not a balcão weighing.  All other lojas (Bolhão, Mouzinho, …) are
-    included.
+    Only weighings from today or yesterday are considered current stock.  Any
+    sabor whose most-recent entry is older than that is silently omitted so
+    stale data never pollutes the Pesagens de Loja tile.
+
+    Matosinhos 'inicio' rows (from the daily OCR weighing) are now included
+    alongside Bolhão and Mouzinho fim-de-dia rows.
 
     Returns:
         {
-          'Bolhão':   {sabor: {'kg': float, 'data': date}, ...},
-          'Mouzinho': {sabor: {'kg': float, 'data': date}, ...},
+          'Bolhão':      {sabor: {'kg': float, 'data': date}, ...},
+          'Matosinhos':  {sabor: {'kg': float, 'data': date}, ...},
+          'Mouzinho':    {sabor: {'kg': float, 'data': date}, ...},
           ...
         }
     """
@@ -814,7 +820,7 @@ def get_latest_pesagem_por_sabor_all_lojas() -> dict:
     cursor.execute("""
         SELECT DISTINCT ON (loja, sabor) loja, sabor, quantidade_kg, data
         FROM stock_gelado
-        WHERE loja != 'Matosinhos'
+        WHERE data >= CURRENT_DATE - INTERVAL '1 day'
         ORDER BY loja, sabor, data DESC, id DESC
     """)
     rows = cursor.fetchall()
