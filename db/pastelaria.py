@@ -781,6 +781,23 @@ def delete_stock_gelado(stock_id: int):
     conn.commit()
     release_connection(conn)
 
+def delete_stock_gelado_by_date(loja: str, data_date) -> int:
+    """Delete all fim-de-dia stock_gelado rows for a given loja + date.
+
+    Returns the number of rows deleted.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM stock_gelado WHERE loja = %s AND data = %s AND tipo = 'fim'",
+        (loja, data_date),
+    )
+    deleted = cursor.rowcount
+    conn.commit()
+    release_connection(conn)
+    return deleted
+
+
 def update_stock_gelado(stock_id: int, quantidade_kg: float, loja: str = None):
     conn = get_connection()
     cursor = conn.cursor()

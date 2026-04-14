@@ -167,8 +167,8 @@
     <div class="accordion" id="hist-acc">
       {% for dia in historico_dias %}
       <div class="accordion-item" id="hist-day-{{ loop.index }}">
-        <h2 class="accordion-header" id="hist-hd-{{ loop.index }}">
-          <button class="accordion-button collapsed py-2 px-3"
+        <h2 class="accordion-header d-flex align-items-stretch" id="hist-hd-{{ loop.index }}">
+          <button class="accordion-button collapsed py-2 px-3 flex-grow-1"
                   type="button"
                   data-bs-toggle="collapse"
                   data-bs-target="#hist-col-{{ loop.index }}"
@@ -178,6 +178,13 @@
             <span class="text-muted small me-2">{{ dia.num_sabores }} sabor{{ 'es' if dia.num_sabores != 1 else '' }}</span>
             <span class="badge bg-primary ms-auto">{{ '%.3f'|format(dia.total_kg) }} kg</span>
           </button>
+          <form method="POST" class="d-flex align-items-center px-2 border-start flex-shrink-0"
+                onsubmit="return confirm('Eliminar todas as pesagens de {{ dia.data_str }}?')">
+            <input type="hidden" name="action" value="delete_day">
+            <input type="hidden" name="data" value="{{ dia.data.isoformat() }}">
+            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"
+                    style="font-size:0.78rem;" title="Eliminar dia inteiro">🗑</button>
+          </form>
         </h2>
         <div id="hist-col-{{ loop.index }}"
              class="accordion-collapse collapse"

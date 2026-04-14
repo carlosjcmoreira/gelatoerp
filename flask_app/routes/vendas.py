@@ -302,6 +302,21 @@ def pesagem():
             return redirect(url_for('vendas.pesagem', loja_id=loja_id,
                                     data=data_redirect if data_redirect else None))
 
+        elif action == 'delete_day':
+            from database import delete_stock_gelado_by_date
+            raw_data = request.form.get('data', '').strip()
+            if raw_data and _user_owns_loja(loja_nome):
+                try:
+                    from datetime import datetime as _dt
+                    day = _dt.strptime(raw_data, '%Y-%m-%d').date()
+                    deleted = delete_stock_gelado_by_date(loja_nome, day)
+                    flash(f'Pesagens de {day.strftime("%d/%m/%Y")} eliminadas ({deleted} registo(s)).', 'success')
+                except (ValueError, TypeError):
+                    flash('Data inválida.', 'error')
+            else:
+                flash('Sem permissão ou data em falta.', 'error')
+            return redirect(url_for('vendas.pesagem', loja_id=loja_id))
+
         elif action == 'edit':
             s_id_raw = request.form.get('id', '').strip()
             data_redirect = request.form.get('data', '').strip()
