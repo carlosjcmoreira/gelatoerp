@@ -54,7 +54,7 @@
                 <span id="total-display" class="fw-bold">0,000 kg</span>
             </div>
 
-            <button type="submit" class="btn btn-primary w-100">Registar Pesagem</button>
+            <button type="button" class="btn btn-primary w-100" onclick="validarESubmeter()">Registar Pesagem</button>
         </form>
     </div>
 
@@ -103,6 +103,7 @@
                     <div class="form-text" id="ocr-data-hint"></div>
                 </div>
 
+                <div id="ocr-dup-banner" class="alert alert-danger py-2" style="display:none;font-size:0.85rem;"></div>
                 <div id="ocr-rows-container"></div>
 
                 <button type="button" class="btn btn-success w-100 mt-3"
@@ -406,9 +407,68 @@ function encontrarSabor(nomeOCR) {
     return null;
 }
 
+function verificarDuplicadosOCR() {
+    const container = document.getElementById('ocr-rows-container');
+    const cards = Array.from(container.querySelectorAll('.card'));
+    const banner = document.getElementById('ocr-dup-banner');
+
+    // Collect normalised sabor names only for checked cards
+    const nomes = cards.map((card, idx) => {
+        const chk = document.getElementById('chk-' + idx);
+        if (chk && !chk.checked) return null;
+        const inp = card.querySelector('input[name="sabor[]"]');
+        return inp ? normalizarNome(inp.value) : null;
+    });
+
+    const counts = {};
+    nomes.forEach(n => { if (n) counts[n] = (counts[n] || 0) + 1; });
+    const dupNorms = new Set(Object.keys(counts).filter(n => counts[n] > 1));
+
+    // Update card borders and badges
+    cards.forEach((card, idx) => {
+        const inp = card.querySelector('input[name="sabor[]"]');
+        const lbl = card.querySelector('label[for^="chk-"]');
+        const existingBadge = card.querySelector('.dup-badge');
+
+        const norm = inp ? normalizarNome(inp.value) : '';
+        const isDup = dupNorms.has(norm);
+
+        if (isDup) {
+            card.classList.add('border-danger');
+            card.classList.remove('border-warning');
+            if (!existingBadge) {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-danger ms-1 dup-badge';
+                badge.textContent = '⚠️ Duplicado';
+                if (lbl) lbl.appendChild(badge);
+            }
+        } else {
+            card.classList.remove('border-danger');
+            if (existingBadge) existingBadge.remove();
+        }
+    });
+
+    // Update banner
+    if (dupNorms.size > 0) {
+        const nomesList = Array.from(dupNorms).map(n => {
+            const inp = Array.from(container.querySelectorAll('input[name="sabor[]"]'))
+                .find(i => normalizarNome(i.value) === n);
+            return inp ? escHtml(inp.value) : n;
+        });
+        banner.innerHTML = '⚠️ <strong>Sabores repetidos detetados:</strong> ' + nomesList.join(', ') +
+            ' — edite ou desmarque as linhas duplicadas antes de registar.';
+        banner.style.display = '';
+    } else {
+        banner.style.display = 'none';
+    }
+
+    return dupNorms;
+}
+
 function renderLinhas(linhas) {
     const container = document.getElementById('ocr-rows-container');
     container.innerHTML = '';
+    document.getElementById('ocr-dup-banner').style.display = 'none';
 
     if (linhas.length === 0) {
         container.innerHTML = '<div class="alert alert-warning">Nenhuma linha extraída. Tente com uma foto mais nítida.</div>';
@@ -428,7 +488,7 @@ function renderLinhas(linhas) {
 <div class="card-body py-2 px-3">
   <div class="d-flex align-items-center gap-2 mb-1">
     <input type="checkbox" class="form-check-input ocr-check mt-0" id="chk-${idx}" checked
-           onchange="atualizarBotao()">
+           onchange="atualizarBotao(); verificarDuplicadosOCR();">
     <label for="chk-${idx}" class="fw-semibold mb-0" style="font-size:0.95rem;">
       ${escHtml(linha.nome_produto)}
       ${!conhecido ? '<span class="badge bg-warning text-dark ms-1" title="Sabor não reconhecido — verifique">⚠️</span>' : ''}
@@ -455,6 +515,12 @@ function renderLinhas(linhas) {
   </div>
 </div>`;
         container.appendChild(card);
+
+        // Wire sabor input to duplicate check
+        const saborInp = card.querySelector('input[name="sabor[]"]');
+        if (saborInp) {
+            saborInp.addEventListener('input', function() { verificarDuplicadosOCR(); });
+        }
     });
 
     // datalist for sabor autocomplete
@@ -468,6 +534,7 @@ function renderLinhas(linhas) {
     container.appendChild(dl);
 
     atualizarBotao();
+    verificarDuplicadosOCR();
     document.getElementById('ocr-review').style.display = '';
 }
 
@@ -480,6 +547,12 @@ function atualizarBotao() {
 }
 
 function submeterOCR() {
+    const dups = verificarDuplicadosOCR();
+    if (dups.size > 0) {
+        if (!confirm('Existem sabores duplicados nas linhas selecionadas. Confirmar registo mesmo assim?')) {
+            return;
+        }
+    }
     const form = document.getElementById('ocr-bulk-form');
     const cards = document.getElementById('ocr-rows-container').querySelectorAll('.card');
     cards.forEach((card, idx) => {
@@ -490,6 +563,30 @@ function submeterOCR() {
         }
     });
     form.submit();
+}
+
+function validarESubmeter() {
+    const inputs = Array.from(document.querySelectorAll('#carapinas-container .carapina-input'));
+    const vazias = inputs.filter(inp => inp.value.trim() === '' || parseKg(inp.value) === 0);
+
+    if (vazias.length === inputs.length) {
+        alert('Nenhuma carapina tem valor registado. Por favor preencha pelo menos uma antes de continuar.');
+        if (vazias.length > 0) vazias[0].focus();
+        return;
+    }
+
+    if (vazias.length > 0) {
+        const numeros = vazias.map(inp => {
+            const row = inp.closest('.carapina-row');
+            const lbl = row ? row.querySelector('label') : null;
+            return lbl ? lbl.textContent.replace('(kg)', '').trim() : 'Carapina';
+        });
+        if (!confirm(numeros.join(', ') + ' está em branco — continuar apenas com os valores preenchidos?')) {
+            return;
+        }
+    }
+
+    document.getElementById('form-manual').submit();
 }
 
 function escHtml(str) {
