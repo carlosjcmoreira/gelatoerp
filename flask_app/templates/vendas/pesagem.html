@@ -35,16 +35,20 @@
                 </select>
             </div>
 
-            <div class="mb-2">
-                <label class="form-label fw-semibold">Carapina 1 (kg)</label>
-                <input type="text" name="quantidade_1" id="car1" class="form-control" placeholder="0,000"
-                       inputmode="decimal" oninput="atualizarTotal()">
+            <div id="carapinas-container">
+                <div class="carapina-row d-flex align-items-center gap-2 mb-2">
+                    <div class="flex-grow-1">
+                        <label class="form-label fw-semibold mb-1">Carapina 1 (kg)</label>
+                        <input type="text" name="quantidade[]" class="form-control carapina-input" placeholder="0,000"
+                               inputmode="decimal" oninput="atualizarTotal()">
+                    </div>
+                    <button type="button" class="btn btn-outline-danger btn-sm carapina-remove mt-3"
+                            onclick="removerCarapina(this)" style="display:none;" title="Remover">×</button>
+                </div>
             </div>
-            <div class="mb-2">
-                <label class="form-label fw-semibold">Carapina 2 (kg) <span class="text-muted fw-normal" style="font-size:0.82rem;">opcional</span></label>
-                <input type="text" name="quantidade_2" id="car2" class="form-control" placeholder="0,000"
-                       inputmode="decimal" oninput="atualizarTotal()">
-            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm mb-3" onclick="adicionarCarapina()">
+                + Adicionar carapina
+            </button>
             <div class="mb-3 p-2 rounded" style="background:#f0f4ff;">
                 <span class="fw-semibold">Total: </span>
                 <span id="total-display" class="fw-bold">0,000 kg</span>
@@ -244,10 +248,44 @@ function parseKg(s) {
 }
 
 function atualizarTotal() {
-    const v1 = parseKg(document.getElementById('car1').value);
-    const v2 = parseKg(document.getElementById('car2').value);
-    const total = (v1 + v2).toFixed(3).replace('.', ',');
-    document.getElementById('total-display').textContent = total + ' kg';
+    let total = 0;
+    document.querySelectorAll('.carapina-input').forEach(function(inp) {
+        total += parseKg(inp.value);
+    });
+    document.getElementById('total-display').textContent = total.toFixed(3).replace('.', ',') + ' kg';
+}
+
+function adicionarCarapina() {
+    const container = document.getElementById('carapinas-container');
+    const n = container.querySelectorAll('.carapina-row').length + 1;
+    const row = document.createElement('div');
+    row.className = 'carapina-row d-flex align-items-center gap-2 mb-2';
+    row.innerHTML =
+        '<div class="flex-grow-1">' +
+            '<label class="form-label fw-semibold mb-1">Carapina ' + n + ' (kg)</label>' +
+            '<input type="text" name="quantidade[]" class="form-control carapina-input" placeholder="0,000"' +
+            '       inputmode="decimal" oninput="atualizarTotal()">' +
+        '</div>' +
+        '<button type="button" class="btn btn-outline-danger btn-sm carapina-remove mt-3"' +
+        '        onclick="removerCarapina(this)" title="Remover">\xd7</button>';
+    container.appendChild(row);
+    row.querySelector('input').focus();
+}
+
+function removerCarapina(btn) {
+    const row = btn.closest('.carapina-row');
+    row.remove();
+    renumerarCarapinas();
+    atualizarTotal();
+}
+
+function renumerarCarapinas() {
+    document.querySelectorAll('.carapina-row').forEach(function(row, i) {
+        const lbl = row.querySelector('label');
+        if (lbl) lbl.textContent = 'Carapina ' + (i + 1) + ' (kg)';
+        const rmBtn = row.querySelector('.carapina-remove');
+        if (rmBtn) rmBtn.style.display = i === 0 ? 'none' : '';
+    });
 }
 
 function abrirEdit(id, currentKg, dataStr) {

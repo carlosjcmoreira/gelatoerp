@@ -251,12 +251,13 @@ def pesagem():
         if action == 'add':
             sabor = request.form.get('sabor', '')
             data_reg = _parse_date_form()
-            def _parse_kg(key):
+            def _parse_kg_str(s):
                 try:
-                    return float(request.form.get(key, '0').replace(',', '.'))
+                    return float((s or '0').replace(',', '.'))
                 except (ValueError, TypeError):
                     return 0.0
-            pesagem_kg = round(_parse_kg('quantidade_1') + _parse_kg('quantidade_2'), 3)
+            qtds = request.form.getlist('quantidade[]')
+            pesagem_kg = round(sum(_parse_kg_str(q) for q in qtds), 3)
 
             if pesagem_kg >= 0 and sabor:
                 add_stock_gelado(data_reg, loja_nome, sabor, pesagem_kg, 'fim')
