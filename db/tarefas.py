@@ -100,13 +100,77 @@ def toggle_tarefa_ativa(tarefa_id):
         return row[0] if row else None
 
 
-def get_tarefas_do_dia(data=None):
+_BULK_UPDATE_WHITELIST = frozenset({'nome', 'tipo', 'frequencia', 'utilizador_id', 'loja_id', 'equipa'})
+
+
+def get_users_com_tarefas():
+    """Return active users that have acesso_tarefas, for gestor filter dropdowns."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, username, nome FROM users "
+            "WHERE acesso_tarefas = TRUE AND ativo = TRUE ORDER BY nome, username"
+        )
+        return [{'id': r[0], 'username': r[1], 'nome': r[2] or r[1]} for r in cursor.fetchall()]
+
+
+def bulk_delete_tarefas(ids):
+    """Hard-delete tarefas by IDs (cascades to tarefas_registos). Returns count."""
+    if not ids:
+        return 0
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM tarefas WHERE id = ANY(%s) RETURNING id", (list(ids),))
+        deleted = cursor.rowcount
+        conn.commit()
+        return deleted
+
+
+def bulk_update_tarefa_field(ids, field, value):
+    """Update a single field on multiple tarefas. Raises ValueError for unknown fields."""
+    if field not in _BULK_UPDATE_WHITELIST:
+        raise ValueError(f"Campo '{field}' não permitido para edição em massa.")
+    if not ids:
+        return 0
+    coerced = value or None
+    if field in ('utilizador_id', 'loja_id'):
+        try:
+            coerced = int(value) if value else None
+        except (ValueError, TypeError):
+            coerced = None
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            f"UPDATE tarefas SET {field} = %s WHERE id = ANY(%s) RETURNING id",
+            (coerced, list(ids))
+        )
+        updated = cursor.rowcount
+        conn.commit()
+        return updated
+
+
+def get_tarefas_do_dia(data=None, utilizador_id=None, loja_id=None, frequencia_filter=None):
     """Return active tasks for the given date, with today's registro if any.
-    Tasks with NULL frequencia appear every day (no recurrence = always shown)."""
+    Tasks with NULL frequencia appear every day (no recurrence = always shown).
+    Optional filters: utilizador_id, loja_id, frequencia_filter (key from FREQUENCIAS)."""
     if data is None:
         data = date.today()
     dia_semana = data.weekday()  # 0=Monday .. 6=Sunday
     dia_mes = data.day
+
+    extra_conds = []
+    extra_params_list = []
+    if utilizador_id is not None:
+        extra_conds.append("t.utilizador_id = %s")
+        extra_params_list.append(utilizador_id)
+    if loja_id is not None:
+        extra_conds.append("t.loja_id = %s")
+        extra_params_list.append(loja_id)
+    if frequencia_filter and frequencia_filter in FREQUENCIAS:
+        extra_conds.append("t.frequencia = %s")
+        extra_params_list.append(frequencia_filter)
+
+    extra_where = ('AND ' + ' AND '.join(extra_conds)) if extra_conds else ''
 
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -119,8 +183,9 @@ def get_tarefas_do_dia(data=None):
                 OR (t.frequencia = 'semanal' AND t.dia_semana = %s)
                 OR (t.frequencia = 'mensal'  AND t.dia_mes   = %s)
               )
+              {extra_where}
             ORDER BY t.tipo, t.nome
-        """, (dia_semana, dia_mes))
+        """, [dia_semana, dia_mes] + extra_params_list)
         cols = [d[0] for d in cursor.description]
         tarefas = [dict(zip(cols, row)) for row in cursor.fetchall()]
 

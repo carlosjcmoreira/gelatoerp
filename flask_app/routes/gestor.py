@@ -1277,6 +1277,7 @@ def gestao_tarefas():
     from db.tarefas import (
         get_all_tarefas, get_all_active_stores,
         create_tarefa, update_tarefa, toggle_tarefa_ativa,
+        bulk_delete_tarefas, bulk_update_tarefa_field,
         DIAS_SEMANA, FREQUENCIAS, TIPOS, EQUIPAS,
     )
 
@@ -1369,6 +1370,58 @@ def gestao_tarefas():
             novo_estado = toggle_tarefa_ativa(tarefa_id)
             estado_label = 'ativada' if novo_estado else 'desativada'
             flash(f'Tarefa {estado_label}.', 'success')
+
+        elif action == 'bulk_delete':
+            raw_ids = request.form.getlist('tarefa_ids[]')
+            ids = [int(i) for i in raw_ids if i.isdigit()]
+            if ids:
+                n = bulk_delete_tarefas(ids)
+                flash(f'{n} tarefa(s) eliminada(s).', 'success')
+            else:
+                flash('Nenhuma tarefa selecionada.', 'warning')
+
+        elif action == 'bulk_update':
+            raw_ids = request.form.getlist('tarefa_ids[]')
+            ids = [int(i) for i in raw_ids if i.isdigit()]
+            field = request.form.get('bulk_field', '').strip()
+            value = request.form.get('bulk_value', '').strip()
+            if ids and field:
+                try:
+                    n = bulk_update_tarefa_field(ids, field, value)
+                    flash(f'{n} tarefa(s) atualizadas.', 'success')
+                except ValueError as exc:
+                    flash(str(exc), 'warning')
+            else:
+                flash('Selecione tarefas e um campo para editar.', 'warning')
+
+        elif action == 'bulk_create':
+            nomes_list = request.form.getlist('nome[]')
+            tipos_list = request.form.getlist('tipo[]')
+            freqs_list = request.form.getlist('frequencia[]')
+            lojas_list = request.form.getlist('loja_id[]')
+            uids_list = request.form.getlist('utilizador_id[]')
+            equipas_list = request.form.getlist('equipa[]')
+            saved = 0
+            for i, nome_raw in enumerate(nomes_list):
+                nome_raw = nome_raw.strip()
+                if not nome_raw:
+                    continue
+                t_tipo = tipos_list[i] if i < len(tipos_list) else ''
+                if t_tipo not in TIPOS:
+                    continue
+                t_freq = (freqs_list[i] if i < len(freqs_list) else '') or None
+                t_loja_str = lojas_list[i] if i < len(lojas_list) else ''
+                t_uid_str = uids_list[i] if i < len(uids_list) else ''
+                t_equipa = equipas_list[i] if i < len(equipas_list) else ''
+                t_lid = int(t_loja_str) if t_loja_str.isdigit() else None
+                t_uid = int(t_uid_str) if t_uid_str.isdigit() else None
+                t_equipa = t_equipa if t_equipa in EQUIPAS else None
+                create_tarefa(nome_raw, t_tipo, t_freq, None, None, t_uid, t_lid, t_equipa)
+                saved += 1
+            if saved:
+                flash(f'{saved} tarefa(s) criada(s) com sucesso.', 'success')
+            else:
+                flash('Nenhuma tarefa válida para criar.', 'warning')
 
         return redirect(url_for('gestor.gestao_tarefas'))
 

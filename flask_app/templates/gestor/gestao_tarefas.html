@@ -31,7 +31,10 @@
         <table class="table table-sm table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
-              <th class="ps-3">Nome</th>
+              <th style="width:34px;" class="ps-2 text-center">
+                <input type="checkbox" class="form-check-input select-all-chk" data-tipo="{{ tipo_key }}" title="Selecionar todos">
+              </th>
+              <th class="ps-2">Nome</th>
               <th>Loja</th>
               <th>Equipa</th>
               <th>Frequência</th>
@@ -44,7 +47,10 @@
           <tbody>
             {% for t in tipo_tarefas %}
             <tr class="{% if not t.ativo %}text-muted{% endif %}" style="{% if not t.ativo %}opacity:0.5;font-style:italic{% endif %}">
-              <td class="ps-3 fw-semibold small">{{ t.nome }}</td>
+              <td class="ps-2 text-center">
+                <input type="checkbox" class="form-check-input tarefa-chk" value="{{ t.id }}" data-tipo="{{ tipo_key }}">
+              </td>
+              <td class="ps-2 fw-semibold small">{{ t.nome }}</td>
               <td class="small">{{ t.loja_nome or '—' }}</td>
               <td class="small">{{ t.equipa or '—' }}</td>
               <td class="small">{{ frequencias.get(t.frequencia) or 'Sem recorrência' }}</td>
@@ -84,12 +90,73 @@
         </table>
       </div>
       {% else %}
-      <p class="text-muted small p-3 mb-0">Sem tarefas de {{ tipo_label | lower }} configuradas.</p>
+      <p class="text-muted small px-3 pt-2 pb-0 mb-0">Sem tarefas de {{ tipo_label | lower }} configuradas.</p>
       {% endif %}
+      {# ── Paste area ── #}
+      <div class="border-top px-3 pt-2 pb-3">
+        <button type="button" class="btn btn-link btn-sm p-0 text-muted text-decoration-none"
+                onclick="gtTogglePaste('{{ tipo_key }}')">
+          📋 Colar lista de tarefas...
+        </button>
+        <div id="paste-panel-{{ tipo_key }}" style="display:none;" class="mt-2">
+          <textarea class="form-control form-control-sm mb-2" rows="4"
+                    id="paste-ta-{{ tipo_key }}"
+                    placeholder="Cole aqui os nomes das tarefas, uma por linha..."></textarea>
+          <button type="button" class="btn btn-sm btn-outline-secondary"
+                  onclick="gtInterpretar('{{ tipo_key }}')">Interpretar →</button>
+          <div id="drafts-wrap-{{ tipo_key }}" style="display:none;" class="mt-3">
+            <div class="table-responsive">
+              <table class="table table-sm table-bordered mb-2">
+                <thead class="table-light">
+                  <tr>
+                    <th>Nome</th>
+                    <th>Tipo</th>
+                    <th>Frequência</th>
+                    <th>Loja</th>
+                    <th>Equipa</th>
+                    <th>Responsável</th>
+                    <th style="width:36px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="drafts-tbody-{{ tipo_key }}"></tbody>
+              </table>
+            </div>
+            <button type="button" class="btn btn-sm btn-primary"
+                    id="criar-btn-{{ tipo_key }}"
+                    onclick="gtCriar('{{ tipo_key }}')">Criar tarefas</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
   {% endfor %}
 </div>
+
+{# ── Sticky bulk action bar ──────────────────────────────────────────────── #}
+<div id="bulk-bar" class="position-fixed bottom-0 start-0 end-0 bg-dark text-white py-2 px-3 d-none" style="z-index:1050;">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <span id="bulk-count" class="small fw-semibold text-warning me-1">0 selecionada(s)</span>
+    <button type="button" class="btn btn-danger btn-sm" onclick="gtBulkDelete()">🗑 Eliminar</button>
+    <div class="d-flex align-items-center gap-1">
+      <select id="bulk-field" class="form-select form-select-sm" style="width:auto;">
+        <option value="">— Editar campo —</option>
+        <option value="utilizador_id">Responsável</option>
+        <option value="loja_id">Loja</option>
+        <option value="equipa">Equipa</option>
+        <option value="frequencia">Frequência</option>
+        <option value="tipo">Momento</option>
+      </select>
+      <span id="bulk-value-wrap"></span>
+      <button type="button" class="btn btn-warning btn-sm" onclick="gtBulkUpdate()">Aplicar</button>
+    </div>
+    <button type="button" class="btn btn-outline-light btn-sm ms-auto" onclick="gtClearSelection()">✕</button>
+  </div>
+</div>
+
+{# ── Hidden form for bulk create (outside cards to avoid nesting) ─────────── #}
+<form id="bulk-create-form" method="POST" action="{{ url_for('gestor.gestao_tarefas') }}">
+  <input type="hidden" name="action" value="bulk_create">
+</form>
 
 {# ── Modal: Criar Tarefa ──────────────────────────────────────────────────── #}
 <div class="modal fade" id="modalCriarTarefa" tabindex="-1" aria-labelledby="modalCriarLabel" aria-hidden="true">
@@ -263,44 +330,234 @@
 </div>
 
 <script>
+/* ── Data for JS helpers ─────────────────────────────────────────────────── */
+const GT_STORES   = {{ stores   | tojson }};
+const GT_USERS    = {{ users    | tojson }};
+const GT_TIPOS    = {{ tipos    | tojson }};
+const GT_FREQS    = {{ frequencias | tojson }};
+const GT_EQUIPAS  = {{ equipas  | tojson }};
+const GT_ACTION_URL = {{ url_for('gestor.gestao_tarefas') | tojson }};
+
+/* ── Modal helpers ───────────────────────────────────────────────────────── */
 function toggleDiaFields(prefix) {
     var freq = document.getElementById(prefix + '-frequencia').value;
-    var semanaGroup = document.getElementById(prefix + '-dia-semana-group');
-    var mesGroup = document.getElementById(prefix + '-dia-mes-group');
-    if (semanaGroup) semanaGroup.classList.toggle('d-none', freq !== 'semanal');
-    if (mesGroup) mesGroup.classList.toggle('d-none', freq !== 'mensal');
+    var sg = document.getElementById(prefix + '-dia-semana-group');
+    var mg = document.getElementById(prefix + '-dia-mes-group');
+    if (sg) sg.classList.toggle('d-none', freq !== 'semanal');
+    if (mg) mg.classList.toggle('d-none', freq !== 'mensal');
 }
 
 document.addEventListener('click', function(e) {
     var btn = e.target.closest('.btn-editar-tarefa');
     if (!btn) return;
     var t;
-    try {
-        t = JSON.parse(btn.getAttribute('data-tarefa'));
-    } catch(err) {
-        console.error('Erro ao ler dados da tarefa:', err);
-        return;
-    }
+    try { t = JSON.parse(btn.getAttribute('data-tarefa')); }
+    catch(err) { console.error('Erro ao ler dados da tarefa:', err); return; }
     document.getElementById('edit-tarefa-id').value = t.id;
     document.getElementById('edit-nome').value = t.nome;
     document.getElementById('edit-tipo').value = t.tipo;
     var freqSel = document.getElementById('edit-frequencia');
-    freqSel.value = t.frequencia !== null && t.frequencia !== undefined ? t.frequencia : '';
+    freqSel.value = t.frequencia != null ? t.frequencia : '';
     toggleDiaFields('edit');
-    if (t.dia_semana !== null && t.dia_semana !== undefined) {
-        document.getElementById('edit-dia-semana').value = t.dia_semana;
-    }
-    if (t.dia_mes !== null && t.dia_mes !== undefined) {
-        document.getElementById('edit-dia-mes').value = t.dia_mes;
-    }
-    var lojaSel = document.getElementById('edit-loja');
-    lojaSel.value = t.loja_id !== null && t.loja_id !== undefined ? t.loja_id : '';
-    var equipaSel = document.getElementById('edit-equipa');
-    equipaSel.value = t.equipa !== null && t.equipa !== undefined ? t.equipa : '';
-    var uSel = document.getElementById('edit-utilizador');
-    uSel.value = t.utilizador_id !== null && t.utilizador_id !== undefined ? t.utilizador_id : '';
-    var modal = new bootstrap.Modal(document.getElementById('modalEditarTarefa'));
-    modal.show();
+    if (t.dia_semana != null) document.getElementById('edit-dia-semana').value = t.dia_semana;
+    if (t.dia_mes != null)    document.getElementById('edit-dia-mes').value = t.dia_mes;
+    document.getElementById('edit-loja').value      = t.loja_id   != null ? t.loja_id   : '';
+    document.getElementById('edit-equipa').value    = t.equipa    != null ? t.equipa    : '';
+    document.getElementById('edit-utilizador').value= t.utilizador_id != null ? t.utilizador_id : '';
+    new bootstrap.Modal(document.getElementById('modalEditarTarefa')).show();
 });
+
+/* ── Select builders ─────────────────────────────────────────────────────── */
+function gtBuildObjSelect(opts, defVal) {
+    /* opts = {key: label, ...} */
+    var sel = document.createElement('select');
+    sel.className = 'form-select form-select-sm';
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = '—';
+    sel.appendChild(o0);
+    for (var k in opts) {
+        var o = document.createElement('option');
+        o.value = k; o.textContent = opts[k];
+        if (k === defVal) o.selected = true;
+        sel.appendChild(o);
+    }
+    return sel;
+}
+function gtBuildListSelect(items, valKey, labelFn) {
+    var sel = document.createElement('select');
+    sel.className = 'form-select form-select-sm';
+    var o0 = document.createElement('option'); o0.value = ''; o0.textContent = '—';
+    sel.appendChild(o0);
+    for (var i = 0; i < items.length; i++) {
+        var o = document.createElement('option');
+        o.value = items[i][valKey]; o.textContent = labelFn(items[i]);
+        sel.appendChild(o);
+    }
+    return sel;
+}
+
+/* ── Checkbox / bulk bar ─────────────────────────────────────────────────── */
+document.querySelectorAll('.select-all-chk').forEach(function(chk) {
+    chk.addEventListener('change', function() {
+        var tipo = this.dataset.tipo;
+        document.querySelectorAll('.tarefa-chk[data-tipo="' + tipo + '"]')
+            .forEach(function(c) { c.checked = chk.checked; });
+        gtUpdateBulkBar();
+    });
+});
+document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('tarefa-chk')) gtUpdateBulkBar();
+});
+function gtUpdateBulkBar() {
+    var checked = document.querySelectorAll('.tarefa-chk:checked');
+    var bar = document.getElementById('bulk-bar');
+    if (checked.length > 0) {
+        bar.classList.remove('d-none');
+        document.getElementById('bulk-count').textContent = checked.length + ' selecionada(s)';
+    } else {
+        bar.classList.add('d-none');
+    }
+}
+function gtClearSelection() {
+    document.querySelectorAll('.tarefa-chk, .select-all-chk').forEach(function(c) { c.checked = false; });
+    gtUpdateBulkBar();
+}
+
+/* ── Bulk field value picker ─────────────────────────────────────────────── */
+document.getElementById('bulk-field').addEventListener('change', function() {
+    var field = this.value;
+    var wrap = document.getElementById('bulk-value-wrap');
+    wrap.innerHTML = '';
+    if (!field) return;
+    var el;
+    if (field === 'utilizador_id') {
+        el = gtBuildListSelect(GT_USERS, 'id', function(u) { return u.nome || u.username; });
+    } else if (field === 'loja_id') {
+        el = gtBuildListSelect(GT_STORES, 'id', function(s) { return s.name; });
+    } else if (field === 'equipa') {
+        el = gtBuildObjSelect(GT_EQUIPAS, null);
+    } else if (field === 'frequencia') {
+        el = gtBuildObjSelect(GT_FREQS, null);
+    } else if (field === 'tipo') {
+        el = gtBuildObjSelect(GT_TIPOS, null);
+    } else {
+        el = document.createElement('input');
+        el.type = 'text'; el.className = 'form-control form-control-sm'; el.style.minWidth = '160px';
+    }
+    el.id = 'bulk-value-pick';
+    wrap.appendChild(el);
+});
+
+/* ── Bulk delete / update ────────────────────────────────────────────────── */
+function gtBulkDelete() {
+    var checked = document.querySelectorAll('.tarefa-chk:checked');
+    if (!checked.length) return;
+    if (!confirm('Eliminar ' + checked.length + ' tarefa(s)? Esta ação não pode ser desfeita.')) return;
+    gtSubmitBulk('bulk_delete', checked, null, null);
+}
+function gtBulkUpdate() {
+    var checked = document.querySelectorAll('.tarefa-chk:checked');
+    var field = document.getElementById('bulk-field').value;
+    var picker = document.getElementById('bulk-value-pick');
+    var value = picker ? picker.value : '';
+    if (!checked.length) { alert('Selecione tarefas.'); return; }
+    if (!field) { alert('Selecione um campo para editar.'); return; }
+    gtSubmitBulk('bulk_update', checked, field, value);
+}
+function gtSubmitBulk(action, checked, field, value) {
+    var form = document.createElement('form');
+    form.method = 'POST'; form.action = GT_ACTION_URL;
+    function addHid(name, val) {
+        var inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = name; inp.value = val || '';
+        form.appendChild(inp);
+    }
+    addHid('action', action);
+    if (field) addHid('bulk_field', field);
+    if (value !== null && value !== undefined) addHid('bulk_value', value);
+    for (var i = 0; i < checked.length; i++) addHid('tarefa_ids[]', checked[i].value);
+    document.body.appendChild(form);
+    form.submit();
+}
+
+/* ── Paste area ──────────────────────────────────────────────────────────── */
+function gtTogglePaste(tipoKey) {
+    var panel = document.getElementById('paste-panel-' + tipoKey);
+    panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+function gtInterpretar(tipoKey) {
+    var ta = document.getElementById('paste-ta-' + tipoKey);
+    var lines = ta.value.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+    if (!lines.length) return;
+    var tbody = document.getElementById('drafts-tbody-' + tipoKey);
+    tbody.innerHTML = '';
+    for (var i = 0; i < lines.length; i++) gtAddDraftRow(tipoKey, tbody, lines[i]);
+    document.getElementById('drafts-wrap-' + tipoKey).style.display = '';
+    gtUpdateDraftCount(tipoKey);
+    ta.value = '';
+}
+function gtAddDraftRow(tipoKey, tbody, nome) {
+    var tr = document.createElement('tr');
+
+    function mkTd(child) { var td = document.createElement('td'); td.appendChild(child); tr.appendChild(td); }
+
+    var inpNome = document.createElement('input');
+    inpNome.type = 'text'; inpNome.className = 'form-control form-control-sm draft-nome';
+    inpNome.value = nome; inpNome.placeholder = 'Nome';
+    mkTd(inpNome);
+
+    var selTipo = gtBuildObjSelect(GT_TIPOS, tipoKey);
+    selTipo.classList.add('draft-tipo'); mkTd(selTipo);
+
+    var selFreq = gtBuildObjSelect(GT_FREQS, 'diaria');
+    selFreq.classList.add('draft-freq'); mkTd(selFreq);
+
+    var selLoja = gtBuildListSelect(GT_STORES, 'id', function(s) { return s.name; });
+    selLoja.classList.add('draft-loja'); mkTd(selLoja);
+
+    var selEquipa = gtBuildObjSelect(GT_EQUIPAS, null);
+    selEquipa.classList.add('draft-equipa'); mkTd(selEquipa);
+
+    var selUser = gtBuildListSelect(GT_USERS, 'id', function(u) { return u.nome || u.username; });
+    selUser.classList.add('draft-user'); mkTd(selUser);
+
+    var btnRm = document.createElement('button');
+    btnRm.type = 'button'; btnRm.className = 'btn btn-outline-danger btn-sm py-0 px-1';
+    btnRm.textContent = '×';
+    btnRm.onclick = (function(row, tk) { return function() { row.remove(); gtUpdateDraftCount(tk); }; })(tr, tipoKey);
+    mkTd(btnRm);
+
+    tbody.appendChild(tr);
+}
+function gtUpdateDraftCount(tipoKey) {
+    var tbody = document.getElementById('drafts-tbody-' + tipoKey);
+    var n = tbody.querySelectorAll('tr').length;
+    var wrap = document.getElementById('drafts-wrap-' + tipoKey);
+    var btn  = document.getElementById('criar-btn-' + tipoKey);
+    if (n === 0) { wrap.style.display = 'none'; }
+    else { btn.textContent = 'Criar ' + n + ' tarefa(s)'; wrap.style.display = ''; }
+}
+
+/* ── Bulk create (submit draft rows via hidden form) ─────────────────────── */
+function gtCriar(tipoKey) {
+    var tbody = document.getElementById('drafts-tbody-' + tipoKey);
+    var rows  = tbody.querySelectorAll('tr');
+    var form  = document.getElementById('bulk-create-form');
+    form.querySelectorAll('.bci').forEach(function(el) { el.remove(); });
+    function addHid(name, val) {
+        var inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = name; inp.value = val || ''; inp.className = 'bci';
+        form.appendChild(inp);
+    }
+    for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        addHid('nome[]',         row.querySelector('.draft-nome').value);
+        addHid('tipo[]',         row.querySelector('.draft-tipo').value);
+        addHid('frequencia[]',   row.querySelector('.draft-freq').value);
+        addHid('loja_id[]',      row.querySelector('.draft-loja').value);
+        addHid('equipa[]',       row.querySelector('.draft-equipa').value);
+        addHid('utilizador_id[]',row.querySelector('.draft-user').value);
+    }
+    form.submit();
+}
 </script>
 {% endblock %}

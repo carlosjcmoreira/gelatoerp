@@ -11,14 +11,47 @@ tarefas_bp = Blueprint('tarefas', __name__)
 @tarefas_bp.route('/', methods=['GET'])
 @perm_required('acesso_tarefas')
 def index():
-    from db.tarefas import get_tarefas_do_dia, DIAS_SEMANA, FREQUENCIAS
+    from db.tarefas import (
+        get_tarefas_do_dia, DIAS_SEMANA, FREQUENCIAS,
+        get_all_active_stores, get_users_com_tarefas,
+    )
     hoje = date.today()
-    tarefas = get_tarefas_do_dia(hoje)
+    user = session['user']
+    is_gestor = bool(user.get('acesso_gestor'))
+
+    filter_loja_id = None
+    filter_utilizador_id = None
+    filter_frequencia = None
+    stores = []
+    all_users = []
+
+    if is_gestor:
+        loja_str = request.args.get('loja_id', '').strip()
+        uid_str = request.args.get('utilizador_id', '').strip()
+        filter_frequencia = request.args.get('frequencia', '').strip() or None
+        try:
+            filter_loja_id = int(loja_str) if loja_str else None
+        except (ValueError, TypeError):
+            filter_loja_id = None
+        try:
+            filter_utilizador_id = int(uid_str) if uid_str else None
+        except (ValueError, TypeError):
+            filter_utilizador_id = None
+        stores = get_all_active_stores()
+        all_users = get_users_com_tarefas()
+    else:
+        filter_utilizador_id = user['id']
+
+    tarefas = get_tarefas_do_dia(
+        hoje,
+        utilizador_id=filter_utilizador_id,
+        loja_id=filter_loja_id,
+        frequencia_filter=filter_frequencia,
+    )
 
     abertura = [t for t in tarefas if t['tipo'] == 'abertura']
     fecho = [t for t in tarefas if t['tipo'] == 'fecho']
 
-    user = session['user']
     return render_template(
         'tarefas/index.html',
         abertura=abertura,
@@ -27,6 +60,12 @@ def index():
         dias_semana=DIAS_SEMANA,
         frequencias=FREQUENCIAS,
         user=user,
+        is_gestor=is_gestor,
+        stores=stores,
+        all_users=all_users,
+        filter_loja_id=filter_loja_id,
+        filter_utilizador_id=filter_utilizador_id,
+        filter_frequencia=filter_frequencia or '',
     )
 
 

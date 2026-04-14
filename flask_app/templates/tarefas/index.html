@@ -16,6 +16,46 @@
     {% endfor %}
   {% endwith %}
 
+  {% if is_gestor %}
+  <form method="GET" class="mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label small mb-1 fw-semibold">Loja</label>
+        <select name="loja_id" class="form-select form-select-sm">
+          <option value="">Todas as lojas</option>
+          {% for s in stores %}
+          <option value="{{ s.id }}" {% if filter_loja_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1 fw-semibold">Responsável</label>
+        <select name="utilizador_id" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for u in all_users %}
+          <option value="{{ u.id }}" {% if filter_utilizador_id == u.id %}selected{% endif %}>{{ u.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-1 fw-semibold">Recorrência</label>
+        <select name="frequencia" class="form-select form-select-sm">
+          <option value="">Todas</option>
+          {% for key, label in frequencias.items() %}
+          <option value="{{ key }}" {% if filter_frequencia == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto d-flex gap-1">
+        <button type="submit" class="btn btn-sm btn-outline-primary">Filtrar</button>
+        {% if filter_loja_id or filter_utilizador_id or filter_frequencia %}
+        <a href="{{ url_for('tarefas.index') }}" class="btn btn-sm btn-outline-secondary">Limpar</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+  {% endif %}
+
   {% for grupo_tarefas, grupo_icon, grupo_label in [
       (abertura, '🌅', 'Abertura'),
       (fecho, '🌙', 'Fecho')
@@ -64,6 +104,9 @@
           <tr>
             <td class="ps-3">
               <span class="fw-semibold">{{ t.nome }}</span>
+              {% if is_gestor and t.utilizador_nome %}
+              <div class="text-muted" style="font-size:0.72rem;margin-top:1px;">{{ t.utilizador_nome }}</div>
+              {% endif %}
               {% if reg and reg.motivo %}
               <div class="text-danger" style="font-size:0.72rem;margin-top:2px;">{{ reg.motivo }}</div>
               {% endif %}
