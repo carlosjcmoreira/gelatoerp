@@ -114,9 +114,6 @@
           <tr>
             <td class="ps-3">
               <span class="fw-semibold">{{ t.nome }}</span>
-              {% if is_gestor and t.utilizador_nome %}
-              <div class="text-muted" style="font-size:0.72rem;margin-top:1px;">{{ t.utilizador_nome }}</div>
-              {% endif %}
               {% if reg and reg.motivo %}
               <div class="text-danger" style="font-size:0.72rem;margin-top:2px;">{{ reg.motivo }}</div>
               {% endif %}
