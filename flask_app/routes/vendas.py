@@ -332,6 +332,9 @@ def pesagem():
                         nova_kg = round(float(request.form.get('quantidade', '0').replace(',', '.')), 3)
                         if nova_kg < 0:
                             raise ValueError
+                    except (ValueError, TypeError):
+                        flash('Valor inválido para edição.', 'error')
+                    else:
                         nova_data = None
                         data_edit_str = request.form.get('data_edit', '').strip()
                         if data_edit_str:
@@ -339,11 +342,11 @@ def pesagem():
                                 nova_data = datetime.strptime(data_edit_str, '%Y-%m-%d').date()
                                 data_redirect = data_edit_str
                             except (ValueError, TypeError):
-                                pass
+                                flash('Data inválida — verifique o formato.', 'error')
+                                return redirect(url_for('vendas.pesagem', loja_id=loja_id,
+                                                        data=data_redirect if data_redirect else None))
                         update_stock_gelado(s_id, nova_kg, loja=record.get('loja'), nova_data=nova_data)
                         flash(f'Pesagem actualizada para {nova_kg:.3f} kg.', 'success')
-                    except (ValueError, TypeError):
-                        flash('Valor inválido para edição.', 'error')
                 else:
                     flash('Sem permissão para editar este registo.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id,
@@ -362,7 +365,7 @@ def pesagem():
         {
             'id': r['id'],
             'sabor': reverse_mapping.get(r.get('sabor', ''), r.get('sabor', '')),
-            'quantidade_kg': f"{r['quantidade_kg']:.3f}",
+            'quantidade_kg': float(r['quantidade_kg']),
         }
         for r in stock_rows
     ]

@@ -137,11 +137,11 @@
                 {% for p in pesagens_hoje %}
                 <tr{% if p.quantidade_kg == 0 %} class="table-warning"{% endif %}>
                     <td>{{ p.sabor }}{% if p.quantidade_kg == 0 %} <span class="badge bg-danger ms-1" style="font-size:0.65rem;">sem stock</span>{% endif %}</td>
-                    <td class="text-end" id="val-{{ p.id }}">{{ p.quantidade_kg }}</td>
+                    <td class="text-end" id="val-{{ p.id }}">{{ '%.3f'|format(p.quantidade_kg) }}</td>
                     <td class="text-center">
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
                                 style="font-size:0.72rem;" title="Editar"
-                                onclick="abrirEdit({{ p.id }}, '{{ p.quantidade_kg }}', '{{ data_sel.isoformat() }}')">✏️</button>
+                                onclick="abrirEdit({{ p.id }}, '{{ '%.3f'|format(p.quantidade_kg) }}', '{{ data_sel.isoformat() }}')">✏️</button>
                         <form method="POST" style="display:inline;"
                               onsubmit="return confirm('Eliminar esta pesagem?')">
                             <input type="hidden" name="action" value="delete">
