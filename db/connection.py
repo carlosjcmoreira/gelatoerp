@@ -1,3 +1,4 @@
+import time
 import psycopg2
 from psycopg2 import pool as pg_pool
 from psycopg2.extras import RealDictCursor
@@ -16,6 +17,14 @@ _db_initialized = False
 _connection_pool = None
 _pool_lock = threading.Lock()
 
+# Per-connection last-checked timestamp (keyed by id(conn)).
+# Connections are only verified with SELECT 1 if they have been idle for
+# longer than _STALE_THRESHOLD seconds, avoiding a round-trip on every request.
+_conn_last_checked: dict = {}
+_check_lock = threading.Lock()
+_STALE_THRESHOLD = 60.0  # seconds
+
+
 def get_pool():
     global _connection_pool
     if _connection_pool is None:
@@ -26,13 +35,32 @@ def get_pool():
                     maxconn=10,
                     dsn=DATABASE_URL,
                     keepalives=1,
-                    keepalives_idle=30,
-                    keepalives_interval=10,
-                    keepalives_count=5
+                    keepalives_idle=10,
+                    keepalives_interval=2,
+                    keepalives_count=3,
                 )
     return _connection_pool
 
-def _is_conn_alive(conn):
+
+def _should_check(conn) -> bool:
+    """Return True if the connection has been idle long enough to warrant a liveness ping."""
+    now = time.monotonic()
+    with _check_lock:
+        last = _conn_last_checked.get(id(conn), 0)
+    return (now - last) > _STALE_THRESHOLD
+
+
+def _mark_checked(conn) -> None:
+    with _check_lock:
+        _conn_last_checked[id(conn)] = time.monotonic()
+
+
+def _clear_checked(conn) -> None:
+    with _check_lock:
+        _conn_last_checked.pop(id(conn), None)
+
+
+def _is_conn_alive(conn) -> bool:
     if conn is None or conn.closed:
         return False
     cur = None
@@ -51,7 +79,9 @@ def _is_conn_alive(conn):
                 pass
         return False
 
+
 def _discard_conn(conn):
+    _clear_checked(conn)
     try:
         get_pool().putconn(conn, close=True)
     except Exception:
@@ -60,28 +90,40 @@ def _discard_conn(conn):
         except Exception:
             pass
 
+
 def get_connection():
     max_attempts = 3
     for attempt in range(max_attempts):
         conn = get_pool().getconn()
-        if _is_conn_alive(conn):
-            conn.autocommit = False
-            return conn
-        logger.warning("Stale DB connection detected, discarding (attempt %d/%d)", attempt + 1, max_attempts)
-        _discard_conn(conn)
+        needs_check = _should_check(conn)
+        if needs_check:
+            if not _is_conn_alive(conn):
+                logger.warning("Stale DB connection detected, discarding (attempt %d/%d)", attempt + 1, max_attempts)
+                _discard_conn(conn)
+                continue
+            _mark_checked(conn)
+        # Guard: verify connection is actually open before returning
+        if conn.closed:
+            logger.warning("Closed connection returned from pool, discarding (attempt %d/%d)", attempt + 1, max_attempts)
+            _discard_conn(conn)
+            continue
+        conn.autocommit = False
+        return conn
     raise psycopg2.OperationalError("Failed to obtain a healthy database connection after %d attempts" % max_attempts)
+
 
 def release_connection(conn):
     if conn is None:
         return
     try:
         if conn.closed:
+            _clear_checked(conn)
             get_pool().putconn(conn, close=True)
             return
         try:
             conn.rollback()
         except Exception:
-            get_pool().putconn(conn, close=True)
+            _discard_conn(conn)
             return
         get_pool().putconn(conn)
     except Exception:
@@ -89,6 +131,7 @@ def release_connection(conn):
             conn.close()
         except Exception:
             pass
+
 
 from contextlib import contextmanager
 
@@ -100,6 +143,7 @@ def db_connection():
     finally:
         release_connection(conn)
 
+
 def ensure_initialized():
     global _db_initialized
     if not _db_initialized:
@@ -108,8 +152,10 @@ def ensure_initialized():
         _db_initialized = True
     return True
 
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
 
 def verify_password(password: str, hashed: str) -> bool:
     try:
@@ -118,5 +164,3 @@ def verify_password(password: str, hashed: str) -> bool:
         import logging
         logging.error(f"Password verification error: {e}")
         return False
-
-
