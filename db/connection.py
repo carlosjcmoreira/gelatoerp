@@ -99,18 +99,18 @@ def get_connection():
     max_attempts = 3
     for attempt in range(max_attempts):
         conn = get_pool().getconn()
-        needs_check = _should_check(conn)
-        if needs_check:
+        if _should_check(conn):
             if not _is_conn_alive(conn):
                 logger.warning("Stale DB connection detected, discarding (attempt %d/%d)", attempt + 1, max_attempts)
                 _discard_conn(conn)
                 continue
-            _mark_checked(conn)
         # Guard: verify connection is actually open before returning
         if conn.closed:
             logger.warning("Closed connection returned from pool, discarding (attempt %d/%d)", attempt + 1, max_attempts)
             _discard_conn(conn)
             continue
+        # Always record last-use time so _should_check() measures true idle time
+        _mark_checked(conn)
         conn.autocommit = False
         return conn
     raise psycopg2.OperationalError("Failed to obtain a healthy database connection after %d attempts" % max_attempts)
