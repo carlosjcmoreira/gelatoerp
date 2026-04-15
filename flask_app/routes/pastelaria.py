@@ -292,7 +292,6 @@ def transferir():
 
     if request.method == 'POST':
         ordens_count = 0
-        idx = 0
         username = session.get('user', {}).get('username', '')
         data_prevista_str = request.form.get('data_prevista', '')
         data_prevista = None
@@ -308,12 +307,16 @@ def transferir():
             flash('Loja de destino inválida.', 'error')
             return redirect(url_for('pastelaria.transferir'))
         batch_id = get_or_create_pending_batch(today, 'Pastelaria', loja_destino)
-        while True:
-            produto = request.form.get(f'produto_{idx}')
-            qty_str = request.form.get(f'qty_{idx}', '')
-            if produto is None:
-                break
-            idx += 1
+        import re as _re
+        form_pairs = []
+        for key in request.form:
+            m = _re.match(r'^produto_(\d+)$', key)
+            if m:
+                n = int(m.group(1))
+                form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
+        for _, produto, qty_str in sorted(form_pairs, key=lambda x: x[0]):
+            if not produto:
+                continue
             qty = _parse_int(qty_str)
             if qty <= 0:
                 continue

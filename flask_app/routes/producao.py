@@ -837,7 +837,6 @@ def transferir():
 
     if request.method == 'POST':
         ordens_count = 0
-        idx = 0
         username = session.get('user', {}).get('username', '')
         data_prevista_str = request.form.get('data_prevista', '')
         data_prevista = None
@@ -852,33 +851,38 @@ def transferir():
         if loja_destino not in active_store_names:
             loja_destino = 'Bolhão'
         batch_id = get_or_create_pending_batch(today, 'Gelado', loja_destino)
-        while True:
-            sabor = request.form.get(f'produto_{idx}')
-            qty_str = request.form.get(f'qty_{idx}', '')
-            if sabor is None:
-                break
-            idx += 1
+        import re as _re
+        form_pairs = []
+        for key in request.form:
+            m = _re.match(r'^produto_(\d+)$', key)
+            if m:
+                n = int(m.group(1))
+                form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
+        for _, sabor, qty_str in sorted(form_pairs, key=lambda x: x[0]):
+            if not sabor:
+                continue
             qty = _parse_decimal(qty_str)
             if qty <= 0:
                 continue
 
-            stock_disponivel = get_stock_producao(today, sabor, 'Bolhão')
+            stock_disponivel = get_stock_producao(today, sabor, loja_destino)
+            other_loja = 'Matosinhos' if loja_destino == 'Bolhão' else 'Bolhão'
 
             if qty > stock_disponivel:
                 deficit = qty - stock_disponivel
-                stock_mat = get_stock_producao(today, sabor, 'Matosinhos')
-                transferir_de_mat = min(deficit, stock_mat)
-                if transferir_de_mat > 0:
-                    reduzir_stock_producao(today, sabor, 'Matosinhos', transferir_de_mat)
-                    add_stock_producao(today, sabor, 'Bolhão', transferir_de_mat)
-                    stock_disponivel += transferir_de_mat
+                stock_other = get_stock_producao(today, sabor, other_loja)
+                transferir_de_other = min(deficit, stock_other)
+                if transferir_de_other > 0:
+                    reduzir_stock_producao(today, sabor, other_loja, transferir_de_other)
+                    add_stock_producao(today, sabor, loja_destino, transferir_de_other)
+                    stock_disponivel += transferir_de_other
 
             if qty > stock_disponivel:
                 qty = stock_disponivel
             if qty > 0:
-                reduced = reduzir_stock_producao(today, sabor, 'Bolhão', qty)
+                reduced = reduzir_stock_producao(today, sabor, loja_destino, qty)
                 if reduced:
-                    add_transferencia(today, sabor, 'Bolhão', qty)
+                    add_transferencia(today, sabor, loja_destino, qty)
                     criar_ordem_transferencia(today, 'Gelado', sabor, qty, 'kg', loja_destino, sabor=sabor, criado_por=username, data_prevista=data_prevista, batch_id=batch_id)
                     ordens_count += 1
         if ordens_count > 0:
