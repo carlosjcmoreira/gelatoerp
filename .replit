@@ -43,6 +43,10 @@ externalPort = 3000
 localPort = 23636
 externalPort = 3002
 
+[[ports]]
+localPort = 23637
+externalPort = 3003
+
 [agent]
 expertMode = true
 integrations = ["python_openai_ai_integrations:1.0.0", "google-sheet:1.0.0", "python_anthropic_ai_integrations:1.0.0"]
