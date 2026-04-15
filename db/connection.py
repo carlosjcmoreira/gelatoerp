@@ -34,6 +34,7 @@ def get_pool():
                     minconn=2,
                     maxconn=10,
                     dsn=DATABASE_URL,
+                    connect_timeout=5,
                     keepalives=1,
                     keepalives_idle=10,
                     keepalives_interval=2,
@@ -66,6 +67,9 @@ def _is_conn_alive(conn) -> bool:
     cur = None
     try:
         cur = conn.cursor()
+        # SET LOCAL scopes the timeout to this transaction only;
+        # conn.rollback() below resets it, so no impact on real queries.
+        cur.execute("SET LOCAL statement_timeout = 4000")
         cur.execute("SELECT 1")
         cur.close()
         cur = None
