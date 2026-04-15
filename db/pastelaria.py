@@ -798,19 +798,31 @@ def delete_stock_gelado_by_date(loja: str, data_date) -> int:
     return deleted
 
 
-def update_stock_gelado(stock_id: int, quantidade_kg: float, loja: str = None):
+def update_stock_gelado(stock_id: int, quantidade_kg: float, loja: str = None, nova_data: date = None):
     conn = get_connection()
     cursor = conn.cursor()
     if loja:
-        cursor.execute(
-            "UPDATE stock_gelado SET quantidade_kg = %s WHERE id = %s AND loja = %s",
-            (quantidade_kg, stock_id, loja)
-        )
+        if nova_data:
+            cursor.execute(
+                "UPDATE stock_gelado SET quantidade_kg = %s, data = %s WHERE id = %s AND loja = %s",
+                (quantidade_kg, nova_data, stock_id, loja)
+            )
+        else:
+            cursor.execute(
+                "UPDATE stock_gelado SET quantidade_kg = %s WHERE id = %s AND loja = %s",
+                (quantidade_kg, stock_id, loja)
+            )
     else:
-        cursor.execute(
-            "UPDATE stock_gelado SET quantidade_kg = %s WHERE id = %s",
-            (quantidade_kg, stock_id)
-        )
+        if nova_data:
+            cursor.execute(
+                "UPDATE stock_gelado SET quantidade_kg = %s, data = %s WHERE id = %s",
+                (quantidade_kg, nova_data, stock_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE stock_gelado SET quantidade_kg = %s WHERE id = %s",
+                (quantidade_kg, stock_id)
+            )
     conn.commit()
     release_connection(conn)
 

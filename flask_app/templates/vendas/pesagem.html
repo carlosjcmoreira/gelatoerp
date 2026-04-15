@@ -135,8 +135,8 @@
             </thead>
             <tbody>
                 {% for p in pesagens_hoje %}
-                <tr>
-                    <td>{{ p.sabor }}</td>
+                <tr{% if p.quantidade_kg == 0 %} class="table-warning"{% endif %}>
+                    <td>{{ p.sabor }}{% if p.quantidade_kg == 0 %} <span class="badge bg-danger ms-1" style="font-size:0.65rem;">sem stock</span>{% endif %}</td>
                     <td class="text-end" id="val-{{ p.id }}">{{ p.quantidade_kg }}</td>
                     <td class="text-center">
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
@@ -201,8 +201,8 @@
               </thead>
               <tbody>
                 {% for linha in dia.linhas %}
-                <tr>
-                  <td class="ps-3">{{ linha.sabor }}</td>
+                <tr{% if linha.quantidade_kg == 0 %} class="table-warning"{% endif %}>
+                  <td class="ps-3">{{ linha.sabor }}{% if linha.quantidade_kg == 0 %} <span class="badge bg-danger ms-1" style="font-size:0.65rem;">sem stock</span>{% endif %}</td>
                   <td class="text-end" id="val-{{ linha.id }}">{{ '%.3f'|format(linha.quantidade_kg) }}</td>
                   <td class="text-center">
                     <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
@@ -309,9 +309,14 @@ function abrirEdit(id, currentKg, dataStr) {
   <form method="POST" id="edit-form">
     <input type="hidden" name="action" value="edit">
     <input type="hidden" name="id" value="${id}">
-    <input type="hidden" name="data" value="${dataStr}">
+    <input type="hidden" name="data_redirect" value="${dataStr}">
     <div class="mb-3">
-      <label class="form-label">Novo valor (kg)</label>
+      <label class="form-label">Data</label>
+      <input type="date" name="data_edit" id="edit-data" class="form-control"
+             value="${dataStr}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Valor (kg)</label>
       <input type="text" name="quantidade" id="edit-input" class="form-control"
              value="${currentKg}" inputmode="decimal" required>
     </div>
@@ -572,7 +577,7 @@ function submeterOCR() {
 
 function validarESubmeter() {
     const inputs = Array.from(document.querySelectorAll('#carapinas-container .carapina-input'));
-    const vazias = inputs.filter(inp => inp.value.trim() === '' || parseKg(inp.value) === 0);
+    const vazias = inputs.filter(inp => inp.value.trim() === '');
 
     if (vazias.length === inputs.length) {
         alert('Nenhuma carapina tem valor registado. Por favor preencha pelo menos uma antes de continuar.');

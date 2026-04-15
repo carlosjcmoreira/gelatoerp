@@ -24,7 +24,7 @@ vendas_bp = Blueprint('vendas', __name__)
 
 TAB_DEFS = [
     {'id': 'dashboard', 'label': 'Resumo Diário', 'icon': '📊', 'endpoint': 'vendas.dashboard'},
-    {'id': 'transferencias', 'label': 'Receção de Transferências', 'icon': '📦', 'endpoint': 'vendas.transferencias'},
+    {'id': 'transferencias', 'label': 'Receção de Mercadoria', 'icon': '📦', 'endpoint': 'vendas.transferencias'},
     {'id': 'quebras', 'label': 'Registar Quebras', 'icon': '⚠️', 'endpoint': 'vendas.quebras'},
     {'id': 'pesagem', 'label': 'Pesagem Fim de Dia', 'icon': '⚖️', 'endpoint': 'vendas.pesagem'},
     {'id': 'fecho_caixa', 'label': 'Fecho de Caixa', 'icon': '💵', 'endpoint': 'vendas.fecho_caixa'},
@@ -319,7 +319,7 @@ def pesagem():
 
         elif action == 'edit':
             s_id_raw = request.form.get('id', '').strip()
-            data_redirect = request.form.get('data', '').strip()
+            data_redirect = request.form.get('data_redirect', '').strip() or request.form.get('data', '').strip()
             try:
                 s_id = int(s_id_raw)
             except (ValueError, TypeError):
@@ -332,7 +332,15 @@ def pesagem():
                         nova_kg = round(float(request.form.get('quantidade', '0').replace(',', '.')), 3)
                         if nova_kg < 0:
                             raise ValueError
-                        update_stock_gelado(s_id, nova_kg, loja=record.get('loja'))
+                        nova_data = None
+                        data_edit_str = request.form.get('data_edit', '').strip()
+                        if data_edit_str:
+                            try:
+                                nova_data = datetime.strptime(data_edit_str, '%Y-%m-%d').date()
+                                data_redirect = data_edit_str
+                            except (ValueError, TypeError):
+                                pass
+                        update_stock_gelado(s_id, nova_kg, loja=record.get('loja'), nova_data=nova_data)
                         flash(f'Pesagem actualizada para {nova_kg:.3f} kg.', 'success')
                     except (ValueError, TypeError):
                         flash('Valor inválido para edição.', 'error')
