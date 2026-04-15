@@ -24,6 +24,7 @@ from database import (
     get_eventos_adjudicados_para_producao, mark_production_alert_sent,
     get_latest_pesagem_por_sabor_all_lojas, set_stock_producao,
     get_stock_producao_by_loja, upsert_pesagem_matosinhos_inicio,
+    get_active_venda_stores, get_or_create_pending_batch,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -846,9 +847,13 @@ def transferir():
                 data_prevista = datetime.strptime(data_prevista_str, '%Y-%m-%d').date()
             except ValueError:
                 pass
+        loja_destino = request.form.get('loja_destino', 'Bolhão')
+        active_store_names = {s['name'] for s in get_active_venda_stores()}
+        if loja_destino not in active_store_names:
+            loja_destino = 'Bolhão'
+        batch_id = get_or_create_pending_batch(today, 'Gelado', loja_destino)
         while True:
-            sabor = request.form.get(f'sabor_{idx}')
-            loja = 'Bolhão'
+            sabor = request.form.get(f'produto_{idx}')
             qty_str = request.form.get(f'qty_{idx}', '')
             if sabor is None:
                 break
@@ -857,9 +862,9 @@ def transferir():
             if qty <= 0:
                 continue
 
-            stock_disponivel = get_stock_producao(today, sabor, loja)
+            stock_disponivel = get_stock_producao(today, sabor, 'Bolhão')
 
-            if loja == 'Bolhão' and qty > stock_disponivel:
+            if qty > stock_disponivel:
                 deficit = qty - stock_disponivel
                 stock_mat = get_stock_producao(today, sabor, 'Matosinhos')
                 transferir_de_mat = min(deficit, stock_mat)
@@ -871,10 +876,10 @@ def transferir():
             if qty > stock_disponivel:
                 qty = stock_disponivel
             if qty > 0:
-                reduced = reduzir_stock_producao(today, sabor, loja, qty)
+                reduced = reduzir_stock_producao(today, sabor, 'Bolhão', qty)
                 if reduced:
-                    add_transferencia(today, sabor, loja, qty)
-                    criar_ordem_transferencia(today, 'Gelado', sabor, qty, 'kg', loja, sabor=sabor, criado_por=username, data_prevista=data_prevista)
+                    add_transferencia(today, sabor, 'Bolhão', qty)
+                    criar_ordem_transferencia(today, 'Gelado', sabor, qty, 'kg', loja_destino, sabor=sabor, criado_por=username, data_prevista=data_prevista, batch_id=batch_id)
                     ordens_count += 1
         if ordens_count > 0:
             flash(f"{ordens_count} ordem(ns) de transferência criada(s)!", "success")
@@ -882,6 +887,7 @@ def transferir():
             flash("Nenhuma transferência registada. Verifique as quantidades.", "info")
         return redirect(url_for('producao.transferir'))
 
+    lojas_venda = get_active_venda_stores()
     stock_prod = get_stock_producao_all(today)
     pesagem_bolhao = get_latest_pesagem_por_sabor('Bolhão')
     pesagem_matosinhos = get_latest_pesagem_por_sabor('Matosinhos')
@@ -912,7 +918,7 @@ def transferir():
 
     return render_template('producao/transferir.html',
                            active_tab='transferir', tabs=_tabs_with_urls(),
-                           cards=cards, today=str(today))
+                           cards=cards, lojas_venda=lojas_venda, today=str(today))
 
 
 @producao_bp.route('/ordem')

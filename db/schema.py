@@ -2708,3 +2708,38 @@ def run_migrations_colaboradores_smart():
         except Exception:
             pass
         release_connection(conn)
+
+
+_LOCK_BATCH_ID = 202624
+
+
+def run_migrations_batch_id():
+    """Idempotent: add batch_id TEXT column to ordens_transferencia.
+    Uses advisory lock 202624.
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_BATCH_ID,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_batch_id: lock held by another worker, skipping")
+            return
+        cursor.execute("""
+            ALTER TABLE ordens_transferencia
+                ADD COLUMN IF NOT EXISTS batch_id TEXT
+        """)
+        conn.commit()
+        logger.info("run_migrations_batch_id: batch_id column ensured on ordens_transferencia")
+    except Exception as exc:
+        logger.error("run_migrations_batch_id failed: %s", exc)
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        try:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_BATCH_ID,))
+            conn.commit()
+        except Exception:
+            pass
+        release_connection(conn)

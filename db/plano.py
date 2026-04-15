@@ -523,14 +523,33 @@ def _insert_evento(cursor, ordem_id: int, event_type: str, utilizador: str | Non
         raise
 
 
-def criar_ordem_transferencia(data: date, area_origem: str, produto: str, quantidade: float, unidade: str = 'kg', loja_destino: str = 'Bolhão', sabor: str = None, criado_por: str = None, data_prevista: date = None):
+def get_or_create_pending_batch(data: date, area_origem: str, loja_destino: str) -> str:
+    """Return batch_id for an existing pendente batch with matching (data, area_origem, loja_destino),
+    or generate a new UUID if none exists. Never touches the DB — safe to call before any INSERT."""
+    import uuid as _uuid
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO ordens_transferencia (data, area_origem, produto, sabor, quantidade, unidade, loja_destino, criado_por, data_prevista)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        SELECT DISTINCT batch_id FROM ordens_transferencia
+        WHERE data = %s AND area_origem = %s AND loja_destino = %s
+          AND status = 'pendente' AND batch_id IS NOT NULL
+        LIMIT 1
+    """, (data, area_origem, loja_destino))
+    row = cursor.fetchone()
+    release_connection(conn)
+    if row and row[0]:
+        return row[0]
+    return str(_uuid.uuid4())
+
+
+def criar_ordem_transferencia(data: date, area_origem: str, produto: str, quantidade: float, unidade: str = 'kg', loja_destino: str = 'Bolhão', sabor: str = None, criado_por: str = None, data_prevista: date = None, batch_id: str = None):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO ordens_transferencia (data, area_origem, produto, sabor, quantidade, unidade, loja_destino, criado_por, data_prevista, batch_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
-    """, (data, area_origem, produto, sabor, quantidade, unidade, loja_destino, criado_por, data_prevista or data))
+    """, (data, area_origem, produto, sabor, quantidade, unidade, loja_destino, criado_por, data_prevista or data, batch_id))
     order_id = cursor.fetchone()[0]
     _insert_evento(cursor, order_id, 'criado', criado_por)
     conn.commit()
@@ -551,7 +570,7 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
     conn = get_connection()
     cursor = conn.cursor()
     query = """
-        SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista, motivo_rejeicao
+        SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista, motivo_rejeicao, batch_id
         FROM ordens_transferencia WHERE 1=1
     """
     params = []
@@ -578,7 +597,7 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
         'id': r[0], 'data': r[1], 'area_origem': r[2], 'produto': r[3], 'sabor': r[4],
         'quantidade': float(r[5]), 'unidade': r[6], 'loja_destino': r[7], 'status': r[8],
         'criado_por': r[9], 'confirmado_por': r[10], 'confirmado_em': r[11], 'created_at': r[12],
-        'data_prevista': r[13], 'motivo_rejeicao': r[14]
+        'data_prevista': r[13], 'motivo_rejeicao': r[14], 'batch_id': r[15]
     } for r in rows]
 
 

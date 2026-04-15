@@ -8,57 +8,58 @@
     <p class="text-muted small mb-3">Confirme as transferências enviadas pela produção. Ao confirmar, o stock é atualizado automaticamente.</p>
 
     {% if grupos_pendentes %}
-    {% for data_prevista, ordens in grupos_pendentes %}
+    {% for grupo in grupos_pendentes %}
     <div class="card mb-3">
         <div class="card-header py-2 px-3">
             <div class="d-flex justify-content-between align-items-center">
-                <span class="fw-bold">📅 {{ data_prevista.strftime('%d/%m/%Y') if data_prevista else '—' }}</span>
-                <span class="badge bg-warning text-dark">{{ ordens|length }} pendente{{ 's' if ordens|length > 1 }}</span>
+                <div>
+                    <span class="badge bg-{% if grupo.area_origem == 'Gelado' %}primary{% elif grupo.area_origem == 'Pastelaria' %}warning text-dark{% elif grupo.area_origem == 'Confeitaria' %}info{% elif grupo.area_origem == 'Compras' %}secondary{% else %}dark{% endif %} me-1" style="font-size:0.7rem;">{{ grupo.area_origem }}</span>
+                    <span class="fw-bold small">📅 {{ grupo.data_prevista.strftime('%d/%m/%Y') if grupo.data_prevista else '—' }}</span>
+                    {% if grupo.criado_por %}<span class="text-muted ms-1" style="font-size:0.72rem;">por {{ grupo.criado_por }}</span>{% endif %}
+                </div>
+                <span class="badge bg-warning text-dark">{{ grupo.ordens|length }} artigo{{ 's' if grupo.ordens|length > 1 }}</span>
             </div>
         </div>
         <div class="card-body p-0">
-            {% for o in ordens %}
+            {% for o in grupo.ordens %}
             <div class="px-3 py-2 {% if not loop.last %}border-bottom{% endif %}">
-                <div class="d-flex justify-content-between align-items-start mb-1">
-                    <div>
-                        <span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.7rem;">{{ o.area_origem }}</span>
-                        <span class="fw-bold small ms-1">{{ o.produto }}</span>
-                        {% if o.sabor %}<span class="text-muted small ms-1">({{ o.sabor }})</span>{% endif %}
-                    </div>
-                    <span class="text-muted" style="font-size:0.72rem;">criado {{ o.data.strftime('%d/%m') }}{% if o.criado_por %} por {{ o.criado_por }}{% endif %}</span>
-                </div>
                 <div class="d-flex justify-content-between align-items-center">
-                    <span class="fw-bold small">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</span>
-                    <div class="d-flex gap-1 align-items-center">
-                        <form method="post" class="d-inline">
-                            <input type="hidden" name="action" value="confirmar">
-                            <input type="hidden" name="ordem_id" value="{{ o.id }}">
-                            <button type="submit" class="btn btn-success btn-sm" style="padding:2px 10px;font-size:0.78rem;">Confirmar</button>
-                        </form>
-                        <button type="button"
-                                class="btn btn-outline-danger btn-sm rejeitar-toggle"
-                                data-target="rejeitar-{{ o.id }}"
-                                style="padding:2px 10px;font-size:0.78rem;">Rejeitar</button>
+                    <div>
+                        <span class="fw-bold small">{{ o.produto }}</span>
+                        {% if o.sabor and o.sabor != o.produto %}<span class="text-muted small ms-1">({{ o.sabor }})</span>{% endif %}
                     </div>
-                </div>
-                <!-- Inline rejection form (hidden by default) -->
-                <div id="rejeitar-{{ o.id }}" class="mt-2 p-2 bg-danger bg-opacity-10 rounded" style="display:none;">
-                    <form method="post">
-                        <input type="hidden" name="action" value="rejeitar">
-                        <input type="hidden" name="ordem_id" value="{{ o.id }}">
-                        <label class="form-label small fw-semibold mb-1">Motivo de rejeição <span class="text-muted fw-normal">(opcional)</span></label>
-                        <textarea name="motivo_rejeicao" class="form-control form-control-sm mb-2"
-                                  rows="2" placeholder="Ex: quantidade incorrecta, produto não conforme…"
-                                  maxlength="500"></textarea>
-                        <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-danger btn-sm" style="font-size:0.78rem;">Confirmar rejeição</button>
-                            <button type="button" class="btn btn-outline-secondary btn-sm rejeitar-cancel"
-                                    data-target="rejeitar-{{ o.id }}" style="font-size:0.78rem;">Cancelar</button>
-                        </div>
-                    </form>
+                    <span class="fw-bold small">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</span>
                 </div>
             </div>
             {% endfor %}
+        </div>
+        <div class="card-footer py-2 px-3 bg-transparent">
+            <div class="d-flex gap-2 align-items-center justify-content-end">
+                <form method="post" class="d-inline">
+                    <input type="hidden" name="action" value="confirmar_batch">
+                    <input type="hidden" name="ordem_ids" value="{{ grupo.ordem_ids_csv }}">
+                    <button type="submit" class="btn btn-success btn-sm" style="font-size:0.78rem;">✓ Confirmar tudo</button>
+                </form>
+                <button type="button"
+                        class="btn btn-outline-danger btn-sm rejeitar-toggle"
+                        data-target="rejeitar-batch-{{ loop.index }}"
+                        style="font-size:0.78rem;">Rejeitar</button>
+            </div>
+            <div id="rejeitar-batch-{{ loop.index }}" class="mt-2 p-2 bg-danger bg-opacity-10 rounded" style="display:none;">
+                <form method="post">
+                    <input type="hidden" name="action" value="rejeitar_batch">
+                    <input type="hidden" name="ordem_ids" value="{{ grupo.ordem_ids_csv }}">
+                    <label class="form-label small fw-semibold mb-1">Motivo de rejeição <span class="text-muted fw-normal">(opcional)</span></label>
+                    <textarea name="motivo_rejeicao" class="form-control form-control-sm mb-2"
+                              rows="2" placeholder="Ex: quantidade incorrecta, produto não conforme…"
+                              maxlength="500"></textarea>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-danger btn-sm" style="font-size:0.78rem;">Confirmar rejeição</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm rejeitar-cancel"
+                                data-target="rejeitar-batch-{{ loop.index }}" style="font-size:0.78rem;">Cancelar</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
     {% endfor %}
@@ -85,7 +86,7 @@
                 <tr>
                     <td>{{ o.data.strftime('%d/%m') }}</td>
                     <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.65rem;">{{ o.area_origem }}</span></td>
-                    <td>{{ o.produto }}{% if o.sabor %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
+                    <td>{{ o.produto }}{% if o.sabor and o.sabor != o.produto %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
                     <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
                     <td class="text-center">
                         {% if o.status == 'confirmada' %}

@@ -1,73 +1,113 @@
 {% extends "producao/tabs.html" %}
 
 {% block tab_content %}
-<h5 class="mb-2">Transferir Stock de Produção</h5>
-<p class="text-muted small mb-3">Preencha a quantidade a enviar para Bolhão.</p>
+<h5 class="mb-1">Transferir Stock de Produção</h5>
+<p class="text-muted small mb-3">Adicione os artigos a enviar e confirme a ordem.</p>
 
-{% if cards %}
 <form method="post" id="transferForm">
 <div class="card mb-3">
     <div class="card-body p-2">
-        <label class="form-label small mb-1">Data prevista de entrega</label>
-        <input type="date" name="data_prevista" class="form-control form-control-sm" value="{{ today }}">
+        <div class="mb-2">
+            <label class="form-label small mb-1">Loja de destino</label>
+            <select name="loja_destino" class="form-select form-select-sm">
+                {% for loja in lojas_venda %}
+                <option value="{{ loja.name }}">{{ loja.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label small mb-1">Data prevista de entrega</label>
+            <input type="date" name="data_prevista" class="form-control form-control-sm" value="{{ today }}">
+        </div>
     </div>
 </div>
-{% set counter = namespace(n=0) %}
-{% for card in cards %}
-<div class="transfer-card mb-3">
-    <div class="transfer-card-header">
-        <span class="fw-bold" style="font-size:1.05rem;">{{ card.icon }} {{ card.sabor }}</span>
-    </div>
-    <div class="transfer-card-body">
-        <table class="table table-sm mb-0" style="font-size:0.82rem;">
-            <thead>
-                <tr>
-                    <th></th>
-                    <th class="text-center">Bolhão</th>
-                    <th class="text-center text-muted">Matosinhos</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td class="text-muted">Balcão</td>
-                    <td class="text-center">{{ "%.1f"|format(card.balcao_bolhao) }} <span class="text-muted" style="font-size:0.7rem;">({{ card.data_pesagem_bolhao }})</span></td>
-                    <td class="text-center text-muted">{{ "%.1f"|format(card.balcao_matosinhos) }} <span style="font-size:0.7rem;">({{ card.data_pesagem_matosinhos }})</span></td>
-                </tr>
-                <tr>
-                    <td class="text-muted">Produção</td>
-                    <td class="text-center fw-bold">{{ "%.1f"|format(card.stock_prod_bolhao) }}</td>
-                    <td class="text-center text-muted">{{ "%.1f"|format(card.stock_prod_matosinhos) }}</td>
-                </tr>
-                <tr>
-                    <td class="text-muted">Transferir</td>
-                    <td class="text-center">
-                        {% set total_stock = card.stock_prod_bolhao + card.stock_prod_matosinhos %}
-                        {% if total_stock > 0 %}
-                        <input type="hidden" name="sabor_{{ counter.n }}" value="{{ card.sabor }}">
-                        <input type="hidden" name="loja_{{ counter.n }}" value="Bolhão">
-                        <input type="text" name="qty_{{ counter.n }}"
-                               class="form-control form-control-sm text-center"
-                               placeholder="—" inputmode="decimal"
-                               style="max-width:70px;margin:0 auto;">
-                        {% set counter.n = counter.n + 1 %}
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center text-muted">—</td>
-                </tr>
-            </tbody>
-        </table>
+
+{% if cards %}
+<div class="accordion mb-3" id="stockRef">
+    <div class="accordion-item border">
+        <h2 class="accordion-header">
+            <button class="accordion-button collapsed py-2 px-3" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#stockRefBody"
+                    style="font-size:0.83rem;">
+                📊 Stock disponível (referência)
+            </button>
+        </h2>
+        <div id="stockRefBody" class="accordion-collapse collapse">
+            <div class="accordion-body p-0">
+                <table class="table table-sm mb-0" style="font-size:0.8rem;">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Sabor</th>
+                            <th class="text-center">Prod. Bol.</th>
+                            <th class="text-center">Prod. Mat.</th>
+                            <th class="text-center">Balcão Bol.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for card in cards %}
+                        <tr>
+                            <td>{{ card.icon }} {{ card.sabor }}</td>
+                            <td class="text-center">{{ "%.1f"|format(card.stock_prod_bolhao) }}</td>
+                            <td class="text-center text-muted">{{ "%.1f"|format(card.stock_prod_matosinhos) }}</td>
+                            <td class="text-center text-muted">{{ "%.1f"|format(card.balcao_bolhao) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
-{% endfor %}
+
+<div id="artigos-container"></div>
+
+<button type="button" class="btn btn-outline-secondary w-100 mb-3"
+        onclick="adicionarArtigo()" style="font-size:0.85rem;">
+    + Adicionar sabor
+</button>
+
+{% else %}
+<div class="alert alert-info small">Sem stock de produção disponível. Registe produção real na página "Produzir" primeiro.</div>
+{% endif %}
 </form>
 
 <div class="save-bar-spacer"></div>
 <div class="save-bar">
     <button type="submit" form="transferForm" class="btn btn-primary w-100">Criar ordem de transferência</button>
 </div>
-{% else %}
-<div class="alert alert-info">Sem stock de produção disponível. Registe produção real na página "Produzir" primeiro.</div>
-{% endif %}
+
+<script>
+(function() {
+    var rowCount = 0;
+    var produtos = [
+        {% for card in cards %}
+        {nome: {{ card.sabor | tojson }}, icon: {{ card.icon | tojson }}, stock: {{ card.stock_prod_bolhao + card.stock_prod_matosinhos }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    window.adicionarArtigo = function() {
+        var idx = rowCount++;
+        var container = document.getElementById('artigos-container');
+        var div = document.createElement('div');
+        div.className = 'card mb-2 artigo-row';
+        var options = produtos.map(function(p) {
+            return '<option value="' + p.nome + '">' + p.icon + ' ' + p.nome + ' (' + p.stock.toFixed(1) + ' kg)</option>';
+        }).join('');
+        div.innerHTML =
+            '<div class="card-body p-2">' +
+            '<div class="d-flex gap-2 align-items-center">' +
+            '<select name="produto_' + idx + '" class="form-select form-select-sm" style="flex:1;">' +
+            '<option value="">— Escolher sabor —</option>' + options +
+            '</select>' +
+            '<input type="text" name="qty_' + idx + '" class="form-control form-control-sm text-center" placeholder="kg" inputmode="decimal" style="width:72px;">' +
+            '<button type="button" class="btn btn-outline-danger btn-sm px-2" onclick="this.closest(\'.artigo-row\').remove()">×</button>' +
+            '</div></div>';
+        container.appendChild(div);
+    };
+
+    {% if cards %}
+    adicionarArtigo();
+    {% endif %}
+})();
+</script>
 {% endblock %}

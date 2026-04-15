@@ -441,6 +441,33 @@ def transferencias():
                         flash('Transferência já processada anteriormente.', 'warning')
                 else:
                     flash('Sem permissão para rejeitar esta transferência.', 'warning')
+            elif action == 'confirmar_batch':
+                ids_str = request.form.get('ordem_ids', '')
+                ids = [int(x) for x in ids_str.split(',') if x.strip().isdigit()]
+                success = 0
+                for oid in ids:
+                    ordem = get_ordem_transferencia_by_id(oid)
+                    if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
+                        if confirmar_ordem_transferencia(oid, username):
+                            success += 1
+                if success:
+                    flash(f'Lote confirmado: {success} artigo(s) atualizado(s)!', 'success')
+                else:
+                    flash('Sem transferências a confirmar ou já processadas.', 'warning')
+            elif action == 'rejeitar_batch':
+                ids_str = request.form.get('ordem_ids', '')
+                motivo = request.form.get('motivo_rejeicao', '').strip() or None
+                ids = [int(x) for x in ids_str.split(',') if x.strip().isdigit()]
+                success = 0
+                for oid in ids:
+                    ordem = get_ordem_transferencia_by_id(oid)
+                    if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
+                        if rejeitar_ordem_transferencia(oid, username, motivo=motivo):
+                            success += 1
+                if success:
+                    flash(f'Lote rejeitado: {success} artigo(s).', 'info')
+                else:
+                    flash('Sem transferências a rejeitar ou já processadas.', 'warning')
         except Exception as exc:
             logger.exception('Erro ao processar transferência ordem_id=%s action=%s', ordem_id, action)
             flash('Erro interno ao processar a transferência. Tente novamente.', 'danger')
@@ -451,18 +478,31 @@ def transferencias():
     recentes = get_ordens_transferencia(loja_destino=loja_nome)
     confirmadas = [o for o in recentes if o['status'] != 'pendente'][:20]
 
-    grupos_pendentes = defaultdict(list)
+    batch_map = {}
     for o in pendentes:
-        dp = o.get('data_prevista') or o['data']
-        grupos_pendentes[dp].append(o)
-    grupos_pendentes_sorted = sorted(grupos_pendentes.items(), key=lambda x: x[0])
+        batch_key = o.get('batch_id') or f'_solo_{o["id"]}'
+        if batch_key not in batch_map:
+            batch_map[batch_key] = {
+                'batch_id': o.get('batch_id'),
+                'area_origem': o['area_origem'],
+                'data_prevista': o.get('data_prevista') or o['data'],
+                'data': o['data'],
+                'criado_por': o.get('criado_por'),
+                'ordens': [],
+            }
+        batch_map[batch_key]['ordens'].append(o)
+
+    for g in batch_map.values():
+        g['ordem_ids_csv'] = ','.join(str(o['id']) for o in g['ordens'])
+
+    grupos_pendentes = sorted(batch_map.values(), key=lambda g: (g['data_prevista'], g['data']))
 
     return render_template('vendas/transferencias.html',
                            active_tab='transferencias',
                            tabs=_build_tabs('transferencias', loja_id),
                            loja_nome=loja_nome,
                            loja_id=loja_id,
-                           grupos_pendentes=grupos_pendentes_sorted,
+                           grupos_pendentes=grupos_pendentes,
                            pendentes=pendentes,
                            confirmadas=confirmadas)
 

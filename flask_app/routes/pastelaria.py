@@ -16,6 +16,7 @@ from database import (
     criar_ordem_transferencia,
     add_quebra_area, get_quebras_df_area, delete_quebra_area,
     get_active_venda_stores,
+    get_or_create_pending_batch,
 )
 from datetime import date
 
@@ -306,6 +307,7 @@ def transferir():
         if loja_destino not in active_store_names:
             flash('Loja de destino inválida.', 'error')
             return redirect(url_for('pastelaria.transferir'))
+        batch_id = get_or_create_pending_batch(today, 'Pastelaria', loja_destino)
         while True:
             produto = request.form.get(f'produto_{idx}')
             qty_str = request.form.get(f'qty_{idx}', '')
@@ -321,7 +323,7 @@ def transferir():
             if qty > 0:
                 reduced = reduzir_stock_producao_area(AREA, today, produto, qty)
                 if reduced:
-                    criar_ordem_transferencia(today, 'Pastelaria', produto, qty, 'und', loja_destino, criado_por=username, data_prevista=data_prevista)
+                    criar_ordem_transferencia(today, 'Pastelaria', produto, qty, 'und', loja_destino, criado_por=username, data_prevista=data_prevista, batch_id=batch_id)
                     ordens_count += 1
         if ordens_count > 0:
             flash(f"{ordens_count} ordem(ns) de transferência criada(s)!", "success")

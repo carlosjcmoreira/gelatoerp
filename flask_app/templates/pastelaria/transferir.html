@@ -4,61 +4,111 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
     <h5 class="mb-1">🔄 Transferir Stock</h5>
-    <p class="text-muted small mb-3">Transferir stock produzido para loja</p>
+    <p class="text-muted small mb-3">Adicione os artigos a enviar e confirme a ordem.</p>
 
-    {% if cards %}
     <form method="post" id="transferForm">
     <div class="card mb-3">
         <div class="card-body p-2">
-            <label class="form-label small mb-1">Loja de destino</label>
-            <select name="loja_destino" class="form-select form-select-sm mb-2">
-                {% for loja in lojas_venda %}
-                <option value="{{ loja.name }}">{{ loja.name }}</option>
-                {% endfor %}
-            </select>
-            <label class="form-label small mb-1">Data prevista de entrega</label>
-            <input type="date" name="data_prevista" class="form-control form-control-sm" value="{{ today }}">
+            <div class="mb-2">
+                <label class="form-label small mb-1">Loja de destino</label>
+                <select name="loja_destino" class="form-select form-select-sm">
+                    {% for loja in lojas_venda %}
+                    <option value="{{ loja.name }}">{{ loja.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="form-label small mb-1">Data prevista de entrega</label>
+                <input type="date" name="data_prevista" class="form-control form-control-sm" value="{{ today }}">
+            </div>
         </div>
     </div>
-    {% set counter = namespace(n=0) %}
-    {% for card in cards %}
-    <div class="card mb-3">
-        <div class="card-header py-2">
-            <span class="fw-bold">{{ card.produto }}</span>
-            <span class="badge bg-primary ms-2">{{ card.stock_prod }} und</span>
-        </div>
-        <div class="card-body py-2">
-            <table class="table table-sm mb-0" style="font-size:0.82rem;">
-                <tbody>
-                    <tr>
-                        <td class="text-muted">Balcão Bolhão</td>
-                        <td class="text-center">{{ card.balcao_bolhao }} <span class="text-muted" style="font-size:0.7rem;">({{ card.data_balcao_bolhao }})</span></td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Qtd. a transferir</td>
-                        <td class="text-center">
-                            <input type="hidden" name="produto_{{ counter.n }}" value="{{ card.produto }}">
-                            <input type="number" name="qty_{{ counter.n }}"
-                                   class="form-control form-control-sm text-center"
-                                   placeholder="—" min="0" step="1"
-                                   inputmode="numeric"
-                                   style="max-width:70px;margin:0 auto;">
-                            {% set counter.n = counter.n + 1 %}
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
+
+    {% if cards %}
+    <div class="accordion mb-3" id="stockRef">
+        <div class="accordion-item border">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed py-2 px-3" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#stockRefBody"
+                        style="font-size:0.83rem;">
+                    📊 Stock disponível (referência)
+                </button>
+            </h2>
+            <div id="stockRefBody" class="accordion-collapse collapse">
+                <div class="accordion-body p-0">
+                    <table class="table table-sm mb-0" style="font-size:0.8rem;">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Produto</th>
+                                <th class="text-center">Prod.</th>
+                                <th class="text-center">Balcão Bol.</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for card in cards %}
+                            <tr>
+                                <td>{{ card.produto }}</td>
+                                <td class="text-center fw-bold">{{ card.stock_prod }}</td>
+                                <td class="text-center text-muted">{{ card.balcao_bolhao }} <span style="font-size:0.7rem;">({{ card.data_balcao_bolhao }})</span></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
-    {% endfor %}
+
+    <div id="artigos-container"></div>
+
+    <button type="button" class="btn btn-outline-secondary w-100 mb-3"
+            onclick="adicionarArtigo()" style="font-size:0.85rem;">
+        + Adicionar artigo
+    </button>
+
+    {% else %}
+    <div class="alert alert-info small">Sem stock de produção disponível. Registe produção real na página "Produzir" primeiro.</div>
+    {% endif %}
     </form>
 
     <div class="save-bar-spacer"></div>
     <div class="save-bar">
         <button type="submit" form="transferForm" class="btn btn-primary w-100">Criar ordem de transferência</button>
     </div>
-    {% else %}
-    <div class="alert alert-info">Sem stock de produção disponível. Registe produção real na página "Produzir" primeiro.</div>
-    {% endif %}
 </div>
+
+<script>
+(function() {
+    var rowCount = 0;
+    var produtos = [
+        {% for card in cards %}
+        {nome: {{ card.produto | tojson }}, stock: {{ card.stock_prod }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    window.adicionarArtigo = function() {
+        var idx = rowCount++;
+        var container = document.getElementById('artigos-container');
+        var div = document.createElement('div');
+        div.className = 'card mb-2 artigo-row';
+        var options = produtos.map(function(p) {
+            return '<option value="' + p.nome + '">' + p.nome + ' (' + p.stock + ' und)</option>';
+        }).join('');
+        div.innerHTML =
+            '<div class="card-body p-2">' +
+            '<div class="d-flex gap-2 align-items-center">' +
+            '<select name="produto_' + idx + '" class="form-select form-select-sm" style="flex:1;">' +
+            '<option value="">— Escolher artigo —</option>' + options +
+            '</select>' +
+            '<input type="number" name="qty_' + idx + '" class="form-control form-control-sm text-center" placeholder="Qtd" min="0" step="1" inputmode="numeric" style="width:72px;">' +
+            '<button type="button" class="btn btn-outline-danger btn-sm px-2" onclick="this.closest(\'.artigo-row\').remove()">×</button>' +
+            '</div></div>';
+        container.appendChild(div);
+    };
+
+    {% if cards %}
+    adicionarArtigo();
+    {% endif %}
+})();
+</script>
 {% endblock %}
