@@ -22,7 +22,7 @@ _pool_lock = threading.Lock()
 # longer than _STALE_THRESHOLD seconds, avoiding a round-trip on every request.
 _conn_last_checked: dict = {}
 _check_lock = threading.Lock()
-_STALE_THRESHOLD = 60.0  # seconds
+_STALE_THRESHOLD = 10.0  # seconds
 
 
 def get_pool():
@@ -96,18 +96,20 @@ def _discard_conn(conn):
 
 
 def get_connection():
-    max_attempts = 3
+    max_attempts = 5
     for attempt in range(max_attempts):
         conn = get_pool().getconn()
         if _should_check(conn):
             if not _is_conn_alive(conn):
                 logger.warning("Stale DB connection detected, discarding (attempt %d/%d)", attempt + 1, max_attempts)
                 _discard_conn(conn)
+                time.sleep(0.1)
                 continue
         # Guard: verify connection is actually open before returning
         if conn.closed:
             logger.warning("Closed connection returned from pool, discarding (attempt %d/%d)", attempt + 1, max_attempts)
             _discard_conn(conn)
+            time.sleep(0.1)
             continue
         # Always record last-use time so _should_check() measures true idle time
         _mark_checked(conn)
@@ -129,6 +131,7 @@ def release_connection(conn):
         except Exception:
             _discard_conn(conn)
             return
+        _mark_checked(conn)
         get_pool().putconn(conn)
     except Exception:
         try:
