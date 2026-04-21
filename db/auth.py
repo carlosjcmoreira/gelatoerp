@@ -145,11 +145,19 @@ def add_user(username: str, password: str, permissoes: dict = None):
 
 def update_user_password(user_id: int, new_password: str):
     conn = get_connection()
-    cursor = conn.cursor()
-    hashed_pw = hash_password(new_password)
-    cursor.execute("UPDATE users SET password = %s WHERE id = %s", (hashed_pw, user_id))
-    conn.commit()
-    release_connection(conn)
+    try:
+        cursor = conn.cursor()
+        hashed_pw = hash_password(new_password)
+        cursor.execute("UPDATE users SET password = %s WHERE id = %s", (hashed_pw, user_id))
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        release_connection(conn)
 
 def update_user_store_vendas(user_id: int, store_ids: list):
     """Replace the user's vendas store permissions with the given list of store IDs."""

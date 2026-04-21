@@ -818,11 +818,20 @@ def _handle_config_post(action, config_option):
             flash('Preencha o utilizador e a password.', 'warning')
 
     elif action == 'change_password':
-        user_id = int(request.form.get('user_id'))
+        try:
+            user_id = int(request.form.get('user_id'))
+        except (TypeError, ValueError):
+            flash('Utilizador inválido.', 'danger')
+            return redirect(url_for('gestor.gestao_utilizadores'))
         new_pass = request.form.get('new_password', '')
         if new_pass:
-            db.update_user_password(user_id, new_pass)
-            flash('Password alterada com sucesso!', 'success')
+            try:
+                db.update_user_password(user_id, new_pass)
+                flash('Password alterada com sucesso!', 'success')
+            except Exception as exc:
+                import logging as _logging
+                _logging.getLogger(__name__).exception('update_user_password failed for user_id=%s', user_id)
+                flash('Erro ao alterar a password. Tente novamente.', 'danger')
         else:
             flash('Introduza a nova password.', 'warning')
 
