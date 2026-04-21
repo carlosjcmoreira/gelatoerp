@@ -4,6 +4,7 @@ from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger
 from db.cache import ttl_cache, ttl_cache_args, invalidate_prefix
+from db.stores import get_store_id_by_name
 import pandas as pd
 import json
 
@@ -15,148 +16,131 @@ def get_target_by_month(month: int) -> float:
 
 def add_producao(data: date, loja: str, quantidade_kg: float, tipo: str = 'producao', sabor: str = None):
     store_id = get_store_id_by_name(loja)
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO producao (data, loja, quantidade_kg, tipo, sabor, store_id)
-        VALUES (%s, %s, %s, %s, %s, %s)
-    ''', (data, loja, quantidade_kg, tipo, sabor, store_id))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO producao (data, loja, quantidade_kg, tipo, sabor, store_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        ''', (data, loja, quantidade_kg, tipo, sabor, store_id))
+        conn.commit()
 
 def add_quebra(data: date, loja: str, quantidade_kg: float, motivo: str = None, sabor: str = None, lote: str = None):
     store_id = get_store_id_by_name(loja)
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id FROM quebras
-        WHERE data = %s AND loja = %s AND sabor IS NOT DISTINCT FROM %s AND motivo IS NOT DISTINCT FROM %s
-          AND created_at >= NOW() - INTERVAL '10 seconds'
-        LIMIT 1
-    ''', (data, loja, sabor, motivo))
-    if cursor.fetchone():
-        logger.warning(
-            "add_quebra: registo duplicado ignorado (data=%s loja=%s sabor=%s motivo=%s)",
-            data, loja, sabor, motivo)
-        release_connection(conn)
-        return
-    cursor.execute('''
-        INSERT INTO quebras (data, loja, quantidade_kg, motivo, sabor, lote, store_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-    ''', (data, loja, quantidade_kg, motivo, sabor, lote, store_id))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT id FROM quebras
+            WHERE data = %s AND loja = %s AND sabor IS NOT DISTINCT FROM %s AND motivo IS NOT DISTINCT FROM %s
+              AND created_at >= NOW() - INTERVAL '10 seconds'
+            LIMIT 1
+        ''', (data, loja, sabor, motivo))
+        if cursor.fetchone():
+            logger.warning(
+                "add_quebra: registo duplicado ignorado (data=%s loja=%s sabor=%s motivo=%s)",
+                data, loja, sabor, motivo)
+            return
+        cursor.execute('''
+            INSERT INTO quebras (data, loja, quantidade_kg, motivo, sabor, lote, store_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ''', (data, loja, quantidade_kg, motivo, sabor, lote, store_id))
+        conn.commit()
 
 def add_quebra_area(data: date, loja: str, quantidade: float, area: str, produto: str = None, lote: str = None, motivo: str = None):
     store_id = get_store_id_by_name(loja)
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO quebras (data, loja, quantidade_kg, motivo, sabor, lote, store_id)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-    ''', (data, loja, quantidade, motivo, f"{area}:{produto}" if produto else area, lote, store_id))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO quebras (data, loja, quantidade_kg, motivo, sabor, lote, store_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ''', (data, loja, quantidade, motivo, f"{area}:{produto}" if produto else area, lote, store_id))
+        conn.commit()
 
 def get_quebras_df_area(loja: str, area: str):
-    conn = get_connection()
     query = f"""
         SELECT id, data, lote, quantidade_kg, motivo, sabor
         FROM quebras
         WHERE loja = %s AND sabor LIKE %s
         ORDER BY data DESC, id DESC
     """
-    df = pd.read_sql_query(query, conn, params=[loja, f"{area}:%"])
-    release_connection(conn)
-    return df
+    with db_connection() as conn:
+        return pd.read_sql_query(query, conn, params=[loja, f"{area}:%"])
 
 def delete_quebra_area(id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM quebras WHERE id = %s", (id,))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM quebras WHERE id = %s", (id,))
+        conn.commit()
 
 def add_venda(data: date, loja: str, valor_euros: float):
     store_id = get_store_id_by_name(loja)
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO vendas (data, loja, valor_euros, store_id)
-        VALUES (%s, %s, %s, %s)
-    ''', (data, loja, valor_euros, store_id))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO vendas (data, loja, valor_euros, store_id)
+            VALUES (%s, %s, %s, %s)
+        ''', (data, loja, valor_euros, store_id))
+        conn.commit()
 
 def add_stock_inicial(data: date, loja: str, quantidade_kg: float):
     store_id = get_store_id_by_name(loja)
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO stock_inicial (data, loja, quantidade_kg, store_id)
-        VALUES (%s, %s, %s, %s)
-    ''', (data, loja, quantidade_kg, store_id))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO stock_inicial (data, loja, quantidade_kg, store_id)
+            VALUES (%s, %s, %s, %s)
+        ''', (data, loja, quantidade_kg, store_id))
+        conn.commit()
 
 def add_rececao_stock(data: date, loja: str, quantidade_kg: float, origem: str = None, sabor: str = None):
     store_id = get_store_id_by_name(loja)
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT INTO rececao_stock (data, loja, quantidade_kg, origem, sabor, store_id)
-        VALUES (%s, %s, %s, %s, %s, %s)
-    ''', (data, loja, quantidade_kg, origem, sabor, store_id))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO rececao_stock (data, loja, quantidade_kg, origem, sabor, store_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        ''', (data, loja, quantidade_kg, origem, sabor, store_id))
+        conn.commit()
 
 @ttl_cache_args('sabores_list', ttl=600)
 def get_sabores_list(apenas_eurokg: bool = False) -> list:
-    conn = get_connection()
-    cursor = conn.cursor()
-    if apenas_eurokg:
-        cursor.execute("SELECT nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND conta_eurokg = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != '' ORDER BY nome_corrente")
-    else:
-        cursor.execute("SELECT nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != '' ORDER BY nome_corrente")
-    sabores = [row[0] for row in cursor.fetchall()]
-    release_connection(conn)
-    return sabores
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        if apenas_eurokg:
+            cursor.execute("SELECT nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND conta_eurokg = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != '' ORDER BY nome_corrente")
+        else:
+            cursor.execute("SELECT nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != '' ORDER BY nome_corrente")
+        return [row[0] for row in cursor.fetchall()]
 
 def get_receita_by_nome_corrente(nome_corrente: str) -> str:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT nome FROM receitas_gelado WHERE nome_corrente = %s AND ativo = TRUE", (nome_corrente,))
-    row = cursor.fetchone()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT nome FROM receitas_gelado WHERE nome_corrente = %s AND ativo = TRUE", (nome_corrente,))
+        row = cursor.fetchone()
     return row[0] if row else nome_corrente
 
 def get_nome_corrente_by_receita(nome_receita: str) -> str:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE nome = %s AND ativo = TRUE", (nome_receita,))
-    row = cursor.fetchone()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE nome = %s AND ativo = TRUE", (nome_receita,))
+        row = cursor.fetchone()
     return row[0] if row else nome_receita
 
 @ttl_cache('sabores_mapping', ttl=600)
 def get_sabores_mapping() -> dict:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT nome, nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != ''")
-    mapping = {row[0]: row[1] for row in cursor.fetchall()}
-    release_connection(conn)
-    return mapping
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT nome, nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != ''")
+        return {row[0]: row[1] for row in cursor.fetchall()}
 
 def get_producao_by_sabor_and_days(loja: str = None) -> pd.DataFrame:
-    conn = get_connection()
     from datetime import timedelta
     today = date.today()
     day_minus_1 = today - timedelta(days=1)
     day_minus_2 = today - timedelta(days=2)
     day_minus_3 = today - timedelta(days=3)
-    
+
     query = """
-        SELECT 
+        SELECT
             sabor,
             SUM(CASE WHEN data = %s THEN quantidade_kg ELSE 0 END) as dia_1,
             SUM(CASE WHEN data = %s THEN quantidade_kg ELSE 0 END) as dia_2,
@@ -165,119 +149,108 @@ def get_producao_by_sabor_and_days(loja: str = None) -> pd.DataFrame:
         WHERE sabor IS NOT NULL
     """
     params = [day_minus_1, day_minus_2, day_minus_3]
-    
+
     if loja:
         query += " AND loja = %s"
         params.append(loja)
-    
+
     query += " GROUP BY sabor ORDER BY sabor"
-    
-    df = pd.read_sql_query(query, conn, params=params)
-    release_connection(conn)
-    return df
+
+    with db_connection() as conn:
+        return pd.read_sql_query(query, conn, params=params)
 
 def get_producao_sabor_overview() -> pd.DataFrame:
-    conn = get_connection()
-
-    cursor = conn.cursor()
-
-    # Query 1 — lista de sabores
-    cursor.execute("""
-        SELECT DISTINCT sabor FROM (
-            SELECT sabor FROM producao WHERE loja = 'Matosinhos' AND sabor IS NOT NULL
-            UNION
-            SELECT sabor FROM stock_gelado WHERE sabor IS NOT NULL
-        ) AS combined ORDER BY sabor
-    """)
-    sabores = [r[0] for r in cursor.fetchall()]
-
-    # Query 2 — última data de pesagem Bolhão
-    cursor.execute("""
-        SELECT MAX(data) FROM stock_gelado
-        WHERE loja = 'Bolhão' AND tipo IN ('fim', 'inicio')
-    """)
-    ultima_data_pesagem_bolhao = cursor.fetchone()[0]
-
-    # Query 3 — última data de pesagem Matosinhos
-    cursor.execute("""
-        SELECT MAX(data) FROM stock_gelado
-        WHERE loja = 'Matosinhos' AND tipo = 'inicio'
-    """)
-    ultima_data_pesagem_mat = cursor.fetchone()[0]
-
-    # Query 4 — última produção por sabor (Matosinhos)
-    cursor.execute("""
-        SELECT DISTINCT ON (sabor) sabor, data, quantidade_kg
-        FROM producao
-        WHERE loja = 'Matosinhos'
-        ORDER BY sabor, data DESC, id DESC
-    """)
-    ultima_producao = {r[0]: (r[1], r[2]) for r in cursor.fetchall()}
-
-    # Queries 5-7 — stock Matosinhos (apenas se existe data de pesagem)
-    stock_mat_pesagem = {}
-    producao_depois_mat = {}
-    quebras_mat_map = {}
-    if ultima_data_pesagem_mat:
-        cursor.execute("""
-            SELECT DISTINCT ON (sabor) sabor, quantidade_kg FROM stock_gelado
-            WHERE loja = 'Matosinhos' AND tipo = 'inicio' AND data = %s
-            ORDER BY sabor, id DESC
-        """, (ultima_data_pesagem_mat,))
-        stock_mat_pesagem = {r[0]: float(r[1]) for r in cursor.fetchall()}
+    with db_connection() as conn:
+        cursor = conn.cursor()
 
         cursor.execute("""
-            SELECT sabor, SUM(quantidade_kg) FROM producao
-            WHERE loja = 'Matosinhos' AND data >= %s
-            GROUP BY sabor
-        """, (ultima_data_pesagem_mat,))
-        producao_depois_mat = {r[0]: float(r[1]) for r in cursor.fetchall()}
+            SELECT DISTINCT sabor FROM (
+                SELECT sabor FROM producao WHERE loja = 'Matosinhos' AND sabor IS NOT NULL
+                UNION
+                SELECT sabor FROM stock_gelado WHERE sabor IS NOT NULL
+            ) AS combined ORDER BY sabor
+        """)
+        sabores = [r[0] for r in cursor.fetchall()]
 
         cursor.execute("""
-            SELECT sabor, SUM(quantidade_kg) FROM quebras
-            WHERE loja = 'Matosinhos' AND data >= %s
-            GROUP BY sabor
-        """, (ultima_data_pesagem_mat,))
-        quebras_mat_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
-
-    # Queries 8-11 — stock Bolhão (apenas se existe data de pesagem)
-    pesagem_bolhao_map = {}
-    rececao_stock_bolhao = {}
-    rececao_mercadoria_bolhao = {}
-    quebras_bolhao_map = {}
-    if ultima_data_pesagem_bolhao:
-        cursor.execute("""
-            SELECT DISTINCT ON (sabor) sabor, quantidade_kg
-            FROM stock_gelado
-            WHERE loja = 'Bolhão' AND tipo IN ('fim', 'inicio') AND data = %s
-            ORDER BY sabor, CASE WHEN tipo = 'fim' THEN 0 ELSE 1 END, id DESC
-        """, (ultima_data_pesagem_bolhao,))
-        pesagem_bolhao_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
+            SELECT MAX(data) FROM stock_gelado
+            WHERE loja = 'Bolhão' AND tipo IN ('fim', 'inicio')
+        """)
+        ultima_data_pesagem_bolhao = cursor.fetchone()[0]
 
         cursor.execute("""
-            SELECT sabor, SUM(quantidade_kg) FROM rececao_stock
-            WHERE loja = 'Bolhão' AND data > %s
-            GROUP BY sabor
-        """, (ultima_data_pesagem_bolhao,))
-        rececao_stock_bolhao = {r[0]: float(r[1]) for r in cursor.fetchall()}
+            SELECT MAX(data) FROM stock_gelado
+            WHERE loja = 'Matosinhos' AND tipo = 'inicio'
+        """)
+        ultima_data_pesagem_mat = cursor.fetchone()[0]
 
         cursor.execute("""
-            SELECT sabor, SUM(quantidade) FROM rececao_mercadoria
-            WHERE loja = 'Bolhão' AND unidade = 'kg' AND data > %s
-            GROUP BY sabor
-        """, (ultima_data_pesagem_bolhao,))
-        rececao_mercadoria_bolhao = {r[0]: float(r[1]) for r in cursor.fetchall()}
+            SELECT DISTINCT ON (sabor) sabor, data, quantidade_kg
+            FROM producao
+            WHERE loja = 'Matosinhos'
+            ORDER BY sabor, data DESC, id DESC
+        """)
+        ultima_producao = {r[0]: (r[1], r[2]) for r in cursor.fetchall()}
 
-        cursor.execute("""
-            SELECT sabor, SUM(quantidade_kg) FROM quebras
-            WHERE loja = 'Bolhão' AND data > %s
-            GROUP BY sabor
-        """, (ultima_data_pesagem_bolhao,))
-        quebras_bolhao_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
+        stock_mat_pesagem = {}
+        producao_depois_mat = {}
+        quebras_mat_map = {}
+        if ultima_data_pesagem_mat:
+            cursor.execute("""
+                SELECT DISTINCT ON (sabor) sabor, quantidade_kg FROM stock_gelado
+                WHERE loja = 'Matosinhos' AND tipo = 'inicio' AND data = %s
+                ORDER BY sabor, id DESC
+            """, (ultima_data_pesagem_mat,))
+            stock_mat_pesagem = {r[0]: float(r[1]) for r in cursor.fetchall()}
 
-    release_connection(conn)
+            cursor.execute("""
+                SELECT sabor, SUM(quantidade_kg) FROM producao
+                WHERE loja = 'Matosinhos' AND data >= %s
+                GROUP BY sabor
+            """, (ultima_data_pesagem_mat,))
+            producao_depois_mat = {r[0]: float(r[1]) for r in cursor.fetchall()}
 
-    # Combinação em Python — sem mais DB calls
+            cursor.execute("""
+                SELECT sabor, SUM(quantidade_kg) FROM quebras
+                WHERE loja = 'Matosinhos' AND data >= %s
+                GROUP BY sabor
+            """, (ultima_data_pesagem_mat,))
+            quebras_mat_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
+
+        pesagem_bolhao_map = {}
+        rececao_stock_bolhao = {}
+        rececao_mercadoria_bolhao = {}
+        quebras_bolhao_map = {}
+        if ultima_data_pesagem_bolhao:
+            cursor.execute("""
+                SELECT DISTINCT ON (sabor) sabor, quantidade_kg
+                FROM stock_gelado
+                WHERE loja = 'Bolhão' AND tipo IN ('fim', 'inicio') AND data = %s
+                ORDER BY sabor, CASE WHEN tipo = 'fim' THEN 0 ELSE 1 END, id DESC
+            """, (ultima_data_pesagem_bolhao,))
+            pesagem_bolhao_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
+
+            cursor.execute("""
+                SELECT sabor, SUM(quantidade_kg) FROM rececao_stock
+                WHERE loja = 'Bolhão' AND data > %s
+                GROUP BY sabor
+            """, (ultima_data_pesagem_bolhao,))
+            rececao_stock_bolhao = {r[0]: float(r[1]) for r in cursor.fetchall()}
+
+            cursor.execute("""
+                SELECT sabor, SUM(quantidade) FROM rececao_mercadoria
+                WHERE loja = 'Bolhão' AND unidade = 'kg' AND data > %s
+                GROUP BY sabor
+            """, (ultima_data_pesagem_bolhao,))
+            rececao_mercadoria_bolhao = {r[0]: float(r[1]) for r in cursor.fetchall()}
+
+            cursor.execute("""
+                SELECT sabor, SUM(quantidade_kg) FROM quebras
+                WHERE loja = 'Bolhão' AND data > %s
+                GROUP BY sabor
+            """, (ultima_data_pesagem_bolhao,))
+            quebras_bolhao_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
+
     result_data = []
     for sabor in sabores:
         prod_entry = ultima_producao.get(sabor)
@@ -321,14 +294,14 @@ def get_producao_sabor_overview() -> pd.DataFrame:
         })
 
     df = pd.DataFrame(result_data)
-    
+
     if df.empty:
         return df
-    
+
     df['ultima_quantidade'] = pd.to_numeric(df['ultima_quantidade'], errors='coerce').fillna(0)
     df['stock_matosinhos'] = pd.to_numeric(df['stock_matosinhos'], errors='coerce').fillna(0)
     df['stock_bolhao'] = pd.to_numeric(df['stock_bolhao'], errors='coerce').fillna(0)
-    
+
     today_date = date.today()
     def calc_consumo(row):
         if row['ultima_data'] and row['ultima_quantidade'] > 0:
@@ -340,38 +313,34 @@ def get_producao_sabor_overview() -> pd.DataFrame:
                 dias = (today_date - ultima).days
                 if dias > 0:
                     return round(row['ultima_quantidade'] / dias, 2)
-            except:
+            except Exception:
                 pass
         return 0
-    
+
     df['consumo_medio'] = df.apply(calc_consumo, axis=1)
-    
+
     df['stock_total'] = df['stock_matosinhos'] + df['stock_bolhao']
     df = df[(df['stock_matosinhos'] > 0) | (df['stock_bolhao'] > 0)]
-    
+
     return df
 
 def get_last_rececao_by_sabor(loja: str = "Bolhão") -> dict:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT sabor, MAX(data) as ultima_data
-        FROM rececao_stock
-        WHERE loja = %s AND sabor IS NOT NULL
-        GROUP BY sabor
-    """, (loja,))
-    result = {row[0]: row[1] for row in cursor.fetchall()}
-    release_connection(conn)
-    return result
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sabor, MAX(data) as ultima_data
+            FROM rececao_stock
+            WHERE loja = %s AND sabor IS NOT NULL
+            GROUP BY sabor
+        """, (loja,))
+        return {row[0]: row[1] for row in cursor.fetchall()}
 
 @ttl_cache('sabores_excluidos', ttl=600)
 def get_sabores_excluidos_eurokg() -> list:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE conta_eurokg = FALSE AND ativo = TRUE")
-    sabores = [row[0] for row in cursor.fetchall()]
-    release_connection(conn)
-    return sabores
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE conta_eurokg = FALSE AND ativo = TRUE")
+        return [row[0] for row in cursor.fetchall()]
 
 def _build_exclusion_filter(sabores_excluidos: list, field: str = 'sabor') -> tuple:
     if not sabores_excluidos:
@@ -381,7 +350,6 @@ def _build_exclusion_filter(sabores_excluidos: list, field: str = 'sabor') -> tu
     return clause, list(sabores_excluidos)
 
 def get_producao_total_by_period(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> float:
-    conn = get_connection()
     query = "SELECT COALESCE(SUM(quantidade_kg), 0) FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
@@ -401,19 +369,16 @@ def get_producao_total_by_period(loja: str = None, data_inicio: date = None, dat
     if data_fim:
         query += " AND data <= %s"
         params.append(data_fim)
-    cursor = conn.cursor()
-    cursor.execute(query, params)
-    result = cursor.fetchone()[0]
-    release_connection(conn)
-    return result
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        return cursor.fetchone()[0]
 
 def get_producao_plano_matosinhos_total(data_inicio: date = None, data_fim: date = None) -> float:
     """Returns total real Matosinhos production from plano_producao module by period.
     Applies the same sabor exclusion as the euro/kg calculations.
     Excludes sabores marked as excluded from euro/kg."""
     excluidos = get_sabores_excluidos_eurokg()
-    conn = get_connection()
-    cursor = conn.cursor()
     query = """
         SELECT COALESCE(SUM(producao_real_matosinhos), 0)
         FROM plano_producao
@@ -432,10 +397,10 @@ def get_producao_plano_matosinhos_total(data_inicio: date = None, data_fim: date
     if data_fim:
         query += " AND data <= %s"
         params.append(data_fim)
-    cursor.execute(query, params)
-    result = float(cursor.fetchone()[0])
-    release_connection(conn)
-    return result
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        return float(cursor.fetchone()[0])
 
 
 def get_producao_plano_matosinhos_daily(data_inicio: date = None, data_fim: date = None) -> dict:
@@ -443,8 +408,6 @@ def get_producao_plano_matosinhos_daily(data_inicio: date = None, data_fim: date
     Returns a dict of {date: total_kg}.
     Applies the same sabor exclusion as the euro/kg calculations."""
     excluidos = get_sabores_excluidos_eurokg()
-    conn = get_connection()
-    cursor = conn.cursor()
     query = """
         SELECT data, COALESCE(SUM(producao_real_matosinhos), 0) as total_kg
         FROM plano_producao
@@ -464,10 +427,10 @@ def get_producao_plano_matosinhos_daily(data_inicio: date = None, data_fim: date
         query += " AND data <= %s"
         params.append(data_fim)
     query += " GROUP BY data ORDER BY data"
-    cursor.execute(query, params)
-    result = {row[0]: float(row[1]) for row in cursor.fetchall()}
-    release_connection(conn)
-    return result
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        return {row[0]: float(row[1]) for row in cursor.fetchall()}
 
 
 def get_producao_plano_matosinhos_by_month(year: int) -> dict:
@@ -475,8 +438,6 @@ def get_producao_plano_matosinhos_by_month(year: int) -> dict:
     Returns a dict of {month: total_kg}.
     Applies the same sabor exclusion as the euro/kg calculations."""
     excluidos = get_sabores_excluidos_eurokg()
-    conn = get_connection()
-    cursor = conn.cursor()
     query = """
         SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(producao_real_matosinhos), 0)
         FROM plano_producao
@@ -491,14 +452,13 @@ def get_producao_plano_matosinhos_by_month(year: int) -> dict:
     else:
         query += " AND sabor IS NOT NULL"
     query += " GROUP BY mes ORDER BY mes"
-    cursor.execute(query, params)
-    result = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
-    release_connection(conn)
-    return result
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        return {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
 
 def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> pd.DataFrame:
-    conn = get_connection()
     query = "SELECT data, SUM(quantidade_kg) as total_kg FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
@@ -519,12 +479,10 @@ def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_f
         query += " AND data <= %s"
         params.append(data_fim)
     query += " GROUP BY data ORDER BY data"
-    df = pd.read_sql_query(query, conn, params=params)
-    release_connection(conn)
-    return df
+    with db_connection() as conn:
+        return pd.read_sql_query(query, conn, params=params)
 
 def get_producao_df(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> pd.DataFrame:
-    conn = get_connection()
     query = "SELECT * FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
@@ -544,12 +502,10 @@ def get_producao_df(loja: str = None, data_inicio: date = None, data_fim: date =
     if data_fim:
         query += " AND data <= %s"
         params.append(data_fim)
-    df = pd.read_sql_query(query, conn, params=params)
-    release_connection(conn)
-    return df
+    with db_connection() as conn:
+        return pd.read_sql_query(query, conn, params=params)
 
 def get_quebras_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
-    conn = get_connection()
     query = "SELECT * FROM quebras WHERE 1=1"
     params = []
     if loja:
@@ -561,12 +517,10 @@ def get_quebras_df(loja: str = None, data_inicio: date = None, data_fim: date = 
     if data_fim:
         query += " AND data <= %s"
         params.append(data_fim)
-    df = pd.read_sql_query(query, conn, params=params)
-    release_connection(conn)
-    return df
+    with db_connection() as conn:
+        return pd.read_sql_query(query, conn, params=params)
 
 def get_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
-    conn = get_connection()
     query = "SELECT * FROM vendas WHERE 1=1"
     params = []
     if loja:
@@ -578,13 +532,11 @@ def get_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = N
     if data_fim:
         query += " AND data <= %s"
         params.append(data_fim)
-    df = pd.read_sql_query(query, conn, params=params)
-    release_connection(conn)
-    return df
+    with db_connection() as conn:
+        return pd.read_sql_query(query, conn, params=params)
 
 def get_stock_inicial_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
     excluidos = get_sabores_excluidos_eurokg()
-    conn = get_connection()
     excl_clause = ''
     excl_params = []
     if excluidos:
@@ -609,25 +561,24 @@ def get_stock_inicial_df(loja: str = None, data_inicio: date = None, data_fim: d
         query += " AND data <= %s"
         params.append(data_fim)
     query += " GROUP BY data, loja ORDER BY data"
-    df = pd.read_sql_query(query, conn, params=params)
-    if df.empty:
-        query_legacy = "SELECT * FROM stock_inicial WHERE 1=1"
-        params_legacy = []
-        if loja:
-            query_legacy += " AND loja = %s"
-            params_legacy.append(loja)
-        if data_inicio:
-            query_legacy += " AND data >= %s"
-            params_legacy.append(data_inicio)
-        if data_fim:
-            query_legacy += " AND data <= %s"
-            params_legacy.append(data_fim)
-        df = pd.read_sql_query(query_legacy, conn, params=params_legacy)
-    release_connection(conn)
+    with db_connection() as conn:
+        df = pd.read_sql_query(query, conn, params=params)
+        if df.empty:
+            query_legacy = "SELECT * FROM stock_inicial WHERE 1=1"
+            params_legacy = []
+            if loja:
+                query_legacy += " AND loja = %s"
+                params_legacy.append(loja)
+            if data_inicio:
+                query_legacy += " AND data >= %s"
+                params_legacy.append(data_inicio)
+            if data_fim:
+                query_legacy += " AND data <= %s"
+                params_legacy.append(data_fim)
+            df = pd.read_sql_query(query_legacy, conn, params=params_legacy)
     return df
 
 def get_rececao_stock_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
-    conn = get_connection()
     query = "SELECT id, data, loja, quantidade_kg, sabor FROM rececao_stock WHERE 1=1"
     params = []
     if loja:
@@ -639,11 +590,10 @@ def get_rececao_stock_df(loja: str = None, data_inicio: date = None, data_fim: d
     if data_fim:
         query += " AND data <= %s"
         params.append(data_fim)
-    df = pd.read_sql_query(query, conn, params=params)
-    
+
     query_merc = """
-        SELECT id, data, loja, quantidade as quantidade_kg, sabor 
-        FROM rececao_mercadoria 
+        SELECT id, data, loja, quantidade as quantidade_kg, sabor
+        FROM rececao_mercadoria
         WHERE unidade = 'kg'
     """
     params_merc = []
@@ -656,30 +606,27 @@ def get_rececao_stock_df(loja: str = None, data_inicio: date = None, data_fim: d
     if data_fim:
         query_merc += " AND data <= %s"
         params_merc.append(data_fim)
-    df_merc = pd.read_sql_query(query_merc, conn, params=params_merc)
-    
-    release_connection(conn)
-    
+
+    with db_connection() as conn:
+        df = pd.read_sql_query(query, conn, params=params)
+        df_merc = pd.read_sql_query(query_merc, conn, params=params_merc)
+
     if not df_merc.empty:
         df = pd.concat([df, df_merc], ignore_index=True)
-    
+
     return df
 
 def get_ajuste_producao_mes(ano: int, mes: int) -> float:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT COALESCE(SUM(quantidade_kg), 0) FROM ajustes_producao WHERE ano = %s AND mes = %s", (ano, mes))
-    total = float(cursor.fetchone()[0])
-    release_connection(conn)
-    return total
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COALESCE(SUM(quantidade_kg), 0) FROM ajustes_producao WHERE ano = %s AND mes = %s", (ano, mes))
+        return float(cursor.fetchone()[0])
 
 
 def get_vendas_filtradas_df(area: str, loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
     valid_areas = ('gelado_kpi', 'pastelaria', 'confeitaria')
     if area not in valid_areas:
         return pd.DataFrame(columns=['data', 'loja', 'valor_euros'])
-
-    conn = get_connection()
 
     query = f"""
         SELECT vd.data, vd.loja, SUM(vd.valor_euros) as valor_euros
@@ -699,9 +646,8 @@ def get_vendas_filtradas_df(area: str, loja: str = None, data_inicio: date = Non
         params.append(data_fim)
     query += " GROUP BY vd.data, vd.loja ORDER BY vd.data"
 
-    df = pd.read_sql_query(query, conn, params=params)
-    release_connection(conn)
-    return df
+    with db_connection() as conn:
+        return pd.read_sql_query(query, conn, params=params)
 
 
 def get_caixa_loja_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
@@ -711,7 +657,6 @@ def get_caixa_loja_vendas_df(loja: str = None, data_inicio: date = None, data_fi
     Grande/Mini). They are excluded from the euro/kg KPI numerator; their weight
     is estimated as valor_euros / preco_kg and subtracted from the denominator.
     """
-    conn = get_connection()
     query = """
         SELECT vd.data, vd.loja, SUM(vd.valor_euros) as valor_euros
         FROM vendas_detalhe vd
@@ -729,9 +674,8 @@ def get_caixa_loja_vendas_df(loja: str = None, data_inicio: date = None, data_fi
         query += " AND vd.data <= %s"
         params.append(data_fim)
     query += " GROUP BY vd.data, vd.loja ORDER BY vd.data"
-    df = pd.read_sql_query(query, conn, params=params)
-    release_connection(conn)
-    return df
+    with db_connection() as conn:
+        return pd.read_sql_query(query, conn, params=params)
 
 
 def get_preco_kg_for_date(for_date) -> float:
@@ -740,16 +684,15 @@ def get_preco_kg_for_date(for_date) -> float:
     Looks up config_preco_caixa_kg for the most recent period whose
     data_inicio <= for_date. Falls back to 30.0 if no period is found.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT preco_kg FROM config_preco_caixa_kg
-        WHERE data_inicio <= %s
-        ORDER BY data_inicio DESC
-        LIMIT 1
-    """, (for_date,))
-    row = cursor.fetchone()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT preco_kg FROM config_preco_caixa_kg
+            WHERE data_inicio <= %s
+            ORDER BY data_inicio DESC
+            LIMIT 1
+        """, (for_date,))
+        row = cursor.fetchone()
     return float(row[0]) if row else 30.0
 
 
@@ -772,64 +715,62 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
         sabores_gelado = get_sabores_list(apenas_eurokg=True)
         quebras_df = quebras_df[quebras_df['sabor'].isin(sabores_gelado)]
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    with db_connection() as conn:
+        cursor = conn.cursor()
 
-    transf_query = "SELECT data, loja_destino, SUM(quantidade_kg) as total FROM transferencias"
-    transf_params = []
-    transf_clauses = []
-    if data_inicio:
-        transf_clauses.append("data >= %s")
-        transf_params.append(data_inicio)
-    if data_fim:
-        transf_clauses.append("data <= %s")
-        transf_params.append(data_fim)
-    if transf_clauses:
-        transf_query += " WHERE " + " AND ".join(transf_clauses)
-    transf_query += " GROUP BY data, loja_destino ORDER BY data"
-    cursor.execute(transf_query, transf_params)
-    transf_by_date = {}
-    for row in cursor.fetchall():
-        d, dest, total = row[0], row[1], float(row[2])
-        if d not in transf_by_date:
-            transf_by_date[d] = {}
-        transf_by_date[d][dest] = transf_by_date[d].get(dest, 0) + total
-
-    lojas_config = []
-    if loja_db is None or loja_db == 'Matosinhos':
-        lojas_config.append(('Matosinhos', 'inicio'))
-    if loja_db is None or loja_db == 'Bolhão':
-        lojas_config.append(('Bolhão', 'fim'))
-
-    stock_per_store = {}
-    if excluidos:
-        excl_placeholders = ','.join(['%s'] * len(excluidos))
-        stock_excl_clause = f" AND (sabor IS NOT NULL AND sabor NOT IN ({excl_placeholders}))"
-    else:
-        stock_excl_clause = " AND sabor IS NOT NULL"
-    for loja_name, tipo in lojas_config:
-        extended_inicio = data_inicio - timedelta(days=2) if data_inicio else None
-        extended_fim = data_fim + timedelta(days=2) if data_fim else None
-        query = f"""
-            SELECT data, SUM(quantidade_kg) as total
-            FROM stock_gelado
-            WHERE loja = %s AND tipo = %s{stock_excl_clause}
-        """
-        params = [loja_name, tipo] + list(excluidos)
-        if extended_inicio:
-            query += " AND data >= %s"
-            params.append(extended_inicio)
-        if extended_fim:
-            query += " AND data <= %s"
-            params.append(extended_fim)
-        query += " GROUP BY data ORDER BY data"
-        cursor.execute(query, params)
-        store_dates = {}
+        transf_query = "SELECT data, loja_destino, SUM(quantidade_kg) as total FROM transferencias"
+        transf_params = []
+        transf_clauses = []
+        if data_inicio:
+            transf_clauses.append("data >= %s")
+            transf_params.append(data_inicio)
+        if data_fim:
+            transf_clauses.append("data <= %s")
+            transf_params.append(data_fim)
+        if transf_clauses:
+            transf_query += " WHERE " + " AND ".join(transf_clauses)
+        transf_query += " GROUP BY data, loja_destino ORDER BY data"
+        cursor.execute(transf_query, transf_params)
+        transf_by_date = {}
         for row in cursor.fetchall():
-            store_dates[row[0]] = float(row[1])
-        stock_per_store[loja_name] = store_dates
+            d, dest, total = row[0], row[1], float(row[2])
+            if d not in transf_by_date:
+                transf_by_date[d] = {}
+            transf_by_date[d][dest] = transf_by_date[d].get(dest, 0) + total
 
-    release_connection(conn)
+        lojas_config = []
+        if loja_db is None or loja_db == 'Matosinhos':
+            lojas_config.append(('Matosinhos', 'inicio'))
+        if loja_db is None or loja_db == 'Bolhão':
+            lojas_config.append(('Bolhão', 'fim'))
+
+        stock_per_store = {}
+        if excluidos:
+            excl_placeholders = ','.join(['%s'] * len(excluidos))
+            stock_excl_clause = f" AND (sabor IS NOT NULL AND sabor NOT IN ({excl_placeholders}))"
+        else:
+            stock_excl_clause = " AND sabor IS NOT NULL"
+        for loja_name, tipo in lojas_config:
+            extended_inicio = data_inicio - timedelta(days=2) if data_inicio else None
+            extended_fim = data_fim + timedelta(days=2) if data_fim else None
+            query = f"""
+                SELECT data, SUM(quantidade_kg) as total
+                FROM stock_gelado
+                WHERE loja = %s AND tipo = %s{stock_excl_clause}
+            """
+            params = [loja_name, tipo] + list(excluidos)
+            if extended_inicio:
+                query += " AND data >= %s"
+                params.append(extended_inicio)
+            if extended_fim:
+                query += " AND data <= %s"
+                params.append(extended_fim)
+            query += " GROUP BY data ORDER BY data"
+            cursor.execute(query, params)
+            store_dates = {}
+            for row in cursor.fetchall():
+                store_dates[row[0]] = float(row[1])
+            stock_per_store[loja_name] = store_dates
 
     sorted_dates_per_store = {}
     for loja_name in stock_per_store:
@@ -967,84 +908,82 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
 @ttl_cache_args('kpi_monthly', ttl=600)
 def calculate_kpi_monthly(year: int, month: int, loja: str = None):
     from calendar import monthrange
-    
+
     excluidos = get_sabores_excluidos_eurokg()
     if excluidos:
         excl_placeholders = ','.join(['%s'] * len(excluidos))
         stock_excl = f" AND (sabor IS NOT NULL AND sabor NOT IN ({excl_placeholders}))"
     else:
         stock_excl = " AND sabor IS NOT NULL"
-    
+
     first_day = date(year, month, 1)
     last_day = date(year, month, monthrange(year, month)[1])
     next_month_first = last_day + timedelta(days=1)
-    
-    conn = get_connection()
-    cursor = conn.cursor()
-    
+
     loja_db = loja if loja and loja != 'Porto (Global)' else None
-    
+
     lojas_config = []
     if loja_db is None or loja_db == 'Matosinhos':
         lojas_config.append(('Matosinhos', 'inicio'))
     if loja_db is None or loja_db == 'Bolhão':
         lojas_config.append(('Bolhão', 'fim'))
-    
+
     stock_ini_total = 0
     stock_final_total = 0
     stock_ini_date = None
     stock_final_date = None
-    
+
     prev_month_last = first_day - timedelta(days=1)
-    
-    for loja_name, tipo in lojas_config:
-        if loja_name == 'Bolhão':
-            cursor.execute(f"""
-                SELECT data, COALESCE(SUM(quantidade_kg), 0)
-                FROM stock_gelado
-                WHERE loja = %s AND tipo = 'fim' AND data = %s
-                  {stock_excl}
-                GROUP BY data
-            """, [loja_name, prev_month_last] + list(excluidos))
-        else:
-            cursor.execute(f"""
-                SELECT data, COALESCE(SUM(quantidade_kg), 0)
-                FROM stock_gelado
-                WHERE loja = %s AND tipo = %s AND data >= %s AND data <= %s
-                  {stock_excl}
-                GROUP BY data
-                ORDER BY data ASC
-                LIMIT 1
-            """, [loja_name, tipo, first_day, last_day] + list(excluidos))
-        row = cursor.fetchone()
-        if row:
-            stock_ini_total += float(row[1])
-            if stock_ini_date is None or row[0] < stock_ini_date:
-                stock_ini_date = row[0]
-        
-        if loja_name == 'Matosinhos':
-            cursor.execute(f"""
-                SELECT data, COALESCE(SUM(quantidade_kg), 0)
-                FROM stock_gelado
-                WHERE loja = %s AND tipo = 'inicio' AND data = %s
-                  {stock_excl}
-                GROUP BY data
-            """, [loja_name, next_month_first] + list(excluidos))
-        else:
-            cursor.execute(f"""
-                SELECT data, COALESCE(SUM(quantidade_kg), 0)
-                FROM stock_gelado
-                WHERE loja = %s AND tipo = 'fim' AND data = %s
-                  {stock_excl}
-                GROUP BY data
-            """, [loja_name, last_day] + list(excluidos))
-        row = cursor.fetchone()
-        if row:
-            stock_final_total += float(row[1])
-            if stock_final_date is None or row[0] > stock_final_date:
-                stock_final_date = row[0]
-    
-    release_connection(conn)
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+
+        for loja_name, tipo in lojas_config:
+            if loja_name == 'Bolhão':
+                cursor.execute(f"""
+                    SELECT data, COALESCE(SUM(quantidade_kg), 0)
+                    FROM stock_gelado
+                    WHERE loja = %s AND tipo = 'fim' AND data = %s
+                      {stock_excl}
+                    GROUP BY data
+                """, [loja_name, prev_month_last] + list(excluidos))
+            else:
+                cursor.execute(f"""
+                    SELECT data, COALESCE(SUM(quantidade_kg), 0)
+                    FROM stock_gelado
+                    WHERE loja = %s AND tipo = %s AND data >= %s AND data <= %s
+                      {stock_excl}
+                    GROUP BY data
+                    ORDER BY data ASC
+                    LIMIT 1
+                """, [loja_name, tipo, first_day, last_day] + list(excluidos))
+            row = cursor.fetchone()
+            if row:
+                stock_ini_total += float(row[1])
+                if stock_ini_date is None or row[0] < stock_ini_date:
+                    stock_ini_date = row[0]
+
+            if loja_name == 'Matosinhos':
+                cursor.execute(f"""
+                    SELECT data, COALESCE(SUM(quantidade_kg), 0)
+                    FROM stock_gelado
+                    WHERE loja = %s AND tipo = 'inicio' AND data = %s
+                      {stock_excl}
+                    GROUP BY data
+                """, [loja_name, next_month_first] + list(excluidos))
+            else:
+                cursor.execute(f"""
+                    SELECT data, COALESCE(SUM(quantidade_kg), 0)
+                    FROM stock_gelado
+                    WHERE loja = %s AND tipo = 'fim' AND data = %s
+                      {stock_excl}
+                    GROUP BY data
+                """, [loja_name, last_day] + list(excluidos))
+            row = cursor.fetchone()
+            if row:
+                stock_final_total += float(row[1])
+                if stock_final_date is None or row[0] > stock_final_date:
+                    stock_final_date = row[0]
 
     if loja_db == 'Matosinhos':
         producao = get_producao_plano_matosinhos_total(first_day, last_day) or 0
@@ -1055,33 +994,72 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
         ajuste = get_ajuste_producao_mes(year, month)
         producao_ajustada = max(0, producao - ajuste)
 
-    cursor_t = get_connection()
-    cur_t = cursor_t.cursor()
-    cur_t.execute("""
-        SELECT loja_destino, COALESCE(SUM(quantidade_kg), 0)
-        FROM transferencias
-        WHERE data >= %s AND data <= %s
-        GROUP BY loja_destino
-    """, (first_day, last_day))
-    transf_totals = {}
-    for row in cur_t.fetchall():
-        transf_totals[row[0]] = float(row[1])
-    release_connection(cursor_t)
+    with db_connection() as conn_t:
+        cur_t = conn_t.cursor()
+        cur_t.execute("""
+            SELECT loja_destino, COALESCE(SUM(quantidade_kg), 0)
+            FROM transferencias
+            WHERE data >= %s AND data <= %s
+            GROUP BY loja_destino
+        """, (first_day, last_day))
+        transf_totals = {}
+        for row in cur_t.fetchall():
+            transf_totals[row[0]] = float(row[1])
+
     transf_bolhao = transf_totals.get('Bolhão', 0)
 
-    quebras_df = get_quebras_df(loja_db, first_day, last_day)
-    if not quebras_df.empty:
-        sabores_gelado = get_sabores_list(apenas_eurokg=True)
-        quebras_df = quebras_df[quebras_df['sabor'].isin(sabores_gelado)]
-    quebras = quebras_df['quantidade_kg'].sum() if not quebras_df.empty else 0
+    vendas_query = """
+        SELECT COALESCE(SUM(vd.valor_euros), 0)
+        FROM vendas_detalhe vd
+        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+        WHERE pvc.gelado_kpi = TRUE AND vd.data >= %s AND vd.data <= %s
+    """
+    vendas_params = [first_day, last_day]
+    if loja_db:
+        vendas_query += " AND vd.loja = %s"
+        vendas_params.append(loja_db)
 
-    vendas_df = get_vendas_filtradas_df('gelado_kpi', loja_db, first_day, last_day)
-    vendas = vendas_df['valor_euros'].sum() if not vendas_df.empty else 0
+    caixa_query = """
+        SELECT COALESCE(SUM(vd.valor_euros), 0)
+        FROM vendas_detalhe vd
+        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+        WHERE pvc.caixa_loja = TRUE AND vd.data >= %s AND vd.data <= %s
+    """
+    caixa_params = [first_day, last_day]
+    if loja_db:
+        caixa_query += " AND vd.loja = %s"
+        caixa_params.append(loja_db)
 
-    caixa_df = get_caixa_loja_vendas_df(loja_db, first_day, last_day)
-    caixa_v = float(caixa_df['valor_euros'].sum()) if not caixa_df.empty else 0.0
-    preco_kg_caixa = get_preco_kg_for_date(last_day)
-    caixa_kg = caixa_v / preco_kg_caixa if preco_kg_caixa > 0 else 0.0
+    quebras_query = """
+        SELECT COALESCE(SUM(quantidade_kg), 0) FROM quebras
+        WHERE data >= %s AND data <= %s
+    """
+    quebras_params = [first_day, last_day]
+    if loja_db:
+        quebras_query += " AND loja = %s"
+        quebras_params.append(loja_db)
+    sabores_gelado_q = get_sabores_list(apenas_eurokg=True)
+    if sabores_gelado_q:
+        placeholders = ','.join(['%s'] * len(sabores_gelado_q))
+        quebras_query += f" AND sabor IN ({placeholders})"
+        quebras_params.extend(sabores_gelado_q)
+
+    with db_connection() as conn2:
+        cur2 = conn2.cursor()
+        cur2.execute(vendas_query, vendas_params)
+        vendas = float(cur2.fetchone()[0])
+        cur2.execute(caixa_query, caixa_params)
+        caixa_v = float(cur2.fetchone()[0])
+        cur2.execute(quebras_query, quebras_params)
+        quebras = float(cur2.fetchone()[0])
+        cur2.execute("""
+            SELECT data_inicio, preco_kg FROM config_preco_caixa_kg
+            WHERE data_inicio <= %s ORDER BY data_inicio DESC LIMIT 1
+        """, (last_day,))
+        price_row = cur2.fetchone()
+
+    preco_kg_caixa = float(price_row[1]) if price_row else 30.0
+    caixa_kg = caixa_v / preco_kg_caixa if preco_kg_caixa > 0 else 0
     vendas = vendas - caixa_v
 
     if loja_db is None:
@@ -1097,16 +1075,16 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
     return {
         'stock_ini': round(stock_ini_total, 3),
         'stock_ini_date': stock_ini_date,
-        'producao': round(float(producao_ajustada), 3),
-        'transferencias': round(float(transf_bolhao), 3),
-        'entrada': round(float(entrada), 3),
         'stock_final': round(stock_final_total, 3),
         'stock_final_date': stock_final_date,
+        'producao': round(float(producao_ajustada), 3),
+        'ajuste': round(float(ajuste), 3),
+        'transferencias': round(float(transf_bolhao), 3),
+        'entrada': round(float(entrada), 3),
         'quebras': round(float(quebras), 3),
         'consumo': round(consumo, 3),
         'vendas': round(float(vendas), 2),
         'kpi': round(kpi, 2),
-        'ajuste': round(float(ajuste), 3),
         'caixa_vendas': round(caixa_v, 2),
         'caixa_kg': round(caixa_kg, 3),
     }
@@ -1114,7 +1092,7 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
 @ttl_cache_args('kpi_annual', ttl=600)
 def calculate_kpi_annual(year: int, loja: str = None) -> dict:
     from calendar import monthrange
-    
+
     excluidos = get_sabores_excluidos_eurokg()
     if excluidos:
         excl_placeholders = ','.join(['%s'] * len(excluidos))
@@ -1123,118 +1101,116 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
     else:
         stock_excl = " AND sabor IS NOT NULL"
         prod_excl = " AND sabor IS NOT NULL"
-    
-    conn = get_connection()
-    cursor = conn.cursor()
-    
+
     loja_db = loja if loja and loja != 'Porto (Global)' else None
-    
+
     first_of_year = date(year, 1, 1)
     last_of_year = date(year, 12, 31)
     prev_year_last = date(year - 1, 12, 31)
     next_year_first = date(year + 1, 1, 1)
-    
+
     lojas_config = []
     if loja_db is None or loja_db == 'Matosinhos':
         lojas_config.append(('Matosinhos', 'inicio'))
     if loja_db is None or loja_db == 'Bolhão':
         lojas_config.append(('Bolhão', 'fim'))
-    
-    all_stock = {}
-    stock_per_loja = {}
-    for loja_name, tipo in lojas_config:
-        stock_per_loja[loja_name] = {}
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+
+        all_stock = {}
+        stock_per_loja = {}
+        for loja_name, tipo in lojas_config:
+            stock_per_loja[loja_name] = {}
+            cursor.execute(f"""
+                SELECT data, SUM(quantidade_kg) as total
+                FROM stock_gelado
+                WHERE loja = %s AND tipo = %s
+                  AND data >= %s AND data <= %s
+                  {stock_excl}
+                GROUP BY data ORDER BY data
+            """, [loja_name, tipo, prev_year_last, next_year_first] + list(excluidos))
+            for row in cursor.fetchall():
+                d = row[0]
+                val = float(row[1])
+                stock_per_loja[loja_name][d] = val
+                all_stock[d] = all_stock.get(d, 0) + val
+
         cursor.execute(f"""
-            SELECT data, SUM(quantidade_kg) as total
-            FROM stock_gelado
-            WHERE loja = %s AND tipo = %s 
-              AND data >= %s AND data <= %s
-              {stock_excl}
-            GROUP BY data ORDER BY data
-        """, [loja_name, tipo, prev_year_last, next_year_first] + list(excluidos))
-        for row in cursor.fetchall():
-            d = row[0]
-            val = float(row[1])
-            stock_per_loja[loja_name][d] = val
-            all_stock[d] = all_stock.get(d, 0) + val
-    
-    cursor.execute(f"""
-        SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(quantidade_kg), 0)
-        FROM producao 
-        WHERE EXTRACT(YEAR FROM data) = %s{prod_excl}
-        GROUP BY mes ORDER BY mes
-    """, [year] + list(excluidos))
-    producao_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
-    
-    cursor.execute("""
-        SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(quantidade_kg), 0)
-        FROM transferencias
-        WHERE EXTRACT(YEAR FROM data) = %s AND loja_destino = 'Bolhão'
-        GROUP BY mes ORDER BY mes
-    """, (year,))
-    transf_bolhao_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
-    
-    sabores_gelado = []
-    cursor.execute("SELECT nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND conta_eurokg = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != ''")
-    sabores_gelado = [row[0] for row in cursor.fetchall()]
-    
-    quebras_query = "SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(quantidade_kg), 0) FROM quebras WHERE EXTRACT(YEAR FROM data) = %s"
-    quebras_params = [year]
-    if loja_db:
-        quebras_query += " AND loja = %s"
-        quebras_params.append(loja_db)
-    if sabores_gelado:
-        placeholders = ','.join(['%s'] * len(sabores_gelado))
-        quebras_query += f" AND sabor IN ({placeholders})"
-        quebras_params.extend(sabores_gelado)
-    quebras_query += " GROUP BY mes ORDER BY mes"
-    cursor.execute(quebras_query, quebras_params)
-    quebras_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
-    
-    vendas_query = """
-        SELECT EXTRACT(MONTH FROM vd.data)::int as mes, COALESCE(SUM(vd.valor_euros), 0)
-        FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-        WHERE pvc.gelado_kpi = TRUE AND EXTRACT(YEAR FROM vd.data) = %s
-    """
-    vendas_params = [year]
-    if loja_db:
-        vendas_query += " AND vd.loja = %s"
-        vendas_params.append(loja_db)
-    vendas_query += " GROUP BY mes ORDER BY mes"
-    cursor.execute(vendas_query, vendas_params)
-    vendas_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
+            SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(quantidade_kg), 0)
+            FROM producao
+            WHERE EXTRACT(YEAR FROM data) = %s{prod_excl}
+            GROUP BY mes ORDER BY mes
+        """, [year] + list(excluidos))
+        producao_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
-    caixa_query = """
-        SELECT EXTRACT(MONTH FROM vd.data)::int as mes, COALESCE(SUM(vd.valor_euros), 0)
-        FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-        WHERE pvc.caixa_loja = TRUE AND EXTRACT(YEAR FROM vd.data) = %s
-    """
-    caixa_params = [year]
-    if loja_db:
-        caixa_query += " AND vd.loja = %s"
-        caixa_params.append(loja_db)
-    caixa_query += " GROUP BY mes ORDER BY mes"
-    cursor.execute(caixa_query, caixa_params)
-    caixa_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
+        cursor.execute("""
+            SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(quantidade_kg), 0)
+            FROM transferencias
+            WHERE EXTRACT(YEAR FROM data) = %s AND loja_destino = 'Bolhão'
+            GROUP BY mes ORDER BY mes
+        """, (year,))
+        transf_bolhao_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
-    cursor.execute("""
-        SELECT data_inicio, preco_kg FROM config_preco_caixa_kg
-        WHERE data_inicio <= %s ORDER BY data_inicio
-    """, (date(year, 12, 31),))
-    price_periods = [(row[0], float(row[1])) for row in cursor.fetchall()]
+        sabores_gelado = []
+        cursor.execute("SELECT nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND conta_eurokg = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != ''")
+        sabores_gelado = [row[0] for row in cursor.fetchall()]
 
-    cursor.execute("SELECT mes, COALESCE(SUM(quantidade_kg), 0) FROM ajustes_producao WHERE ano = %s GROUP BY mes", (year,))
-    ajustes_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
-    
-    release_connection(conn)
+        quebras_query = "SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(quantidade_kg), 0) FROM quebras WHERE EXTRACT(YEAR FROM data) = %s"
+        quebras_params = [year]
+        if loja_db:
+            quebras_query += " AND loja = %s"
+            quebras_params.append(loja_db)
+        if sabores_gelado:
+            placeholders = ','.join(['%s'] * len(sabores_gelado))
+            quebras_query += f" AND sabor IN ({placeholders})"
+            quebras_params.extend(sabores_gelado)
+        quebras_query += " GROUP BY mes ORDER BY mes"
+        cursor.execute(quebras_query, quebras_params)
+        quebras_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
+
+        vendas_query = """
+            SELECT EXTRACT(MONTH FROM vd.data)::int as mes, COALESCE(SUM(vd.valor_euros), 0)
+            FROM vendas_detalhe vd
+            INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+            WHERE pvc.gelado_kpi = TRUE AND EXTRACT(YEAR FROM vd.data) = %s
+        """
+        vendas_params = [year]
+        if loja_db:
+            vendas_query += " AND vd.loja = %s"
+            vendas_params.append(loja_db)
+        vendas_query += " GROUP BY mes ORDER BY mes"
+        cursor.execute(vendas_query, vendas_params)
+        vendas_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
+
+        caixa_query = """
+            SELECT EXTRACT(MONTH FROM vd.data)::int as mes, COALESCE(SUM(vd.valor_euros), 0)
+            FROM vendas_detalhe vd
+            INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+            WHERE pvc.caixa_loja = TRUE AND EXTRACT(YEAR FROM vd.data) = %s
+        """
+        caixa_params = [year]
+        if loja_db:
+            caixa_query += " AND vd.loja = %s"
+            caixa_params.append(loja_db)
+        caixa_query += " GROUP BY mes ORDER BY mes"
+        cursor.execute(caixa_query, caixa_params)
+        caixa_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
+
+        cursor.execute("""
+            SELECT data_inicio, preco_kg FROM config_preco_caixa_kg
+            WHERE data_inicio <= %s ORDER BY data_inicio
+        """, (date(year, 12, 31),))
+        price_periods = [(row[0], float(row[1])) for row in cursor.fetchall()]
+
+        cursor.execute("SELECT mes, COALESCE(SUM(quantidade_kg), 0) FROM ajustes_producao WHERE ano = %s GROUP BY mes", (year,))
+        ajustes_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
     if loja_db == 'Matosinhos':
         producao_plano_by_month = get_producao_plano_matosinhos_by_month(year)
     else:
         producao_plano_by_month = {}
-    
+
     results = {}
     for month in range(1, 13):
         first_day = date(year, month, 1)
@@ -1242,12 +1218,12 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
         last_day = date(year, month, last_day_num)
         prev_month_last = first_day - timedelta(days=1)
         next_month_first = last_day + timedelta(days=1)
-        
+
         stock_ini_total = 0
         stock_final_total = 0
         stock_ini_date = None
         stock_final_date = None
-        
+
         for loja_name, tipo in lojas_config:
             loja_stock = stock_per_loja.get(loja_name, {})
             if loja_name == 'Bolhão':
@@ -1262,7 +1238,7 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
                         if stock_ini_date is None or d < stock_ini_date:
                             stock_ini_date = d
                         break
-            
+
             if loja_name == 'Matosinhos':
                 if next_month_first in loja_stock:
                     stock_final_total += loja_stock[next_month_first]
@@ -1273,7 +1249,7 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
                     stock_final_total += loja_stock[last_day]
                     if stock_final_date is None or last_day > stock_final_date:
                         stock_final_date = last_day
-        
+
         if loja_db == 'Matosinhos':
             producao = producao_plano_by_month.get(month, 0)
             ajuste = 0.0
@@ -1321,118 +1297,109 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
             'caixa_vendas': round(caixa_v_m, 2),
             'caixa_kg': round(caixa_kg_m, 3),
         }
-    
+
     return results
 
 def get_quebra_by_id(id: int):
-    conn = get_connection()
-    cursor = conn.cursor(cursor_factory=DictCursor)
-    cursor.execute("SELECT * FROM quebras WHERE id = %s", (id,))
-    row = cursor.fetchone()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM quebras WHERE id = %s", (id,))
+        row = cursor.fetchone()
     return dict(row) if row else None
 
 def delete_quebra(id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM quebras WHERE id = %s", (id,))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM quebras WHERE id = %s", (id,))
+        conn.commit()
 
 
 def delete_quebras_bulk(ids: list) -> int:
     if not ids:
         return 0
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM quebras WHERE id = ANY(%s)", (ids,))
-    deleted = cursor.rowcount
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM quebras WHERE id = ANY(%s)", (ids,))
+        deleted = cursor.rowcount
+        conn.commit()
     return deleted
 
 def delete_rececao(id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM rececao_stock WHERE id = %s", (id,))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM rececao_stock WHERE id = %s", (id,))
+        conn.commit()
 
 def delete_producao(id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM producao WHERE id = %s", (id,))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM producao WHERE id = %s", (id,))
+        conn.commit()
 
 def delete_venda(id: int):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM vendas WHERE id = %s", (id,))
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM vendas WHERE id = %s", (id,))
+        conn.commit()
 
 def import_producao_csv(df: pd.DataFrame, loja: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    for _, row in df.iterrows():
-        try:
-            data = pd.to_datetime(row.get('data', row.get('Data', row.iloc[0]))).date()
-            quantidade = float(row.get('quantidade_kg', row.get('Quantidade', row.get('kg', row.iloc[1]))))
-            cursor.execute('''
-                INSERT INTO producao (data, loja, quantidade_kg, tipo)
-                VALUES (%s, %s, %s, %s)
-            ''', (data, loja, quantidade, 'producao'))
-        except Exception as e:
-            continue
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        for _, row in df.iterrows():
+            try:
+                data = pd.to_datetime(row.get('data', row.get('Data', row.iloc[0]))).date()
+                quantidade = float(row.get('quantidade_kg', row.get('Quantidade', row.get('kg', row.iloc[1]))))
+                cursor.execute('''
+                    INSERT INTO producao (data, loja, quantidade_kg, tipo)
+                    VALUES (%s, %s, %s, %s)
+                ''', (data, loja, quantidade, 'producao'))
+            except Exception:
+                continue
+        conn.commit()
 
 def preview_producao_calybrabox(df: pd.DataFrame, unit_is_grams: bool = False) -> list:
-    conn = get_connection()
-    cursor = conn.cursor()
     preview = []
 
-    for _, row in df.iterrows():
-        try:
-            date_val = row.get('Date', row.get('End date', row.get('data', None)))
-            if date_val is None:
+    with db_connection() as conn:
+        cursor = conn.cursor()
+
+        for _, row in df.iterrows():
+            try:
+                date_val = row.get('Date', row.get('End date', row.get('data', None)))
+                if date_val is None:
+                    continue
+                data = pd.to_datetime(date_val).date()
+
+                qty = row.get('Expected Quantity', row.get('Effective Quantity',
+                      row.get('expected quantity', row.get('effective quantity', 0))))
+
+                if pd.isna(qty) or qty == 0:
+                    continue
+
+                quantidade = float(qty)
+                if unit_is_grams:
+                    quantidade = quantidade / 1000.0
+
+                descricao = str(row.get('Description', row.get('description', ''))).strip()
+
+                sabor = None
+                nova_receita = False
+                if descricao:
+                    cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE UPPER(nome) = UPPER(%s) AND ativo = TRUE", (descricao,))
+                    match = cursor.fetchone()
+                    if match:
+                        sabor = match[0]
+                    else:
+                        sabor = descricao
+                        nova_receita = True
+
+                preview.append({'data': data, 'descricao': descricao, 'sabor': sabor, 'quantidade_kg': round(quantidade, 3), 'nova_receita': nova_receita})
+            except Exception:
                 continue
-            data = pd.to_datetime(date_val).date()
 
-            qty = row.get('Expected Quantity', row.get('Effective Quantity',
-                  row.get('expected quantity', row.get('effective quantity', 0))))
-
-            if pd.isna(qty) or qty == 0:
-                continue
-
-            quantidade = float(qty)
-            if unit_is_grams:
-                quantidade = quantidade / 1000.0
-
-            descricao = str(row.get('Description', row.get('description', ''))).strip()
-
-            sabor = None
-            nova_receita = False
-            if descricao:
-                cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE UPPER(nome) = UPPER(%s) AND ativo = TRUE", (descricao,))
-                match = cursor.fetchone()
-                if match:
-                    sabor = match[0]
-                else:
-                    sabor = descricao
-                    nova_receita = True
-
-            preview.append({'data': data, 'descricao': descricao, 'sabor': sabor, 'quantidade_kg': round(quantidade, 3), 'nova_receita': nova_receita})
-        except Exception:
-            continue
-
-    release_connection(conn)
     return preview
 
 def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool = False):
-    conn = get_connection()
-    cursor = conn.cursor()
     imported = 0
     updated = 0
     skipped = 0
@@ -1458,118 +1425,116 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
             continue
 
     if not valid_rows:
-        release_connection(conn)
         return {'imported': imported, 'updated': updated, 'skipped': skipped, 'novas_receitas': 0, 'receitas_novas_nomes': []}
 
-    all_dates = list({r[0] for r in valid_rows})
-    all_descs = list({r[2] for r in valid_rows if r[2]})
+    with db_connection() as conn:
+        cursor = conn.cursor()
 
-    receitas_map = {}
-    if all_descs:
-        upper_descs = [d.upper() for d in all_descs]
-        placeholders = ','.join(['%s'] * len(upper_descs))
+        all_dates = list({r[0] for r in valid_rows})
+        all_descs = list({r[2] for r in valid_rows if r[2]})
+
+        receitas_map = {}
+        if all_descs:
+            upper_descs = [d.upper() for d in all_descs]
+            placeholders = ','.join(['%s'] * len(upper_descs))
+            cursor.execute(
+                f"SELECT UPPER(nome), COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE UPPER(nome) IN ({placeholders}) AND ativo = TRUE",
+                upper_descs
+            )
+            for nome_upper, nome_corrente in cursor.fetchall():
+                receitas_map[nome_upper] = nome_corrente
+
+        min_date = min(all_dates)
+        max_date = max(all_dates)
         cursor.execute(
-            f"SELECT UPPER(nome), COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE UPPER(nome) IN ({placeholders}) AND ativo = TRUE",
-            upper_descs
+            "SELECT id, data, sabor, quantidade_kg FROM producao WHERE loja = %s AND tipo = 'producao' AND data >= %s AND data <= %s",
+            (loja, min_date, max_date)
         )
-        for nome_upper, nome_corrente in cursor.fetchall():
-            receitas_map[nome_upper] = nome_corrente
+        existing_map = {}
+        for eid, edata, esabor, eqty in cursor.fetchall():
+            existing_map[(edata, esabor)] = (eid, float(eqty))
 
-    min_date = min(all_dates)
-    max_date = max(all_dates)
-    cursor.execute(
-        "SELECT id, data, sabor, quantidade_kg FROM producao WHERE loja = %s AND tipo = 'producao' AND data >= %s AND data <= %s",
-        (loja, min_date, max_date)
-    )
-    existing_map = {}
-    for eid, edata, esabor, eqty in cursor.fetchall():
-        existing_map[(edata, esabor)] = (eid, float(eqty))
+        inserts = []
+        updates = []
 
-    inserts = []
-    updates = []
+        for data, quantidade, descricao in valid_rows:
+            sabor = descricao if descricao else None
+            if descricao:
+                upper_desc = descricao.upper()
+                if upper_desc in receitas_map:
+                    sabor = receitas_map[upper_desc]
+                else:
+                    cursor.execute(
+                        "INSERT INTO receitas_gelado (nome, nome_corrente, ativo, conta_eurokg) VALUES (%s, NULL, TRUE, TRUE) ON CONFLICT (nome) DO NOTHING",
+                        (descricao,)
+                    )
+                    if cursor.rowcount > 0 and descricao not in novas_receitas:
+                        novas_receitas.append(descricao)
+                    receitas_map[upper_desc] = sabor
 
-    for data, quantidade, descricao in valid_rows:
-        sabor = descricao if descricao else None
-        if descricao:
-            upper_desc = descricao.upper()
-            if upper_desc in receitas_map:
-                sabor = receitas_map[upper_desc]
+            key = (data, sabor)
+            if key in existing_map:
+                existing_id, existing_qty = existing_map[key]
+                if abs(existing_qty - quantidade) < 0.0001:
+                    skipped += 1
+                else:
+                    updates.append((quantidade, existing_id))
+                    existing_map[key] = (existing_id, quantidade)
+                    updated += 1
             else:
-                cursor.execute(
-                    "INSERT INTO receitas_gelado (nome, nome_corrente, ativo, conta_eurokg) VALUES (%s, NULL, TRUE, TRUE) ON CONFLICT (nome) DO NOTHING",
-                    (descricao,)
-                )
-                if cursor.rowcount > 0 and descricao not in novas_receitas:
-                    novas_receitas.append(descricao)
-                receitas_map[upper_desc] = sabor
+                inserts.append((data, loja, quantidade, 'producao', sabor))
+                existing_map[key] = (None, quantidade)
+                imported += 1
 
-        key = (data, sabor)
-        if key in existing_map:
-            existing_id, existing_qty = existing_map[key]
-            if abs(existing_qty - quantidade) < 0.0001:
-                skipped += 1
-            else:
-                updates.append((quantidade, existing_id))
-                existing_map[key] = (existing_id, quantidade)
-                updated += 1
-        else:
-            inserts.append((data, loja, quantidade, 'producao', sabor))
-            existing_map[key] = (None, quantidade)
-            imported += 1
+        if updates:
+            cursor.executemany("UPDATE producao SET quantidade_kg = %s WHERE id = %s", updates)
+        if inserts:
+            cursor.executemany(
+                "INSERT INTO producao (data, loja, quantidade_kg, tipo, sabor) VALUES (%s, %s, %s, %s, %s)",
+                inserts
+            )
 
-    if updates:
-        cursor.executemany("UPDATE producao SET quantidade_kg = %s WHERE id = %s", updates)
-    if inserts:
-        cursor.executemany(
-            "INSERT INTO producao (data, loja, quantidade_kg, tipo, sabor) VALUES (%s, %s, %s, %s, %s)",
-            inserts
-        )
+        conn.commit()
 
-    conn.commit()
-    release_connection(conn)
     invalidate_prefix('kpi_annual')
     invalidate_prefix('kpi_monthly')
     invalidate_prefix('kpi_by_day')
     return {'imported': imported, 'updated': updated, 'skipped': skipped, 'novas_receitas': len(novas_receitas), 'receitas_novas_nomes': novas_receitas}
 
 def delete_producao_by_date(data: date, loja: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM producao WHERE data = %s AND loja = %s", (data, loja))
-    deleted = cursor.rowcount
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM producao WHERE data = %s AND loja = %s", (data, loja))
+        deleted = cursor.rowcount
+        conn.commit()
     return deleted
 
 def delete_producao_by_date_range(data_inicio: date, data_fim: date, loja: str):
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "DELETE FROM producao WHERE data >= %s AND data <= %s AND loja = %s",
-        (data_inicio, data_fim, loja)
-    )
-    deleted = cursor.rowcount
-    conn.commit()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM producao WHERE data >= %s AND data <= %s AND loja = %s",
+            (data_inicio, data_fim, loja)
+        )
+        deleted = cursor.rowcount
+        conn.commit()
     return deleted
 
 def get_producao_total_by_date(loja: str = None) -> list:
-    conn = get_connection()
-    cursor = conn.cursor(cursor_factory=RealDictCursor)
-    query = """
-        SELECT data, SUM(quantidade_kg) as total_kg, COUNT(*) as num_registos
-        FROM producao
-        WHERE 1=1
-    """
-    params = []
-    if loja:
-        query += " AND loja = %s"
-        params.append(loja)
-    query += " GROUP BY data ORDER BY data DESC"
-    cursor.execute(query, params)
-    rows = [dict(r) for r in cursor.fetchall()]
-    release_connection(conn)
-    return rows
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        query = """
+            SELECT data, SUM(quantidade_kg) as total_kg, COUNT(*) as num_registos
+            FROM producao
+            WHERE 1=1
+        """
+        params = []
+        if loja:
+            query += " AND loja = %s"
+            params.append(loja)
+        query += " GROUP BY data ORDER BY data DESC"
+        cursor.execute(query, params)
+        return [dict(r) for r in cursor.fetchall()]
 
 
 def get_vendas_produto_mensal(year: int, loja: str = None) -> dict:
@@ -1584,25 +1549,24 @@ def get_vendas_produto_mensal(year: int, loja: str = None) -> dict:
       - totais_mes: {mes: month_total}
       - grand_total: float
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-    query = """
-        SELECT vd.produto,
-               EXTRACT(MONTH FROM vd.data)::int AS mes,
-               COALESCE(SUM(vd.valor_euros), 0) AS total
-        FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-        WHERE pvc.gelado_kpi = TRUE
-          AND EXTRACT(YEAR FROM vd.data)::int = %s
-    """
-    params = [year]
-    if loja:
-        query += " AND vd.loja = %s"
-        params.append(loja)
-    query += " GROUP BY vd.produto, mes ORDER BY vd.produto, mes"
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
-    release_connection(conn)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        query = """
+            SELECT vd.produto,
+                   EXTRACT(MONTH FROM vd.data)::int AS mes,
+                   COALESCE(SUM(vd.valor_euros), 0) AS total
+            FROM vendas_detalhe vd
+            INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+            WHERE pvc.gelado_kpi = TRUE
+              AND EXTRACT(YEAR FROM vd.data)::int = %s
+        """
+        params = [year]
+        if loja:
+            query += " AND vd.loja = %s"
+            params.append(loja)
+        query += " GROUP BY vd.produto, mes ORDER BY vd.produto, mes"
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
 
     months = list(range(1, 13))
     data: dict = {}
@@ -1633,4 +1597,3 @@ def get_vendas_produto_mensal(year: int, loja: str = None) -> dict:
 
 from db.plano import *  # noqa: F401,F403
 from db.area import *   # noqa: F401,F403
-

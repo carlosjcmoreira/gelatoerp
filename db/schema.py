@@ -673,8 +673,10 @@ def init_database():
     cursor.execute("DELETE FROM db_schema_version")
     cursor.execute("INSERT INTO db_schema_version (version) VALUES (%s)", (SCHEMA_VERSION,))
 
-    conn.commit()
-    release_connection(conn)
+    try:
+        conn.commit()
+    finally:
+        release_connection(conn)
 
 def run_migrations():
     """Runs idempotent DDL migrations on every startup. Safe to call repeatedly."""
@@ -1234,8 +1236,10 @@ def run_migrations():
         END $$;
     """)
 
-    conn.commit()
-    release_connection(conn)
+    try:
+        conn.commit()
+    finally:
+        release_connection(conn)
 
 
 def run_faturas_migrations():
