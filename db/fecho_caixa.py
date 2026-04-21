@@ -60,27 +60,31 @@ def upsert_fecho_caixa(data: date, loja_id: int, fields: dict, registado_por: st
 
     select_cols = ', '.join(_COLS)
 
-    with db_connection() as conn:
-        cur = conn.cursor()
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
 
-        loja_nome = _get_loja_name(cur, loja_id)
-        set_parts.append("loja = %s")
-        values.append(loja_nome)
+            loja_nome = _get_loja_name(cur, loja_id)
+            set_parts.append("loja = %s")
+            values.append(loja_nome)
 
-        col_names = ', '.join(['data', 'loja_id', 'loja', 'registado_por'] + insert_cols)
-        placeholders = ', '.join(['%s'] * (4 + len(insert_cols)))
-        all_insert_vals = [data, loja_id, loja_nome, registado_por] + insert_vals
-        update_str = ', '.join(set_parts)
+            col_names = ', '.join(['data', 'loja_id', 'loja', 'registado_por'] + insert_cols)
+            placeholders = ', '.join(['%s'] * (4 + len(insert_cols)))
+            all_insert_vals = [data, loja_id, loja_nome, registado_por] + insert_vals
+            update_str = ', '.join(set_parts)
 
-        cur.execute(f"""
-            INSERT INTO fecho_caixa ({col_names})
-            VALUES ({placeholders})
-            ON CONFLICT (data, loja_id) DO UPDATE SET {update_str}
-            RETURNING {select_cols}
-        """, all_insert_vals + values)
-        row = cur.fetchone()
-        conn.commit()
-    return _row_to_dict(row) if row else {}
+            cur.execute(f"""
+                INSERT INTO fecho_caixa ({col_names})
+                VALUES ({placeholders})
+                ON CONFLICT (data, loja_id) DO UPDATE SET {update_str}
+                RETURNING {select_cols}
+            """, all_insert_vals + values)
+            row = cur.fetchone()
+            conn.commit()
+        return _row_to_dict(row) if row else {}
+    except Exception as e:
+        logger.error("upsert_fecho_caixa failed: %s", e)
+        raise
 
 
 def get_fecho_caixa(data: date, loja_id: int) -> dict | None:
