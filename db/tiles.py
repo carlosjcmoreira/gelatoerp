@@ -4,7 +4,7 @@ Provides a DB-backed mechanism to hide or show navigation tiles per module.
 All tiles default to visible=True when first encountered.
 """
 import logging
-from db.connection import get_connection, release_connection, db_connection
+from db.connection import db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,7 @@ def run_migrations_tile_config():
 
     Uses advisory lock 202613 for cross-worker idempotency.
     """
-    conn = get_connection()
-    try:
+    with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_TILE_CONFIG,))
         if not cursor.fetchone()[0]:
@@ -54,14 +53,6 @@ def run_migrations_tile_config():
 
         conn.commit()
         logger.info("run_migrations_tile_config: tile_config ready")
-    except Exception as exc:
-        logger.error("run_migrations_tile_config failed: %s", exc)
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-    finally:
-        release_connection(conn)
 
 
 def get_tile_visibility(module: str) -> dict:

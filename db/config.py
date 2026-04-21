@@ -12,19 +12,15 @@ from db.artigos import *  # noqa: F401,F403
 
 @ttl_cache_args('system_config', ttl=300)
 def get_system_config(key: str, default=None):
-    conn = get_connection()
-    try:
+    with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT value FROM system_config WHERE key = %s", (key,))
         row = cursor.fetchone()
-        return row[0] if row else default
-    finally:
-        release_connection(conn)
+    return row[0] if row else default
 
 
 def set_system_config(key: str, value):
-    conn = get_connection()
-    try:
+    with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO system_config (key, value, updated_at)
@@ -33,7 +29,3 @@ def set_system_config(key: str, value):
         ''', (key, value))
         conn.commit()
         invalidate_prefix('system_config')
-    finally:
-        release_connection(conn)
-
-

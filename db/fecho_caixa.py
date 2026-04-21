@@ -2,7 +2,7 @@ import json
 import logging
 from calendar import monthrange
 from datetime import date
-from db.connection import get_connection, release_connection
+from db.connection import db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +60,9 @@ def upsert_fecho_caixa(data: date, loja_id: int, fields: dict, registado_por: st
 
     select_cols = ', '.join(_COLS)
 
-    conn = get_connection()
-    try:
+    with db_connection() as conn:
         cur = conn.cursor()
 
-        # Resolve loja name so it is present on both INSERT and UPDATE
         loja_nome = _get_loja_name(cur, loja_id)
         set_parts.append("loja = %s")
         values.append(loja_nome)
@@ -82,26 +80,17 @@ def upsert_fecho_caixa(data: date, loja_id: int, fields: dict, registado_por: st
         """, all_insert_vals + values)
         row = cur.fetchone()
         conn.commit()
-        return _row_to_dict(row) if row else {}
-    except Exception as e:
-        conn.rollback()
-        logger.error("upsert_fecho_caixa failed: %s", e)
-        raise
-    finally:
-        release_connection(conn)
+    return _row_to_dict(row) if row else {}
 
 
 def get_fecho_caixa(data: date, loja_id: int) -> dict | None:
     """Return the fecho_caixa record for a given date+loja, or None."""
-    conn = get_connection()
-    try:
+    with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT {', '.join(_COLS)} FROM fecho_caixa WHERE data = %s AND loja_id = %s",
                     (data, loja_id))
         row = cur.fetchone()
-        return _row_to_dict(row) if row else None
-    finally:
-        release_connection(conn)
+    return _row_to_dict(row) if row else None
 
 
 def get_fecho_caixa_mensal(loja_id: int, ano: int, mes: int) -> list:
@@ -113,16 +102,13 @@ def get_fecho_caixa_mensal(loja_id: int, ano: int, mes: int) -> list:
     num_days = monthrange(ano, mes)[1]
     first = date(ano, mes, 1)
     last = date(ano, mes, num_days)
-    conn = get_connection()
-    try:
+    with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
             f"SELECT {', '.join(_COLS)} FROM fecho_caixa WHERE loja_id = %s AND data BETWEEN %s AND %s ORDER BY data",
             (loja_id, first, last)
         )
         rows_by_date = {r['data']: r for r in (_row_to_dict(row) for row in cur.fetchall())}
-    finally:
-        release_connection(conn)
 
     result = []
     for i in range(num_days):
@@ -136,20 +122,16 @@ def get_fecho_caixa_mensal(loja_id: int, ano: int, mes: int) -> list:
 
 def get_fecho_caixa_by_id(fecho_id: int) -> dict | None:
     """Return a fecho_caixa record by primary key, or None."""
-    conn = get_connection()
-    try:
+    with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(f"SELECT {', '.join(_COLS)} FROM fecho_caixa WHERE id = %s", (fecho_id,))
         row = cur.fetchone()
-        return _row_to_dict(row) if row else None
-    finally:
-        release_connection(conn)
+    return _row_to_dict(row) if row else None
 
 
 def salvar_justificacao_fecho(fecho_id: int, justificacao: str) -> bool:
     """Save/update the deviation justification for a fecho_caixa row."""
-    conn = get_connection()
-    try:
+    with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
             "UPDATE fecho_caixa SET justificacao_desvio = %s, updated_at = NOW() WHERE id = %s",
@@ -157,12 +139,6 @@ def salvar_justificacao_fecho(fecho_id: int, justificacao: str) -> bool:
         )
         conn.commit()
         return cur.rowcount > 0
-    except Exception as e:
-        conn.rollback()
-        logger.error("salvar_justificacao_fecho failed: %s", e)
-        return False
-    finally:
-        release_connection(conn)
 
 
 def _row_to_dict(row) -> dict:
