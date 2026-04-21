@@ -2,7 +2,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, date, timedelta
 import logging
-from db.connection import db_connection, get_connection, release_connection, logger
+from db.connection import db_connection, logger
 from db.cache import ttl_cache_args, invalidate_prefix
 
 from db.schema import run_faturas_migrations  # noqa: F401

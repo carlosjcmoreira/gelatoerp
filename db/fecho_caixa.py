@@ -131,14 +131,18 @@ def get_fecho_caixa_by_id(fecho_id: int) -> dict | None:
 
 def salvar_justificacao_fecho(fecho_id: int, justificacao: str) -> bool:
     """Save/update the deviation justification for a fecho_caixa row."""
-    with db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE fecho_caixa SET justificacao_desvio = %s, updated_at = NOW() WHERE id = %s",
-            (justificacao, fecho_id)
-        )
-        conn.commit()
-        return cur.rowcount > 0
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE fecho_caixa SET justificacao_desvio = %s, updated_at = NOW() WHERE id = %s",
+                (justificacao, fecho_id)
+            )
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error("salvar_justificacao_fecho failed: %s", e)
+        return False
 
 
 def _row_to_dict(row) -> dict:

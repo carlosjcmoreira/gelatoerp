@@ -2,7 +2,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, date, timedelta
 import logging
-from db.connection import db_connection, get_connection, release_connection, logger, hash_password
+from db.connection import db_connection, logger, hash_password
 import json
 import os
 
