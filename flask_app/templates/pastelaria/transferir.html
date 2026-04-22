@@ -57,7 +57,7 @@
                             {% for card in cards %}
                             <tr {% if card.stock_prod == 0 %}class="text-muted"{% endif %}>
                                 <td>{{ card.produto }}</td>
-                                <td class="text-center fw-bold">{{ card.stock_prod if card.stock_prod > 0 else '—' }}</td>
+                                <td class="text-center fw-bold">{{ card.stock_prod }}</td>
                                 <td class="text-center">
                                     {% if card.data_balcao_matosinhos != '-' %}
                                     {{ card.balcao_matosinhos }} <span style="font-size:0.7rem;">({{ card.data_balcao_matosinhos }})</span>
