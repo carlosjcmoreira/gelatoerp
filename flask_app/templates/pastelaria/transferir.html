@@ -35,25 +35,39 @@
                 <button class="accordion-button collapsed py-2 px-3" type="button"
                         data-bs-toggle="collapse" data-bs-target="#stockRefBody"
                         style="font-size:0.83rem;">
-                    📊 Stock disponível (referência)
+                    📊 Visão de stock (referência)
                 </button>
             </h2>
             <div id="stockRefBody" class="accordion-collapse collapse">
                 <div class="accordion-body p-0">
+                    <p class="text-muted px-2 pt-2 mb-1" style="font-size:0.75rem;">
+                        <strong>Dispon. p/ transf.</strong> = produção real registada menos transferências já criadas.<br>
+                        <strong>Balcão</strong> = última contagem manual (ver "Visão de Stock").
+                    </p>
                     <table class="table table-sm mb-0" style="font-size:0.8rem;">
                         <thead class="table-light">
                             <tr>
                                 <th>Produto</th>
-                                <th class="text-center">Prod.</th>
+                                <th class="text-center">Dispon. p/ transf.</th>
+                                <th class="text-center">Balcão Mat.</th>
                                 <th class="text-center">Balcão Bol.</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for card in cards %}
-                            <tr>
+                            <tr {% if card.stock_prod == 0 %}class="text-muted"{% endif %}>
                                 <td>{{ card.produto }}</td>
-                                <td class="text-center fw-bold">{{ card.stock_prod }}</td>
-                                <td class="text-center text-muted">{{ card.balcao_bolhao }} <span style="font-size:0.7rem;">({{ card.data_balcao_bolhao }})</span></td>
+                                <td class="text-center fw-bold">{{ card.stock_prod if card.stock_prod > 0 else '—' }}</td>
+                                <td class="text-center">
+                                    {% if card.data_balcao_matosinhos != '-' %}
+                                    {{ card.balcao_matosinhos }} <span style="font-size:0.7rem;">({{ card.data_balcao_matosinhos }})</span>
+                                    {% else %}—{% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if card.data_balcao_bolhao != '-' %}
+                                    {{ card.balcao_bolhao }} <span style="font-size:0.7rem;">({{ card.data_balcao_bolhao }})</span>
+                                    {% else %}—{% endif %}
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -63,15 +77,19 @@
         </div>
     </div>
 
+    {% if cards_transferivel %}
     <div id="artigos-container"></div>
 
     <button type="button" class="btn btn-outline-secondary w-100 mb-3"
             onclick="adicionarArtigo()" style="font-size:0.85rem;">
         + Adicionar artigo
     </button>
+    {% else %}
+    <div class="alert alert-info small">Sem stock de produção disponível para transferir. Registe produção real na página "Produzir" primeiro.</div>
+    {% endif %}
 
     {% else %}
-    <div class="alert alert-info small">Sem stock de produção disponível. Registe produção real na página "Produzir" primeiro.</div>
+    <div class="alert alert-info small">Sem stock registado. Registe produção real na página "Produzir" ou contagens em "Visão de Stock".</div>
     {% endif %}
     </form>
 
@@ -85,14 +103,16 @@
 (function() {
     var rowCount = 0;
     var produtos = [
-        {% for card in cards %}
+        {% for card in cards_transferivel %}
         {nome: {{ card.produto | tojson }}, stock: {{ card.stock_prod }} }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
 
     window.adicionarArtigo = function() {
+        if (produtos.length === 0) return;
         var idx = rowCount++;
         var container = document.getElementById('artigos-container');
+        if (!container) return;
         var div = document.createElement('div');
         div.className = 'card mb-2 artigo-row';
         var options = produtos.map(function(p) {
@@ -110,7 +130,7 @@
         container.appendChild(div);
     };
 
-    {% if cards %}
+    {% if cards_transferivel %}
     adicionarArtigo();
     {% endif %}
 })();

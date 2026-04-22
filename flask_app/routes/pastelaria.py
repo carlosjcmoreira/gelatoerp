@@ -345,9 +345,11 @@ def transferir():
             balcao_map[key] = {}
         balcao_map[key][s['loja']] = {'quantidade': s['quantidade'], 'data': s['data']}
 
+    prod_map = {sp['produto']: sp['quantidade'] for sp in stock_prod}
+    all_produtos = sorted(set(list(prod_map.keys()) + list(balcao_map.keys())))
+
     cards = []
-    for sp in stock_prod:
-        produto = sp['produto']
+    for produto in all_produtos:
         balcao = balcao_map.get(produto, {})
         balcao_mat = balcao.get('Matosinhos', {})
         balcao_bol = balcao.get('Bolhão', {})
@@ -355,17 +357,20 @@ def transferir():
         data_bol = balcao_bol.get('data')
         cards.append({
             'produto': produto,
-            'stock_prod': sp['quantidade'],
+            'stock_prod': prod_map.get(produto, 0),
             'balcao_matosinhos': balcao_mat.get('quantidade', 0),
             'balcao_bolhao': balcao_bol.get('quantidade', 0),
             'data_balcao_matosinhos': data_mat.strftime('%d/%m') if data_mat else '-',
             'data_balcao_bolhao': data_bol.strftime('%d/%m') if data_bol else '-',
         })
 
+    cards_transferivel = [c for c in cards if c['stock_prod'] > 0]
+
     return render_template('pastelaria/transferir.html',
                            active_tab='transferir',
                            tabs=_tabs_with_urls(),
                            cards=cards,
+                           cards_transferivel=cards_transferivel,
                            lojas_venda=lojas_venda,
                            today=str(today))
 
