@@ -113,12 +113,17 @@
                                        value="{{ '%.2f'|format(registo.total_caixa) if registo and registo.total_caixa is not none else '' }}">
                             </div>
                             <div class="col-6">
-                                <label class="form-label small">Envelope / Sobra (€)</label>
-                                <input type="text" name="envelope_sobra" id="f_envelope_sobra" class="form-control form-control-sm"
-                                       inputmode="decimal" placeholder="0.00"
-                                       value="{{ '%.2f'|format(registo.envelope_sobra) if registo and registo.envelope_sobra is not none else '' }}">
+                                <label class="form-label small">Fundo de Caixa (€)</label>
+                                <input type="text" id="f_fundo_caixa" class="form-control form-control-sm bg-light"
+                                       value="150.00" readonly tabindex="-1">
                             </div>
-                            <div class="col-12">
+                            <div class="col-6">
+                                <label class="form-label small">Envelope / Sobra (€) <span class="text-muted">(auto)</span></label>
+                                <input type="text" name="envelope_sobra" id="f_envelope_sobra" class="form-control form-control-sm bg-light"
+                                       placeholder="0.00" readonly
+                                       value="{{ '%.2f'|format(registo.envelope_sobra) if registo and registo.envelope_sobra is not none else '0.00' }}">
+                            </div>
+                            <div class="col-6">
                                 <label class="form-label small">Somatório TPA Getnet (€)</label>
                                 <input type="text" name="tpa_getnet" id="f_tpa_getnet" class="form-control form-control-sm"
                                        inputmode="decimal" placeholder="0.00"
@@ -352,14 +357,23 @@ if (tmInp) tmInp.addEventListener('input', () => { tmInp._userEdited = true; rec
 const notasInp = document.getElementById('f_valor_notas');
 if (notasInp) notasInp.addEventListener('input', recalcTotalCaixa);
 
+const FUNDO_CAIXA = 150.00;
+
+function recalcEnvelope() {
+    const tc = parseFloat(document.getElementById('f_total_caixa')?.value) || 0;
+    const envelope = document.getElementById('f_envelope_sobra');
+    if (envelope) envelope.value = (tc - FUNDO_CAIXA).toFixed(2);
+}
+
 function recalcTotalCaixa() {
     const moedas = parseFloat(document.getElementById('f_total_moedas')?.value) || 0;
     const notas = parseFloat(document.getElementById('f_valor_notas')?.value) || 0;
     const tc = document.getElementById('f_total_caixa');
     if (tc && !tc._userEdited) tc.value = (moedas + notas).toFixed(2);
+    recalcEnvelope();
 }
 const tcInp = document.getElementById('f_total_caixa');
-if (tcInp) tcInp.addEventListener('input', () => { tcInp._userEdited = true; });
+if (tcInp) tcInp.addEventListener('input', () => { tcInp._userEdited = true; recalcEnvelope(); });
 
 function _setField(id, val) {
     const el = document.getElementById(id);
@@ -412,7 +426,7 @@ function submitOCR() {
                 const tcEl = document.getElementById('f_total_caixa');
                 if (tcEl) tcEl._userEdited = true;
             }
-            _setField('f_envelope_sobra', f.envelope_sobra);
+            recalcEnvelope();
             _setField('f_total_vendas_pos', f.total_vendas_pos);
             _setField('f_dinheiro_pos', f.dinheiro_pos);
             _setField('f_cartao_pos', f.cartao_pos);
