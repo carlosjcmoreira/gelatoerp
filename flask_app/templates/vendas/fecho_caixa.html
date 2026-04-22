@@ -489,5 +489,41 @@ function _postJustificacao(fechoId, texto, btn, onSuccess) {
 }
 
 recalcEnvelope();
+
+function evalExpr(raw) {
+    if (!raw || !raw.toString().trim()) return null;
+    var s = raw.toString().replace(/,/g, '.').trim();
+    if (!/^[\d\s\.\+\-\*\/]+$/.test(s)) return null;
+    try {
+        var result = Function('"use strict"; return (' + s + ')')();
+        if (typeof result !== 'number' || !isFinite(result)) return null;
+        return result;
+    } catch (e) {
+        return null;
+    }
+}
+
+function attachExprEval(id, afterEval) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    function doEval() {
+        var result = evalExpr(el.value);
+        if (result !== null) {
+            el.value = result.toFixed(2);
+            if (afterEval) afterEval();
+        }
+    }
+    el.addEventListener('blur', doEval);
+    el.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); doEval(); }
+    });
+}
+
+attachExprEval('f_valor_notas', recalcTotalCaixa);
+attachExprEval('f_tpa_getnet', null);
+attachExprEval('f_total_vendas_pos', null);
+attachExprEval('f_dinheiro_pos', null);
+attachExprEval('f_cartao_pos', null);
+attachExprEval('f_ubereats_pos', null);
 </script>
 {% endblock %}
