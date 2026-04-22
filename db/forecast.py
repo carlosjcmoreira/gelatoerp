@@ -9,7 +9,7 @@ Implements:
 
 from datetime import date, timedelta
 from typing import Optional
-from db.connection import db_connection, get_connection, release_connection
+from db.connection import db_connection
 import math
 import statistics
 
@@ -24,86 +24,84 @@ def run_migrations_forecast():
     import logging as _logging
     _log = _logging.getLogger(__name__)
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        # Try to acquire advisory lock (non-blocking). If another worker has it, skip.
-        cursor.execute("SELECT pg_try_advisory_lock(202602)")
-        acquired = cursor.fetchone()[0]
-        if not acquired:
-            release_connection(conn)
-            return
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sales_forecasts (
-                id SERIAL PRIMARY KEY,
-                store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
-                loja VARCHAR(100) NOT NULL,
-                data DATE NOT NULL,
-                previsao_eur NUMERIC(10,2),
-                banda_min NUMERIC(10,2),
-                banda_max NUMERIC(10,2),
-                score_meteo INTEGER,
-                condicao_meteo VARCHAR(100),
-                factor_yoy NUMERIC(6,4),
-                multiplicador_meteo NUMERIC(6,4),
-                base_historica NUMERIC(10,2),
-                peso_semana NUMERIC(6,4),
-                override_manual NUMERIC(10,2),
-                override_motivo TEXT,
-                venda_real NUMERIC(10,2),
-                erro_real_pct NUMERIC(8,4),
-                gerado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(loja, data)
-            )
-        ''')
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS forecast_meteo_config (
-                id SERIAL PRIMARY KEY,
-                store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
-                loja VARCHAR(100) NOT NULL,
-                score_min INTEGER NOT NULL,
-                score_max INTEGER NOT NULL,
-                multiplicador NUMERIC(6,4) NOT NULL DEFAULT 1.0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(loja, score_min, score_max)
-            )
-        ''')
-
-        # Seed default meteo config for known stores if not present
-        lojas = _get_lojas(cursor)
-        defaults = [
-            (0, 29, 0.70),
-            (30, 59, 0.85),
-            (60, 84, 1.00),
-            (85, 100, 1.15),
-        ]
-        for loja in lojas:
-            for score_min, score_max, mult in defaults:
-                cursor.execute("""
-                    INSERT INTO forecast_meteo_config (loja, score_min, score_max, multiplicador)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (loja, score_min, score_max) DO NOTHING
-                """, (loja, score_min, score_max, mult))
-
-        conn.commit()
-    except Exception as e:
-        _log.warning("run_migrations_forecast: %s (continuing)", e)
+    with db_connection() as conn:
+        cursor = conn.cursor()
         try:
-            conn.rollback()
-        except Exception:
-            pass
-    finally:
-        try:
-            cursor.execute("SELECT pg_advisory_unlock(202602)")
+            # Try to acquire advisory lock (non-blocking). If another worker has it, skip.
+            cursor.execute("SELECT pg_try_advisory_lock(202602)")
+            acquired = cursor.fetchone()[0]
+            if not acquired:
+                return
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS sales_forecasts (
+                    id SERIAL PRIMARY KEY,
+                    store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
+                    loja VARCHAR(100) NOT NULL,
+                    data DATE NOT NULL,
+                    previsao_eur NUMERIC(10,2),
+                    banda_min NUMERIC(10,2),
+                    banda_max NUMERIC(10,2),
+                    score_meteo INTEGER,
+                    condicao_meteo VARCHAR(100),
+                    factor_yoy NUMERIC(6,4),
+                    multiplicador_meteo NUMERIC(6,4),
+                    base_historica NUMERIC(10,2),
+                    peso_semana NUMERIC(6,4),
+                    override_manual NUMERIC(10,2),
+                    override_motivo TEXT,
+                    venda_real NUMERIC(10,2),
+                    erro_real_pct NUMERIC(8,4),
+                    gerado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(loja, data)
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS forecast_meteo_config (
+                    id SERIAL PRIMARY KEY,
+                    store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
+                    loja VARCHAR(100) NOT NULL,
+                    score_min INTEGER NOT NULL,
+                    score_max INTEGER NOT NULL,
+                    multiplicador NUMERIC(6,4) NOT NULL DEFAULT 1.0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(loja, score_min, score_max)
+                )
+            ''')
+
+            # Seed default meteo config for known stores if not present
+            lojas = _get_lojas(cursor)
+            defaults = [
+                (0, 29, 0.70),
+                (30, 59, 0.85),
+                (60, 84, 1.00),
+                (85, 100, 1.15),
+            ]
+            for loja in lojas:
+                for score_min, score_max, mult in defaults:
+                    cursor.execute("""
+                        INSERT INTO forecast_meteo_config (loja, score_min, score_max, multiplicador)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (loja, score_min, score_max) DO NOTHING
+                    """, (loja, score_min, score_max, mult))
+
             conn.commit()
-        except Exception:
+        except Exception as e:
+            _log.warning("run_migrations_forecast: %s (continuing)", e)
             try:
                 conn.rollback()
             except Exception:
                 pass
-        release_connection(conn)
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(202602)")
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
 
 
 def _get_lojas(cursor):

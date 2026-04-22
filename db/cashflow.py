@@ -11,7 +11,7 @@ from datetime import date, timedelta
 import calendar as cal_mod
 import logging
 from psycopg2.extras import RealDictCursor
-from db.connection import db_connection, get_connection, release_connection
+from db.connection import db_connection
 from db.forecast import get_consolidated_forecasts
 
 logger = logging.getLogger(__name__)
@@ -23,45 +23,43 @@ SEMANAS = 13
 def run_migrations_cashflow():
     """Idempotent migrations for M3 cashflow tables.
     Uses an advisory lock to serialise concurrent worker executions."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT pg_try_advisory_lock(202604)")
-        acquired = cursor.fetchone()[0]
-        if not acquired:
-            release_connection(conn)
-            return
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS cashflow_config (
-                key VARCHAR(100) PRIMARY KEY,
-                value TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        defaults = [
-            ('alert_threshold_eur', '2000'),
-            ('salarios_impostos_dia', '15'),
-            ('salarios_liquido_dia', '28'),
-            ('salarios_impostos_eur', '0'),
-            ('salarios_liquido_eur', '0'),
-            ('debitos_directos', '[]'),
-        ]
-        for k, v in defaults:
-            cursor.execute("""
-                INSERT INTO cashflow_config (key, value) VALUES (%s, %s)
-                ON CONFLICT (key) DO NOTHING
-            """, (k, v))
-
-        conn.commit()
-    finally:
+    with db_connection() as conn:
+        cursor = conn.cursor()
         try:
-            cursor.execute("SELECT pg_advisory_unlock(202604)")
+            cursor.execute("SELECT pg_try_advisory_lock(202604)")
+            acquired = cursor.fetchone()[0]
+            if not acquired:
+                return
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS cashflow_config (
+                    key VARCHAR(100) PRIMARY KEY,
+                    value TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            defaults = [
+                ('alert_threshold_eur', '2000'),
+                ('salarios_impostos_dia', '15'),
+                ('salarios_liquido_dia', '28'),
+                ('salarios_impostos_eur', '0'),
+                ('salarios_liquido_eur', '0'),
+                ('debitos_directos', '[]'),
+            ]
+            for k, v in defaults:
+                cursor.execute("""
+                    INSERT INTO cashflow_config (key, value) VALUES (%s, %s)
+                    ON CONFLICT (key) DO NOTHING
+                """, (k, v))
+
             conn.commit()
-        except Exception:
-            pass
-        release_connection(conn)
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(202604)")
+                conn.commit()
+            except Exception:
+                pass
 
 
 # ── Config helpers ─────────────────────────────────────────────────────────────

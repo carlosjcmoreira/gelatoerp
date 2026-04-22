@@ -2,7 +2,7 @@
 from calendar import monthrange
 from datetime import date as _date, timedelta
 from psycopg2.extras import RealDictCursor
-from db.connection import db_connection, get_connection, release_connection
+from db.connection import db_connection
 
 _MESES_PT = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
              'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
@@ -39,108 +39,106 @@ VAT_RATES = {
 def run_migrations_m0():
     """Idempotent migrations for M0a/M0b: Suppliers, Invoices, Payments, VAT.
     Uses an advisory lock to serialise concurrent worker executions."""
-    conn = get_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("SELECT pg_try_advisory_lock(202603)")
-        acquired = cursor.fetchone()[0]
-        if not acquired:
-            release_connection(conn)
-            return
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS suppliers (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                nif VARCHAR(20),
-                categoria VARCHAR(100),
-                store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL,
-                ativo BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(nif)
-            )
-        ''')
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS invoices (
-                id SERIAL PRIMARY KEY,
-                supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
-                supplier_name VARCHAR(255) NOT NULL,
-                supplier_nif VARCHAR(20),
-                invoice_number VARCHAR(100),
-                amount_eur NUMERIC(12,2) NOT NULL DEFAULT 0,
-                vat_amount_eur NUMERIC(12,2) DEFAULT 0,
-                issue_date DATE,
-                due_date DATE,
-                store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL,
-                categoria VARCHAR(100),
-                status VARCHAR(50) NOT NULL DEFAULT 'pending_review',
-                notes TEXT,
-                created_by VARCHAR(100),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON invoices(due_date)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON invoices(supplier_id)")
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS invoice_payments (
-                id SERIAL PRIMARY KEY,
-                invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
-                proposed_date DATE,
-                confirmed_date DATE,
-                paid_date DATE,
-                amount_eur NUMERIC(12,2),
-                status VARCHAR(50) NOT NULL DEFAULT 'proposed',
-                confirmed_by VARCHAR(100),
-                confirmed_at TIMESTAMP,
-                notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(invoice_id)
-            )
-        ''')
-
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice ON invoice_payments(invoice_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoice_payments_status ON invoice_payments(status)")
-
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS vat_periods (
-                id SERIAL PRIMARY KEY,
-                year INTEGER NOT NULL,
-                month INTEGER NOT NULL,
-                vat_collected_eur NUMERIC(12,2) DEFAULT 0,
-                vat_deductible_eur NUMERIC(12,2) DEFAULT 0,
-                vat_due_eur NUMERIC(12,2) DEFAULT 0,
-                vat_collected_estimated NUMERIC(12,2) DEFAULT 0,
-                vat_deductible_estimated NUMERIC(12,2) DEFAULT 0,
-                vat_due_estimated NUMERIC(12,2) DEFAULT 0,
-                declaration_date DATE,
-                payment_date DATE,
-                declaration_submitted_at DATE,
-                payment_executed_at DATE,
-                status VARCHAR(50) NOT NULL DEFAULT 'estimated',
-                notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(year, month)
-            )
-        ''')
-
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vat_periods_year_month ON vat_periods(year, month)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vat_periods_status ON vat_periods(status)")
-
-        conn.commit()
-    finally:
+    with db_connection() as conn:
+        cursor = conn.cursor()
         try:
-            cursor.execute("SELECT pg_advisory_unlock(202603)")
+            cursor.execute("SELECT pg_try_advisory_lock(202603)")
+            acquired = cursor.fetchone()[0]
+            if not acquired:
+                return
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS suppliers (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    nif VARCHAR(20),
+                    categoria VARCHAR(100),
+                    store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL,
+                    ativo BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(nif)
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS invoices (
+                    id SERIAL PRIMARY KEY,
+                    supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+                    supplier_name VARCHAR(255) NOT NULL,
+                    supplier_nif VARCHAR(20),
+                    invoice_number VARCHAR(100),
+                    amount_eur NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    vat_amount_eur NUMERIC(12,2) DEFAULT 0,
+                    issue_date DATE,
+                    due_date DATE,
+                    store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL,
+                    categoria VARCHAR(100),
+                    status VARCHAR(50) NOT NULL DEFAULT 'pending_review',
+                    notes TEXT,
+                    created_by VARCHAR(100),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON invoices(due_date)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON invoices(supplier_id)")
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS invoice_payments (
+                    id SERIAL PRIMARY KEY,
+                    invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                    proposed_date DATE,
+                    confirmed_date DATE,
+                    paid_date DATE,
+                    amount_eur NUMERIC(12,2),
+                    status VARCHAR(50) NOT NULL DEFAULT 'proposed',
+                    confirmed_by VARCHAR(100),
+                    confirmed_at TIMESTAMP,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(invoice_id)
+                )
+            ''')
+
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice ON invoice_payments(invoice_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoice_payments_status ON invoice_payments(status)")
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS vat_periods (
+                    id SERIAL PRIMARY KEY,
+                    year INTEGER NOT NULL,
+                    month INTEGER NOT NULL,
+                    vat_collected_eur NUMERIC(12,2) DEFAULT 0,
+                    vat_deductible_eur NUMERIC(12,2) DEFAULT 0,
+                    vat_due_eur NUMERIC(12,2) DEFAULT 0,
+                    vat_collected_estimated NUMERIC(12,2) DEFAULT 0,
+                    vat_deductible_estimated NUMERIC(12,2) DEFAULT 0,
+                    vat_due_estimated NUMERIC(12,2) DEFAULT 0,
+                    declaration_date DATE,
+                    payment_date DATE,
+                    declaration_submitted_at DATE,
+                    payment_executed_at DATE,
+                    status VARCHAR(50) NOT NULL DEFAULT 'estimated',
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(year, month)
+                )
+            ''')
+
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vat_periods_year_month ON vat_periods(year, month)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vat_periods_status ON vat_periods(status)")
+
             conn.commit()
-        except Exception:
-            pass
-        release_connection(conn)
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(202603)")
+                conn.commit()
+            except Exception:
+                pass
 
 
 def get_invoices_with_payments(status: str = None, store_id: int = None,
