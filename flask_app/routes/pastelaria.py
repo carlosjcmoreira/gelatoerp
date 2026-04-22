@@ -17,6 +17,7 @@ from database import (
     add_quebra_area, get_quebras_df_area, delete_quebra_area,
     get_active_venda_stores,
     get_or_create_pending_batch,
+    get_reconciliacao_pastelaria,
 )
 from datetime import date
 
@@ -30,6 +31,7 @@ TABS = [
     {'id': 'produzir', 'label': 'Produzir', 'icon': '▶️', 'endpoint': 'pastelaria.produzir'},
     {'id': 'transferir', 'label': 'Transferir para Loja', 'icon': '🔄', 'endpoint': 'pastelaria.transferir'},
     {'id': 'quebra', 'label': 'Registar Quebra', 'icon': '⚠️', 'endpoint': 'pastelaria.registar_quebra'},
+    {'id': 'reconciliacao', 'label': 'Reconciliação', 'icon': '📊', 'endpoint': 'pastelaria.reconciliacao'},
     {'id': 'gerir_produtos', 'label': 'Gerir Produtos', 'icon': '🍡', 'endpoint': 'pastelaria.gerir_produtos'},
 ]
 
@@ -514,6 +516,47 @@ def registar_quebra():
     return render_template('pastelaria/registar_quebra.html',
                            active_tab='quebra', tabs=_tabs_with_urls(),
                            produtos=[p for p in produtos], quebras=quebras, today=str(date.today()))
+
+
+@pastelaria_bp.route('/reconciliacao')
+@perm_required('acesso_pastelaria')
+def reconciliacao():
+    from datetime import timedelta
+    today = date.today()
+    data_inicio_str = request.args.get('data_inicio', str(today))
+    data_fim_str = request.args.get('data_fim', str(today))
+    try:
+        data_inicio = date.fromisoformat(data_inicio_str)
+    except ValueError:
+        data_inicio = today
+    try:
+        data_fim = date.fromisoformat(data_fim_str)
+    except ValueError:
+        data_fim = today
+    if data_fim < data_inicio:
+        data_fim = data_inicio
+
+    rows = get_reconciliacao_pastelaria(data_inicio, data_fim)
+
+    for r in rows:
+        r['data_mat_fmt'] = r['data_mat'].strftime('%d/%m/%Y') if r['data_mat'] else None
+        r['data_bol_fmt'] = r['data_bol'].strftime('%d/%m/%Y') if r['data_bol'] else None
+
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
+
+    return render_template(
+        'pastelaria/reconciliacao.html',
+        active_tab='reconciliacao',
+        tabs=_tabs_with_urls(),
+        rows=rows,
+        data_inicio=str(data_inicio),
+        data_fim=str(data_fim),
+        today=str(today),
+        preset_hoje=(str(today), str(today)),
+        preset_semana=(str(week_start), str(today)),
+        preset_mes=(str(month_start), str(today)),
+    )
 
 
 @pastelaria_bp.route('/eliminar-quebra', methods=['POST'])

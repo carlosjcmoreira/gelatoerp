@@ -236,5 +236,85 @@ def reduzir_stock_producao_area(area: str, data: date, produto: str, quantidade:
     return updated
 
 
+def get_reconciliacao_pastelaria(data_inicio: date, data_fim: date) -> list:
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            WITH prod AS (
+                SELECT produto,
+                       COALESCE(SUM(producao_real), 0) AS total_produzido
+                FROM plano_producao_pastelaria
+                WHERE data BETWEEN %s AND %s
+                  AND producao_real IS NOT NULL
+                GROUP BY produto
+            ),
+            transf AS (
+                SELECT produto,
+                       COALESCE(SUM(quantidade), 0) AS total_transferido
+                FROM ordens_transferencia
+                WHERE area_origem = 'Pastelaria'
+                  AND data BETWEEN %s AND %s
+                GROUP BY produto
+            ),
+            stock AS (
+                SELECT produto,
+                       COALESCE(SUM(quantidade), 0) AS stock_producao
+                FROM stock_producao_pastelaria
+                WHERE quantidade > 0
+                GROUP BY produto
+            ),
+            balcao AS (
+                SELECT DISTINCT ON (produto, loja) produto, loja, quantidade, data
+                FROM contagem_stock
+                WHERE tipo = 'pastelaria'
+                ORDER BY produto, loja, data DESC, id DESC
+            ),
+            balcao_mat AS (
+                SELECT produto, quantidade AS balcao_matosinhos, data AS data_mat
+                FROM balcao WHERE loja = 'Matosinhos'
+            ),
+            balcao_bol AS (
+                SELECT produto, quantidade AS balcao_bolhao, data AS data_bol
+                FROM balcao WHERE loja = 'Bolhão'
+            ),
+            todos AS (
+                SELECT produto FROM prod
+                UNION SELECT produto FROM transf
+                UNION SELECT produto FROM stock
+                UNION SELECT produto FROM balcao
+            )
+            SELECT
+                t.produto,
+                COALESCE(p.total_produzido, 0)   AS total_produzido,
+                COALESCE(tr.total_transferido, 0) AS total_transferido,
+                COALESCE(s.stock_producao, 0)     AS stock_producao,
+                COALESCE(bm.balcao_matosinhos, 0) AS balcao_matosinhos,
+                bm.data_mat,
+                COALESCE(bb.balcao_bolhao, 0)     AS balcao_bolhao,
+                bb.data_bol
+            FROM todos t
+            LEFT JOIN prod     p  ON p.produto  = t.produto
+            LEFT JOIN transf   tr ON tr.produto = t.produto
+            LEFT JOIN stock    s  ON s.produto  = t.produto
+            LEFT JOIN balcao_mat bm ON bm.produto = t.produto
+            LEFT JOIN balcao_bol bb ON bb.produto = t.produto
+            ORDER BY t.produto
+        """, (data_inicio, data_fim, data_inicio, data_fim))
+        rows = cursor.fetchall()
+    return [
+        {
+            'produto': r[0],
+            'total_produzido': int(r[1]),
+            'total_transferido': int(r[2]),
+            'stock_producao': int(r[3]),
+            'balcao_matosinhos': int(r[4]),
+            'data_mat': r[5],
+            'balcao_bolhao': int(r[6]),
+            'data_bol': r[7],
+        }
+        for r in rows
+    ]
+
+
 # ── Crédito ──────────────────────────────────────────────────────────────────
 

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">📊 Reconciliação de Stock</h5>
+    <p class="text-muted small mb-3">Ciclo completo por produto: produção, transferências e stock disponível.</p>
+
+    <form method="get" action="{{ url_for('pastelaria.reconciliacao') }}" class="card mb-3">
+        <div class="card-body p-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-6">
+                    <label class="form-label small mb-1">Data início</label>
+                    <input type="date" name="data_inicio" class="form-control form-control-sm" value="{{ data_inicio }}">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small mb-1">Data fim</label>
+                    <input type="date" name="data_fim" class="form-control form-control-sm" value="{{ data_fim }}">
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">Filtrar</button>
+                </div>
+            </div>
+            <div class="mt-2 d-flex gap-2 flex-wrap">
+                <a href="{{ url_for('pastelaria.reconciliacao', data_inicio=preset_hoje[0], data_fim=preset_hoje[1]) }}"
+                   class="btn btn-outline-secondary btn-sm{% if data_inicio == preset_hoje[0] and data_fim == preset_hoje[1] %} active{% endif %}">Hoje</a>
+                <a href="{{ url_for('pastelaria.reconciliacao', data_inicio=preset_semana[0], data_fim=preset_semana[1]) }}"
+                   class="btn btn-outline-secondary btn-sm{% if data_inicio == preset_semana[0] and data_fim == preset_semana[1] %} active{% endif %}">Esta semana</a>
+                <a href="{{ url_for('pastelaria.reconciliacao', data_inicio=preset_mes[0], data_fim=preset_mes[1]) }}"
+                   class="btn btn-outline-secondary btn-sm{% if data_inicio == preset_mes[0] and data_fim == preset_mes[1] %} active{% endif %}">Este mês</a>
+            </div>
+        </div>
+    </form>
+
+    <div class="text-muted small mb-2">
+        Período: <strong>{{ data_inicio }}</strong> a <strong>{{ data_fim }}</strong>
+        {% if rows %}— {{ rows | length }} produto(s){% endif %}
+    </div>
+
+    {% if rows %}
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle" style="font-size:0.82rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Produto</th>
+                    <th class="text-center" title="Total de produção real registada no período">Produzido</th>
+                    <th class="text-center" title="Total transferido para lojas no período">Transferido</th>
+                    <th class="text-center" title="Stock disponível em produção (acumulado, independente do período)">Stock Prod.</th>
+                    <th class="text-center" title="Última contagem no balcão de Matosinhos">Balcão Mat.</th>
+                    <th class="text-center" title="Última contagem no balcão do Bolhão">Balcão Bol.</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr>
+                    <td class="fw-semibold">{{ r.produto }}</td>
+                    <td class="text-center">
+                        {% if r.total_produzido > 0 %}
+                            <span class="badge bg-success">{{ r.total_produzido }}</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if r.total_transferido > 0 %}
+                            <span class="badge bg-info text-dark">{{ r.total_transferido }}</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if r.stock_producao > 0 %}
+                            <span class="badge bg-warning text-dark">{{ r.stock_producao }}</span>
+                        {% else %}
+                            <span class="text-muted">0</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if r.data_mat_fmt %}
+                            {{ r.balcao_matosinhos }}
+                            <br><small class="text-muted">{{ r.data_mat_fmt }}</small>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if r.data_bol_fmt %}
+                            {{ r.balcao_bolhao }}
+                            <br><small class="text-muted">{{ r.data_bol_fmt }}</small>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot class="table-light fw-bold">
+                <tr>
+                    <td>Total</td>
+                    <td class="text-center">{{ rows | sum(attribute='total_produzido') }}</td>
+                    <td class="text-center">{{ rows | sum(attribute='total_transferido') }}</td>
+                    <td class="text-center">{{ rows | sum(attribute='stock_producao') }}</td>
+                    <td class="text-center">{{ rows | sum(attribute='balcao_matosinhos') }}</td>
+                    <td class="text-center">{{ rows | sum(attribute='balcao_bolhao') }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    <div class="alert alert-light border small mt-2 mb-0">
+        <strong>Legenda:</strong>
+        <span class="badge bg-success">Produzido</span> = total com produção real registada no período.
+        <span class="badge bg-info text-dark">Transferido</span> = ordens de transferência criadas no período.
+        <span class="badge bg-warning text-dark">Stock Prod.</span> = stock de produção disponível actualmente (acumulado, independente do período).
+        <strong>Balcão</strong> = última contagem manual registada em cada loja (independente do período).
+    </div>
+
+    {% else %}
+    <div class="alert alert-info">
+        Sem dados para o período seleccionado. Experimente alargar o intervalo de datas ou consulte outra aba para registar produção.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
