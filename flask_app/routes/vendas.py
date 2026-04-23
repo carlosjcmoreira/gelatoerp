@@ -370,7 +370,30 @@ def pesagem():
         for r in stock_rows
     ]
 
-    # 30-day history for the accordion table
+    return render_template('vendas/pesagem.html',
+                           active_tab='pesagem',
+                           tabs=_build_tabs('pesagem', loja_id),
+                           loja_nome=loja_nome,
+                           loja_id=loja_id,
+                           sabores=sabores,
+                           pesagens_hoje=pesagens_hoje,
+                           data_sel=data_sel,
+                           today=str(date.today()))
+
+
+@vendas_bp.route('/pesagem/historico')
+@login_required
+def pesagem_historico():
+    if not _check_vendas_access():
+        return jsonify({'ok': False, 'error': 'Sem acesso'}), 403
+
+    loja_id, loja_nome = _get_user_loja()
+    mapping = get_sabores_mapping()
+    reverse_mapping = {}
+    for nome_receita, nome_corrente in mapping.items():
+        reverse_mapping[nome_receita] = nome_corrente
+        reverse_mapping[nome_corrente] = nome_corrente
+
     data_inicio_hist = date.today() - timedelta(days=30)
     hist_rows = get_stock_gelado_df(
         loja=loja_nome, tipo='fim',
@@ -383,27 +406,16 @@ def pesagem():
             'sabor': reverse_mapping.get(r.get('sabor', ''), r.get('sabor', '')),
             'quantidade_kg': float(r['quantidade_kg']),
         })
-    historico_dias = [
+    dias = [
         {
-            'data': d,
             'data_str': d.strftime('%d/%m/%Y'),
+            'data_iso': d.isoformat(),
             'total_kg': round(sum(l['quantidade_kg'] for l in linhas), 3),
-            'num_sabores': len(linhas),
             'linhas': sorted(linhas, key=lambda x: x['sabor']),
         }
         for d, linhas in sorted(_by_day.items(), reverse=True)
     ]
-
-    return render_template('vendas/pesagem.html',
-                           active_tab='pesagem',
-                           tabs=_build_tabs('pesagem', loja_id),
-                           loja_nome=loja_nome,
-                           loja_id=loja_id,
-                           sabores=sabores,
-                           pesagens_hoje=pesagens_hoje,
-                           historico_dias=historico_dias,
-                           data_sel=data_sel,
-                           today=str(date.today()))
+    return jsonify({'ok': True, 'dias': dias})
 
 
 @vendas_bp.route('/transferencias', methods=['GET', 'POST'])

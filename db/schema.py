@@ -2158,7 +2158,7 @@ def run_data_fix_cremino_stock_producao():
 
             cursor.execute(
                 "UPDATE stock_producao"
-                " SET quantidade_kg = ROUND(quantidade_kg / 1000.0, 3)"
+                " SET quantidade_kg = ROUND((quantidade_kg / 1000.0)::numeric, 3)"
                 " WHERE sabor = 'Cremino' AND loja = 'Matosinhos' AND quantidade_kg >= 50"
             )
             updated = cursor.rowcount

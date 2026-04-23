@@ -163,82 +163,105 @@
     <!-- ── Histórico de Pesagens (últimos 30 dias) ─────────── -->
     <hr>
     <h6 class="mb-3">📅 Histórico — últimos 30 dias</h6>
-
-    {% if historico_dias %}
-    <div class="accordion" id="hist-acc">
-      {% for dia in historico_dias %}
-      <div class="accordion-item" id="hist-day-{{ loop.index }}">
-        <h2 class="accordion-header d-flex align-items-stretch" id="hist-hd-{{ loop.index }}">
-          <button class="accordion-button collapsed py-2 px-3 flex-grow-1"
-                  type="button"
-                  data-bs-toggle="collapse"
-                  data-bs-target="#hist-col-{{ loop.index }}"
-                  aria-expanded="false"
-                  aria-controls="hist-col-{{ loop.index }}">
-            <span class="fw-semibold me-2">{{ dia.data_str }}</span>
-            <span class="text-muted small me-2">{{ dia.num_sabores }} sabor{{ 'es' if dia.num_sabores != 1 else '' }}</span>
-            <span class="badge bg-primary ms-auto">{{ '%.3f'|format(dia.total_kg) }} kg</span>
-          </button>
-          <form method="POST" class="d-flex align-items-center px-2 border-start flex-shrink-0"
-                onsubmit="return confirm('Eliminar todas as pesagens de {{ dia.data_str }}?')">
-            <input type="hidden" name="action" value="delete_day">
-            <input type="hidden" name="data" value="{{ dia.data.isoformat() }}">
-            <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"
-                    style="font-size:0.78rem;" title="Eliminar dia inteiro">🗑</button>
-          </form>
-        </h2>
-        <div id="hist-col-{{ loop.index }}"
-             class="accordion-collapse collapse"
-             aria-labelledby="hist-hd-{{ loop.index }}">
-          <div class="accordion-body p-0">
-            <table class="table table-sm mb-0 align-middle">
-              <thead class="table-light">
-                <tr>
-                  <th class="ps-3">Sabor</th>
-                  <th class="text-end" style="width:90px">kg</th>
-                  <th style="width:72px"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for linha in dia.linhas %}
-                <tr{% if linha.quantidade_kg == 0 %} class="table-warning"{% endif %}>
-                  <td class="ps-3">{{ linha.sabor }}{% if linha.quantidade_kg == 0 %} <span class="badge bg-danger ms-1" style="font-size:0.65rem;">sem stock</span>{% endif %}</td>
-                  <td class="text-end" id="val-{{ linha.id }}">{{ '%.3f'|format(linha.quantidade_kg) }}</td>
-                  <td class="text-center">
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
-                            style="font-size:0.72rem;" title="Editar"
-                            onclick="abrirEdit({{ linha.id }}, '{{ '%.3f'|format(linha.quantidade_kg) }}', '{{ dia.data.isoformat() }}')">✏️</button>
-                    <form method="POST" style="display:inline;"
-                          onsubmit="return confirm('Eliminar esta pesagem?')">
-                      <input type="hidden" name="action" value="delete">
-                      <input type="hidden" name="id" value="{{ linha.id }}">
-                      <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
-                              style="font-size:0.72rem;" title="Eliminar">🗑</button>
-                    </form>
-                  </td>
-                </tr>
-                {% endfor %}
-                <tr class="table-secondary">
-                  <td class="ps-3 fw-semibold">Total</td>
-                  <td class="text-end fw-semibold">{{ '%.3f'|format(dia.total_kg) }}</td>
-                  <td></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-      {% endfor %}
+    <div id="hist-container">
+        <p class="text-muted small text-center" id="hist-loading">A carregar histórico…</p>
     </div>
-    {% else %}
-    <p class="text-muted small">Sem registos nos últimos 30 dias.</p>
-    {% endif %}
 </div>
 
 <script>
 const SABORES_CONHECIDOS = {{ sabores | tojson }};
 const OCR_URL = "{{ url_for('vendas.pesagem_ocr') }}";
+const HIST_URL = "{{ url_for('vendas.pesagem_historico') }}";
+const LOJA_ID_HIST = {{ loja_id or 'null' }};
 const TODAY = "{{ today }}";
+
+function loadHistorico() {
+    var url = HIST_URL + (LOJA_ID_HIST ? '?loja_id=' + LOJA_ID_HIST : '');
+    fetch(url)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data.ok) {
+                document.getElementById('hist-container').innerHTML =
+                    '<p class="text-muted small">Não foi possível carregar o histórico.</p>';
+                return;
+            }
+            renderHistorico(data.dias);
+        })
+        .catch(function() {
+            document.getElementById('hist-container').innerHTML =
+                '<p class="text-muted small">Erro ao carregar histórico.</p>';
+        });
+}
+
+function renderHistorico(dias) {
+    var container = document.getElementById('hist-container');
+    if (!dias || dias.length === 0) {
+        container.innerHTML = '<p class="text-muted small">Sem registos nos últimos 30 dias.</p>';
+        return;
+    }
+    var html = '<div class="accordion" id="hist-acc">';
+    dias.forEach(function(dia, i) {
+        var idx = i + 1;
+        var n = dia.linhas.length;
+        var linhasHtml = dia.linhas.map(function(linha) {
+            var warn = linha.quantidade_kg === 0;
+            return '<tr' + (warn ? ' class="table-warning"' : '') + '>' +
+                '<td class="ps-3">' + escHtml(linha.sabor) +
+                    (warn ? ' <span class="badge bg-danger ms-1" style="font-size:0.65rem;">sem stock</span>' : '') +
+                '</td>' +
+                '<td class="text-end" id="val-' + linha.id + '">' + linha.quantidade_kg.toFixed(3) + '</td>' +
+                '<td class="text-center">' +
+                    '<button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"' +
+                    ' style="font-size:0.72rem;" title="Editar"' +
+                    ' onclick="abrirEdit(' + linha.id + ', \'' + linha.quantidade_kg.toFixed(3) + '\', \'' + escHtml(dia.data_iso) + '\')">\u270f\ufe0f</button>' +
+                    '<form method="POST" style="display:inline;"' +
+                    ' onsubmit="return confirm(\'Eliminar esta pesagem?\')">' +
+                    '<input type="hidden" name="action" value="delete">' +
+                    '<input type="hidden" name="id" value="' + linha.id + '">' +
+                    '<button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"' +
+                    ' style="font-size:0.72rem;" title="Eliminar">\uD83D\uDDD1</button>' +
+                    '</form>' +
+                '</td></tr>';
+        }).join('');
+        html +=
+            '<div class="accordion-item" id="hist-day-' + idx + '">' +
+            '<h2 class="accordion-header d-flex align-items-stretch" id="hist-hd-' + idx + '">' +
+            '<button class="accordion-button collapsed py-2 px-3 flex-grow-1" type="button"' +
+            ' data-bs-toggle="collapse" data-bs-target="#hist-col-' + idx + '"' +
+            ' aria-expanded="false" aria-controls="hist-col-' + idx + '">' +
+            '<span class="fw-semibold me-2">' + escHtml(dia.data_str) + '</span>' +
+            '<span class="text-muted small me-2">' + n + ' sabor' + (n !== 1 ? 'es' : '') + '</span>' +
+            '<span class="badge bg-primary ms-auto">' + dia.total_kg.toFixed(3) + ' kg</span>' +
+            '</button>' +
+            '<form method="POST" class="d-flex align-items-center px-2 border-start flex-shrink-0"' +
+            ' onsubmit="return confirm(\'Eliminar todas as pesagens de ' + escHtml(dia.data_str) + '?\')">' +
+            '<input type="hidden" name="action" value="delete_day">' +
+            '<input type="hidden" name="data" value="' + escHtml(dia.data_iso) + '">' +
+            '<button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"' +
+            ' style="font-size:0.78rem;" title="Eliminar dia inteiro">\uD83D\uDDD1</button>' +
+            '</form>' +
+            '</h2>' +
+            '<div id="hist-col-' + idx + '" class="accordion-collapse collapse" aria-labelledby="hist-hd-' + idx + '">' +
+            '<div class="accordion-body p-0">' +
+            '<table class="table table-sm mb-0 align-middle">' +
+            '<thead class="table-light"><tr>' +
+            '<th class="ps-3">Sabor</th>' +
+            '<th class="text-end" style="width:90px">kg</th>' +
+            '<th style="width:72px"></th>' +
+            '</tr></thead><tbody>' +
+            linhasHtml +
+            '<tr class="table-secondary">' +
+            '<td class="ps-3 fw-semibold">Total</td>' +
+            '<td class="text-end fw-semibold">' + dia.total_kg.toFixed(3) + '</td>' +
+            '<td></td></tr>' +
+            '</tbody></table>' +
+            '</div></div></div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', loadHistorico);
 
 function setModo(modo) {
     const isOcr = modo === 'ocr';
