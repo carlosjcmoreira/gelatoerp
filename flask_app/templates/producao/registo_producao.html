@@ -4,7 +4,7 @@
 <h5 class="mb-3">Registo de Produção</h5>
 <p class="text-muted small mb-4">Fotografe a folha de registo diário de produção e o sistema extrai os valores automaticamente.</p>
 
-<div class="card shadow-sm" style="max-width: 520px;">
+<div class="card shadow-sm mb-3" style="max-width: 520px;">
     <div class="card-body">
         <form method="post" action="{{ url_for('producao.registo_producao_ocr') }}" enctype="multipart/form-data">
             <div class="mb-3">
@@ -23,6 +23,16 @@
             </button>
         </form>
     </div>
+</div>
+
+<div style="max-width: 520px;">
+    <div class="text-center text-muted small mb-2">ou</div>
+    <form method="post" action="{{ url_for('producao.registo_producao_manual') }}">
+        <input type="hidden" name="data_producao" value="{{ today }}">
+        <button type="submit" class="btn btn-outline-secondary w-100">
+            ✏️ Registar sem fotografia (entrada manual)
+        </button>
+    </form>
 </div>
 
 <div class="mt-4 text-muted small">

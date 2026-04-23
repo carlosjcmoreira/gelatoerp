@@ -186,6 +186,10 @@ def create_app():
     def healthcheck():
         return 'OK', 200
 
+    @app.route('/favicon.ico')
+    def favicon():
+        return redirect(url_for('static', filename='favicon.svg'), code=302)
+
     DEV_TOKEN = os.environ.get('DEV_AUTO_LOGIN_TOKEN', '')
 
     @app.route('/dev-login/<token>')

@@ -418,21 +418,43 @@ def registo_producao_ocr():
 
     result = extract_producao_sheet(image_bytes, filename)
 
-    if result.get('error') and not result.get('sabores'):
-        flash(f"Erro no OCR: {result['error']}", "danger")
-        return redirect(url_for('producao.registo_producao'))
-
     user_date = request.form.get('data_producao', '').strip()
     data_ocr = result.get('date') or user_date or str(date.today())
     if user_date:
         data_ocr = user_date
+
+    if result.get('error') and not result.get('sabores'):
+        flash(f"OCR não conseguiu ler a imagem: {result['error']} — preencha os valores manualmente.", "warning")
+
     session['ocr_producao_data'] = {
         'date': data_ocr,
         'sabores': result.get('sabores', {}),
         'confidence': result.get('ocr_confidence', 0.0),
         'error': result.get('error'),
+        'manual_entry': False,
     }
 
+    return redirect(url_for('producao.registo_producao_confirmar'))
+
+
+@producao_bp.route('/registo-producao/manual', methods=['GET', 'POST'])
+@perm_required('acesso_producao')
+def registo_producao_manual():
+    if request.method == 'POST':
+        data_str = request.form.get('data_producao', str(date.today())).strip()
+    else:
+        data_str = request.args.get('data', str(date.today())).strip()
+    try:
+        date.fromisoformat(data_str)
+    except ValueError:
+        data_str = str(date.today())
+    session['ocr_producao_data'] = {
+        'date': data_str,
+        'sabores': {},
+        'confidence': 0.0,
+        'error': None,
+        'manual_entry': True,
+    }
     return redirect(url_for('producao.registo_producao_confirmar'))
 
 
@@ -449,6 +471,7 @@ def registo_producao_confirmar():
     ocr_date = ocr_data.get('date', str(date.today()))
     confidence = ocr_data.get('confidence', 0.0)
     ocr_error = ocr_data.get('error')
+    manual_entry = ocr_data.get('manual_entry', False)
 
     rows = []
     for sabor in sabores_all:
@@ -478,6 +501,7 @@ def registo_producao_confirmar():
                            active_tab='registo_producao', tabs=_tabs_with_urls(),
                            rows=rows, ocr_date=ocr_date,
                            confidence=confidence, ocr_error=ocr_error,
+                           manual_entry=manual_entry,
                            today=str(date.today()))
 
 
