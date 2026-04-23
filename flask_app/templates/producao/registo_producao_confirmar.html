@@ -7,6 +7,10 @@
 <div class="alert alert-info alert-sm py-2 mb-3">
     ✏️ <strong>Entrada manual</strong> — preencha os valores abaixo e guarde.
 </div>
+{% elif no_ocr_values %}
+<div class="alert alert-warning alert-sm py-2 mb-3">
+    ⚠️ Nenhum valor extraído automaticamente — preencha os campos abaixo manualmente.
+</div>
 {% endif %}
 
 {% if ocr_error and not manual_entry %}

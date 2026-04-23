@@ -472,6 +472,7 @@ def registo_producao_confirmar():
     confidence = ocr_data.get('confidence', 0.0)
     ocr_error = ocr_data.get('error')
     manual_entry = ocr_data.get('manual_entry', False)
+    no_ocr_values = not bool(ocr_sabores)
 
     rows = []
     for sabor in sabores_all:
@@ -502,6 +503,7 @@ def registo_producao_confirmar():
                            rows=rows, ocr_date=ocr_date,
                            confidence=confidence, ocr_error=ocr_error,
                            manual_entry=manual_entry,
+                           no_ocr_values=no_ocr_values,
                            today=str(date.today()))
 
 
