@@ -523,14 +523,18 @@ def registar():
         _doc_label = DOCUMENT_TYPE_LABELS.get(document_type, 'Documento')
         _entity = f' de {supplier_name}' if supplier_name else ''
         if due_date:
-            suggested_date, is_fallback, _ = suggest_payment_date(
-                invoice_id, amount_eur, due_date=due_date
-            )
-            propose_invoice_payment(invoice_id, suggested_date, amount_eur)
-            if is_fallback:
-                flash(f'{_doc_label} registado. Data de pagamento sugerida = vencimento ({due_date.strftime("%d/%m/%Y")}) — sem semana com liquidez suficiente nas próximas 8 semanas.', 'warning')
-            else:
-                flash(f'{_doc_label}{_entity} registado. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
+            try:
+                suggested_date, is_fallback, _ = suggest_payment_date(
+                    invoice_id, amount_eur, due_date=due_date
+                )
+                propose_invoice_payment(invoice_id, suggested_date, amount_eur)
+                if is_fallback:
+                    flash(f'{_doc_label} registado. Data de pagamento sugerida = vencimento ({due_date.strftime("%d/%m/%Y")}) — sem semana com liquidez suficiente nas próximas 8 semanas.', 'warning')
+                else:
+                    flash(f'{_doc_label}{_entity} registado. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
+            except Exception as _pay_exc:
+                logger.warning('suggest/propose payment failed for invoice %s: %s', invoice_id, _pay_exc)
+                flash(f'{_doc_label}{_entity} registado. Não foi possível calcular data de pagamento automaticamente — agenda manualmente na fatura.', 'warning')
         else:
             flash(f'{_doc_label}{_entity} registado com sucesso!', 'success')
 
@@ -939,12 +943,16 @@ def edit(invoice_id: int):
 
     supplier_id = inv.get('supplier_id')
     if supplier_nif and supplier_name:
-        supplier_id = upsert_supplier(
-            name=supplier_name,
-            nif=supplier_nif,
-            category=category or None,
-            store_id=store_id,
-        )
+        try:
+            supplier_id = upsert_supplier(
+                name=supplier_name,
+                nif=supplier_nif,
+                category=category or None,
+                store_id=store_id,
+            )
+        except Exception as _sup_exc:
+            logger.warning('upsert_supplier failed during edit for invoice %s: %s', invoice_id, _sup_exc)
+            flash('Dados do fornecedor não puderam ser actualizados, mas os restantes campos foram guardados.', 'warning')
 
     update_invoice(invoice_id, {
         'supplier_id': supplier_id,
@@ -1064,15 +1072,18 @@ def arquivar_onedrive(invoice_id: int):
         return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 
     subfolder = request.form.get('onedrive_subfolder') or inv.get('onedrive_subfolder') or 'Gestão'
-    from flask_app.onedrive_archive import upload_invoice_pdf
-    result = upload_invoice_pdf(pdf_data, pdf_filename or 'fatura.pdf', subfolder, inv.get('issue_date'))
-
-    if result.get('onedrive_path'):
-        update_invoice_onedrive(invoice_id, result['onedrive_path'], subfolder,
-                                onedrive_web_url=result.get('web_url'))
-        flash(f'PDF arquivado no OneDrive: {result["onedrive_path"]}', 'success')
-    else:
-        flash(f'Erro: {result.get("warning", "Falha ao arquivar.")}', 'warning')
+    try:
+        from flask_app.onedrive_archive import upload_invoice_pdf
+        result = upload_invoice_pdf(pdf_data, pdf_filename or 'fatura.pdf', subfolder, inv.get('issue_date'))
+        if result.get('onedrive_path'):
+            update_invoice_onedrive(invoice_id, result['onedrive_path'], subfolder,
+                                    onedrive_web_url=result.get('web_url'))
+            flash(f'PDF arquivado no OneDrive: {result["onedrive_path"]}', 'success')
+        else:
+            flash(f'Erro: {result.get("warning", "Falha ao arquivar.")}', 'warning')
+    except Exception as _od_exc:
+        logger.warning('arquivar_onedrive failed for invoice %s: %s', invoice_id, _od_exc)
+        flash(f'Erro ao arquivar no OneDrive: {_od_exc}', 'warning')
 
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 

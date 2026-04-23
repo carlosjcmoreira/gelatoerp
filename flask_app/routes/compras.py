@@ -179,14 +179,18 @@ def nova_fatura():
         _doc_label = _DTL2.get(document_type, 'Documento')
         _entity = f' de {supplier_name}' if supplier_name else ''
         if due_date:
-            suggested_date, is_fallback, _ = suggest_payment_date(
-                invoice_id, amount_eur, due_date=due_date
-            )
-            propose_invoice_payment(invoice_id, suggested_date, amount_eur)
-            if is_fallback:
-                flash(f'{_doc_label}{_entity} registado. Vencimento: {due_date.strftime("%d/%m/%Y")}.', 'warning')
-            else:
-                flash(f'{_doc_label}{_entity} registado. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
+            try:
+                suggested_date, is_fallback, _ = suggest_payment_date(
+                    invoice_id, amount_eur, due_date=due_date
+                )
+                propose_invoice_payment(invoice_id, suggested_date, amount_eur)
+                if is_fallback:
+                    flash(f'{_doc_label}{_entity} registado. Vencimento: {due_date.strftime("%d/%m/%Y")}.', 'warning')
+                else:
+                    flash(f'{_doc_label}{_entity} registado. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
+            except Exception as _pay_exc:
+                logging.warning('suggest/propose payment failed for invoice %s: %s', invoice_id, _pay_exc)
+                flash(f'{_doc_label}{_entity} registado. Não foi possível calcular data de pagamento automaticamente — agenda manualmente na fatura.', 'warning')
         else:
             flash(f'{_doc_label}{_entity} registado com sucesso!', 'success')
 
