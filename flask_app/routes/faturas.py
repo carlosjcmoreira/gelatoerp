@@ -1083,7 +1083,7 @@ def arquivar_onedrive(invoice_id: int):
             flash(f'Erro: {result.get("warning", "Falha ao arquivar.")}', 'warning')
     except Exception as _od_exc:
         logger.warning('arquivar_onedrive failed for invoice %s: %s', invoice_id, _od_exc)
-        flash(f'Erro ao arquivar no OneDrive: {_od_exc}', 'warning')
+        flash('Não foi possível arquivar no OneDrive. Tenta novamente ou contacta o administrador.', 'warning')
 
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 

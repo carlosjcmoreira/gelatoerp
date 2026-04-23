@@ -18,6 +18,8 @@ from database import (
     get_cost_categories_tree,
 )
 
+logger = logging.getLogger(__name__)
+
 compras_bp = Blueprint('compras', __name__)
 
 TABS = [
@@ -189,7 +191,7 @@ def nova_fatura():
                 else:
                     flash(f'{_doc_label}{_entity} registado. Data de pagamento proposta: {suggested_date.strftime("%d/%m/%Y")}.', 'success')
             except Exception as _pay_exc:
-                logging.warning('suggest/propose payment failed for invoice %s: %s', invoice_id, _pay_exc)
+                logger.warning('suggest/propose payment failed for invoice %s: %s', invoice_id, _pay_exc)
                 flash(f'{_doc_label}{_entity} registado. Não foi possível calcular data de pagamento automaticamente — agenda manualmente na fatura.', 'warning')
         else:
             flash(f'{_doc_label}{_entity} registado com sucesso!', 'success')
