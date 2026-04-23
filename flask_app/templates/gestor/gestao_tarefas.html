@@ -53,7 +53,7 @@
         <select id="f-user" class="form-select form-select-sm" style="width:auto;" onchange="gtApplyFilters()">
           <option value="">Todos os responsáveis</option>
           {% for u in users %}
-          <option value="{{ u.id }}">{{ u.nome or u.username }}</option>
+          <option value="{{ u.id }}">{{ u.username }}</option>
           {% endfor %}
         </select>
         <select id="f-estado" class="form-select form-select-sm" style="width:auto;" onchange="gtApplyFilters()">
@@ -300,7 +300,7 @@
             <select name="utilizador_id" class="form-select form-select-sm" required>
               <option value="">— Selecionar —</option>
               {% for u in users %}
-              <option value="{{ u.id }}">{{ u.nome or u.username }}</option>
+              <option value="{{ u.id }}">{{ u.username }}</option>
               {% endfor %}
             </select>
           </div>
@@ -386,7 +386,7 @@
             <select name="utilizador_id" id="edit-utilizador" class="form-select form-select-sm" required>
               <option value="">— Selecionar —</option>
               {% for u in users %}
-              <option value="{{ u.id }}">{{ u.nome or u.username }}</option>
+              <option value="{{ u.id }}">{{ u.username }}</option>
               {% endfor %}
             </select>
           </div>
@@ -580,7 +580,7 @@ document.getElementById('bulk-field').addEventListener('change', function() {
     wrap.innerHTML = '';
     if (!field) return;
     var el;
-    if      (field === 'utilizador_id') el = gtBuildListSelect(GT_USERS,  'id',   function(u) { return u.nome || u.username; });
+    if      (field === 'utilizador_id') el = gtBuildListSelect(GT_USERS,  'id',   function(u) { return u.username; });
     else if (field === 'loja_id')       el = gtBuildListSelect(GT_STORES, 'id',   function(s) { return s.name; });
     else if (field === 'equipa')        el = gtBuildObjSelect(GT_EQUIPAS, null);
     else if (field === 'tipo')          el = gtBuildObjSelect(GT_TIPOS,   null);
@@ -658,7 +658,7 @@ function gtAddDraftRow(tbody, nome) {
     var selEquipa = gtBuildObjSelect(GT_EQUIPAS, null);
     selEquipa.classList.add('draft-equipa'); mkTd(selEquipa);
 
-    var selUser = gtBuildListSelect(GT_USERS, 'id', function(u) { return u.nome || u.username; });
+    var selUser = gtBuildListSelect(GT_USERS, 'id', function(u) { return u.username; });
     selUser.classList.add('draft-user'); mkTd(selUser);
 
     var btnRm = document.createElement('button');

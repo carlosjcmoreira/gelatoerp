@@ -108,10 +108,10 @@ def get_users_com_tarefas():
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, username, nome FROM users "
-            "WHERE acesso_tarefas = TRUE AND ativo = TRUE ORDER BY nome, username"
+            "SELECT id, username FROM users "
+            "WHERE acesso_tarefas = TRUE AND ativo = TRUE ORDER BY username"
         )
-        return [{'id': r[0], 'username': r[1], 'nome': r[2] or r[1]} for r in cursor.fetchall()]
+        return [{'id': r[0], 'username': r[1], 'nome': r[1]} for r in cursor.fetchall()]
 
 
 def bulk_delete_tarefas(ids):

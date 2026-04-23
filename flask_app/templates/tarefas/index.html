@@ -41,7 +41,7 @@
             <select name="utilizador_id" class="form-select form-select-sm">
               <option value="">Todos</option>
               {% for u in all_users %}
-              <option value="{{ u.id }}" {% if filter_utilizador_id == u.id %}selected{% endif %}>{{ u.nome }}</option>
+              <option value="{{ u.id }}" {% if filter_utilizador_id == u.id %}selected{% endif %}>{{ u.username }}</option>
               {% endfor %}
             </select>
           </div>
