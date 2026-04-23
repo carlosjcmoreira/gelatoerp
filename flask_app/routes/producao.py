@@ -318,7 +318,8 @@ def registar_quebra():
         return redirect(url_for('producao.registar_quebra'))
 
     sabores = get_sabores_list()
-    quebras_df = get_quebras_df("Matosinhos")
+    historico_inicio = date.today() - timedelta(days=90)
+    quebras_df = get_quebras_df("Matosinhos", data_inicio=historico_inicio)
     quebras = []
     if not quebras_df.empty:
         cols = ['id', 'data', 'sabor', 'lote', 'quantidade_kg', 'motivo']

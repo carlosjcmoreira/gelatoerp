@@ -19,7 +19,7 @@ from database import (
     get_active_venda_stores,
     get_or_create_pending_batch,
 )
-from datetime import date
+from datetime import date, timedelta
 
 confeitaria_bp = Blueprint('confeitaria', __name__)
 
@@ -352,7 +352,8 @@ def registar_quebra():
         return redirect(url_for('confeitaria.registar_quebra'))
 
     produtos = get_all_produtos_confeitaria() or []
-    quebras_df = get_quebras_df_area("Matosinhos", "confeitaria")
+    historico_inicio = date.today() - timedelta(days=90)
+    quebras_df = get_quebras_df_area("Matosinhos", "confeitaria", data_inicio=historico_inicio)
     quebras = []
     if not quebras_df.empty:
         for _, r in quebras_df.iterrows():

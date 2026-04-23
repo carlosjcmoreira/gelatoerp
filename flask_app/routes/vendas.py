@@ -203,7 +203,8 @@ def quebras():
                     flash(str(e), 'error')
             return redirect(url_for('vendas.quebras', loja_id=loja_id))
 
-    quebras_df = get_quebras_df(loja_nome)
+    historico_inicio = date.today() - timedelta(days=90)
+    quebras_df = get_quebras_df(loja_nome, data_inicio=historico_inicio)
     historico = []
     if not quebras_df.empty:
         cols = ['id', 'data', 'sabor', 'lote', 'quantidade_kg', 'motivo']

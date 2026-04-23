@@ -55,15 +55,22 @@ def add_quebra_area(data: date, loja: str, quantidade: float, area: str, produto
         ''', (data, loja, quantidade, motivo, f"{area}:{produto}" if produto else area, lote, store_id))
         conn.commit()
 
-def get_quebras_df_area(loja: str, area: str):
-    query = f"""
+def get_quebras_df_area(loja: str, area: str, data_inicio: date = None, data_fim: date = None):
+    query = """
         SELECT id, data, lote, quantidade_kg, motivo, sabor
         FROM quebras
         WHERE loja = %s AND sabor LIKE %s
-        ORDER BY data DESC, id DESC
     """
+    params = [loja, f"{area}:%"]
+    if data_inicio:
+        query += " AND data >= %s"
+        params.append(data_inicio)
+    if data_fim:
+        query += " AND data <= %s"
+        params.append(data_fim)
+    query += " ORDER BY data DESC, id DESC"
     with db_connection() as conn:
-        return pd.read_sql_query(query, conn, params=[loja, f"{area}:%"])
+        return pd.read_sql_query(query, conn, params=params)
 
 def delete_quebra_area(id: int):
     with db_connection() as conn:
