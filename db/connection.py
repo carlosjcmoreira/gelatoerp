@@ -22,7 +22,7 @@ _pool_lock = threading.Lock()
 # longer than _STALE_THRESHOLD seconds, avoiding a round-trip on every request.
 _conn_last_checked: dict = {}
 _check_lock = threading.Lock()
-_STALE_THRESHOLD = 10.0  # seconds
+_STALE_THRESHOLD = 30.0  # seconds
 
 
 def get_pool():
@@ -32,7 +32,7 @@ def get_pool():
             if _connection_pool is None:
                 _connection_pool = pg_pool.ThreadedConnectionPool(
                     minconn=2,
-                    maxconn=10,
+                    maxconn=15,
                     dsn=DATABASE_URL,
                     connect_timeout=5,
                     keepalives=1,
