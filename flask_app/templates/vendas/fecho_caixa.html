@@ -16,10 +16,9 @@
                onchange="window.location.href='{{ url_for('vendas.fecho_caixa', loja_id=loja_id) }}&data='+this.value">
     </div>
 
-    <div class="row g-3">
-        <div class="col-lg-6">
+    <div class="d-flex flex-column gap-3">
 
-            <div class="card shadow-sm mb-3">
+            <div class="card shadow-sm">
                 <div class="card-header fw-semibold">📷 Processar via Foto (OCR)</div>
                 <div class="card-body">
                     <div class="mb-2">
@@ -163,9 +162,7 @@
                     </form>
                 </div>
             </div>
-        </div>
 
-        <div class="col-lg-6">
             {% if registo and not registo._empty %}
             <div class="card shadow-sm mb-3">
                 <div class="card-header fw-semibold">📊 Desvios — {{ data_sel.strftime('%d/%m/%Y') }}</div>
@@ -220,7 +217,7 @@
                 </div>
             </div>
             {% else %}
-            <div class="alert alert-secondary">Sem registo para {{ data_sel.strftime('%d/%m/%Y') }}. Preenche o formulário ao lado.</div>
+            <div class="alert alert-secondary">Sem registo para {{ data_sel.strftime('%d/%m/%Y') }}. Preenche o formulário acima.</div>
             {% endif %}
 
             <div class="card shadow-sm">
@@ -324,7 +321,6 @@
                     </div>
                 </div>
             </div>
-        </div>
     </div>
 </div>
 
