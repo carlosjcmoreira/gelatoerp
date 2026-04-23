@@ -218,6 +218,7 @@ function renderHistorico(dias) {
                     ' onsubmit="return confirm(\'Eliminar esta pesagem?\')">' +
                     '<input type="hidden" name="action" value="delete">' +
                     '<input type="hidden" name="id" value="' + linha.id + '">' +
+                    '<input type="hidden" name="data" value="' + escHtml(dia.data_iso) + '">' +
                     '<button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"' +
                     ' style="font-size:0.72rem;" title="Eliminar">\uD83D\uDDD1</button>' +
                     '</form>' +
