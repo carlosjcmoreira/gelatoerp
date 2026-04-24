@@ -4,56 +4,111 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
     <h5 class="mb-3">🛒 Vendas {{ loja_nome }}</h5>
-    
 
     <h6 class="mb-3">Resumo do Dia</h6>
 
-    {% if rows %}
-    <div class="table-responsive mb-3">
-        <table class="table table-sm table-bordered align-middle">
-            <thead class="table-dark">
-                <tr>
-                    <th>Sabor</th>
-                    <th class="text-end">Pesagem Ontem (kg)</th>
-                    <th class="text-end">Recebido Hoje (kg)</th>
-                    <th class="text-end">Pesagem Fim Dia (kg)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in rows %}
-                <tr>
-                    <td>{{ row.sabor }}</td>
-                    <td class="text-end">{{ row.pesagem_ontem }}</td>
-                    <td class="text-end">{{ row.recebido_hoje }}</td>
-                    <td class="text-end">{{ row.pesagem_fim }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    {% if dashboard_mode == 'fecho_caixa' %}
+        {% if fecho and not fecho.get('_empty') %}
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-md-4">
+                <div class="kpi-card">
+                    <div class="kpi-card-title">Total Caixa</div>
+                    <div class="kpi-card-value">{{ '%.2f'|format(fecho.total_caixa or 0) }} €</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4">
+                <div class="kpi-card">
+                    <div class="kpi-card-title">Total Vendas POS</div>
+                    <div class="kpi-card-value">{{ '%.2f'|format(fecho.total_vendas_pos or 0) }} €</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4">
+                <div class="kpi-card">
+                    <div class="kpi-card-title">Dinheiro</div>
+                    <div class="kpi-card-value">{{ '%.2f'|format(fecho.dinheiro_pos or 0) }} €</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4">
+                <div class="kpi-card">
+                    <div class="kpi-card-title">Cartão</div>
+                    <div class="kpi-card-value">{{ '%.2f'|format(fecho.cartao_pos or 0) }} €</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-4">
+                <div class="kpi-card">
+                    <div class="kpi-card-title">Uber Eats</div>
+                    <div class="kpi-card-value">{{ '%.2f'|format(fecho.ubereats_pos or 0) }} €</div>
+                </div>
+            </div>
+            {% if fecho.desvio_numerario is not none %}
+            <div class="col-6 col-md-4">
+                <div class="kpi-card {% if (fecho.desvio_numerario or 0) | abs > 0.01 %}border-warning{% endif %}">
+                    <div class="kpi-card-title">Desvio Numerário</div>
+                    <div class="kpi-card-value {% if (fecho.desvio_numerario or 0) | abs > 0.01 %}text-warning{% endif %}">
+                        {{ '%.2f'|format(fecho.desvio_numerario or 0) }} €
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% if fecho.colaborador %}
+        <p class="text-muted small mb-1">Colaborador: <strong>{{ fecho.colaborador }}</strong></p>
+        {% endif %}
+        {% if fecho.justificacao_desvio %}
+        <p class="text-muted small mb-1">Justificação: {{ fecho.justificacao_desvio }}</p>
+        {% endif %}
+        {% else %}
+        <div class="alert alert-info">Fecho de caixa ainda não registado para hoje.</div>
+        {% endif %}
 
-    <div class="row g-2 mb-3">
-        <div class="col-4">
-            <div class="kpi-card">
-                <div class="kpi-card-title">Total Pesagem Ontem</div>
-                <div class="kpi-card-value">{{ total_ontem }} kg</div>
-            </div>
-        </div>
-        <div class="col-4">
-            <div class="kpi-card">
-                <div class="kpi-card-title">Total Recebido Hoje</div>
-                <div class="kpi-card-value">{{ total_recebido }} kg</div>
-            </div>
-        </div>
-        <div class="col-4">
-            <div class="kpi-card">
-                <div class="kpi-card-title">Total Pesagem Fim Dia</div>
-                <div class="kpi-card-value">{{ total_fim if total_fim else 'Pendente' }}</div>
-            </div>
-        </div>
-    </div>
     {% else %}
-    <div class="alert alert-info">Sem pesagens registadas para ontem.</div>
+        {% if rows %}
+        <div class="table-responsive mb-3">
+            <table class="table table-sm table-bordered align-middle">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Sabor</th>
+                        <th class="text-end">Pesagem Ontem (kg)</th>
+                        <th class="text-end">Recebido Hoje (kg)</th>
+                        <th class="text-end">Pesagem Fim Dia (kg)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td>{{ row.sabor }}</td>
+                        <td class="text-end">{{ row.pesagem_ontem }}</td>
+                        <td class="text-end">{{ row.recebido_hoje }}</td>
+                        <td class="text-end">{{ row.pesagem_fim }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-4">
+                <div class="kpi-card">
+                    <div class="kpi-card-title">Total Pesagem Ontem</div>
+                    <div class="kpi-card-value">{{ total_ontem }} kg</div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="kpi-card">
+                    <div class="kpi-card-title">Total Recebido Hoje</div>
+                    <div class="kpi-card-value">{{ total_recebido }} kg</div>
+                </div>
+            </div>
+            <div class="col-4">
+                <div class="kpi-card">
+                    <div class="kpi-card-title">Total Pesagem Fim Dia</div>
+                    <div class="kpi-card-value">{{ total_fim if total_fim else 'Pendente' }}</div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="alert alert-info">Sem pesagens registadas para ontem.</div>
+        {% endif %}
     {% endif %}
 </div>
 {% endblock %}

@@ -12,20 +12,44 @@ logger = logging.getLogger(__name__)
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
-def build_dashboard_rows(loja_nome: str) -> dict:
+def build_dashboard_rows(loja_nome: str, loja_id: int | None = None) -> dict:
     """
     Fetch and transform today's sales dashboard data for the given store.
 
-    Returns a dict:
+    For Bolhão (store_type='loja') returns:
         {
+            'mode': 'bolhao_pos',
             'rows': list of {sabor, pesagem_ontem, recebido_hoje, pesagem_fim},
             'total_ontem': str,
             'total_recebido': str,
             'total_fim': str | None,
         }
-    All numeric strings are formatted to 3 decimal places.
+
+    For other stores (e.g. Matosinhos with store_type='producao') returns:
+        {
+            'mode': 'fecho_caixa',
+            'fecho': dict | None,   # today's fecho_caixa record, or None if not yet done
+        }
+
+    Detection uses store_type from the stores table (Bolhão='loja', Matosinhos='producao').
+    When loja_id is None or the store is not found, defaults to Bolhão POS mode.
+    A dedicated uses_bolhao_pos flag would be even more explicit long-term.
     """
-    from database import get_vendas_bolhao_dashboard_data
+    from database import get_vendas_bolhao_dashboard_data, get_store_by_id
+
+    use_bolhao_pos = True
+    if loja_id is not None:
+        store = get_store_by_id(loja_id)
+        if store and store.get('store_type') != 'loja':
+            use_bolhao_pos = False
+
+    if not use_bolhao_pos:
+        from db.fecho_caixa import get_fecho_caixa
+        fecho = get_fecho_caixa(date.today(), loja_id)
+        return {
+            'mode': 'fecho_caixa',
+            'fecho': fecho,
+        }
 
     dashboard_data = get_vendas_bolhao_dashboard_data(loja_nome)
     rows = []
@@ -51,6 +75,7 @@ def build_dashboard_rows(loja_nome: str) -> dict:
         })
 
     return {
+        'mode': 'bolhao_pos',
         'rows': rows,
         'total_ontem': f'{total_ontem:.3f}',
         'total_recebido': f'{total_recebido:.3f}',

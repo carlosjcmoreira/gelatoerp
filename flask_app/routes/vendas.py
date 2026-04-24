@@ -89,8 +89,8 @@ def _build_tabs(active_id, loja_id=None):
             requires_eod = store.get('requires_eod_weighing', True)
 
     # Tab visibility rules by store profile
-    _loja_only = {'dashboard', 'transferencias'}  # retail-store specific tabs
-    _eod_only   = {'pesagem'}                      # requires end-of-day weighing
+    _loja_only = {'transferencias'}  # retail-store specific tabs (dashboard is available to all vendas stores)
+    _eod_only   = {'pesagem'}        # requires end-of-day weighing
 
     tabs = []
     for t in TAB_DEFS:
@@ -172,20 +172,20 @@ def dashboard():
         return redirect(url_for('home.index'))
 
     loja_id, loja_nome = _get_user_loja()
-    if not _check_store_capability(loja_id, 'loja_only'):
-        return redirect(url_for('vendas.index', loja_id=loja_id))
 
-    data = vendas_svc.build_dashboard_rows(loja_nome)
+    data = vendas_svc.build_dashboard_rows(loja_nome, loja_id=loja_id)
 
     return render_template('vendas/dashboard.html',
                            active_tab='dashboard',
                            tabs=_build_tabs('dashboard', loja_id),
                            loja_nome=loja_nome,
                            loja_id=loja_id,
-                           rows=data['rows'],
-                           total_ontem=data['total_ontem'],
-                           total_recebido=data['total_recebido'],
-                           total_fim=data['total_fim'])
+                           dashboard_mode=data.get('mode', 'bolhao_pos'),
+                           rows=data.get('rows', []),
+                           total_ontem=data.get('total_ontem', '0.000'),
+                           total_recebido=data.get('total_recebido', '0.000'),
+                           total_fim=data.get('total_fim'),
+                           fecho=data.get('fecho'))
 
 
 @vendas_bp.route('/quebras', methods=['GET', 'POST'])
