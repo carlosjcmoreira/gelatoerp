@@ -92,7 +92,7 @@ def upsert_store(store_id, name, address, latitude, longitude, store_type,
                       receives_transfers, requires_eod_weighing, pos_store_code,
                       opened_at, shows_on_landing))
             conn.commit()
-            invalidate('active_venda_stores', 'all_stores', 'landing_stores')
+            invalidate('active_venda_stores', 'vendas_module_stores', 'all_stores', 'landing_stores')
             return True
         except psycopg2.IntegrityError:
             conn.rollback()
@@ -104,7 +104,7 @@ def toggle_store_active(store_id: int, is_active: bool):
         cursor = conn.cursor()
         cursor.execute("UPDATE stores SET is_active=%s WHERE id=%s", (is_active, store_id))
         conn.commit()
-    invalidate('active_venda_stores', 'all_stores', 'landing_stores')
+    invalidate('active_venda_stores', 'vendas_module_stores', 'all_stores', 'landing_stores')
 
 
 def delete_store(store_id: int):
@@ -112,7 +112,7 @@ def delete_store(store_id: int):
         cursor = conn.cursor()
         cursor.execute("DELETE FROM stores WHERE id=%s", (store_id,))
         conn.commit()
-    invalidate('active_venda_stores', 'all_stores', 'landing_stores')
+    invalidate('active_venda_stores', 'vendas_module_stores', 'all_stores', 'landing_stores')
 
 
 def get_store_aliases(store_id: int) -> list:

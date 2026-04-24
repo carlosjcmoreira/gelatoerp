@@ -12,7 +12,7 @@ from database import (
     add_quebra, get_quebras_df, delete_quebra,
     add_stock_gelado, get_stock_gelado_df, delete_stock_gelado, update_stock_gelado,
     get_ordens_transferencia, confirmar_ordem_transferencia, rejeitar_ordem_transferencia,
-    get_active_venda_stores, get_store_by_id,
+    get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
 )
 
@@ -68,7 +68,7 @@ def _get_user_loja():
             return store['id'], store['name']
 
     if is_gestor:
-        stores = get_active_venda_stores()
+        stores = get_vendas_module_stores()
         if stores:
             return stores[0]['id'], stores[0]['name']
 
@@ -78,9 +78,27 @@ def _get_user_loja():
 def _build_tabs(active_id, loja_id=None):
     from db.tiles import get_tile_visibility
     visibility = get_tile_visibility('vendas')
+
+    # Determine store capabilities to filter tabs
+    store_type = 'loja'
+    requires_eod = True
+    if loja_id:
+        store = get_store_by_id(loja_id)
+        if store:
+            store_type = store.get('store_type', 'loja')
+            requires_eod = store.get('requires_eod_weighing', True)
+
+    # Tab visibility rules by store profile
+    _loja_only = {'dashboard', 'transferencias'}  # retail-store specific tabs
+    _eod_only   = {'pesagem'}                      # requires end-of-day weighing
+
     tabs = []
     for t in TAB_DEFS:
         if not visibility.get(t['id'], True):
+            continue
+        if t['id'] in _loja_only and store_type != 'loja':
+            continue
+        if t['id'] in _eod_only and not requires_eod:
             continue
         kwargs = {}
         if loja_id:
@@ -112,7 +130,7 @@ def _user_owns_loja(loja_nome):
     vendas_store_ids = user.get('vendas_store_ids') or []
     if not vendas_store_ids:
         return False
-    stores = get_active_venda_stores()
+    stores = get_vendas_module_stores()
     for store in stores:
         if store['name'] == loja_nome and store['id'] in vendas_store_ids:
             return True
@@ -125,16 +143,10 @@ def index():
     if not _check_vendas_access():
         return redirect(url_for('home.index'))
     loja_id, loja_nome = _get_user_loja()
-    kwargs = {'loja_id': loja_id} if loja_id else {}
-    from db.tiles import get_tile_visibility
-    visibility = get_tile_visibility('vendas')
-    items = [
-        {'icon': t['icon'], 'label': t['label'], 'url': url_for(t['endpoint'], **kwargs)}
-        for t in TAB_DEFS
-        if visibility.get(t['id'], True)
-    ]
+    tabs = _build_tabs(None, loja_id)
+    items = [{'icon': t['icon'], 'label': t['label'], 'url': t['url']} for t in tabs]
     return render_template('components/section_menu.html', items=items,
-                           menu_title='🛍️ Vendas Bolhão')
+                           menu_title=f'🛍️ Vendas {loja_nome}')
 
 
 @vendas_bp.route('/dashboard')

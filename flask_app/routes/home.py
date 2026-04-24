@@ -146,7 +146,7 @@ def _build_widgets(user: dict) -> list:
         })
 
     try:
-        venda_stores = db.get_active_venda_stores()
+        venda_stores = db.get_vendas_module_stores()
         vendas_store_ids = set(user.get('vendas_store_ids') or [])
         for s in venda_stores:
             if is_gestor or s['id'] in vendas_store_ids:

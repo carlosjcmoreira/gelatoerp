@@ -185,10 +185,20 @@ def update_user_permissoes_batch(updates: list):
 
 @ttl_cache('active_venda_stores', ttl=600)
 def get_active_venda_stores():
-    """Returns active stores of type 'loja' for vendas tiles and transfer dropdowns."""
+    """Returns active retail stores (store_type='loja') for transfer dropdowns and stock validation."""
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT id, name FROM stores WHERE store_type = 'loja' AND is_active = TRUE ORDER BY name")
+        return [{'id': r[0], 'name': r[1]} for r in cursor.fetchall()]
+
+
+@ttl_cache('vendas_module_stores', ttl=600)
+def get_vendas_module_stores():
+    """Returns active stores that participate in the vendas module (quebras + fecho de caixa).
+    Uses supports_vendas flag, so includes stores of any type (e.g. Matosinhos as 'producao')."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name FROM stores WHERE supports_vendas = TRUE AND is_active = TRUE ORDER BY name")
         return [{'id': r[0], 'name': r[1]} for r in cursor.fetchall()]
 
 
@@ -198,10 +208,17 @@ def get_store_by_id(store_id: int):
         return None
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, name, store_type, is_active FROM stores WHERE id = %s", (store_id,))
+        cursor.execute(
+            "SELECT id, name, store_type, is_active, requires_eod_weighing, supports_vendas FROM stores WHERE id = %s",
+            (store_id,)
+        )
         row = cursor.fetchone()
         if row:
-            return {'id': row[0], 'name': row[1], 'store_type': row[2], 'is_active': row[3]}
+            return {
+                'id': row[0], 'name': row[1], 'store_type': row[2],
+                'is_active': row[3], 'requires_eod_weighing': row[4],
+                'supports_vendas': row[5],
+            }
         return None
 
 def update_user(user_id: int, username: str = None, password: str = None, role: str = None, nome: str = None, ativo: bool = None):

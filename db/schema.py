@@ -862,6 +862,10 @@ def run_migrations():
         # shows_on_landing flag — controls whether a store tile appears on the landing page
         cursor.execute("ALTER TABLE stores ADD COLUMN IF NOT EXISTS shows_on_landing BOOLEAN DEFAULT FALSE")
 
+        # supports_vendas flag — store participates in the vendas module (quebras + fecho de caixa)
+        # independent of store_type so a 'producao' store (Matosinhos) can also have vendas access
+        cursor.execute("ALTER TABLE stores ADD COLUMN IF NOT EXISTS supports_vendas BOOLEAN DEFAULT FALSE")
+
         # Idempotent backfill: map existing loja text to store_id where the name matches
         for tbl in ('producao', 'vendas', 'quebras', 'stock_inicial', 'rececao_stock',
                     'producao_pastelaria', 'producao_confeitaria', 'stock_gelado',
@@ -884,6 +888,10 @@ def run_migrations():
         # shows_on_landing: Matosinhos and Bolhão have dedicated module tiles, no landing tile needed.
         cursor.execute("UPDATE stores SET requires_eod_weighing = TRUE,  shows_on_landing = FALSE WHERE name = 'Bolhão'")
         cursor.execute("UPDATE stores SET requires_eod_weighing = FALSE, shows_on_landing = FALSE WHERE name = 'Matosinhos'")
+
+        # Both Bolhão and Matosinhos participate in the vendas module (quebras + fecho de caixa).
+        # Use ILIKE with wildcards to match regardless of prefix (e.g. "Niva Bolhão", "Niva Matosinhos").
+        cursor.execute("UPDATE stores SET supports_vendas = TRUE WHERE name ILIKE '%Bolhão%' OR name ILIKE '%Matosinhos%'")
 
         # loja_id FK on users — associates a vendas user with a specific store (deprecated, kept for rollback)
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS loja_id INTEGER REFERENCES stores(id)")

@@ -50,7 +50,7 @@ def compute_nav_pages(user: dict) -> list:
             })
 
     try:
-        venda_stores = db.get_active_venda_stores()
+        venda_stores = db.get_vendas_module_stores()
         is_gestor = user.get('acesso_gestor')
         vendas_store_ids = set(user.get('vendas_store_ids') or [])
         for s in venda_stores:

@@ -530,7 +530,7 @@ def gestao_utilizadores():
         return _handle_config_post(request.form.get('action', ''), 'gestao_utilizadores')
     return render_template('gestor/gestao_utilizadores.html',
                            users=db.get_all_users(),
-                           lojas_venda=db.get_active_venda_stores())
+                           lojas_venda=db.get_vendas_module_stores())
 
 
 @gestor_bp.route('/utilizadores/<int:user_id>/eliminar', methods=['POST'])
@@ -779,7 +779,7 @@ def _handle_config_post(action, config_option):
 
     elif action == 'save_users_perms':
         users = db.get_all_users()
-        lojas_venda = db.get_active_venda_stores()
+        lojas_venda = db.get_vendas_module_stores()
         loja_ids = [loja['id'] for loja in lojas_venda]
         updates = []
         for u in users:
