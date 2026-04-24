@@ -886,8 +886,8 @@ def run_migrations():
 
         # Correct EOD weighing config: Bolhão does EOD (fim de dia), Matosinhos does not.
         # shows_on_landing: Matosinhos and Bolhão have dedicated module tiles, no landing tile needed.
-        cursor.execute("UPDATE stores SET requires_eod_weighing = TRUE,  shows_on_landing = FALSE WHERE name = 'Bolhão'")
-        cursor.execute("UPDATE stores SET requires_eod_weighing = FALSE, shows_on_landing = FALSE WHERE name = 'Matosinhos'")
+        cursor.execute("UPDATE stores SET requires_eod_weighing = TRUE,  shows_on_landing = FALSE WHERE name ILIKE '%Bolhão%'")
+        cursor.execute("UPDATE stores SET requires_eod_weighing = FALSE, shows_on_landing = FALSE WHERE name ILIKE '%Matosinhos%'")
 
         # Both Bolhão and Matosinhos participate in the vendas module (quebras + fecho de caixa).
         # Use ILIKE with wildcards to match regardless of prefix (e.g. "Niva Bolhão", "Niva Matosinhos").
@@ -897,7 +897,7 @@ def run_migrations():
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS loja_id INTEGER REFERENCES stores(id)")
         # Backfill: associate existing 'vendas'-like users with Bolhão
         cursor.execute("""
-            UPDATE users SET loja_id = (SELECT id FROM stores WHERE name = 'Bolhão' LIMIT 1)
+            UPDATE users SET loja_id = (SELECT id FROM stores WHERE name ILIKE '%Bolhão%' LIMIT 1)
             WHERE acesso_vendas = TRUE AND loja_id IS NULL
         """)
 
