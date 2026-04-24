@@ -113,6 +113,22 @@ def _build_tabs(active_id, loja_id=None):
     return tabs
 
 
+def _check_store_capability(loja_id, capability: str):
+    """Return True if the resolved store supports the given tab capability.
+    capability: 'loja_only' → requires store_type='loja'
+                'eod'       → requires requires_eod_weighing=True"""
+    if not loja_id:
+        return True  # fallback: allow (unknown store, let logic surface errors)
+    store = get_store_by_id(loja_id)
+    if not store:
+        return True
+    if capability == 'loja_only':
+        return store.get('store_type') == 'loja'
+    if capability == 'eod':
+        return bool(store.get('requires_eod_weighing'))
+    return True
+
+
 def _check_vendas_access():
     """Return True if the current user has vendas or gestor access."""
     user = session.get('user', {})
@@ -156,6 +172,8 @@ def dashboard():
         return redirect(url_for('home.index'))
 
     loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'loja_only'):
+        return redirect(url_for('vendas.index', loja_id=loja_id))
 
     data = vendas_svc.build_dashboard_rows(loja_nome)
 
@@ -244,6 +262,8 @@ def pesagem():
         return redirect(url_for('home.index'))
 
     loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'eod'):
+        return redirect(url_for('vendas.index', loja_id=loja_id))
     sabores = get_sabores_list()
     mapping = get_sabores_mapping()
     reverse_mapping = {}
@@ -401,6 +421,8 @@ def pesagem_historico():
         return jsonify({'ok': False, 'error': 'Sem acesso'}), 403
 
     loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'eod'):
+        return jsonify({'ok': False, 'error': 'Sem suporte para pesagem nesta loja'}), 403
     mapping = get_sabores_mapping()
     reverse_mapping = {}
     for nome_receita, nome_corrente in mapping.items():
@@ -438,6 +460,8 @@ def transferencias():
         return redirect(url_for('home.index'))
 
     loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'loja_only'):
+        return redirect(url_for('vendas.index', loja_id=loja_id))
 
     if request.method == 'POST':
         action = request.form.get('action')
@@ -622,6 +646,8 @@ def pesagem_ocr():
         return jsonify({'ok': False, 'error': 'Sem acesso'}), 403
 
     loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'eod'):
+        return jsonify({'ok': False, 'error': 'Sem suporte para pesagem nesta loja'}), 403
 
     img = request.files.get('imagem')
     if not img or img.filename == '':
