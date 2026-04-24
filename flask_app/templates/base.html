@@ -67,16 +67,42 @@
                 <rect x="44" y="77" width="12" height="16" rx="4" fill="#FFF8F2" opacity="0.9"/>
             </svg>
         </span>
-        <span class="loading-text">A carregar…</span>
+        <span id="loading-text" class="loading-text">A carregar…</span>
+        <button id="loading-reload" onclick="window.location.reload()"
+                style="display:none;margin-top:14px;padding:6px 18px;border:1px solid rgba(255,255,255,0.6);background:transparent;color:#fff;border-radius:6px;font-size:0.85rem;cursor:pointer;">
+            ↺ Recarregar
+        </button>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     (function(){
-        var overlay = document.getElementById('loading-overlay');
+        var overlay     = document.getElementById('loading-overlay');
+        var loadingText = document.getElementById('loading-text');
+        var loadingBtn  = document.getElementById('loading-reload');
+        var _t1 = null, _t2 = null, _hiddenAt = 0;
 
         function showLoading() {
+            loadingText.textContent = 'A carregar\u2026';
+            loadingBtn.style.display = 'none';
             overlay.classList.add('active');
+            clearTimeout(_t1);
+            clearTimeout(_t2);
+            _t1 = setTimeout(function() {
+                loadingText.textContent = 'O servidor est\u00e1 a acordar, aguarda um momento\u2026';
+            }, 5000);
+            _t2 = setTimeout(function() {
+                loadingBtn.style.display = '';
+            }, 12000);
+        }
+
+        function hideLoading() {
+            clearTimeout(_t1);
+            clearTimeout(_t2);
+            _t1 = null; _t2 = null;
+            overlay.classList.remove('active');
+            loadingText.textContent = 'A carregar\u2026';
+            loadingBtn.style.display = 'none';
         }
 
         document.addEventListener('submit', function(e) {
@@ -98,8 +124,18 @@
             } catch(err) {}
         });
 
-        window.addEventListener('pageshow', function(e) {
-            overlay.classList.remove('active');
+        window.addEventListener('pageshow', function() {
+            hideLoading();
+        });
+
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'hidden') {
+                _hiddenAt = Date.now();
+            } else if (document.visibilityState === 'visible') {
+                if (overlay.classList.contains('active') && _hiddenAt > 0 && (Date.now() - _hiddenAt) > 60000) {
+                    hideLoading();
+                }
+            }
         });
     })();
     </script>
