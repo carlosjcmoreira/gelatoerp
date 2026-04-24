@@ -155,10 +155,18 @@ def _build_widgets(user: dict) -> list:
                 if data.get('_error'):
                     stats.append({'label': 'Sem dados', 'value': '—', 'cls': 'text-muted'})
                 else:
-                    if data['vendas_hoje'] is not None:
-                        stats.append({'label': 'Vendas hoje', 'value': f"{data['vendas_hoje']:.2f} €", 'cls': 'text-success'})
+                    is_producao = s.get('store_type') == 'producao'
+                    if is_producao:
+                        if data['registado_hoje']:
+                            total_str = f"{data['vendas_hoje']:.2f} €" if data['vendas_hoje'] is not None else '—'
+                            stats.append({'label': 'Fecho de caixa', 'value': f'Fechado — {total_str}', 'cls': 'text-success'})
+                        else:
+                            stats.append({'label': 'Fecho de caixa', 'value': 'Não registado', 'cls': 'text-muted'})
                     else:
-                        stats.append({'label': 'Vendas hoje', 'value': 'Não registado', 'cls': 'text-muted'})
+                        if data['vendas_hoje'] is not None:
+                            stats.append({'label': 'Vendas hoje', 'value': f"{data['vendas_hoje']:.2f} €", 'cls': 'text-success'})
+                        else:
+                            stats.append({'label': 'Vendas hoje', 'value': 'Não registado', 'cls': 'text-muted'})
                     if data['ultima_data']:
                         stats.append({'label': 'Último registo', 'value': data['ultima_data'].strftime('%d/%m/%Y'), 'cls': ''})
                 widgets.append({

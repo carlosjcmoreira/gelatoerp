@@ -198,8 +198,8 @@ def get_vendas_module_stores():
     Uses supports_vendas flag, so includes stores of any type (e.g. Matosinhos as 'producao')."""
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, name FROM stores WHERE supports_vendas = TRUE AND is_active = TRUE ORDER BY name")
-        return [{'id': r[0], 'name': r[1]} for r in cursor.fetchall()]
+        cursor.execute("SELECT id, name, store_type FROM stores WHERE supports_vendas = TRUE AND is_active = TRUE ORDER BY name")
+        return [{'id': r[0], 'name': r[1], 'store_type': r[2]} for r in cursor.fetchall()]
 
 
 def get_store_by_id(store_id: int):
