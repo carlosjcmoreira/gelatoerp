@@ -80,12 +80,13 @@
         var overlay     = document.getElementById('loading-overlay');
         var loadingText = document.getElementById('loading-text');
         var loadingBtn  = document.getElementById('loading-reload');
-        var _t1 = null, _t2 = null, _hiddenAt = 0;
+        var _t1 = null, _t2 = null, _hiddenAt = 0, _loadingStartedAt = 0;
 
         function showLoading() {
             loadingText.textContent = 'A carregar\u2026';
             loadingBtn.style.display = 'none';
             overlay.classList.add('active');
+            _loadingStartedAt = Date.now();
             clearTimeout(_t1);
             clearTimeout(_t2);
             _t1 = setTimeout(function() {
@@ -135,6 +136,7 @@
                 if (overlay.classList.contains('active') && _hiddenAt > 0 && (Date.now() - _hiddenAt) > 60000) {
                     hideLoading();
                 }
+                _hiddenAt = 0;
             }
         });
     })();
