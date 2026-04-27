@@ -260,7 +260,7 @@ _TOOLS = [
     },
     {
         "name": "get_daily_briefing",
-        "description": "Obtém resumo do estado actual do negócio: vendas ontem, produção vs plano, tarefas em atraso, faturas a vencer, alertas.",
+        "description": "Obtém resumo do estado actual do negócio: vendas ontem vs semana anterior, produção real vs plano de hoje, stock crítico (< 3 kg), tarefas não feitas ontem, faturas próximas a vencer, quebras.",
         "input_schema": {
             "type": "object",
             "properties": {},
@@ -665,6 +665,39 @@ def _handle_get_daily_briefing() -> str:
                 GROUP BY loja
             """)
             result["quebras_30d"] = [{"loja": r[0], "kg": r[1]} for r in cursor.fetchall()]
+
+            cursor.execute("""
+                SELECT sabor,
+                       producao_necessaria,
+                       COALESCE(producao_real_total, 0) AS producao_real,
+                       stock_bolhao
+                FROM plano_producao
+                WHERE data = %s
+                ORDER BY sabor
+            """, (hoje,))
+            rows = cursor.fetchall()
+            result["producao_vs_plano"] = [
+                {
+                    "sabor": r[0],
+                    "necessario_kg": float(r[1]) if r[1] is not None else None,
+                    "real_kg": float(r[2]) if r[2] is not None else None,
+                    "desvio_kg": (float(r[2]) - float(r[1])) if (r[1] is not None and r[2] is not None) else None,
+                    "stock_bolhao_kg": float(r[3]) if r[3] is not None else None,
+                }
+                for r in rows
+            ]
+
+            cursor.execute("""
+                SELECT loja, sabor, quantidade_kg
+                FROM stock_gelado
+                WHERE data = %s AND tipo = 'fim' AND quantidade_kg < 3
+                ORDER BY quantidade_kg ASC
+                LIMIT 10
+            """, (ontem,))
+            result["stock_critico"] = [
+                {"loja": r[0], "sabor": r[1], "quantidade_kg": float(r[2])}
+                for r in cursor.fetchall()
+            ]
 
         return json.dumps(result, ensure_ascii=False, default=str)
     except Exception as exc:

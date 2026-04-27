@@ -215,7 +215,7 @@ def limpar_operacoes_expiradas() -> int:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "DELETE FROM agente_operacoes_pendentes WHERE created_at < NOW() - INTERVAL '30 minutes' AND estado = 'pendente'"
+            "DELETE FROM agente_operacoes_pendentes WHERE created_at < NOW() - INTERVAL '15 minutes' AND estado = 'pendente'"
         )
         deleted = cursor.rowcount
         conn.commit()
