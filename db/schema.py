@@ -2675,3 +2675,86 @@ def run_migrations_batch_id():
         """)
         conn.commit()
         logger.info("run_migrations_batch_id: batch_id column ensured on ordens_transferencia")
+
+
+_LOCK_AGENTE = 202700
+
+
+def run_migrations_agente():
+    """Idempotent: create Agente Scoopy tables.
+    Uses advisory lock 202700.
+    Tables: agente_conversas, agente_mensagens, agente_memoria, agente_operacoes_pendentes.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_AGENTE,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_agente: lock held by another worker, skipping")
+            return
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agente_conversas (
+                    id          SERIAL PRIMARY KEY,
+                    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    titulo      VARCHAR(500) NOT NULL DEFAULT 'Nova conversa',
+                    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agente_conv_user ON agente_conversas(user_id, updated_at DESC)")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agente_mensagens (
+                    id           SERIAL PRIMARY KEY,
+                    conversa_id  INTEGER NOT NULL REFERENCES agente_conversas(id) ON DELETE CASCADE,
+                    role         VARCHAR(20) NOT NULL,
+                    content      TEXT NOT NULL,
+                    tool_name    VARCHAR(100),
+                    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agente_msg_conv ON agente_mensagens(conversa_id, created_at ASC)")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agente_memoria (
+                    id          SERIAL PRIMARY KEY,
+                    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    chave       VARCHAR(200) NOT NULL,
+                    valor       TEXT NOT NULL,
+                    categoria   VARCHAR(50) NOT NULL DEFAULT 'geral',
+                    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (user_id, chave)
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agente_mem_user ON agente_memoria(user_id)")
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS agente_operacoes_pendentes (
+                    id               SERIAL PRIMARY KEY,
+                    conversa_id      INTEGER NOT NULL REFERENCES agente_conversas(id) ON DELETE CASCADE,
+                    user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    sql_proposto     TEXT NOT NULL,
+                    descricao        TEXT NOT NULL,
+                    impacto_estimado TEXT,
+                    estado           VARCHAR(20) NOT NULL DEFAULT 'pendente',
+                    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    executada_at     TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_agente_ops_user ON agente_operacoes_pendentes(user_id, estado)")
+
+            conn.commit()
+            logger.info("run_migrations_agente: Agente Scoopy tables created/verified")
+        except Exception as exc:
+            logger.error("run_migrations_agente failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_AGENTE,))
+                conn.commit()
+            except Exception:
+                pass

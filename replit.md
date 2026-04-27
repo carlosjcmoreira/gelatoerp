@@ -39,6 +39,7 @@ Sistema de autenticação com Flask sessions e permissões granulares por área,
 - **Serviços:** `flask_app/services/` — camada entre rotas e DB (KPI, sessão, produção)
 - **Servidor:** gunicorn `gunicorn.conf.py` — 4 workers sync, scheduler apenas no worker 1
 - **OCR:** Anthropic Vision (claude-haiku-4-5) via Replit AI Integrations
+- **Agente IA:** Anthropic (claude-sonnet-4-5) via Replit AI Integrations — ciclo agentic com 8 ferramentas
 - **OneDrive:** Microsoft Graph API (opcional, requer AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID)
 
 ### Módulo de Faturas (Fase 4 — M0a)
@@ -66,7 +67,8 @@ flask_app/
 │   ├── compras.py            # Compras (Artigos de Fornecimento, Criar Ordem de Transferência)
 │   ├── logistica.py          # Logística (Transferências Agendadas, Ordens de Transferência)
 │   ├── faturas.py            # Faturas (upload/OCR, listagem, detalhe, fornecedores, importação Excel)
-│   └── gestor.py             # Gestor (Uploads + config pages)
+│   ├── gestor.py             # Gestor (Uploads + config pages)
+│   └── agente.py             # Agente Scoopy (chat IA, confirmar/cancelar operações)
 ├── templates/
 │   ├── base.html             # Base template (Bootstrap 5, navbar, dark mode)
 │   ├── login.html
@@ -80,11 +82,13 @@ flask_app/
 │   ├── compras/              # 2 templates (artigos, criar_ordem)
 │   ├── logistica/            # 3 templates (index, agendadas, ordens)
 │   ├── forecast/             # 4 templates (index, explicacao, precisao, meteo_config)
-│   └── gestor/               # config pages + partials (inclui Catálogo de Materiais)
+│   ├── gestor/               # config pages + partials (inclui Catálogo de Materiais)
+│   └── agente/               # index.html — UI de chat (sidebar, Plotly inline, cartões de confirmação)
 ├── services/
 │   ├── __init__.py
 │   ├── kpi.py                # KPI calculation com caching inteligente (histórico vs corrente)
 │   ├── producao.py           # Orquestração de produção + invalidação de cache
+│   ├── agente_ia.py          # Serviço Agente Scoopy: loop agentic, 8 ferramentas, system prompt dinâmico
 │   └── session.py            # Helpers de sessão (require_user, login_required decorator)
 └── static/
     └── style.css             # Mobile-first CSS, dark mode, nav-grid
@@ -94,7 +98,8 @@ db/                           # Pacote de dados PostgreSQL (psycopg2)
 ├── __init__.py               # Re-exporta todos os módulos
 ├── cache.py                  # Cache TTL in-process (ttl_cache, invalidate)
 ├── connection.py             # Pool de conexões PostgreSQL
-├── schema.py                 # Migrações e criação de tabelas (SCHEMA_VERSION=13)
+├── schema.py                 # Migrações e criação de tabelas (SCHEMA_VERSION=13+agente)
+├── agente.py                 # CRUD para agente_conversas/mensagens/memoria/operacoes_pendentes
 ├── producao.py               # Produção gelado (plano, KPIs, stock, pesagem)
 ├── plano.py                  # Plano de produção diário
 ├── pastelaria.py             # Pastelaria e confeitaria

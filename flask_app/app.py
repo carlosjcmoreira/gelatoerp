@@ -25,7 +25,8 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_migrations_transferencias_motivo,
                         run_migrations_transferencias_eventos,
                         run_backfill_transferencias_eventos,
-                        run_migrations_batch_id)
+                        run_migrations_batch_id,
+                        run_migrations_agente)
 from db.tiles import run_migrations_tile_config
 from db.avencas import run_migrations_avencas
 from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2, run_migrations_tarefas_v3
@@ -127,6 +128,7 @@ def create_app():
         run_migrations_tarefas_v2()
         run_migrations_tarefas_v3()
         run_migrations_tile_config()
+        run_migrations_agente()
         _seed_all_tiles()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()
@@ -154,6 +156,7 @@ def create_app():
     from flask_app.routes.categorias_custo import categorias_custo_bp
     from flask_app.routes.avencas import avencas_bp
     from flask_app.routes.tarefas import tarefas_bp
+    from flask_app.routes.agente import agente_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -178,6 +181,7 @@ def create_app():
     app.register_blueprint(categorias_custo_bp, url_prefix='/financeiro/categorias')
     app.register_blueprint(avencas_bp, url_prefix='/financeiro/avencas')
     app.register_blueprint(tarefas_bp, url_prefix='/tarefas')
+    app.register_blueprint(agente_bp, url_prefix='/agente')
 
     import weather_scheduler
     weather_scheduler.start_weather_scheduler()

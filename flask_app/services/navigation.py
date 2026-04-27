@@ -21,6 +21,7 @@ _PAGE_DEFS = [
     ('acesso_tarefas',       '✅', 'Tarefas',              'Tarefas',    'tarefas.index',    '/tarefas'),
     ('acesso_gestor',        '👔', 'Gestor',               'Gestor',     'gestor.index',     '/gestor'),
     ('acesso_financeiro',    '💰', 'Financeiro',           'Financeiro', 'financeiro.index', '/financeiro'),
+    ('acesso_gestor',        '🤖', 'Agente Scoopy',        'Scoopy IA',  'agente.index',     '/agente'),
 ]
 
 

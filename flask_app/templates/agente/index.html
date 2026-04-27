@@ -1,0 +1,715 @@
+{% extends "base.html" %}
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+<style>
+.agente-layout {
+    display: flex;
+    height: calc(100vh - 56px);
+    overflow: hidden;
+}
+.agente-sidebar {
+    width: 260px;
+    min-width: 220px;
+    background: var(--bs-body-bg);
+    border-right: 1px solid var(--bs-border-color);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.sidebar-header {
+    padding: 12px;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+.sidebar-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+.sidebar-group-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--bs-secondary-color);
+    padding: 8px 12px 2px;
+}
+.sidebar-item {
+    display: flex;
+    align-items: center;
+    padding: 7px 12px;
+    cursor: pointer;
+    border-radius: 6px;
+    margin: 1px 6px;
+    font-size: 0.85rem;
+    color: var(--bs-body-color);
+    text-decoration: none;
+    transition: background 0.15s;
+    gap: 8px;
+}
+.sidebar-item:hover { background: var(--bs-secondary-bg); color: var(--bs-body-color); }
+.sidebar-item.active { background: var(--bs-primary); color: #fff; }
+.sidebar-item .si-title {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.sidebar-item .si-del {
+    opacity: 0;
+    font-size: 0.75rem;
+    padding: 1px 4px;
+    border-radius: 4px;
+    color: inherit;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+.sidebar-item:hover .si-del { opacity: 0.6; }
+.sidebar-item .si-del:hover { opacity: 1; }
+
+.agente-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+.chat-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--bs-border-color);
+    font-size: 0.9rem;
+    font-weight: 600;
+    background: var(--bs-body-bg);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.msg-row {
+    display: flex;
+    gap: 10px;
+    max-width: 860px;
+    width: 100%;
+}
+.msg-row.user { flex-direction: row-reverse; align-self: flex-end; }
+.msg-row.assistant { align-self: flex-start; }
+.msg-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+.msg-avatar.user-av { background: #0d6efd22; }
+.msg-avatar.asst-av { background: #2BB5A022; }
+.msg-bubble {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    max-width: calc(100% - 50px);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+.msg-row.user .msg-bubble {
+    background: #0d6efd;
+    color: #fff;
+    border-radius: 12px 2px 12px 12px;
+}
+.msg-row.assistant .msg-bubble {
+    background: var(--bs-secondary-bg);
+    border-radius: 2px 12px 12px 12px;
+}
+.msg-bubble pre {
+    background: var(--bs-tertiary-bg);
+    border-radius: 6px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    font-size: 0.8rem;
+    margin: 6px 0;
+}
+.msg-bubble code {
+    background: var(--bs-tertiary-bg);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-size: 0.82em;
+}
+.msg-bubble pre code { background: none; padding: 0; }
+.msg-bubble table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 6px 0; }
+.msg-bubble th, .msg-bubble td { border: 1px solid var(--bs-border-color); padding: 4px 8px; }
+.msg-bubble th { background: var(--bs-tertiary-bg); font-weight: 600; }
+.msg-bubble a { color: inherit; }
+.msg-row.user .msg-bubble a { color: #d0e8ff; }
+
+.chart-container {
+    background: var(--bs-secondary-bg);
+    border-radius: 8px;
+    padding: 8px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+
+.confirm-card {
+    border: 1px solid #fd7e14;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 10px;
+    background: var(--bs-body-bg);
+    font-size: 0.85rem;
+}
+.confirm-card .cc-title { font-weight: 600; color: #fd7e14; margin-bottom: 6px; }
+.confirm-card .cc-desc { margin-bottom: 6px; }
+.confirm-card .cc-impact { color: var(--bs-secondary-color); font-size: 0.82rem; margin-bottom: 8px; }
+.confirm-card pre { font-size: 0.78rem; max-height: 120px; overflow-y: auto; }
+.confirm-btns { display: flex; gap: 8px; margin-top: 10px; }
+
+.thinking-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    align-self: flex-start;
+}
+.thinking-dots {
+    display: flex;
+    gap: 4px;
+    padding: 12px 16px;
+    background: var(--bs-secondary-bg);
+    border-radius: 2px 12px 12px 12px;
+}
+.thinking-dots span {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--bs-secondary-color);
+    animation: bounce 1.2s infinite ease-in-out;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+    0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+.chat-input-area {
+    border-top: 1px solid var(--bs-border-color);
+    padding: 12px 16px;
+    background: var(--bs-body-bg);
+}
+.input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+}
+#chat-input {
+    flex: 1;
+    resize: none;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 0.875rem;
+    min-height: 40px;
+    max-height: 140px;
+    overflow-y: auto;
+    line-height: 1.4;
+}
+.file-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bs-secondary-bg);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 0.78rem;
+    margin-bottom: 6px;
+}
+.file-badge .fb-remove {
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 0.9em;
+}
+.file-badge .fb-remove:hover { opacity: 1; }
+
+#send-btn { flex-shrink: 0; }
+#upload-btn { flex-shrink: 0; }
+#file-input { display: none; }
+
+.empty-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--bs-secondary-color);
+    padding: 32px;
+    text-align: center;
+}
+.empty-icon { font-size: 3rem; line-height: 1; }
+
+@media (max-width: 600px) {
+    .agente-sidebar { display: none; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="agente-layout">
+    <!-- Sidebar -->
+    <aside class="agente-sidebar">
+        <div class="sidebar-header">
+            <button class="btn btn-primary btn-sm w-100" id="btn-nova-conv">
+                + Nova Conversa
+            </button>
+        </div>
+        <div class="sidebar-list" id="sidebar-list">
+            {% set today = None %}
+            {% set yesterday = None %}
+            {% set week = None %}
+            {% set older = None %}
+
+            {% for c in conversas %}
+                {% set cdate = c.updated_at %}
+                {% if loop.first %}{% endif %}
+            {% endfor %}
+
+            {% set ns = namespace(today=[], yesterday=[], week=[], older=[]) %}
+            {% for c in conversas %}
+                {% set now = c.updated_at %}
+                {% if now.date() == conversa.updated_at.date() %}
+                    {# today is not reliable from Jinja — we group on front-end instead #}
+                {% endif %}
+            {% endfor %}
+
+            <div id="sidebar-groups"></div>
+        </div>
+    </aside>
+
+    <!-- Main chat area -->
+    <div class="agente-main">
+        <div class="chat-header">
+            <span>🤖</span>
+            <span id="conv-title">{{ conversa.titulo }}</span>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+            {% if mensagens|length == 0 %}
+            <div class="empty-state" id="empty-state">
+                <div class="empty-icon">🤖</div>
+                <div>
+                    <div class="fw-semibold fs-5 mb-1">Olá! Sou o Agente Scoopy.</div>
+                    <div class="text-secondary small">O teu assistente de gestão inteligente.<br>Pergunta-me sobre vendas, produção, faturas, ou pede-me para criar uma tarefa.</div>
+                </div>
+            </div>
+            {% else %}
+            {% for m in mensagens %}
+            <div class="msg-row {{ m.role }}" data-role="{{ m.role }}">
+                <div class="msg-avatar {{ 'user-av' if m.role == 'user' else 'asst-av' }}">
+                    {{ '👤' if m.role == 'user' else '🤖' }}
+                </div>
+                <div class="msg-bubble" data-raw="{{ m.content | e }}">
+                    <!-- content injected by JS renderMsg -->
+                </div>
+            </div>
+            {% endfor %}
+            {% endif %}
+        </div>
+        <div class="chat-input-area">
+            <div id="file-preview-area"></div>
+            <div class="input-row">
+                <button class="btn btn-outline-secondary btn-sm" id="upload-btn" title="Enviar ficheiro CSV ou Excel">📎</button>
+                <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+                <textarea id="chat-input" class="form-control" rows="1"
+                          placeholder="Pergunta ao Agente Scoopy…"
+                          autocomplete="off"></textarea>
+                <button class="btn btn-primary btn-sm" id="send-btn" title="Enviar">
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M15.964.686a.5.5 0 0 0-.65-.65L.767 5.855H.766l-.452.18a.5.5 0 0 0-.082.887l.41.26.001.002 4.995 3.178 3.178 4.995.002.002.26.41a.5.5 0 0 0 .886-.083zm-1.833 1.89L6.637 10.07l-.215-.338L12.13 2.577z"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+'use strict';
+
+const CONVERSA_ID = {{ conversa.id }};
+const TITULO_INICIAL = {{ conversa.titulo | tojson }};
+const CONVERSAS_JSON = {{ conversas | tojson }};
+const HOJE = new Date(); HOJE.setHours(0,0,0,0);
+const ONTEM = new Date(HOJE); ONTEM.setDate(ONTEM.getDate()-1);
+const SEMANA = new Date(HOJE); SEMANA.setDate(SEMANA.getDate()-7);
+
+// ── Markdown básico ─────────────────────────────────────────────────────────
+function renderMarkdown(txt) {
+    if (!txt) return '';
+    txt = txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // code blocks
+    txt = txt.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code){
+        return '<pre><code>' + code.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>') + '</code></pre>';
+    });
+    // inline code
+    txt = txt.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    // bold
+    txt = txt.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    txt = txt.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    // italic
+    txt = txt.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // headers
+    txt = txt.replace(/^### (.+)$/gm, '<h6 class="mt-2 mb-1">$1</h6>');
+    txt = txt.replace(/^## (.+)$/gm, '<h5 class="mt-2 mb-1">$1</h5>');
+    txt = txt.replace(/^# (.+)$/gm, '<h4 class="mt-2 mb-1">$1</h4>');
+    // hr
+    txt = txt.replace(/^---$/gm, '<hr>');
+    // tables
+    txt = txt.replace(/((?:\|[^\n]+\|\n?)+)/g, function(table){
+        var rows = table.trim().split('\n');
+        if(rows.length < 2) return table;
+        var html = '<table class="table table-sm table-bordered">';
+        rows.forEach(function(row, i){
+            if(/^\|[-: |]+\|$/.test(row.trim())) return;
+            var cells = row.trim().replace(/^\||\|$/g,'').split('|');
+            html += '<tr>';
+            cells.forEach(function(cell){
+                var tag = (i===0)?'th':'td';
+                html += '<'+tag+'>'+cell.trim()+'</'+tag+'>';
+            });
+            html += '</tr>';
+        });
+        html += '</table>';
+        return html;
+    });
+    // lists
+    txt = txt.replace(/^(\s*[-*•]\s+.+)$/gm, '<li>$1</li>');
+    txt = txt.replace(/(<li>.*<\/li>\n?)+/gs, function(m){ return '<ul>'+m+'</ul>'; });
+    txt = txt.replace(/<li>(\s*[-*•]\s+)/g, '<li>');
+    // numbered lists
+    txt = txt.replace(/^(\s*\d+\.\s+.+)$/gm, '<li>$1</li>');
+    // line breaks
+    txt = txt.replace(/\n{2,}/g, '</p><p>');
+    txt = txt.replace(/\n/g, '<br>');
+    txt = '<p>' + txt + '</p>';
+    txt = txt.replace(/<p><\/p>/g,'');
+    return txt;
+}
+
+// ── Render message content ───────────────────────────────────────────────────
+function renderMsgBubble(bubble) {
+    var raw = bubble.getAttribute('data-raw') || bubble.textContent || '';
+    if (!raw.trim()) { bubble.innerHTML = ''; return; }
+    bubble.innerHTML = renderMarkdown(raw);
+}
+
+// ── Build Plotly chart ───────────────────────────────────────────────────────
+function renderChart(spec, container) {
+    var traces = [];
+    var tipo = spec.tipo || 'bar';
+    (spec.series || []).forEach(function(s){
+        var trace = { name: s.nome, x: s.x, y: s.y };
+        if (tipo === 'bar') trace.type = 'bar';
+        else if (tipo === 'line') { trace.type = 'scatter'; trace.mode = 'lines+markers'; }
+        else if (tipo === 'scatter') { trace.type = 'scatter'; trace.mode = 'markers'; }
+        else if (tipo === 'pie') { trace.type = 'pie'; trace.labels = s.x; trace.values = s.y; }
+        else trace.type = tipo;
+        traces.push(trace);
+    });
+    var layout = {
+        title: { text: spec.titulo || '', font: { size: 13 } },
+        xaxis: { title: spec.x_label || '' },
+        yaxis: { title: spec.y_label || '' },
+        margin: { t: 40, b: 50, l: 50, r: 20 },
+        height: 280,
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { size: 11 },
+        showlegend: traces.length > 1,
+    };
+    var chartDiv = document.createElement('div');
+    chartDiv.className = 'chart-container';
+    container.appendChild(chartDiv);
+    try { Plotly.newPlot(chartDiv, traces, layout, {responsive: true, displayModeBar: false}); }
+    catch(e) { chartDiv.textContent = 'Erro ao renderizar gráfico: ' + e; }
+}
+
+// ── Render confirm card ──────────────────────────────────────────────────────
+function renderConfirmCard(op, bubble) {
+    var card = document.createElement('div');
+    card.className = 'confirm-card';
+    card.innerHTML =
+        '<div class="cc-title">⚠️ Confirmar operação na base de dados</div>' +
+        '<div class="cc-desc">' + (op.descricao || '').replace(/</g,'&lt;') + '</div>' +
+        '<div class="cc-impact">📊 ' + (op.impacto_estimado || '').replace(/</g,'&lt;') + '</div>' +
+        '<div><strong>SQL que será executado:</strong><pre>' + (op.sql||'').replace(/</g,'&lt;') + '</pre></div>' +
+        '<div class="confirm-btns">' +
+        '<button class="btn btn-sm btn-danger cc-confirm-btn">✅ Confirmar</button>' +
+        '<button class="btn btn-sm btn-outline-secondary cc-cancel-btn">❌ Cancelar</button>' +
+        '</div>';
+    bubble.appendChild(card);
+
+    card.querySelector('.cc-confirm-btn').addEventListener('click', function(){
+        this.disabled = true; this.textContent = 'A executar…';
+        fetch('/agente/' + CONVERSA_ID + '/confirmar/' + op.operacao_id, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+        })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+            card.innerHTML = '<div class="cc-title">' + (d.ok ? '✅ Executado' : '❌ Erro') + '</div>' +
+                '<div>' + (d.mensagem||d.erro||'').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</div>';
+        })
+        .catch(function(e){ card.innerHTML = '<div class="cc-title">❌ Erro</div><div>' + e + '</div>'; });
+    });
+
+    card.querySelector('.cc-cancel-btn').addEventListener('click', function(){
+        fetch('/agente/' + CONVERSA_ID + '/cancelar/' + op.operacao_id, { method: 'POST' });
+        card.innerHTML = '<div style="color:var(--bs-secondary-color);font-size:0.82rem;">Operação cancelada.</div>';
+    });
+}
+
+// ── Add message to DOM ───────────────────────────────────────────────────────
+function addMessage(role, text, charts, operacao_pendente) {
+    var emptyState = document.getElementById('empty-state');
+    if (emptyState) emptyState.remove();
+
+    var row = document.createElement('div');
+    row.className = 'msg-row ' + role;
+    var av = document.createElement('div');
+    av.className = 'msg-avatar ' + (role==='user'?'user-av':'asst-av');
+    av.textContent = role==='user' ? '👤' : '🤖';
+    var bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.setAttribute('data-raw', text || '');
+    renderMsgBubble(bubble);
+
+    if (charts && charts.length) {
+        charts.forEach(function(spec){ renderChart(spec, bubble); });
+    }
+    if (operacao_pendente) {
+        renderConfirmCard(operacao_pendente, bubble);
+    }
+
+    if (role === 'user') { row.appendChild(bubble); row.appendChild(av); }
+    else { row.appendChild(av); row.appendChild(bubble); }
+
+    var container = document.getElementById('chat-messages');
+    container.appendChild(row);
+    scrollDown();
+    return row;
+}
+
+function scrollDown() {
+    var c = document.getElementById('chat-messages');
+    c.scrollTop = c.scrollHeight;
+}
+
+// ── Thinking indicator ───────────────────────────────────────────────────────
+var _thinkingRow = null;
+function showThinking() {
+    if (_thinkingRow) return;
+    var row = document.createElement('div');
+    row.className = 'thinking-row';
+    row.id = 'thinking-row';
+    var av = document.createElement('div');
+    av.className = 'msg-avatar asst-av';
+    av.textContent = '🤖';
+    var dots = document.createElement('div');
+    dots.className = 'thinking-dots';
+    dots.innerHTML = '<span></span><span></span><span></span>';
+    row.appendChild(av);
+    row.appendChild(dots);
+    document.getElementById('chat-messages').appendChild(row);
+    _thinkingRow = row;
+    scrollDown();
+}
+function hideThinking() {
+    if (_thinkingRow) { _thinkingRow.remove(); _thinkingRow = null; }
+}
+
+// ── File handling ────────────────────────────────────────────────────────────
+var _fileB64 = null;
+var _fileName = null;
+
+document.getElementById('upload-btn').addEventListener('click', function(){
+    document.getElementById('file-input').click();
+});
+document.getElementById('file-input').addEventListener('change', function(e){
+    var f = e.target.files[0];
+    if (!f) return;
+    var reader = new FileReader();
+    reader.onload = function(ev){
+        var b64full = ev.target.result;
+        var b64 = b64full.split(',')[1] || b64full;
+        _fileB64 = b64;
+        _fileName = f.name;
+        var area = document.getElementById('file-preview-area');
+        area.innerHTML = '<div class="file-badge">📎 ' + f.name.replace(/</g,'&lt;') +
+            ' <span class="fb-remove" id="fb-remove">✕</span></div>';
+        document.getElementById('fb-remove').addEventListener('click', function(){
+            _fileB64 = null; _fileName = null; area.innerHTML = '';
+            document.getElementById('file-input').value = '';
+        });
+    };
+    reader.readAsDataURL(f);
+    e.target.value = '';
+});
+
+// ── Briefing matinal ─────────────────────────────────────────────────────────
+function isFirstOfDay() {
+    var key = 'scoopy_briefing_' + new Date().toISOString().slice(0,10);
+    if (localStorage.getItem(key)) return false;
+    localStorage.setItem(key, '1');
+    return true;
+}
+
+// ── Send message ─────────────────────────────────────────────────────────────
+var _sending = false;
+function sendMessage() {
+    if (_sending) return;
+    var input = document.getElementById('chat-input');
+    var txt = input.value.trim();
+    if (!txt && !_fileB64) return;
+
+    _sending = true;
+    input.value = '';
+    input.style.height = '';
+
+    var displayTxt = txt;
+    if (_fileName) displayTxt = txt + (txt ? '\n📎 ' : '📎 ') + _fileName;
+    addMessage('user', displayTxt, null, null);
+    showThinking();
+
+    var payload = {
+        mensagem: txt,
+        ficheiro_b64: _fileB64 || null,
+        ficheiro_nome: _fileName || null,
+        is_first_of_day: isFirstOfDay(),
+    };
+
+    _fileB64 = null; _fileName = null;
+    document.getElementById('file-preview-area').innerHTML = '';
+    document.getElementById('file-input').value = '';
+
+    fetch('/agente/' + CONVERSA_ID + '/mensagem', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+        hideThinking();
+        if (d.erro) {
+            addMessage('assistant', '❌ ' + d.erro, null, null);
+        } else {
+            addMessage('assistant', d.resposta || '', d.charts || [], d.operacao_pendente || null);
+            if (d.titulo) {
+                document.getElementById('conv-title').textContent = d.titulo;
+                updateSidebarTitle(CONVERSA_ID, d.titulo);
+            }
+        }
+    })
+    .catch(function(e){
+        hideThinking();
+        addMessage('assistant', '❌ Erro de rede: ' + e, null, null);
+    })
+    .finally(function(){ _sending = false; });
+}
+
+document.getElementById('send-btn').addEventListener('click', sendMessage);
+document.getElementById('chat-input').addEventListener('keydown', function(e){
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+document.getElementById('chat-input').addEventListener('input', function(){
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 140) + 'px';
+});
+
+// ── Nova conversa ────────────────────────────────────────────────────────────
+document.getElementById('btn-nova-conv').addEventListener('click', function(){
+    fetch('/agente/nova', { method: 'POST' })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+        if (d.url) { window.location.href = d.url; }
+    });
+});
+
+// ── Sidebar ──────────────────────────────────────────────────────────────────
+function buildSidebar(conversas) {
+    var groups = { hoje: [], ontem: [], semana: [], antigo: [] };
+    conversas.forEach(function(c){
+        var d = new Date(c.updated_at);
+        d.setHours(0,0,0,0);
+        if (d >= HOJE) groups.hoje.push(c);
+        else if (d >= ONTEM) groups.ontem.push(c);
+        else if (d >= SEMANA) groups.semana.push(c);
+        else groups.antigo.push(c);
+    });
+
+    var html = '';
+    var defs = [
+        ['hoje','Hoje'], ['ontem','Ontem'],
+        ['semana','Esta semana'], ['antigo','Mais antigo']
+    ];
+    defs.forEach(function(g){
+        var list = groups[g[0]];
+        if (!list.length) return;
+        html += '<div class="sidebar-group-label">' + g[1] + '</div>';
+        list.forEach(function(c){
+            var active = (c.id === CONVERSA_ID) ? ' active' : '';
+            html += '<a class="sidebar-item' + active + '" href="/agente/' + c.id + '" data-cid="' + c.id + '">' +
+                '<span class="si-title">' + (c.titulo||'Conversa').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+                '<button class="si-del" data-cid="' + c.id + '" title="Eliminar">✕</button>' +
+                '</a>';
+        });
+    });
+    document.getElementById('sidebar-groups').innerHTML = html;
+
+    document.querySelectorAll('.si-del').forEach(function(btn){
+        btn.addEventListener('click', function(e){
+            e.preventDefault(); e.stopPropagation();
+            var cid = parseInt(this.getAttribute('data-cid'));
+            if (!confirm('Eliminar esta conversa?')) return;
+            fetch('/agente/' + cid, { method: 'DELETE' })
+            .then(function(){ if (cid === CONVERSA_ID) window.location.href='/agente/'; })
+            .catch(function(){});
+            this.closest('.sidebar-item').remove();
+        });
+    });
+}
+
+function updateSidebarTitle(cid, titulo) {
+    var item = document.querySelector('.sidebar-item[data-cid="' + cid + '"] .si-title');
+    if (item) item.textContent = titulo;
+}
+
+buildSidebar(CONVERSAS_JSON);
+
+// ── Render existing messages ─────────────────────────────────────────────────
+document.querySelectorAll('.msg-bubble[data-raw]').forEach(function(b){
+    renderMsgBubble(b);
+});
+
+scrollDown();
+
+// ── Briefing automático se primeiro do dia e sem mensagens ──────────────────
+{% if mensagens|length == 0 %}
+if (isFirstOfDay()) {
+    var briefingMsg = 'Olá! Faz-me um briefing do estado do negócio hoje — vendas de ontem, produção, tarefas em atraso e faturas próximas.';
+    document.getElementById('chat-input').value = briefingMsg;
+}
+{% endif %}
+
+})();
+</script>
+{% endblock %}
