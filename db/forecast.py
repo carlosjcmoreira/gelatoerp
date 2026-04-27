@@ -953,6 +953,183 @@ def get_accuracy_data(loja: Optional[str] = None, weeks: int = 12) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Meteo multiplier auto-calibration
+# ---------------------------------------------------------------------------
+
+def calibrate_meteo_multipliers(loja: str, days: int = 90) -> dict:
+    """Recalibrate weather multipliers for `loja` from historical sales data.
+
+    Reads weather_data (per-store composite score) + vendas/sales_historico
+    for the last `days` days (90–180), bins by weather score
+    (0–29, 30–59, 60–84, 85–100), computes mean sales per bin, normalises
+    so the "good weather" bin (60–84) = 1.00, and updates
+    forecast_meteo_config for this store.
+
+    Falls back to meteo_cache if weather_data has no rows for this store.
+    Returns a summary dict with the derived multipliers and diagnostics.
+    """
+    today = date.today()
+    cutoff = today - timedelta(days=days)
+
+    bins = [(0, 29), (30, 59), (60, 84), (85, 100)]
+    label_map = {
+        (0, 29):   'Mau tempo (0–29)',
+        (30, 59):  'Tempo incerto (30–59)',
+        (60, 84):  'Bom tempo (60–84)',
+        (85, 100): 'Excelente (85–100)',
+    }
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+
+        # Resolve store_id so weather queries are scoped to this specific store
+        cursor.execute(
+            "SELECT id FROM stores WHERE name = %s AND is_active = TRUE LIMIT 1",
+            (loja,),
+        )
+        store_row = cursor.fetchone()
+        store_id = store_row[0] if store_row else None
+
+        # Load vendas for the window (aggregate per day — safe against duplicate rows)
+        # vendas takes priority over sales_historico
+        cursor.execute("""
+            SELECT data, SUM(valor_euros) FROM vendas
+            WHERE loja = %s AND data >= %s AND data < %s
+            GROUP BY data
+        """, (loja, cutoff, today))
+        vendas_by_date = {r[0]: float(r[1]) for r in cursor.fetchall()}
+
+        cursor.execute("""
+            SELECT data, SUM(valor_euros) FROM sales_historico
+            WHERE loja = %s AND data >= %s AND data < %s
+            GROUP BY data
+        """, (loja, cutoff, today))
+        for r in cursor.fetchall():
+            if r[0] not in vendas_by_date:
+                vendas_by_date[r[0]] = float(r[1])
+
+        if not vendas_by_date:
+            return {'error': 'Sem dados de vendas suficientes para calibrar.', 'multipliers': {}}
+
+        # --- Primary: load per-store composite weather score from weather_data ---
+        # AVG(score) across sources (fontes) per day for this store.
+        meteo_by_date: dict = {}
+        if store_id is not None:
+            cursor.execute("""
+                SELECT data, ROUND(AVG(score)::numeric, 0)
+                FROM weather_data
+                WHERE store_id = %s AND score IS NOT NULL
+                  AND data >= %s AND data < %s
+                GROUP BY data
+            """, (store_id, cutoff, today))
+            for r in cursor.fetchall():
+                if r[1] is not None:
+                    meteo_by_date[r[0]] = int(r[1])
+
+        # --- Fallback: meteo_cache (non-store-specific daily composite) ---
+        if not meteo_by_date:
+            try:
+                cursor.execute("SAVEPOINT sp_cal_meteo")
+                cursor.execute("""
+                    SELECT data, score FROM meteo_cache
+                    WHERE data >= %s AND data < %s
+                """, (cutoff, today))
+                for r in cursor.fetchall():
+                    if r[1] is not None:
+                        meteo_by_date[r[0]] = int(r[1])
+                cursor.execute("RELEASE SAVEPOINT sp_cal_meteo")
+            except Exception:
+                try:
+                    cursor.execute("ROLLBACK TO SAVEPOINT sp_cal_meteo")
+                except Exception:
+                    pass
+
+        if not meteo_by_date:
+            return {'error': 'Sem dados meteorológicos suficientes para calibrar.', 'multipliers': {}}
+
+        # Bin sales by weather score
+        bin_sales: dict = {b: [] for b in bins}
+        matched = 0
+        for d, score in meteo_by_date.items():
+            if d in vendas_by_date:
+                for b in bins:
+                    if b[0] <= score <= b[1]:
+                        bin_sales[b].append(vendas_by_date[d])
+                        matched += 1
+                        break
+
+        if matched < 10:
+            return {
+                'error': (
+                    f'Dados insuficientes ({matched} dias com vendas + meteo). '
+                    'São necessários pelo menos 10 dias sobrepostos.'
+                ),
+                'multipliers': {},
+            }
+
+        # Compute mean sales per bin
+        bin_means: dict = {}
+        for b, vals in bin_sales.items():
+            if vals:
+                bin_means[b] = statistics.mean(vals)
+
+        if not bin_means:
+            return {'error': 'Nenhum bin com dados suficientes.', 'multipliers': {}}
+
+        # Reference: "good weather" bin (60–84); fall back to overall mean
+        ref_bin = (60, 84)
+        ref_value = bin_means.get(ref_bin) or statistics.mean(bin_means.values())
+        if ref_value <= 0:
+            return {'error': 'Valor de referência inválido para normalização.', 'multipliers': {}}
+
+        # Derive multipliers, clamped to [0.40, 2.00]
+        derived: dict = {}
+        for b in bins:
+            if b in bin_means:
+                raw = bin_means[b] / ref_value
+                derived[b] = round(max(0.40, min(2.00, raw)), 4)
+
+        # Upsert forecast_meteo_config — insert row if missing, update if present
+        for b, mult in derived.items():
+            cursor.execute("""
+                INSERT INTO forecast_meteo_config (store_id, loja, score_min, score_max, multiplicador, updated_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (loja, score_min, score_max) DO UPDATE
+                    SET multiplicador = EXCLUDED.multiplicador,
+                        updated_at = NOW()
+            """, (store_id, loja, b[0], b[1], mult))
+
+        conn.commit()
+
+        # Build result summary
+        multipliers = {}
+        for b in bins:
+            lbl = label_map[b]
+            if b in derived:
+                multipliers[lbl] = {
+                    'multiplier': derived[b],
+                    'mean_sales': round(bin_means[b], 2),
+                    'n_days': len(bin_sales[b]),
+                }
+            else:
+                multipliers[lbl] = {
+                    'multiplier': None,
+                    'mean_sales': None,
+                    'n_days': 0,
+                    'note': 'Sem dados — multiplicador inalterado',
+                }
+
+        return {
+            'loja': loja,
+            'days_analysed': days,
+            'matched_days': matched,
+            'reference_bin': f'{ref_bin[0]}–{ref_bin[1]}',
+            'reference_mean_sales': round(ref_value, 2),
+            'multipliers': multipliers,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Meteo config CRUD
 # ---------------------------------------------------------------------------
 

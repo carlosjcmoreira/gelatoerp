@@ -18,6 +18,7 @@ from db.forecast import (
     get_accuracy_data,
     get_meteo_config,
     update_meteo_config,
+    calibrate_meteo_multipliers,
     get_epoch_label,
     get_homolog_sales,
     get_past_sales,
@@ -331,6 +332,40 @@ def meteo_config():
         selected_loja=loja,
         config=config,
     )
+
+
+# ---------------------------------------------------------------------------
+# Auto-calibration endpoint
+# ---------------------------------------------------------------------------
+
+@forecast_bp.route('/meteo-config/calibrar', methods=['POST'])
+@perm_required('acesso_gestor')
+def meteo_config_calibrar():
+    loja = request.form.get('loja', '').strip()
+    days_str = request.form.get('days', '90')
+
+    store_names = _store_names()
+    if not loja or loja not in store_names:
+        flash('Loja inválida.', 'error')
+        return redirect(url_for('forecast.meteo_config'))
+
+    try:
+        days = max(90, min(180, int(days_str)))
+    except (ValueError, TypeError):
+        days = 90
+
+    result = calibrate_meteo_multipliers(loja, days=days)
+
+    if 'error' in result:
+        flash(f'Calibração falhou: {result["error"]}', 'warning')
+    else:
+        flash(
+            f'Multiplicadores recalibrados com {result["matched_days"]} dias de dados '
+            f'(janela de {result["days_analysed"]} dias).',
+            'success',
+        )
+
+    return redirect(url_for('forecast.meteo_config', loja=loja))
 
 
 # ---------------------------------------------------------------------------

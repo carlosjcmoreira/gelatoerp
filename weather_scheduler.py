@@ -49,6 +49,34 @@ def _run_weather_update():
         logger.error("Weather scheduler run error: %s", e)
 
 
+def _run_meteo_calibration():
+    """Weekly auto-calibration of weather multipliers for all active stores."""
+    try:
+        import database as db
+        from db.forecast import calibrate_meteo_multipliers
+
+        stores = db.get_all_stores()
+        active_stores = [s for s in stores if s.get("is_active")]
+        logger.info("Meteo calibration: running for %d stores", len(active_stores))
+
+        for store in active_stores:
+            name = store.get("name", "")
+            try:
+                result = calibrate_meteo_multipliers(name, days=90)
+                if "error" in result:
+                    logger.warning("Meteo calibration skipped for '%s': %s", name, result["error"])
+                else:
+                    logger.info(
+                        "Meteo calibration for '%s': %d matched days, multipliers updated",
+                        name, result.get("matched_days", 0),
+                    )
+            except Exception as e:
+                logger.error("Meteo calibration failed for store '%s': %s", name, e)
+
+    except Exception as e:
+        logger.error("Meteo calibration scheduler run error: %s", e)
+
+
 def start_weather_scheduler():
     global _scheduler
     if not _is_scheduler_process():
@@ -69,8 +97,15 @@ def start_weather_scheduler():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+            _scheduler.add_job(
+                _run_meteo_calibration,
+                CronTrigger(day_of_week="mon", hour="3", minute="0", timezone="Europe/Lisbon"),
+                id="meteo_calibration",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             _scheduler.start()
-            logger.info("Weather scheduler started (bi-daily: 07-08h and 13-14h Lisbon time)")
+            logger.info("Weather scheduler started (bi-daily: 07-08h and 13-14h Lisbon time; meteo calibration: Mon 03:00)")
         except Exception as e:
             logger.error("Failed to start weather scheduler: %s", e)
 
