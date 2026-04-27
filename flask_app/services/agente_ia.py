@@ -1,14 +1,15 @@
 """Agente Scoopy — serviço de conversação com IA (Claude Sonnet).
 
 Ferramentas disponíveis:
-  - query_database        : SELECT na BD → análise
-  - render_chart          : spec Plotly → gráfico inline
-  - propose_write_query   : propõe DELETE/UPDATE/INSERT para confirmação
-  - import_data_from_file : pré-visualização de CSV/Excel
-  - confirm_import        : executa inserção de dados
-  - save_memory           : guarda facto na agente_memoria
-  - create_tarefa         : cria tarefa no módulo Tarefas
-  - get_daily_briefing    : resumo do estado do negócio
+  - query_database                   : SELECT na BD → análise
+  - render_chart                     : spec Plotly → gráfico inline
+  - propose_write_query              : propõe DELETE/UPDATE/INSERT para confirmação
+  - import_data_from_file            : pré-visualização de CSV/Excel
+  - confirm_import                   : executa inserção de dados
+  - save_memory                      : guarda facto na agente_memoria
+  - create_tarefa                    : cria tarefa no módulo Tarefas
+  - get_daily_briefing               : resumo do estado do negócio
+  - analyse_weather_sales_correlation: correlação clima × vendas + sugestão amanhã
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ import json
 import logging
 import os
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,23 @@ stock_materiais(id, material_id INT, loja VARCHAR, quantidade REAL)
 agente_memoria(id, user_id INT, chave VARCHAR, valor TEXT,
                categoria VARCHAR, created_at, updated_at)
   — memória persistente do negócio
+
+weather_data(id, store_id INT, fonte VARCHAR, data DATE,
+             temperatura_max REAL, temperatura_min REAL,
+             precipitacao_mm REAL, vento_kmh REAL, uv_index REAL,
+             condicao VARCHAR, score INTEGER, updated_at)
+  — dados meteorológicos históricos e de previsão por loja e fonte (IPMA, Open-Meteo, etc.)
+  — score: 0-100 (0=mau tempo, 100=excelente); fontes: 'ipma', 'open_meteo', 'accuweather'
+
+sales_forecasts(id, store_id INT, loja VARCHAR, data DATE,
+                previsao_eur NUMERIC, banda_min NUMERIC, banda_max NUMERIC,
+                score_meteo INTEGER, condicao_meteo VARCHAR,
+                factor_yoy NUMERIC, multiplicador_meteo NUMERIC,
+                base_historica NUMERIC, override_manual NUMERIC,
+                override_motivo TEXT, venda_real NUMERIC, erro_real_pct NUMERIC,
+                gerado_em TIMESTAMP)
+  — previsões de vendas diárias (motor M2b), inclui ajuste meteorológico
+  — multiplicador_meteo: ex. 1.15 = +15% por bom tempo; 0.70 = -30% por mau tempo
 """
 
 
@@ -158,6 +176,7 @@ REGRAS DE COMPORTAMENTO:
 8. Limita os resultados de queries a 200 linhas por defeito. Usa agregações quando adequado.
 9. Para comparações YoY, usa as tabelas vendas + sales_historico em conjunto.
 10. Ao propor operações de escrita, descreve claramente o impacto em linguagem natural e apresenta o SQL exacto.
+11. Para análise de correlação clima × vendas ou sugestões baseadas em meteorologia, usa SEMPRE a ferramenta analyse_weather_sales_correlation — nunca faças a correlação manualmente via SQL. Após receberes os dados, gera um gráfico de dispersão (temperatura vs vendas) com render_chart para cada loja e apresenta a sugestão de amanhã em destaque.
 """
 
 
@@ -264,6 +283,31 @@ _TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "analyse_weather_sales_correlation",
+        "description": (
+            "Analisa a correlação entre dados meteorológicos (temperatura, precipitação, score de tempo) "
+            "e as vendas diárias por loja. Devolve: (1) dados de dispersão temperatura vs vendas prontos "
+            "para gráfico, (2) coeficiente de correlação de Pearson, (3) sugestão automática baseada na "
+            "previsão meteorológica de amanhã (ex: 'Amanhã há sol e 28°C — prevejo vendas acima da média "
+            "em 15%'). Integra com o motor de forecast existente: lê sales_forecasts e, se a previsão de "
+            "amanhã ainda não existir, gera-a automaticamente (efeito colateral: cria rows em sales_forecasts)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "loja": {
+                    "type": "string",
+                    "description": "Nome da loja a analisar (ex: 'Niva Bolhão'). Se omitido, analisa todas as lojas activas.",
+                },
+                "dias": {
+                    "type": "integer",
+                    "description": "Janela histórica em dias para a correlação (padrão: 90). Máximo: 365.",
+                },
+            },
             "required": [],
         },
     },
@@ -705,6 +749,358 @@ def _handle_get_daily_briefing() -> str:
         return json.dumps({"erro": str(exc)})
 
 
+def _pearson_correlation(xs: list, ys: list) -> float | None:
+    """Compute Pearson r between two equal-length lists. Returns None if insufficient data."""
+    n = len(xs)
+    if n < 3:
+        return None
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    num = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    den_x = sum((x - mean_x) ** 2 for x in xs) ** 0.5
+    den_y = sum((y - mean_y) ** 2 for y in ys) ** 0.5
+    if den_x == 0 or den_y == 0:
+        return None
+    return round(num / (den_x * den_y), 4)
+
+
+def _handle_analyse_weather_sales_correlation(params: dict) -> str:
+    """Handler for the analyse_weather_sales_correlation tool.
+
+    Queries weather_data + vendas for the requested window, computes Pearson
+    correlations, loads tomorrow's forecast from sales_forecasts (if available)
+    and returns a structured payload the model can use to narrate insights and
+    call render_chart with the scatter data.
+    """
+    loja_filter = params.get("loja") or None
+
+    try:
+        try:
+            dias = max(1, min(int(params.get("dias") or 90), 365))
+        except (TypeError, ValueError):
+            dias = 90
+
+        from db.connection import db_connection
+        hoje = date.today()
+        data_inicio = hoje - timedelta(days=dias)
+
+        with db_connection() as conn:
+            cursor = conn.cursor()
+
+            # ── 1. Load stores ──────────────────────────────────────────────
+            # Prefer stores that support sales; fall back to all active stores
+            cursor.execute("""
+                SELECT id, name FROM stores
+                WHERE is_active = TRUE AND supports_vendas = TRUE
+                ORDER BY name
+            """)
+            stores_vendas = cursor.fetchall()
+            cursor.execute("SELECT id, name FROM stores WHERE is_active = TRUE ORDER BY name")
+            stores_all = cursor.fetchall()
+            stores_pool = stores_vendas if stores_vendas else stores_all
+
+            loja_filter_warning = None
+            if loja_filter:
+                loja_lower = loja_filter.lower()
+                stores = [(sid, sname) for sid, sname in stores_pool if loja_lower in sname.lower()]
+                if not stores:
+                    loja_filter_warning = (
+                        f"Nenhuma loja activa encontrada com o nome '{loja_filter}'. "
+                        f"A analisar todas as lojas com suporte a vendas: "
+                        f"{', '.join(s[1] for s in stores_pool)}."
+                    )
+                    stores = stores_pool
+            else:
+                stores = stores_pool
+
+            # Load forecast_meteo_config multipliers for heuristic fallback.
+            # Guard with a savepoint in case migrations haven't run yet.
+            meteo_config_by_loja: dict[str, list] = {}
+            try:
+                cursor.execute("SAVEPOINT sp_meteo_cfg")
+                cursor.execute("""
+                    SELECT loja, score_min, score_max, multiplicador
+                    FROM forecast_meteo_config
+                    ORDER BY loja, score_min
+                """)
+                for r in cursor.fetchall():
+                    meteo_config_by_loja.setdefault(r[0], []).append(
+                        {"score_min": r[1], "score_max": r[2], "multiplicador": float(r[3])}
+                    )
+                cursor.execute("RELEASE SAVEPOINT sp_meteo_cfg")
+            except Exception:
+                try:
+                    cursor.execute("ROLLBACK TO SAVEPOINT sp_meteo_cfg")
+                except Exception:
+                    pass
+
+            # ── 2. Correlation data per store ───────────────────────────────
+            lojas_result = []
+            for store_id, store_name in stores:
+                # Daily composite weather (avg across sources per day)
+                # No NULL filter on temperatura_max — allow days with only
+                # precipitation/score data to contribute to those correlations.
+                cursor.execute("""
+                    SELECT
+                        w.data,
+                        ROUND(AVG(w.temperatura_max)::numeric, 1)  AS temp_max,
+                        ROUND(AVG(w.precipitacao_mm)::numeric, 1)  AS precip,
+                        ROUND(AVG(w.score)::numeric, 0)            AS score_medio
+                    FROM weather_data w
+                    WHERE w.store_id = %s
+                      AND w.data >= %s AND w.data < %s
+                    GROUP BY w.data
+                    ORDER BY w.data
+                """, (store_id, data_inicio, hoje))
+                meteo_rows = {r[0]: {"temp_max": float(r[1]) if r[1] is not None else None,
+                                     "precip": float(r[2]) if r[2] is not None else None,
+                                     "score": int(r[3]) if r[3] is not None else None}
+                              for r in cursor.fetchall()}
+
+                # Daily sales (live vendas + historico fill-in)
+                cursor.execute("""
+                    SELECT data, valor_euros FROM vendas
+                    WHERE loja = %s AND data >= %s AND data < %s
+                    ORDER BY data
+                """, (store_name, data_inicio, hoje))
+                vendas_rows = {r[0]: float(r[1]) for r in cursor.fetchall()}
+
+                cursor.execute("""
+                    SELECT data, SUM(valor_euros) FROM sales_historico
+                    WHERE loja = %s AND data >= %s AND data < %s
+                    GROUP BY data
+                """, (store_name, data_inicio, hoje))
+                for r in cursor.fetchall():
+                    if r[0] not in vendas_rows:
+                        vendas_rows[r[0]] = float(r[1])
+
+                # Intersect dates
+                common_dates = sorted(set(meteo_rows.keys()) & set(vendas_rows.keys()))
+                if not common_dates:
+                    lojas_result.append({
+                        "loja": store_name,
+                        "aviso": "Sem dados meteorológicos e de vendas sobrepostos nesta janela.",
+                        "pontos": [],
+                        "correlacao_temp_vendas": None,
+                        "correlacao_precip_vendas": None,
+                        "correlacao_score_vendas": None,
+                        "media_vendas_eur": 0.0,
+                        "dias_analisados": 0,
+                    })
+                    continue
+
+                # Build per-metric aligned pairs so nulls in one dimension
+                # do not shift the paired sales values for another dimension.
+                pontos = []
+                temp_pairs: list[tuple] = []   # (temp_max, sales)
+                precip_pairs: list[tuple] = [] # (precip_mm, sales)
+                score_pairs: list[tuple] = []  # (score, sales)
+                all_vendas: list[float] = []
+
+                for d in common_dates:
+                    m = meteo_rows[d]
+                    v = vendas_rows[d]
+                    pontos.append({
+                        "data": d.isoformat(),
+                        "temp_max": m["temp_max"],
+                        "precip_mm": m["precip"],
+                        "score_meteo": m["score"],
+                        "vendas_eur": round(v, 2),
+                    })
+                    all_vendas.append(v)
+                    if m["temp_max"] is not None:
+                        temp_pairs.append((m["temp_max"], v))
+                    if m["precip"] is not None:
+                        precip_pairs.append((m["precip"], v))
+                    if m["score"] is not None:
+                        score_pairs.append((m["score"], v))
+
+                r_temp = (
+                    _pearson_correlation([p[0] for p in temp_pairs], [p[1] for p in temp_pairs])
+                    if len(temp_pairs) >= 3 else None
+                )
+                r_precip = (
+                    _pearson_correlation([p[0] for p in precip_pairs], [p[1] for p in precip_pairs])
+                    if len(precip_pairs) >= 3 else None
+                )
+                r_score = (
+                    _pearson_correlation([p[0] for p in score_pairs], [p[1] for p in score_pairs])
+                    if len(score_pairs) >= 3 else None
+                )
+
+                # Mean sales across all common dates (used for tomorrow's suggestion)
+                mean_vendas = sum(all_vendas) / len(all_vendas) if all_vendas else 0.0
+
+                lojas_result.append({
+                    "loja": store_name,
+                    "dias_analisados": len(common_dates),
+                    "pontos": pontos,
+                    "correlacao_temp_vendas": r_temp,
+                    "correlacao_precip_vendas": r_precip,
+                    "correlacao_score_vendas": r_score,
+                    "media_vendas_eur": round(mean_vendas, 2),
+                })
+
+            # ── 3. Tomorrow forecast + meteo ────────────────────────────────
+            amanha = hoje + timedelta(days=1)
+            amanha_meteo = {}
+            selected_store_ids = [sid for sid, _ in stores]
+            # Scope to selected stores; preferred source order: ipma > open_meteo > any
+            cursor.execute("""
+                SELECT
+                    s.name,
+                    ROUND(AVG(w.temperatura_max)::numeric, 1) AS temp_max,
+                    ROUND(AVG(w.precipitacao_mm)::numeric, 1) AS precip,
+                    ROUND(AVG(w.score)::numeric, 0)           AS score_medio,
+                    COALESCE(
+                        MAX(CASE WHEN w.fonte = 'ipma' THEN w.condicao END),
+                        MAX(CASE WHEN w.fonte = 'open_meteo' THEN w.condicao END),
+                        MAX(w.condicao)
+                    )                                         AS condicao
+                FROM weather_data w
+                JOIN stores s ON s.id = w.store_id
+                WHERE w.data = %s AND w.store_id = ANY(%s)
+                GROUP BY s.name
+            """, (amanha, selected_store_ids))
+            for r in cursor.fetchall():
+                amanha_meteo[r[0]] = {
+                    "temp_max": float(r[1]) if r[1] is not None else None,
+                    "precip_mm": float(r[2]) if r[2] is not None else None,
+                    "score": int(r[3]) if r[3] is not None else None,
+                    "condicao": r[4],
+                }
+
+            # Forecast from sales_forecasts table (selected stores only)
+            selected_store_names = [sname for _, sname in stores]
+            amanha_forecast = {}
+            cursor.execute("""
+                SELECT loja, previsao_eur, score_meteo, condicao_meteo, multiplicador_meteo
+                FROM sales_forecasts
+                WHERE data = %s AND loja = ANY(%s)
+            """, (amanha, selected_store_names))
+            for r in cursor.fetchall():
+                amanha_forecast[r[0]] = {
+                    "previsao_eur": float(r[1]) if r[1] is not None else None,
+                    "score_meteo": r[2],
+                    "condicao_meteo": r[3],
+                    "multiplicador_meteo": float(r[4]) if r[4] is not None else None,
+                }
+
+            # If any stores lack a forecast for tomorrow, try to generate them now
+            # so the suggestion uses actual model output rather than a heuristic.
+            stores_missing_forecast = [
+                sname for _, sname in stores
+                if sname not in amanha_forecast
+            ]
+            stores_forecast_generated_now: list[str] = []
+            if stores_missing_forecast:
+                try:
+                    from db.forecast import generate_forecasts
+                    for sname in stores_missing_forecast:
+                        fc_rows = generate_forecasts(sname, horizon_days=1)
+                        if fc_rows:
+                            row = fc_rows[0]
+                            amanha_forecast[sname] = {
+                                "previsao_eur": row.get("previsao_eur"),
+                                "score_meteo": row.get("score_meteo"),
+                                "condicao_meteo": row.get("condicao_meteo"),
+                                "multiplicador_meteo": row.get("multiplicador_meteo"),
+                            }
+                            stores_forecast_generated_now.append(sname)
+                except Exception as _fc_exc:
+                    logger.warning("analyse_weather_sales_correlation: forecast generation skipped: %s", _fc_exc)
+
+            # Build tomorrow suggestions per loja
+            sugestoes_amanha = []
+            for loja_info in lojas_result:
+                lname = loja_info["loja"]
+                meteo_a = amanha_meteo.get(lname, {})
+                fc = amanha_forecast.get(lname, {})
+
+                temp = meteo_a.get("temp_max")
+                precip = meteo_a.get("precip_mm")
+                score_meteo = meteo_a.get("score")
+                if score_meteo is None:
+                    score_meteo = fc.get("score_meteo")
+                cond = meteo_a.get("condicao") or fc.get("condicao_meteo") or "–"
+                previsao = fc.get("previsao_eur")
+                mean_v = loja_info.get("media_vendas_eur", 0)
+
+                if previsao is not None and mean_v:
+                    pct_vs_media = round((previsao / mean_v - 1) * 100, 1)
+                    sinal = "acima" if pct_vs_media >= 0 else "abaixo"
+                    pct_abs = abs(pct_vs_media)
+                    if temp is not None:
+                        texto = (
+                            f"Amanhã em {lname}: {cond}, {temp}°C"
+                            + (f", {precip} mm de chuva" if precip is not None and precip > 0.5 else "")
+                            + (f" (score meteo: {score_meteo})" if score_meteo is not None else "")
+                            + f" — prevejo vendas {sinal} da média em {pct_abs}%"
+                            + f" ({previsao:.0f}€ vs. média de {mean_v:.0f}€)."
+                        )
+                    else:
+                        texto = (
+                            f"Amanhã em {lname}: {cond}"
+                            + (f" (score meteo: {score_meteo})" if score_meteo is not None else "")
+                            + f" — prevejo vendas {sinal} da média em {pct_abs}%"
+                            + f" ({previsao:.0f}€ vs. média de {mean_v:.0f}€)."
+                        )
+                elif score_meteo is not None and mean_v:
+                    # Derive % from forecast_meteo_config for this store, or global defaults
+                    cfg = meteo_config_by_loja.get(lname, [])
+                    mult_heuristic = 1.0
+                    for band in cfg:
+                        if band["score_min"] <= score_meteo <= band["score_max"]:
+                            mult_heuristic = band["multiplicador"]
+                            break
+                    else:
+                        # Fallback to standard defaults when no config row matched
+                        if score_meteo >= 85:
+                            mult_heuristic = 1.15
+                        elif score_meteo >= 60:
+                            mult_heuristic = 1.00
+                        elif score_meteo >= 30:
+                            mult_heuristic = 0.85
+                        else:
+                            mult_heuristic = 0.70
+                    pct = round((mult_heuristic - 1) * 100)
+                    sinal = "acima" if pct >= 0 else "abaixo"
+                    texto = (
+                        f"Amanhã em {lname}: {cond}"
+                        + (f", {temp}°C" if temp is not None else "")
+                        + f" (score meteo: {score_meteo})"
+                        + f" — estimo vendas {sinal} da média em {abs(pct)}%"
+                        + f" (base histórica: {mean_v:.0f}€)."
+                    )
+                else:
+                    texto = f"Sem previsão meteorológica para amanhã em {lname}."
+
+                sugestoes_amanha.append({"loja": lname, "sugestao": texto,
+                                         "previsao_eur": previsao, "meteo": meteo_a})
+
+        payload = {
+            "ok": True,
+            "janela_dias": dias,
+            "data_inicio": data_inicio.isoformat(),
+            "data_fim": hoje.isoformat(),
+            "lojas": lojas_result,
+            "sugestoes_amanha": sugestoes_amanha,
+            "instrucao_grafico": (
+                "Para cada loja em 'lojas', usa render_chart com tipo='scatter' e os pontos "
+                "de 'pontos' (x=temp_max, y=vendas_eur) para mostrar a dispersão temperatura vs vendas."
+            ),
+        }
+        if stores_forecast_generated_now:
+            payload["forecast_gerado_agora"] = stores_forecast_generated_now
+        if loja_filter_warning:
+            payload["aviso_filtro_loja"] = loja_filter_warning
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+    except Exception as exc:
+        logger.error("analyse_weather_sales_correlation error: %s", exc)
+        return json.dumps({"erro": str(exc)})
+
+
 # ── Loop agentic principal ────────────────────────────────────────────────────
 
 def processar_mensagem(
@@ -846,6 +1242,8 @@ def processar_mensagem(
                 result_str = _handle_create_tarefa(tool_input)
             elif tool_name == "get_daily_briefing":
                 result_str = _handle_get_daily_briefing()
+            elif tool_name == "analyse_weather_sales_correlation":
+                result_str = _handle_analyse_weather_sales_correlation(tool_input)
             else:
                 result_str = json.dumps({"erro": f"Ferramenta desconhecida: {tool_name}"})
 
