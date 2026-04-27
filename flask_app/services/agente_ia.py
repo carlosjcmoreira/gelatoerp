@@ -218,28 +218,17 @@ _TOOLS = [
     },
     {
         "name": "import_data_from_file",
-        "description": "Analisa um ficheiro CSV ou Excel enviado e devolve pré-visualização dos dados sem inserir na base de dados.",
+        "description": "Analisa um ficheiro CSV ou Excel enviado, devolve pré-visualização e cria uma operação pendente que o utilizador tem de confirmar manualmente antes de qualquer inserção na base de dados. Nunca insere dados directamente.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "conteudo_b64": {"type": "string", "description": "Conteúdo do ficheiro em base64"},
                 "nome_ficheiro": {"type": "string", "description": "Nome do ficheiro incluindo extensão"},
+                "tipo_dados": {"type": "string", "enum": ["vendas_csv", "vendas_xlsx", "producao_csv", "historico_manual"], "description": "Tipo de dados detectado no ficheiro"},
+                "loja": {"type": "string", "description": "Nome da loja (obrigatório para vendas_csv e producao_csv)"},
+                "conversa_id": {"type": "integer", "description": "ID da conversa actual"},
             },
-            "required": ["conteudo_b64", "nome_ficheiro"],
-        },
-    },
-    {
-        "name": "confirm_import",
-        "description": "Executa a importação de dados de um ficheiro após confirmação do utilizador. Usa import_data_from_file primeiro para pré-visualizar.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "conteudo_b64": {"type": "string", "description": "Conteúdo do ficheiro em base64"},
-                "nome_ficheiro": {"type": "string", "description": "Nome do ficheiro"},
-                "tipo_dados": {"type": "string", "enum": ["vendas_csv", "vendas_xlsx", "producao_csv", "historico_manual"], "description": "Tipo de dados a importar"},
-                "loja": {"type": "string", "description": "Nome da loja (para vendas_csv e producao_csv)"},
-            },
-            "required": ["conteudo_b64", "nome_ficheiro", "tipo_dados"],
+            "required": ["conteudo_b64", "nome_ficheiro", "tipo_dados", "conversa_id"],
         },
     },
     {
@@ -309,19 +298,32 @@ def _handle_render_chart(params: dict) -> str:
     return json.dumps({"chart_spec": params, "_is_chart": True}, ensure_ascii=False)
 
 
+_ALLOWED_WRITE_OPS = re.compile(r'^(INSERT|UPDATE|DELETE)\b', re.IGNORECASE)
+_DDL_PATTERN = re.compile(r'\b(DROP|ALTER|TRUNCATE|CREATE|RENAME|REPLACE|GRANT|REVOKE|EXEC|EXECUTE|COPY)\b', re.IGNORECASE)
+
+
+def _validate_write_sql(sql: str) -> str | None:
+    """Return error string if SQL is not a safe INSERT/UPDATE/DELETE, else None."""
+    sql_stripped = re.sub(r'\s+', ' ', sql.strip())
+    if not _ALLOWED_WRITE_OPS.match(sql_stripped):
+        return "Só são permitidas operações INSERT, UPDATE ou DELETE. Usa query_database para SELECT."
+    if _DDL_PATTERN.search(sql_stripped):
+        return "Operações DDL (DROP, ALTER, TRUNCATE, etc.) não são permitidas."
+    words = set(re.findall(r'\b\w+\b', sql.lower()))
+    blocked = _PROTECTED_TABLES & words
+    if blocked:
+        return f"Operação recusada: não é permitido modificar as tabelas {blocked}."
+    return None
+
+
 def _handle_propose_write_query(params: dict, user_id: int) -> tuple[str, dict | None]:
     sql = params.get("sql", "").strip()
     descricao = params.get("descricao", "")
     conversa_id = params.get("conversa_id")
 
-    sql_upper = re.sub(r'\s+', ' ', sql).upper()
-    if sql_upper.startswith("SELECT"):
-        return json.dumps({"erro": "Para leitura usa query_database. propose_write_query é para DELETE/UPDATE/INSERT."}), None
-
-    words = set(re.findall(r'\b\w+\b', sql.lower()))
-    blocked = _PROTECTED_TABLES & words
-    if blocked:
-        return json.dumps({"erro": f"Operação recusada: não é permitido modificar as tabelas {blocked}."}), None
+    err = _validate_write_sql(sql)
+    if err:
+        return json.dumps({"erro": err}), None
 
     impacto = "Impacto desconhecido"
     try:
@@ -365,25 +367,38 @@ def _handle_propose_write_query(params: dict, user_id: int) -> tuple[str, dict |
         return json.dumps({"erro": str(exc)}), None
 
 
-def _handle_import_data_from_file(params: dict) -> str:
+def _handle_import_data_from_file(params: dict, user_id: int) -> tuple[str, dict | None]:
+    """Parse the file, show a preview, and create a pending import record.
+
+    Returns (result_str, op_info) where op_info is the pending operation that the
+    user must confirm via the UI — the model itself cannot trigger the actual insert.
+    """
     b64 = params.get("conteudo_b64", "")
     nome = params.get("nome_ficheiro", "")
+    tipo_dados = params.get("tipo_dados", "historico_manual")
+    loja = params.get("loja", "")
+    conversa_id = params.get("conversa_id")
+
     try:
         data = base64.b64decode(b64)
         ext = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+        df = None
         if ext in ("xlsx", "xls"):
             import pandas as pd
-            df = pd.read_excel(io.BytesIO(data), engine="openpyxl", nrows=100)
+            df = pd.read_excel(io.BytesIO(data), engine="openpyxl", nrows=200)
         elif ext == "csv":
             import pandas as pd
             for enc in ("utf-8", "latin-1", "cp1252"):
                 try:
-                    df = pd.read_csv(io.BytesIO(data), encoding=enc, nrows=100)
+                    df = pd.read_csv(io.BytesIO(data), encoding=enc, nrows=200)
                     break
                 except Exception:
                     continue
         else:
-            return json.dumps({"erro": f"Formato não suportado: {ext}. Usa CSV ou Excel (.xlsx)."})
+            return json.dumps({"erro": f"Formato não suportado: {ext}. Usa CSV ou Excel (.xlsx)."}), None
+
+        if df is None:
+            return json.dumps({"erro": "Não foi possível ler o ficheiro."}), None
 
         preview = df.head(5).to_dict(orient="records")
         for row in preview:
@@ -393,15 +408,49 @@ def _handle_import_data_from_file(params: dict) -> str:
                 elif str(type(v)) in ("<class 'float'>", "<class 'numpy.float64'>") and str(v) == "nan":
                     row[k] = None
 
-        return json.dumps({
+        num_linhas = len(df)
+        impacto = f"Importará aproximadamente {num_linhas} linha(s) como '{tipo_dados}'" + (f" para loja '{loja}'" if loja else "")
+
+        op_info = None
+        if conversa_id:
+            try:
+                from db.agente import criar_operacao_pendente
+                import_payload = json.dumps({
+                    "__import": True,
+                    "tipo_dados": tipo_dados,
+                    "loja": loja,
+                    "nome_ficheiro": nome,
+                    "conteudo_b64": b64,
+                }, ensure_ascii=False)
+                op_id = criar_operacao_pendente(
+                    conversa_id, user_id,
+                    import_payload,
+                    f"Importação de ficheiro '{nome}' ({tipo_dados})",
+                    impacto,
+                )
+                op_info = {
+                    "operacao_id": op_id,
+                    "sql": import_payload,
+                    "descricao": f"Importação de ficheiro '{nome}' ({tipo_dados})" + (f" — loja: {loja}" if loja else ""),
+                    "impacto_estimado": impacto,
+                    "tipo": "import",
+                }
+            except Exception as exc:
+                logger.warning("import pending record creation failed: %s", exc)
+
+        result = json.dumps({
+            "ok": True,
             "colunas": list(df.columns),
-            "num_linhas_total": len(df),
+            "num_linhas_total": num_linhas,
             "preview_5_linhas": preview,
-            "tipo_sugerido": _inferir_tipo_dados(list(df.columns)),
+            "mensagem": "Pré-visualização pronta. O utilizador precisa de confirmar antes de inserir os dados.",
+            "pending_import_id": op_info["operacao_id"] if op_info else None,
         }, ensure_ascii=False, default=str)
+        return result, op_info
+
     except Exception as exc:
         logger.warning("import_data_from_file error: %s", exc)
-        return json.dumps({"erro": str(exc)})
+        return json.dumps({"erro": str(exc)}), None
 
 
 def _inferir_tipo_dados(cols: list) -> str:
@@ -413,6 +462,22 @@ def _inferir_tipo_dados(cols: list) -> str:
     if any("historico" in c or "ano" in c or "year" in c for c in cols_lower):
         return "historico"
     return "outro"
+
+
+def execute_import_from_payload(payload: dict) -> str:
+    """Execute a pending import from the stored payload dict.
+
+    Called by the confirm endpoint — never by the model directly.
+    ``payload`` is the JSON-decoded content of agente_operacoes_pendentes.sql_proposto.
+    """
+    if not payload.get("__import"):
+        return json.dumps({"erro": "Payload inválido: não é um registo de importação."})
+    return _handle_confirm_import({
+        "conteudo_b64": payload.get("conteudo_b64", ""),
+        "nome_ficheiro": payload.get("nome_ficheiro", ""),
+        "tipo_dados": payload.get("tipo_dados", "historico_manual"),
+        "loja": payload.get("loja", ""),
+    })
 
 
 def _handle_confirm_import(params: dict) -> str:
@@ -677,9 +742,9 @@ def processar_mensagem(
                 if op_info:
                     operacao_pendente = op_info
             elif tool_name == "import_data_from_file":
-                result_str = _handle_import_data_from_file(tool_input)
-            elif tool_name == "confirm_import":
-                result_str = _handle_confirm_import(tool_input)
+                result_str, import_op = _handle_import_data_from_file(tool_input, user_id)
+                if import_op and not operacao_pendente:
+                    operacao_pendente = import_op
             elif tool_name == "save_memory":
                 result_str = _handle_save_memory(tool_input, user_id)
             elif tool_name == "create_tarefa":

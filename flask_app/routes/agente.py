@@ -123,25 +123,62 @@ def enviar_mensagem(conversa_id: int):
 @agente_bp.route("/<int:conversa_id>/confirmar/<int:operacao_id>", methods=["POST"])
 @perm_required("acesso_gestor")
 def confirmar_operacao(conversa_id: int, operacao_id: int):
+    import json as _json
     from db.agente import (
-        get_operacao_pendente, marcar_operacao_executada,
+        get_operacao_pendente, get_conversa, marcar_operacao_executada,
         guardar_mensagem,
     )
     uid = _uid()
+
     op = get_operacao_pendente(operacao_id, uid)
     if not op:
         return jsonify({"erro": "Operação não encontrada, expirada ou já executada."}), 404
 
-    sql = op["sql_proposto"]
+    # ── Fix 2: Verify conversation binding ────────────────────────────────────
+    if op["conversa_id"] != conversa_id:
+        logger.warning("confirmar_operacao: IDOR attempt uid=%s op_conv=%s req_conv=%s", uid, op["conversa_id"], conversa_id)
+        return jsonify({"erro": "Operação não pertence a esta conversa."}), 403
+    conv = get_conversa(conversa_id, uid)
+    if not conv:
+        return jsonify({"erro": "Conversa não encontrada."}), 404
+
+    sql_proposto = op["sql_proposto"]
+
+    # ── Detect import operation ───────────────────────────────────────────────
+    try:
+        import_payload = _json.loads(sql_proposto)
+        if import_payload.get("__import"):
+            from flask_app.services.agente_ia import execute_import_from_payload
+            result_str = execute_import_from_payload(import_payload)
+            result = _json.loads(result_str)
+            marcar_operacao_executada(operacao_id, "executada")
+            if result.get("ok"):
+                msg = f"✅ Ficheiro importado com sucesso. {result.get('importados', '')} registo(s) inserido(s)."
+            else:
+                msg = f"❌ Erro na importação: {result.get('erro', 'desconhecido')}"
+            guardar_mensagem(conversa_id, "assistant", msg)
+            return jsonify({"ok": result.get("ok", False), "mensagem": msg})
+    except (_json.JSONDecodeError, TypeError, KeyError):
+        pass
+
+    # ── Fix 1b: Re-validate SQL before execution ──────────────────────────────
+    from flask_app.services.agente_ia import _validate_write_sql
+    validation_error = _validate_write_sql(sql_proposto)
+    if validation_error:
+        marcar_operacao_executada(operacao_id, "recusada")
+        msg = f"❌ Operação recusada na verificação de segurança: {validation_error}"
+        guardar_mensagem(conversa_id, "assistant", msg)
+        return jsonify({"erro": validation_error, "mensagem": msg}), 403
+
     try:
         from db.connection import db_connection
         with db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(sql)
+            cursor.execute(sql_proposto)
             linhas = cursor.rowcount
             conn.commit()
         marcar_operacao_executada(operacao_id, "executada")
-        msg = f"✅ Operação executada com sucesso. {linhas} registo(s) afectado(s).\n\nSQL executado:\n```sql\n{sql}\n```"
+        msg = f"✅ Operação executada com sucesso. {linhas} registo(s) afectado(s).\n\nSQL executado:\n```sql\n{sql_proposto}\n```"
         guardar_mensagem(conversa_id, "assistant", msg)
         return jsonify({"ok": True, "linhas_afectadas": linhas, "mensagem": msg})
     except Exception as exc:
@@ -155,12 +192,19 @@ def confirmar_operacao(conversa_id: int, operacao_id: int):
 @agente_bp.route("/<int:conversa_id>/cancelar/<int:operacao_id>", methods=["POST"])
 @perm_required("acesso_gestor")
 def cancelar_operacao(conversa_id: int, operacao_id: int):
-    from db.agente import get_operacao_pendente, marcar_operacao_executada, guardar_mensagem
+    from db.agente import get_operacao_pendente, get_conversa, marcar_operacao_executada, guardar_mensagem
     uid = _uid()
     op = get_operacao_pendente(operacao_id, uid)
     if op:
+        # ── Fix 2: Verify conversation binding ────────────────────────────────
+        if op["conversa_id"] != conversa_id:
+            logger.warning("cancelar_operacao: IDOR attempt uid=%s op_conv=%s req_conv=%s", uid, op["conversa_id"], conversa_id)
+            return jsonify({"erro": "Operação não pertence a esta conversa."}), 403
+        conv = get_conversa(conversa_id, uid)
+        if not conv:
+            return jsonify({"erro": "Conversa não encontrada."}), 404
         marcar_operacao_executada(operacao_id, "cancelada")
-    guardar_mensagem(conversa_id, "assistant", "Operação cancelada pelo utilizador.")
+        guardar_mensagem(conversa_id, "assistant", "Operação cancelada pelo utilizador.")
     return jsonify({"ok": True})
 
 

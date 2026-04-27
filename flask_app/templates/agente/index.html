@@ -447,11 +447,18 @@ function renderChart(spec, container) {
 function renderConfirmCard(op, bubble) {
     var card = document.createElement('div');
     card.className = 'confirm-card';
+    var isImport = (op.tipo === 'import');
+    var sqlDisplay = '';
+    if (!isImport) {
+        try { JSON.parse(op.sql||''); sqlDisplay = ''; } catch(e) {
+            sqlDisplay = '<div><strong>SQL que será executado:</strong><pre>' + (op.sql||'').replace(/</g,'&lt;') + '</pre></div>';
+        }
+    }
     card.innerHTML =
-        '<div class="cc-title">⚠️ Confirmar operação na base de dados</div>' +
+        '<div class="cc-title">' + (isImport ? '📂 Confirmar importação de ficheiro' : '⚠️ Confirmar operação na base de dados') + '</div>' +
         '<div class="cc-desc">' + (op.descricao || '').replace(/</g,'&lt;') + '</div>' +
         '<div class="cc-impact">📊 ' + (op.impacto_estimado || '').replace(/</g,'&lt;') + '</div>' +
-        '<div><strong>SQL que será executado:</strong><pre>' + (op.sql||'').replace(/</g,'&lt;') + '</pre></div>' +
+        sqlDisplay +
         '<div class="confirm-btns">' +
         '<button class="btn btn-sm btn-danger cc-confirm-btn">✅ Confirmar</button>' +
         '<button class="btn btn-sm btn-outline-secondary cc-cancel-btn">❌ Cancelar</button>' +
