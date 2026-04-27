@@ -715,7 +715,6 @@ document.querySelectorAll('.msg-bubble[data-raw]').forEach(function(b){
 scrollDown();
 
 // ── Briefing matinal automático na primeira abertura do dia ──────────────────
-{% if mensagens|length == 0 %}
 (function(){
     var key = 'scoopy_briefing_' + new Date().toISOString().slice(0,10);
     if (!localStorage.getItem(key)) {
@@ -727,7 +726,6 @@ scrollDown();
         }, 600);
     }
 })();
-{% endif %}
 
 })();
 </script>

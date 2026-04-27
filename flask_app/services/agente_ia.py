@@ -251,7 +251,8 @@ _TOOLS = [
             "type": "object",
             "properties": {
                 "nome": {"type": "string", "description": "Nome/descrição da tarefa"},
-                "tipo": {"type": "string", "enum": ["unica", "diaria", "semanal", "mensal"], "description": "Frequência da tarefa"},
+                "tipo": {"type": "string", "enum": ["abertura", "fecho"], "description": "Momento do dia: abertura (início do turno) ou fecho (fim do turno)"},
+                "frequencia": {"type": "string", "enum": ["diaria", "semanal", "mensal"], "description": "Frequência de repetição. Omitir para tarefas únicas (sem recorrência)."},
                 "equipa": {"type": "string", "description": "Equipa responsável (opcional)"},
             },
             "required": ["nome", "tipo"],
@@ -470,6 +471,19 @@ def _handle_import_data_from_file(params: dict, user_id: int) -> tuple[str, dict
         return json.dumps({"erro": str(exc)}), None
 
 
+def _inferir_tipo_dados_from_name(nome_ficheiro: str) -> str:
+    """Infer import type from the filename."""
+    nome_lower = nome_ficheiro.lower()
+    if "venda" in nome_lower or "sale" in nome_lower:
+        ext = nome_lower.rsplit(".", 1)[-1] if "." in nome_lower else "csv"
+        return "vendas_xlsx" if ext in ("xlsx", "xls") else "vendas_csv"
+    if "producao" in nome_lower or "produção" in nome_lower or "production" in nome_lower:
+        return "producao_csv"
+    if "historico" in nome_lower or "histórico" in nome_lower:
+        return "historico_manual"
+    return "historico_manual"
+
+
 def _inferir_tipo_dados(cols: list) -> str:
     cols_lower = [c.lower() for c in cols]
     if any("produto" in c or "product" in c for c in cols_lower) and any("valor" in c or "amount" in c for c in cols_lower):
@@ -588,12 +602,17 @@ def _handle_save_memory(params: dict, user_id: int) -> str:
 def _handle_create_tarefa(params: dict) -> str:
     try:
         from db.tarefas import create_tarefa
+        nome = params["nome"]
+        tipo = params.get("tipo", "abertura")
+        frequencia = params.get("frequencia") or None
+        equipa = params.get("equipa") or None
         tid = create_tarefa(
-            nome=params["nome"],
-            tipo=params["tipo"],
-            equipa=params.get("equipa"),
+            nome=nome,
+            tipo=tipo,
+            frequencia=frequencia,
+            equipa=equipa,
         )
-        return json.dumps({"ok": True, "tarefa_id": tid, "mensagem": f"Tarefa '{params['nome']}' criada com id {tid}."})
+        return json.dumps({"ok": True, "tarefa_id": tid, "mensagem": f"Tarefa '{nome}' criada com id {tid}."})
     except Exception as exc:
         return json.dumps({"erro": str(exc)})
 
@@ -618,7 +637,7 @@ def _handle_get_daily_briefing() -> str:
             cursor.execute("""
                 SELECT COUNT(*) FROM tarefas_registos tr
                 JOIN tarefas t ON t.id = tr.tarefa_id
-                WHERE tr.data = %s AND tr.estado != 'feito' AND t.ativo = TRUE
+                WHERE tr.data = %s AND tr.estado != 'feita' AND t.ativo = TRUE
             """, (ontem,))
             row = cursor.fetchone()
             result["tarefas_nao_feitas_ontem"] = row[0] if row else 0
@@ -687,20 +706,46 @@ def processar_mensagem(
             if m["role"] in ("user", "assistant"):
                 messages.append({"role": m["role"], "content": m["content"]})
 
+    charts: list = []
+    operacao_pendente: dict | None = None
+
     user_content = mensagem
     if is_first_of_day:
         user_content = "[BRIEFING_MATINAL] " + mensagem
 
     if ficheiro_b64 and ficheiro_nome:
-        user_content = f"{user_content}\n\n[FICHEIRO ENVIADO: {ficheiro_nome}]\nConteúdo base64 disponível para análise. Usa a ferramenta import_data_from_file com os parâmetros: conteudo_b64 e nome_ficheiro='{ficheiro_nome}'.\nBase64 do ficheiro: {ficheiro_b64[:200]}... (truncado no display, completo disponível)"
-        messages.append({"role": "user", "content": user_content})
-        messages.append({"role": "assistant", "content": f"Vou analisar o ficheiro '{ficheiro_nome}' que enviaste."})
-        messages.append({"role": "user", "content": f"Sim, por favor analisa o ficheiro '{ficheiro_nome}'. O base64 completo é: {ficheiro_b64}"})
-    else:
-        messages.append({"role": "user", "content": user_content})
-
-    charts = []
-    operacao_pendente = None
+        tipo_dados = _inferir_tipo_dados_from_name(ficheiro_nome)
+        pre_result_str, pre_op = _handle_import_data_from_file(
+            {
+                "conteudo_b64": ficheiro_b64,
+                "nome_ficheiro": ficheiro_nome,
+                "tipo_dados": tipo_dados,
+                "conversa_id": conversa_id,
+            },
+            user_id,
+        )
+        try:
+            pre_result = json.loads(pre_result_str)
+        except Exception:
+            pre_result = {}
+        if pre_op and not operacao_pendente:
+            operacao_pendente = pre_op
+        if pre_result.get("ok"):
+            file_context = (
+                f"\n\n[FICHEIRO ANALISADO: {ficheiro_nome}]\n"
+                f"Colunas: {', '.join(str(c) for c in pre_result.get('colunas', []))}\n"
+                f"{pre_result.get('num_linhas_total', 0)} linhas detectadas.\n"
+                f"Tipo inferido: {tipo_dados}\n"
+                f"Primeiras linhas: {json.dumps(pre_result.get('preview_5_linhas', []), ensure_ascii=False)}\n"
+                f"Operação de importação pendente criada (ID: {pre_result.get('pending_import_id')}) — aguarda confirmação do utilizador."
+            )
+        else:
+            file_context = (
+                f"\n\n[ERRO AO ANALISAR FICHEIRO: {ficheiro_nome}]\n"
+                f"{pre_result.get('erro', 'Erro desconhecido')}"
+            )
+        user_content = user_content + file_context
+    messages.append({"role": "user", "content": user_content})
 
     for iteration in range(_MAX_LOOP):
         try:
