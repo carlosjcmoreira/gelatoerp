@@ -271,15 +271,31 @@ _TOOLS = [
 
 # ── Handlers das ferramentas ──────────────────────────────────────────────────
 
+_WRITE_KEYWORDS = re.compile(
+    r'\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|RENAME|REPLACE|GRANT|REVOKE|EXEC|EXECUTE|COPY|CALL)\b',
+    re.IGNORECASE,
+)
+
+
 def _handle_query_database(params: dict) -> str:
     sql = params.get("sql", "").strip()
-    sql_upper = re.sub(r'\s+', ' ', sql).upper().lstrip()
-    if not sql_upper.startswith("SELECT"):
+    sql_normalized = re.sub(r'\s+', ' ', sql).upper().lstrip()
+
+    if not sql_normalized.startswith("SELECT"):
         return json.dumps({"erro": "Só são permitidas queries SELECT. Use propose_write_query para operações de escrita."})
+
+    if ';' in sql:
+        return json.dumps({"erro": "Queries multi-statement não são permitidas. Remove qualquer ponto-e-vírgula."})
+
+    write_match = _WRITE_KEYWORDS.search(sql)
+    if write_match:
+        return json.dumps({"erro": f"Palavra-chave de escrita '{write_match.group()}' encontrada. Apenas SELECT é permitido em query_database."})
+
     try:
         from db.connection import db_connection
         with db_connection() as conn:
             cursor = conn.cursor()
+            cursor.execute("SET LOCAL default_transaction_read_only = on")
             cursor.execute(sql)
             rows = cursor.fetchmany(500)
             cols = [d[0] for d in cursor.description] if cursor.description else []
@@ -325,6 +341,7 @@ def _handle_propose_write_query(params: dict, user_id: int) -> tuple[str, dict |
     if err:
         return json.dumps({"erro": err}), None
 
+    sql_upper = re.sub(r'\s+', ' ', sql).upper().strip()
     impacto = "Impacto desconhecido"
     try:
         count_sql = None

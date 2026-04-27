@@ -573,11 +573,16 @@ document.getElementById('file-input').addEventListener('change', function(e){
 });
 
 // ── Briefing matinal ─────────────────────────────────────────────────────────
-function isFirstOfDay() {
+function checkAndMarkFirstOfDay() {
     var key = 'scoopy_briefing_' + new Date().toISOString().slice(0,10);
     if (localStorage.getItem(key)) return false;
     localStorage.setItem(key, '1');
     return true;
+}
+
+function isFirstOfDay() {
+    var key = 'scoopy_briefing_' + new Date().toISOString().slice(0,10);
+    return !!localStorage.getItem(key);
 }
 
 // ── Send message ─────────────────────────────────────────────────────────────
@@ -601,7 +606,7 @@ function sendMessage() {
         mensagem: txt,
         ficheiro_b64: _fileB64 || null,
         ficheiro_nome: _fileName || null,
-        is_first_of_day: isFirstOfDay(),
+        is_first_of_day: checkAndMarkFirstOfDay(),
     };
 
     _fileB64 = null; _fileName = null;
@@ -709,12 +714,19 @@ document.querySelectorAll('.msg-bubble[data-raw]').forEach(function(b){
 
 scrollDown();
 
-// ── Briefing automático se primeiro do dia e sem mensagens ──────────────────
+// ── Briefing matinal automático na primeira abertura do dia ──────────────────
 {% if mensagens|length == 0 %}
-if (isFirstOfDay()) {
-    var briefingMsg = 'Olá! Faz-me um briefing do estado do negócio hoje — vendas de ontem, produção, tarefas em atraso e faturas próximas.';
-    document.getElementById('chat-input').value = briefingMsg;
-}
+(function(){
+    var key = 'scoopy_briefing_' + new Date().toISOString().slice(0,10);
+    if (!localStorage.getItem(key)) {
+        localStorage.setItem(key, '1');
+        var briefingMsg = 'Bom dia! Faz-me um briefing do estado do negócio de hoje: vendas de ontem vs semana anterior, produção vs plano, tarefas em atraso e faturas próximas.';
+        document.getElementById('chat-input').value = briefingMsg;
+        setTimeout(function(){
+            if (!_sending) sendMessage();
+        }, 600);
+    }
+})();
 {% endif %}
 
 })();

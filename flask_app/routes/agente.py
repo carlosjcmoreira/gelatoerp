@@ -1,6 +1,7 @@
 """Agente Scoopy — blueprint de rotas."""
 from __future__ import annotations
 
+import json as _json
 import logging
 from flask import Blueprint, render_template, request, session, redirect, url_for, jsonify
 
@@ -20,8 +21,10 @@ def _uid() -> int:
 @agente_bp.route("/")
 @perm_required("acesso_gestor")
 def index():
-    from db.agente import get_ultima_conversa, criar_conversa
+    from db.agente import get_ultima_conversa, criar_conversa, limpar_conversas_antigas, limpar_operacoes_expiradas
     uid = _uid()
+    limpar_conversas_antigas()
+    limpar_operacoes_expiradas()
     cid = get_ultima_conversa(uid)
     if not cid:
         cid = criar_conversa(uid)
@@ -123,7 +126,6 @@ def enviar_mensagem(conversa_id: int):
 @agente_bp.route("/<int:conversa_id>/confirmar/<int:operacao_id>", methods=["POST"])
 @perm_required("acesso_gestor")
 def confirmar_operacao(conversa_id: int, operacao_id: int):
-    import json as _json
     from db.agente import (
         get_operacao_pendente, get_conversa, marcar_operacao_executada,
         guardar_mensagem,
@@ -134,17 +136,16 @@ def confirmar_operacao(conversa_id: int, operacao_id: int):
     if not op:
         return jsonify({"erro": "Operação não encontrada, expirada ou já executada."}), 404
 
-    # ── Fix 2: Verify conversation binding ────────────────────────────────────
     if op["conversa_id"] != conversa_id:
-        logger.warning("confirmar_operacao: IDOR attempt uid=%s op_conv=%s req_conv=%s", uid, op["conversa_id"], conversa_id)
+        logger.warning("confirmar_operacao: conversa_id mismatch uid=%s op_conv=%s req_conv=%s", uid, op["conversa_id"], conversa_id)
         return jsonify({"erro": "Operação não pertence a esta conversa."}), 403
+
     conv = get_conversa(conversa_id, uid)
     if not conv:
         return jsonify({"erro": "Conversa não encontrada."}), 404
 
     sql_proposto = op["sql_proposto"]
 
-    # ── Detect import operation ───────────────────────────────────────────────
     try:
         import_payload = _json.loads(sql_proposto)
         if import_payload.get("__import"):
@@ -161,7 +162,6 @@ def confirmar_operacao(conversa_id: int, operacao_id: int):
     except (_json.JSONDecodeError, TypeError, KeyError):
         pass
 
-    # ── Fix 1b: Re-validate SQL before execution ──────────────────────────────
     from flask_app.services.agente_ia import _validate_write_sql
     validation_error = _validate_write_sql(sql_proposto)
     if validation_error:
@@ -196,9 +196,8 @@ def cancelar_operacao(conversa_id: int, operacao_id: int):
     uid = _uid()
     op = get_operacao_pendente(operacao_id, uid)
     if op:
-        # ── Fix 2: Verify conversation binding ────────────────────────────────
         if op["conversa_id"] != conversa_id:
-            logger.warning("cancelar_operacao: IDOR attempt uid=%s op_conv=%s req_conv=%s", uid, op["conversa_id"], conversa_id)
+            logger.warning("cancelar_operacao: conversa_id mismatch uid=%s op_conv=%s req_conv=%s", uid, op["conversa_id"], conversa_id)
             return jsonify({"erro": "Operação não pertence a esta conversa."}), 403
         conv = get_conversa(conversa_id, uid)
         if not conv:
