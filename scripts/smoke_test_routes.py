@@ -80,6 +80,27 @@ def get_dynamic_routes():
         return [], True
 
 
+def get_vendas_routes():
+    """Build /vendas/?loja_id=<id> routes for each active vendas-module store.
+
+    Returns (routes, discovery_failed) — callers treat a True discovery_failed
+    as a hard failure so deploy health checks don't silently lose coverage.
+    """
+    routes = []
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM stores WHERE supports_vendas = TRUE AND is_active = TRUE ORDER BY id"
+            )
+            for (store_id,) in cur.fetchall():
+                routes.append(f'/vendas/?loja_id={store_id}')
+        return routes, False
+    except Exception as exc:
+        print(f"  [ERROR] Vendas route discovery failed: {exc}")
+        return [], True
+
+
 def _strip_html(text: str, max_len: int = 300) -> str:
     """Remove HTML tags and collapse whitespace for a readable snippet."""
     text = re.sub(r'<[^>]+>', ' ', text)
@@ -96,8 +117,9 @@ def run():
     print(f"Authenticating as: {user['username']}\n")
 
     dynamic_routes, discovery_failed = get_dynamic_routes()
-    routes = STATIC_ROUTES + dynamic_routes
-    print(f"Checking {len(STATIC_ROUTES)} static + {len(dynamic_routes)} dynamic route(s):\n")
+    vendas_routes, vendas_discovery_failed = get_vendas_routes()
+    routes = STATIC_ROUTES + dynamic_routes + vendas_routes
+    print(f"Checking {len(STATIC_ROUTES)} static + {len(dynamic_routes)} loja + {len(vendas_routes)} vendas route(s):\n")
 
     failures = []
     with app.test_client() as client:
@@ -121,6 +143,8 @@ def run():
     print()
     if discovery_failed:
         failures.append(('ERR', '<dynamic route discovery>', 'DB lookup failed — loja routes not verified'))
+    if vendas_discovery_failed:
+        failures.append(('ERR', '<vendas route discovery>', 'DB lookup failed — vendas store routes not verified'))
 
     if failures:
         print(f"FAILED — {len(failures)} issue(s) detected:\n")
