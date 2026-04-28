@@ -7,13 +7,14 @@ Exits 0 on success, 1 on any route failure.
 """
 import sys
 import os
+import re
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from flask_app.app import create_app
 from db.connection import db_connection
 
-ROUTES = [
+STATIC_ROUTES = [
     '/',
     '/eurokg/',
     '/eurokg/pesagens',
@@ -24,6 +25,7 @@ ROUTES = [
     '/compras/',
     '/logistica/',
     '/eventos/',
+    '/vendas/',
     '/financeiro/',
     '/financeiro/credito/',
     '/financeiro/faturas/',
@@ -57,18 +59,52 @@ def get_gestor_user():
         return dict(zip(cols, row))
 
 
+def get_dynamic_routes():
+    """Build store-specific routes from the live DB.
+
+    Returns (routes, discovery_failed) — callers treat a True discovery_failed
+    as a hard failure so deploy health checks don't silently lose coverage.
+    """
+    routes = []
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id FROM stores WHERE is_active = TRUE ORDER BY id LIMIT 3"
+            )
+            for (store_id,) in cur.fetchall():
+                routes.append(f'/loja/{store_id}')
+        return routes, False
+    except Exception as exc:
+        print(f"  [ERROR] Dynamic route discovery failed: {exc}")
+        return [], True
+
+
+def _strip_html(text: str, max_len: int = 300) -> str:
+    """Remove HTML tags and collapse whitespace for a readable snippet."""
+    text = re.sub(r'<[^>]+>', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    if len(text) > max_len:
+        text = text[:max_len] + '…'
+    return text
+
+
 def run():
     print("=== Scoopy Route Smoke Test ===\n")
     app = create_app()
     user = get_gestor_user()
     print(f"Authenticating as: {user['username']}\n")
 
+    dynamic_routes, discovery_failed = get_dynamic_routes()
+    routes = STATIC_ROUTES + dynamic_routes
+    print(f"Checking {len(STATIC_ROUTES)} static + {len(dynamic_routes)} dynamic route(s):\n")
+
     failures = []
     with app.test_client() as client:
         with client.session_transaction() as sess:
             sess['user'] = user
 
-        for route in ROUTES:
+        for route in routes:
             try:
                 r = client.get(route, follow_redirects=True)
                 status = r.status_code
@@ -76,19 +112,25 @@ def run():
                 marker = '✓' if ok else '✗'
                 print(f"  {marker} [{status}] {route}")
                 if not ok:
-                    failures.append((status, route))
+                    snippet = _strip_html(r.get_data(as_text=True))
+                    failures.append((status, route, snippet))
             except Exception as exc:
                 print(f"  ✗ [ERR] {route}: {exc}")
-                failures.append(('ERR', f"{route}: {exc}"))
+                failures.append(('ERR', route, str(exc)))
 
     print()
+    if discovery_failed:
+        failures.append(('ERR', '<dynamic route discovery>', 'DB lookup failed — loja routes not verified'))
+
     if failures:
-        print(f"FAILED — {len(failures)} route(s) returned errors:")
-        for status, route in failures:
-            print(f"  - [{status}] {route}")
+        print(f"FAILED — {len(failures)} issue(s) detected:\n")
+        for status, route, snippet in failures:
+            print(f"  [{status}] {route}")
+            if snippet:
+                print(f"          {snippet}\n")
         sys.exit(1)
     else:
-        print(f"PASSED — all {len(ROUTES)} routes returned HTTP 2xx.")
+        print(f"PASSED — all {len(routes)} routes returned HTTP 2xx.")
         sys.exit(0)
 
 
