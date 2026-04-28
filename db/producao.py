@@ -718,7 +718,6 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
     excluidos = get_sabores_excluidos_eurokg()
 
     vendas_gelado_df = get_vendas_filtradas_df('gelado_kpi', loja_db, data_inicio, data_fim)
-    caixa_loja_df = get_caixa_loja_vendas_df(loja_db, data_inicio, data_fim)
     if loja_db == 'Matosinhos':
         producao_plano_daily = get_producao_plano_matosinhos_daily(data_inicio, data_fim)
         producao_df = pd.DataFrame()
@@ -865,10 +864,6 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
         d_date = d if isinstance(d, date) else pd.to_datetime(d).date()
 
         vendas = vendas_gelado_df[vendas_gelado_df['data'] == d]['valor_euros'].sum() if not vendas_gelado_df.empty else 0
-        caixa_v = caixa_loja_df[caixa_loja_df['data'] == d]['valor_euros'].sum() if not caixa_loja_df.empty else 0
-        preco_kg_caixa = get_preco_kg_for_date(d_date)
-        caixa_kg = caixa_v / preco_kg_caixa if preco_kg_caixa > 0 else 0
-        vendas = vendas - caixa_v
 
         if loja_db == 'Matosinhos':
             producao_total = producao_plano_daily.get(d_date, 0)
@@ -898,7 +893,7 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
             entrada = producao_total - transf_bolhao
             transf_display = transf_bolhao
 
-        consumo = stock_ini + entrada - stock_fim - quebras - caixa_kg
+        consumo = stock_ini + entrada - stock_fim - quebras
         kpi = vendas / consumo if consumo > 0 else 0
 
         month = d_date.month
@@ -1034,17 +1029,6 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
         vendas_query += " AND vd.loja = %s"
         vendas_params.append(loja_db)
 
-    caixa_query = """
-        SELECT COALESCE(SUM(vd.valor_euros), 0)
-        FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-        WHERE pvc.caixa_loja = TRUE AND vd.data >= %s AND vd.data <= %s
-    """
-    caixa_params = [first_day, last_day]
-    if loja_db:
-        caixa_query += " AND vd.loja = %s"
-        caixa_params.append(loja_db)
-
     quebras_query = """
         SELECT COALESCE(SUM(quantidade_kg), 0) FROM quebras
         WHERE data >= %s AND data <= %s
@@ -1063,19 +1047,8 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
         cur2 = conn2.cursor()
         cur2.execute(vendas_query, vendas_params)
         vendas = float(cur2.fetchone()[0])
-        cur2.execute(caixa_query, caixa_params)
-        caixa_v = float(cur2.fetchone()[0])
         cur2.execute(quebras_query, quebras_params)
         quebras = float(cur2.fetchone()[0])
-        cur2.execute("""
-            SELECT data_inicio, preco_kg FROM config_preco_caixa_kg
-            WHERE data_inicio <= %s ORDER BY data_inicio DESC LIMIT 1
-        """, (last_day,))
-        price_row = cur2.fetchone()
-
-    preco_kg_caixa = float(price_row[1]) if price_row else 30.0
-    caixa_kg = caixa_v / preco_kg_caixa if preco_kg_caixa > 0 else 0
-    vendas = vendas - caixa_v
 
     if loja_db is None:
         entrada = producao_ajustada
@@ -1084,7 +1057,7 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
     else:
         entrada = producao_ajustada - transf_bolhao
 
-    consumo = stock_ini_total + entrada - stock_final_total - quebras - caixa_kg
+    consumo = stock_ini_total + entrada - stock_final_total - quebras
     kpi = vendas / consumo if consumo > 0 else 0
 
     return {
@@ -1100,8 +1073,6 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
         'consumo': round(consumo, 3),
         'vendas': round(float(vendas), 2),
         'kpi': round(kpi, 2),
-        'caixa_vendas': round(caixa_v, 2),
-        'caixa_kg': round(caixa_kg, 3),
     }
 
 @ttl_cache_args('kpi_annual', ttl=600)
@@ -1198,26 +1169,6 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
         cursor.execute(vendas_query, vendas_params)
         vendas_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
-        caixa_query = """
-            SELECT EXTRACT(MONTH FROM vd.data)::int as mes, COALESCE(SUM(vd.valor_euros), 0)
-            FROM vendas_detalhe vd
-            INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-            WHERE pvc.caixa_loja = TRUE AND EXTRACT(YEAR FROM vd.data) = %s
-        """
-        caixa_params = [year]
-        if loja_db:
-            caixa_query += " AND vd.loja = %s"
-            caixa_params.append(loja_db)
-        caixa_query += " GROUP BY mes ORDER BY mes"
-        cursor.execute(caixa_query, caixa_params)
-        caixa_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
-
-        cursor.execute("""
-            SELECT data_inicio, preco_kg FROM config_preco_caixa_kg
-            WHERE data_inicio <= %s ORDER BY data_inicio
-        """, (date(year, 12, 31),))
-        price_periods = [(row[0], float(row[1])) for row in cursor.fetchall()]
-
         cursor.execute("SELECT mes, COALESCE(SUM(quantidade_kg), 0) FROM ajustes_producao WHERE ano = %s GROUP BY mes", (year,))
         ajustes_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
@@ -1276,15 +1227,6 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
         transf_bolhao = transf_bolhao_by_month.get(month, 0)
         quebras = quebras_by_month.get(month, 0)
         vendas = vendas_by_month.get(month, 0)
-        caixa_v_m = caixa_by_month.get(month, 0.0)
-        last_day_m = date(year, month, last_day_num)
-        preco_kg_caixa_m = 30.0
-        for period_date, period_price in reversed(price_periods):
-            if period_date <= last_day_m:
-                preco_kg_caixa_m = period_price
-                break
-        caixa_kg_m = caixa_v_m / preco_kg_caixa_m if preco_kg_caixa_m > 0 else 0.0
-        vendas = vendas - caixa_v_m
 
         if loja_db is None:
             entrada = producao_ajustada
@@ -1293,7 +1235,7 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
         else:
             entrada = producao_ajustada - transf_bolhao
 
-        consumo = stock_ini_total + entrada - stock_final_total - quebras - caixa_kg_m
+        consumo = stock_ini_total + entrada - stock_final_total - quebras
         kpi = vendas / consumo if consumo > 0 else 0
 
         results[month] = {
@@ -1309,8 +1251,6 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
             'vendas': round(float(vendas), 2),
             'kpi': round(kpi, 2),
             'ajuste': round(float(ajuste), 3),
-            'caixa_vendas': round(caixa_v_m, 2),
-            'caixa_kg': round(caixa_kg_m, 3),
         }
 
     return results

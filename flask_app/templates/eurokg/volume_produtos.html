@@ -70,7 +70,7 @@
                             <td class="small">
                                 {{ r.produto }}
                                 {% if r.caixa_loja %}
-                                <span class="badge bg-warning text-dark ms-1" title="Excluída do KPI €/kg">caixa loja</span>
+                                <span class="badge bg-warning text-dark ms-1">caixa loja</span>
                                 {% endif %}
                             </td>
                             <td class="text-center small">
@@ -126,7 +126,7 @@
 
     <p class="text-muted small mt-2">
         <span class="badge bg-warning text-dark">caixa loja</span>
-        Caixas gelado vendidas ao peso na loja — excluídas do KPI €/kg.
+        Caixas gelado vendidas ao peso na loja — incluídas no KPI €/kg como qualquer outra venda de gelado.
         Kg estimado calculado ao preço vigente em cada data de venda (tabela
         <a href="{{ url_for('eurokg.config_preco_caixa') }}">Preço/kg Caixas Loja</a>).
     </p>
