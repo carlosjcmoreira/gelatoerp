@@ -2,7 +2,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor, DictCursor
 from datetime import datetime, date, timedelta
 import logging
-from db.connection import db_connection, get_connection, release_connection, logger
+from db.connection import db_connection, get_connection, release_connection, logger, db_retry
 from db.cache import ttl_cache, invalidate, invalidate_prefix
 from db.stores import get_store_id_by_name
 from db.producao import get_sabores_mapping
@@ -658,6 +658,7 @@ def get_pesagem_comparison(loja: str, tipo: str, data_atual: date = None, local:
 
     return last_date, anterior, hoje
 
+@db_retry
 def get_stock_gelado_df(loja: str = None, tipo: str = None, data_inicio: date = None, data_fim: date = None) -> list:
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)

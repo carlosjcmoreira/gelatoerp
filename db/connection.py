@@ -146,6 +146,8 @@ def release_connection(conn):
 
 
 from contextlib import contextmanager
+from functools import wraps
+
 
 @contextmanager
 def db_connection():
@@ -154,6 +156,46 @@ def db_connection():
         yield conn
     finally:
         release_connection(conn)
+
+
+def db_retry(fn=None, *, max_attempts: int = 3, delay: float = 0.1):
+    """Decorator: retry a DB function on transient psycopg2.OperationalError.
+
+    Safe for read-only functions.  Each retry acquires a fresh connection from
+    the pool (the previous one is discarded by db_connection's finally block),
+    so stale-connection errors after a deploy do not surface as 500s.
+
+    Usage::
+
+        @db_retry
+        def my_func(...):
+            with db_connection() as conn:
+                ...
+
+        # or with explicit params:
+        @db_retry(max_attempts=5, delay=0.2)
+        def my_func(...):
+            ...
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except psycopg2.OperationalError as exc:
+                    if attempt >= max_attempts - 1:
+                        raise
+                    logger.warning(
+                        "%s: transient DB error (attempt %d/%d): %s",
+                        func.__name__, attempt + 1, max_attempts, exc,
+                    )
+                    time.sleep(delay * (attempt + 1))
+        return wrapper
+
+    if fn is not None:
+        return decorator(fn)
+    return decorator
 
 
 def ensure_initialized():

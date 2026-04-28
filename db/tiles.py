@@ -4,7 +4,7 @@ Provides a DB-backed mechanism to hide or show navigation tiles per module.
 All tiles default to visible=True when first encountered.
 """
 import logging
-from db.connection import db_connection
+from db.connection import db_connection, db_retry
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,7 @@ def run_migrations_tile_config():
         logger.info("run_migrations_tile_config: tile_config ready")
 
 
+@db_retry
 def get_tile_visibility(module: str) -> dict:
     """Return {tile_id: visible} dict for a given module.
 
