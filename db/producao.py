@@ -665,34 +665,6 @@ def get_vendas_filtradas_df(area: str, loja: str = None, data_inicio: date = Non
         return pd.read_sql_query(query, conn, params=params)
 
 
-def get_caixa_loja_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
-    """Return daily sums of valor_euros for caixa_loja=TRUE products.
-
-    These are in-store gelado boxes sold by weight (Caixa Gelado Pequena/Media/
-    Grande/Mini). They are excluded from the euro/kg KPI numerator; their weight
-    is estimated as valor_euros / preco_kg and subtracted from the denominator.
-    """
-    query = """
-        SELECT vd.data, vd.loja, SUM(vd.valor_euros) as valor_euros
-        FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-        WHERE pvc.caixa_loja = TRUE
-    """
-    params = []
-    if loja:
-        query += " AND vd.loja = %s"
-        params.append(loja)
-    if data_inicio:
-        query += " AND vd.data >= %s"
-        params.append(data_inicio)
-    if data_fim:
-        query += " AND vd.data <= %s"
-        params.append(data_fim)
-    query += " GROUP BY vd.data, vd.loja ORDER BY vd.data"
-    with db_connection() as conn:
-        return pd.read_sql_query(query, conn, params=params)
-
-
 def get_preco_kg_for_date(for_date) -> float:
     """Return the active in-store box price per kg for a given date.
 
