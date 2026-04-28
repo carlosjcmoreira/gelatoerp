@@ -88,26 +88,6 @@ def add_venda(data: date, loja: str, valor_euros: float):
         ''', (data, loja, valor_euros, store_id))
         conn.commit()
 
-def add_stock_inicial(data: date, loja: str, quantidade_kg: float):
-    store_id = get_store_id_by_name(loja)
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO stock_inicial (data, loja, quantidade_kg, store_id)
-            VALUES (%s, %s, %s, %s)
-        ''', (data, loja, quantidade_kg, store_id))
-        conn.commit()
-
-def add_rececao_stock(data: date, loja: str, quantidade_kg: float, origem: str = None, sabor: str = None):
-    store_id = get_store_id_by_name(loja)
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO rececao_stock (data, loja, quantidade_kg, origem, sabor, store_id)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        ''', (data, loja, quantidade_kg, origem, sabor, store_id))
-        conn.commit()
-
 @ttl_cache_args('sabores_list', ttl=600)
 @db_retry
 def get_sabores_list(apenas_eurokg: bool = False) -> list:
@@ -119,20 +99,6 @@ def get_sabores_list(apenas_eurokg: bool = False) -> list:
             cursor.execute("SELECT nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != '' ORDER BY nome_corrente")
         return [row[0] for row in cursor.fetchall()]
 
-def get_receita_by_nome_corrente(nome_corrente: str) -> str:
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT nome FROM receitas_gelado WHERE nome_corrente = %s AND ativo = TRUE", (nome_corrente,))
-        row = cursor.fetchone()
-    return row[0] if row else nome_corrente
-
-def get_nome_corrente_by_receita(nome_receita: str) -> str:
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE nome = %s AND ativo = TRUE", (nome_receita,))
-        row = cursor.fetchone()
-    return row[0] if row else nome_receita
-
 @ttl_cache('sabores_mapping', ttl=600)
 @db_retry
 def get_sabores_mapping() -> dict:
@@ -140,34 +106,6 @@ def get_sabores_mapping() -> dict:
         cursor = conn.cursor()
         cursor.execute("SELECT nome, nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != ''")
         return {row[0]: row[1] for row in cursor.fetchall()}
-
-@db_retry
-def get_producao_by_sabor_and_days(loja: str = None) -> pd.DataFrame:
-    from datetime import timedelta
-    today = date.today()
-    day_minus_1 = today - timedelta(days=1)
-    day_minus_2 = today - timedelta(days=2)
-    day_minus_3 = today - timedelta(days=3)
-
-    query = """
-        SELECT
-            sabor,
-            SUM(CASE WHEN data = %s THEN quantidade_kg ELSE 0 END) as dia_1,
-            SUM(CASE WHEN data = %s THEN quantidade_kg ELSE 0 END) as dia_2,
-            SUM(CASE WHEN data = %s THEN quantidade_kg ELSE 0 END) as dia_3
-        FROM producao
-        WHERE sabor IS NOT NULL
-    """
-    params = [day_minus_1, day_minus_2, day_minus_3]
-
-    if loja:
-        query += " AND loja = %s"
-        params.append(loja)
-
-    query += " GROUP BY sabor ORDER BY sabor"
-
-    with db_connection() as conn:
-        return pd.read_sql_query(query, conn, params=params)
 
 def get_producao_sabor_overview() -> pd.DataFrame:
     with db_connection() as conn:
@@ -334,30 +272,12 @@ def get_producao_sabor_overview() -> pd.DataFrame:
 
     return df
 
-def get_last_rececao_by_sabor(loja: str = "Bolhão") -> dict:
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT sabor, MAX(data) as ultima_data
-            FROM rececao_stock
-            WHERE loja = %s AND sabor IS NOT NULL
-            GROUP BY sabor
-        """, (loja,))
-        return {row[0]: row[1] for row in cursor.fetchall()}
-
 @ttl_cache('sabores_excluidos', ttl=600)
 def get_sabores_excluidos_eurokg() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE conta_eurokg = FALSE AND ativo = TRUE")
         return [row[0] for row in cursor.fetchall()]
-
-def _build_exclusion_filter(sabores_excluidos: list, field: str = 'sabor') -> tuple:
-    if not sabores_excluidos:
-        return '', []
-    placeholders = ','.join(['%s'] * len(sabores_excluidos))
-    clause = f" AND ({field} IS NULL OR {field} NOT IN ({placeholders}))"
-    return clause, list(sabores_excluidos)
 
 def get_producao_total_by_period(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> float:
     query = "SELECT COALESCE(SUM(quantidade_kg), 0) FROM producao WHERE 1=1"
@@ -549,88 +469,6 @@ def get_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = N
     with db_connection() as conn:
         return pd.read_sql_query(query, conn, params=params)
 
-def get_stock_inicial_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
-    excluidos = get_sabores_excluidos_eurokg()
-    excl_clause = ''
-    excl_params = []
-    if excluidos:
-        placeholders = ','.join(['%s'] * len(excluidos))
-        excl_clause = f" AND (sabor IS NOT NULL AND sabor NOT IN ({placeholders}))"
-        excl_params = list(excluidos)
-    else:
-        excl_clause = " AND sabor IS NOT NULL"
-    query = f"""
-        SELECT data, loja, SUM(quantidade_kg) as quantidade_kg
-        FROM stock_gelado
-        WHERE tipo = 'inicio'{excl_clause}
-    """
-    params = list(excl_params)
-    if loja:
-        query += " AND loja = %s"
-        params.append(loja)
-    if data_inicio:
-        query += " AND data >= %s"
-        params.append(data_inicio)
-    if data_fim:
-        query += " AND data <= %s"
-        params.append(data_fim)
-    query += " GROUP BY data, loja ORDER BY data"
-    with db_connection() as conn:
-        df = pd.read_sql_query(query, conn, params=params)
-        if df.empty:
-            query_legacy = "SELECT * FROM stock_inicial WHERE 1=1"
-            params_legacy = []
-            if loja:
-                query_legacy += " AND loja = %s"
-                params_legacy.append(loja)
-            if data_inicio:
-                query_legacy += " AND data >= %s"
-                params_legacy.append(data_inicio)
-            if data_fim:
-                query_legacy += " AND data <= %s"
-                params_legacy.append(data_fim)
-            df = pd.read_sql_query(query_legacy, conn, params=params_legacy)
-    return df
-
-@db_retry
-def get_rececao_stock_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
-    query = "SELECT id, data, loja, quantidade_kg, sabor FROM rececao_stock WHERE 1=1"
-    params = []
-    if loja:
-        query += " AND loja = %s"
-        params.append(loja)
-    if data_inicio:
-        query += " AND data >= %s"
-        params.append(data_inicio)
-    if data_fim:
-        query += " AND data <= %s"
-        params.append(data_fim)
-
-    query_merc = """
-        SELECT id, data, loja, quantidade as quantidade_kg, sabor
-        FROM rececao_mercadoria
-        WHERE unidade = 'kg'
-    """
-    params_merc = []
-    if loja:
-        query_merc += " AND loja = %s"
-        params_merc.append(loja)
-    if data_inicio:
-        query_merc += " AND data >= %s"
-        params_merc.append(data_inicio)
-    if data_fim:
-        query_merc += " AND data <= %s"
-        params_merc.append(data_fim)
-
-    with db_connection() as conn:
-        df = pd.read_sql_query(query, conn, params=params)
-        df_merc = pd.read_sql_query(query_merc, conn, params=params_merc)
-
-    if not df_merc.empty:
-        df = pd.concat([df, df_merc], ignore_index=True)
-
-    return df
-
 def get_ajuste_producao_mes(ano: int, mes: int) -> float:
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -663,24 +501,6 @@ def get_vendas_filtradas_df(area: str, loja: str = None, data_inicio: date = Non
 
     with db_connection() as conn:
         return pd.read_sql_query(query, conn, params=params)
-
-
-def get_preco_kg_for_date(for_date) -> float:
-    """Return the active in-store box price per kg for a given date.
-
-    Looks up config_preco_caixa_kg for the most recent period whose
-    data_inicio <= for_date. Falls back to 30.0 if no period is found.
-    """
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT preco_kg FROM config_preco_caixa_kg
-            WHERE data_inicio <= %s
-            ORDER BY data_inicio DESC
-            LIMIT 1
-        """, (for_date,))
-        row = cursor.fetchone()
-    return float(row[0]) if row else 30.0
 
 
 @ttl_cache_args('kpi_by_day', ttl=600)
@@ -1251,12 +1071,6 @@ def delete_quebras_bulk(ids: list) -> int:
         conn.commit()
     return deleted
 
-def delete_rececao(id: int):
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM rececao_stock WHERE id = %s", (id,))
-        conn.commit()
-
 def delete_producao(id: int):
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -1283,48 +1097,6 @@ def import_producao_csv(df: pd.DataFrame, loja: str):
             except Exception:
                 continue
         conn.commit()
-
-def preview_producao_calybrabox(df: pd.DataFrame, unit_is_grams: bool = False) -> list:
-    preview = []
-
-    with db_connection() as conn:
-        cursor = conn.cursor()
-
-        for _, row in df.iterrows():
-            try:
-                date_val = row.get('Date', row.get('End date', row.get('data', None)))
-                if date_val is None:
-                    continue
-                data = pd.to_datetime(date_val).date()
-
-                qty = row.get('Expected Quantity', row.get('Effective Quantity',
-                      row.get('expected quantity', row.get('effective quantity', 0))))
-
-                if pd.isna(qty) or qty == 0:
-                    continue
-
-                quantidade = float(qty)
-                if unit_is_grams:
-                    quantidade = quantidade / 1000.0
-
-                descricao = str(row.get('Description', row.get('description', ''))).strip()
-
-                sabor = None
-                nova_receita = False
-                if descricao:
-                    cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE UPPER(nome) = UPPER(%s) AND ativo = TRUE", (descricao,))
-                    match = cursor.fetchone()
-                    if match:
-                        sabor = match[0]
-                    else:
-                        sabor = descricao
-                        nova_receita = True
-
-                preview.append({'data': data, 'descricao': descricao, 'sabor': sabor, 'quantidade_kg': round(quantidade, 3), 'nova_receita': nova_receita})
-            except Exception:
-                continue
-
-    return preview
 
 def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool = False):
     imported = 0
@@ -1427,14 +1199,6 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
     invalidate_prefix('kpi_monthly')
     invalidate_prefix('kpi_by_day')
     return {'imported': imported, 'updated': updated, 'skipped': skipped, 'novas_receitas': len(novas_receitas), 'receitas_novas_nomes': novas_receitas}
-
-def delete_producao_by_date(data: date, loja: str):
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM producao WHERE data = %s AND loja = %s", (data, loja))
-        deleted = cursor.rowcount
-        conn.commit()
-    return deleted
 
 def delete_producao_by_date_range(data_inicio: date, data_fim: date, loja: str):
     with db_connection() as conn:
