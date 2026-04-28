@@ -70,6 +70,17 @@
         </tr>
 
         <tr class="text-center small">
+          <td class="text-start fw-semibold bg-body-secondary" style="position: sticky; left: 0;">€/kg Real</td>
+          {% for m in dados_meses %}
+          <td class="{% if m.is_future %}bg-white{% else %}bg-body-tertiary{% endif %} text-end fw-semibold">
+            <span class="eurokg-real" data-mes="{{ m.mes }}">
+              {%- if m.consumo > 0 -%}{{ "%.2f"|format(m.vendas / m.consumo) }}{%- else -%}—{%- endif -%}
+            </span>
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr class="text-center small">
           <td class="text-start fw-semibold bg-body-secondary" style="position: sticky; left: 0;">Target (€/kg)</td>
           {% for m in dados_meses %}
           <td class="bg-white text-end">
@@ -166,6 +177,9 @@ function recalculateMes(mes) {
     const ganho_extra = vendas - vendas_teoricas;
     const premio = Math.max(0, ganho_extra * 0.10);
     const premio_por_colaborador = colaboradores > 0 ? premio / colaboradores : 0;
+
+    const eurokgRealEl = document.querySelector('span.eurokg-real[data-mes="' + mes + '"]');
+    if (eurokgRealEl) eurokgRealEl.textContent = consumo > 0 ? (vendas / consumo).toFixed(2) : '—';
 
     const vendasteoEl = document.querySelector('span.vendas-teoricas[data-mes="' + mes + '"]');
     if (vendasteoEl) vendasteoEl.textContent = vendas_teoricas.toFixed(2);
