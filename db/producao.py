@@ -2,7 +2,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, date, timedelta
 import logging
-from db.connection import db_connection, get_connection, release_connection, logger
+from db.connection import db_connection, get_connection, release_connection, logger, db_retry
 from db.cache import ttl_cache, ttl_cache_args, invalidate_prefix
 from db.stores import get_store_id_by_name
 import pandas as pd
@@ -109,6 +109,7 @@ def add_rececao_stock(data: date, loja: str, quantidade_kg: float, origem: str =
         conn.commit()
 
 @ttl_cache_args('sabores_list', ttl=600)
+@db_retry
 def get_sabores_list(apenas_eurokg: bool = False) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -133,12 +134,14 @@ def get_nome_corrente_by_receita(nome_receita: str) -> str:
     return row[0] if row else nome_receita
 
 @ttl_cache('sabores_mapping', ttl=600)
+@db_retry
 def get_sabores_mapping() -> dict:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT nome, nome_corrente FROM receitas_gelado WHERE ativo = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != ''")
         return {row[0]: row[1] for row in cursor.fetchall()}
 
+@db_retry
 def get_producao_by_sabor_and_days(loja: str = None) -> pd.DataFrame:
     from datetime import timedelta
     today = date.today()
@@ -465,6 +468,7 @@ def get_producao_plano_matosinhos_by_month(year: int) -> dict:
         return {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
 
+@db_retry
 def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> pd.DataFrame:
     query = "SELECT data, SUM(quantidade_kg) as total_kg FROM producao WHERE 1=1"
     params = []
@@ -489,6 +493,7 @@ def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_f
     with db_connection() as conn:
         return pd.read_sql_query(query, conn, params=params)
 
+@db_retry
 def get_producao_df(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> pd.DataFrame:
     query = "SELECT * FROM producao WHERE 1=1"
     params = []
@@ -512,6 +517,7 @@ def get_producao_df(loja: str = None, data_inicio: date = None, data_fim: date =
     with db_connection() as conn:
         return pd.read_sql_query(query, conn, params=params)
 
+@db_retry
 def get_quebras_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
     query = "SELECT * FROM quebras WHERE 1=1"
     params = []
@@ -527,6 +533,7 @@ def get_quebras_df(loja: str = None, data_inicio: date = None, data_fim: date = 
     with db_connection() as conn:
         return pd.read_sql_query(query, conn, params=params)
 
+@db_retry
 def get_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
     query = "SELECT * FROM vendas WHERE 1=1"
     params = []
@@ -585,6 +592,7 @@ def get_stock_inicial_df(loja: str = None, data_inicio: date = None, data_fim: d
             df = pd.read_sql_query(query_legacy, conn, params=params_legacy)
     return df
 
+@db_retry
 def get_rececao_stock_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
     query = "SELECT id, data, loja, quantidade_kg, sabor FROM rececao_stock WHERE 1=1"
     params = []
