@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-5 text-center">
+    <div class="display-1 mb-3">🔌</div>
+    <h1 class="h3 fw-bold mb-2">Serviço temporariamente indisponível</h1>
+    <p class="text-muted mb-4">
+        Ocorreu um problema de ligação à base de dados.<br>
+        Por favor aguarda alguns segundos e tenta novamente.
+    </p>
+    <a href="javascript:location.reload()" class="btn btn-primary me-2">Tentar novamente</a>
+    <a href="/" class="btn btn-outline-secondary">Página inicial</a>
+</div>
+{% endblock %}

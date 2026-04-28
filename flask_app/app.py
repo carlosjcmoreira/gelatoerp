@@ -2,7 +2,7 @@ import os
 import sys
 import threading
 import logging
-from flask import Flask, session, redirect, url_for, g, request
+from flask import Flask, session, redirect, url_for, g, request, render_template
 from functools import wraps
 
 logger = logging.getLogger(__name__)
@@ -233,6 +233,19 @@ def create_app():
                 logger.warning("inject_globals: failed to compute nav_pages: %s", exc)
         return dict(user=user, time_slots=time_slots, event_type_options=event_type_options,
                     nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count)
+
+    import psycopg2
+
+    @app.errorhandler(psycopg2.OperationalError)
+    @app.errorhandler(psycopg2.DatabaseError)
+    def handle_db_error(exc):
+        logger.error("DB error (503): %s", exc, exc_info=True)
+        return render_template('errors/503.html'), 503
+
+    @app.errorhandler(500)
+    def handle_500(exc):
+        logger.error("Unhandled 500: %s", exc, exc_info=True)
+        return render_template('errors/500.html'), 500
 
     return app
 

@@ -2118,6 +2118,30 @@ def run_data_fix_normalise_sabor_names():
                     pending = cursor.fetchone()[0]
                     if pending == 0:
                         continue
+
+                    # stock_producao has a UNIQUE constraint on (data, sabor, loja).
+                    # Delete variant rows that would conflict with an existing
+                    # canonical row for the same (data, loja) before renaming.
+                    if table == "stock_producao":
+                        cursor.execute(
+                            """
+                            DELETE FROM stock_producao
+                            WHERE lower(sabor) = ANY(%s) AND sabor != %s
+                              AND (data, loja) IN (
+                                  SELECT data, loja FROM stock_producao
+                                  WHERE sabor = %s
+                              )
+                            """,
+                            (variants, canonical, canonical),
+                        )
+                        deleted = cursor.rowcount
+                        if deleted:
+                            logger.info(
+                                "run_data_fix_normalise_sabor_names: stock_producao"
+                                " — removed %d conflicting variant row(s) for %r",
+                                deleted, canonical,
+                            )
+
                     cursor.execute(
                         f"UPDATE {table} SET sabor = %s"
                         " WHERE lower(sabor) = ANY(%s) AND sabor != %s",
@@ -2125,10 +2149,11 @@ def run_data_fix_normalise_sabor_names():
                     )
                     updated = cursor.rowcount
                     total += updated
-                    logger.info(
-                        "run_data_fix_normalise_sabor_names: %s.sabor → %r: %d row(s) updated",
-                        table, canonical, updated,
-                    )
+                    if updated:
+                        logger.info(
+                            "run_data_fix_normalise_sabor_names: %s.sabor → %r: %d row(s) updated",
+                            table, canonical, updated,
+                        )
 
             conn.commit()
             logger.info("run_data_fix_normalise_sabor_names: done — %d row(s) updated total", total)

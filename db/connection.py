@@ -18,11 +18,12 @@ _connection_pool = None
 _pool_lock = threading.Lock()
 
 # Per-connection last-checked timestamp (keyed by id(conn)).
-# Connections are only verified with SELECT 1 if they have been idle for
-# longer than _STALE_THRESHOLD seconds, avoiding a round-trip on every request.
+# With _STALE_THRESHOLD = 0.0 every connection gets a SELECT 1 liveness ping
+# before being handed to the caller, eliminating stale-connection 500 errors
+# after deploys and DB-server restarts at the cost of ~1 ms per request.
 _conn_last_checked: dict = {}
 _check_lock = threading.Lock()
-_STALE_THRESHOLD = 30.0  # seconds
+_STALE_THRESHOLD = 0.0  # always check liveness on acquisition
 
 
 def get_pool():
@@ -44,11 +45,15 @@ def get_pool():
 
 
 def _should_check(conn) -> bool:
-    """Return True if the connection has been idle long enough to warrant a liveness ping."""
+    """Return True if the connection should receive a liveness ping.
+
+    With _STALE_THRESHOLD = 0.0 this always returns True so every connection
+    gets a SELECT 1 check before use (eliminates stale-connection 500s).
+    """
     now = time.monotonic()
     with _check_lock:
         last = _conn_last_checked.get(id(conn), 0)
-    return (now - last) > _STALE_THRESHOLD
+    return (now - last) >= _STALE_THRESHOLD
 
 
 def _mark_checked(conn) -> None:
