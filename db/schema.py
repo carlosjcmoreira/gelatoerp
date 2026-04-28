@@ -2783,3 +2783,92 @@ def run_migrations_agente():
                 conn.commit()
             except Exception:
                 pass
+
+
+_LOCK_STOCK_GELADO_MARCH2026_DEDUP = 202624
+
+
+def run_data_fix_stock_gelado_march2026_dedup():
+    """One-time idempotent fix for stock_gelado data errors found in April 2026:
+
+    1. Bolhão 31/03/2026 — "Fior di Latte" entered twice (IDs 1496 + 2214).
+       Keep the earlier row (lower id), delete the duplicate.
+
+    2. Bolhão 31/03/2026 — "Pistacchio Veg" is a duplicate of "Pistacchio V."
+       (IDs 1503 + 2379).  Keep "Pistacchio V." (lower id), delete "Pistacchio Veg".
+
+    3. Matosinhos 01/04/2026 — "Café" (4.460 kg, tipo='inicio') was never inserted.
+       All surrounding dates have it; it was simply missed.
+
+    Net effect: corrects the Março 2026 stock final from 92.96 kg → 94.807 kg.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_STOCK_GELADO_MARCH2026_DEDUP,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_data_fix_stock_gelado_march2026_dedup: lock held by another worker, skipping")
+                return
+
+            fixed = []
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM stock_gelado
+                WHERE loja = 'Bolhão' AND data = '2026-03-31' AND tipo = 'fim'
+                  AND sabor = 'Fior di Latte'
+            """)
+            if cursor.fetchone()[0] > 1:
+                cursor.execute("""
+                    DELETE FROM stock_gelado
+                    WHERE loja = 'Bolhão' AND data = '2026-03-31' AND tipo = 'fim'
+                      AND sabor = 'Fior di Latte'
+                      AND id != (
+                          SELECT MIN(id) FROM stock_gelado
+                          WHERE loja = 'Bolhão' AND data = '2026-03-31' AND tipo = 'fim'
+                            AND sabor = 'Fior di Latte'
+                      )
+                """)
+                fixed.append(f"deleted {cursor.rowcount} duplicate 'Fior di Latte' row(s) for Bolhão 2026-03-31")
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM stock_gelado
+                WHERE loja = 'Bolhão' AND data = '2026-03-31' AND tipo = 'fim'
+                  AND sabor = 'Pistacchio Veg'
+            """)
+            if cursor.fetchone()[0] > 0:
+                cursor.execute("""
+                    DELETE FROM stock_gelado
+                    WHERE loja = 'Bolhão' AND data = '2026-03-31' AND tipo = 'fim'
+                      AND sabor = 'Pistacchio Veg'
+                """)
+                fixed.append(f"deleted {cursor.rowcount} 'Pistacchio Veg' duplicate row(s) for Bolhão 2026-03-31 (kept 'Pistacchio V.')")
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM stock_gelado
+                WHERE loja = 'Matosinhos' AND data = '2026-04-01' AND tipo = 'inicio'
+                  AND sabor = 'Café'
+            """)
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("SELECT id FROM stores WHERE name = 'Matosinhos' LIMIT 1")
+                row = cursor.fetchone()
+                store_id = row[0] if row else None
+                cursor.execute("""
+                    INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
+                    VALUES ('2026-04-01', 'Matosinhos', 'Café', 4.460, 'inicio', %s)
+                """, (store_id,))
+                fixed.append("inserted Café 4.460 kg for Matosinhos 2026-04-01 tipo=inicio")
+
+            conn.commit()
+
+            if fixed:
+                for msg in fixed:
+                    logger.info("run_data_fix_stock_gelado_march2026_dedup: %s", msg)
+            else:
+                logger.info("run_data_fix_stock_gelado_march2026_dedup: nothing to fix, already clean")
+
+        except Exception as exc:
+            logger.error("run_data_fix_stock_gelado_march2026_dedup failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
