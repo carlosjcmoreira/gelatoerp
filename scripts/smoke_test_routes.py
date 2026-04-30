@@ -23,6 +23,7 @@ STATIC_ROUTES = [
     '/confeitaria/',
     '/gestor/',
     '/compras/',
+    '/compras/faturas',
     '/logistica/',
     '/eventos/',
     '/vendas/',

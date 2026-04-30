@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">🧾 Faturas</h5>
+        <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-primary btn-sm">➕ Registar Documento</a>
+    </div>
+
+    {% if invoices %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle" style="font-size:0.85rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Data</th>
+                    <th>Fornecedor</th>
+                    <th>Nº Documento</th>
+                    <th>Tipo</th>
+                    <th class="text-end">Valor (€)</th>
+                    <th>Estado</th>
+                    <th>Vencimento</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for inv in invoices %}
+            {% set ds = inv.display_status %}
+            <tr class="{% if ds == 'overdue' %}table-danger{% elif inv.status == 'pending_review' %}table-warning{% endif %}">
+                <td class="text-nowrap text-muted small">
+                    {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
+                </td>
+                <td class="fw-semibold">{{ inv.supplier_name or '—' }}</td>
+                <td class="text-muted small">{{ inv.invoice_number or '(sem nº)' }}</td>
+                <td>
+                    {% set _dt = inv.document_type or 'fatura' %}
+                    {% if _dt == 'nota_credito' %}
+                    <span class="badge bg-success-subtle text-success-emphasis">NC</span>
+                    {% elif _dt == 'fatura' %}
+                    <span class="badge bg-light text-dark border">FT</span>
+                    {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis">
+                        {{ document_type_labels.get(_dt, _dt)|truncate(20, True, '…') }}
+                    </span>
+                    {% endif %}
+                </td>
+                <td class="text-end text-nowrap fw-semibold
+                    {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}">
+                    {% if inv.amount_eur is not none %}
+                        {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f €'|format(inv.amount_eur) }}
+                    {% else %}—{% endif %}
+                </td>
+                <td>
+                    <span class="badge
+                        {% if ds == 'overdue' %}bg-danger
+                        {% elif inv.status == 'pending_review' %}bg-warning text-dark
+                        {% elif inv.status == 'scheduled' %}bg-info text-dark
+                        {% elif inv.status == 'paid' %}bg-success
+                        {% else %}bg-secondary{% endif %}">
+                        {% if ds == 'overdue' %}Vencida{% else %}{{ status_labels.get(inv.status, inv.status) }}{% endif %}
+                    </span>
+                </td>
+                <td class="text-nowrap small {% if ds == 'overdue' %}text-danger fw-bold{% endif %}">
+                    {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Legenda de estados -->
+    <div class="d-flex flex-wrap gap-2 mt-2">
+        <span class="badge bg-warning text-dark">A rever</span>
+        <span class="badge bg-info text-dark">Agendado</span>
+        <span class="badge bg-success">Pago</span>
+        <span class="badge bg-danger">Vencido</span>
+        <span class="badge bg-secondary">Outro</span>
+        <span class="text-muted small align-self-center ms-1">— estados dos documentos</span>
+    </div>
+
+    {% else %}
+    <div class="text-center text-muted py-5">
+        <div style="font-size:2.5rem;">🧾</div>
+        <p class="mt-2">Sem faturas registadas.</p>
+        <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-primary btn-sm mt-1">➕ Registar Documento</a>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

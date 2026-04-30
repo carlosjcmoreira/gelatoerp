@@ -18,6 +18,11 @@ from database import (
     get_cost_centers,
     get_cost_categories_tree,
 )
+from db.faturas import (
+    get_invoices,
+    INVOICE_STATUS_LABELS,
+    DOCUMENT_TYPE_LABELS,
+)
 import flask_app.services.faturas as faturas_svc
 from flask_app.services import ServiceError
 
@@ -33,7 +38,7 @@ def _ext(filename: str) -> str:
 compras_bp = Blueprint('compras', __name__)
 
 TABS = [
-    {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'faturas.index'},
+    {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'compras.faturas'},
     {'id': 'nova_fatura', 'label': 'Registar Documento', 'icon': '➕', 'url_endpoint': 'compras.nova_fatura'},
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
     {'id': 'fornecedores', 'label': 'Fornecedores', 'icon': '🏭', 'url_endpoint': 'faturas.fornecedores'},
@@ -51,6 +56,24 @@ def index():
     items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])} for t in TABS]
     return render_template('components/section_menu.html', items=items,
                            menu_title='🛒 Compras e Faturas')
+
+
+@compras_bp.route('/faturas')
+@perm_required('acesso_administrativo')
+def faturas():
+    from datetime import date as _date
+    today = _date.today()
+    invoices = get_invoices()
+    for inv in invoices:
+        if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+            inv['display_status'] = 'overdue'
+        else:
+            inv['display_status'] = inv['status']
+    return render_template('compras/faturas.html',
+                           invoices=invoices,
+                           status_labels=INVOICE_STATUS_LABELS,
+                           document_type_labels=DOCUMENT_TYPE_LABELS,
+                           today=today)
 
 
 @compras_bp.route('/artigos', methods=['GET', 'POST'])
