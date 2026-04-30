@@ -20,6 +20,7 @@ from database import (
 )
 from db.faturas import (
     get_invoices,
+    get_invoice,
     INVOICE_STATUS_LABELS,
     DOCUMENT_TYPE_LABELS,
 )
@@ -74,6 +75,34 @@ def faturas():
                            status_labels=INVOICE_STATUS_LABELS,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            today=today)
+
+
+@compras_bp.route('/review-draft/<int:invoice_id>', methods=['GET', 'POST'])
+@perm_required('acesso_administrativo')
+def review_draft(invoice_id):
+    inv = get_invoice(invoice_id)
+    if not inv or inv['status'] != 'draft':
+        flash('Documento não encontrado ou já submetido.', 'warning')
+        return redirect(url_for('compras.faturas'))
+
+    if request.method == 'POST':
+        update_invoice(invoice_id, {
+            'supplier_name': request.form.get('supplier_name', '').strip() or None,
+            'supplier_nif': request.form.get('supplier_nif', '').strip() or None,
+            'invoice_number': request.form.get('invoice_number', '').strip() or None,
+            'amount_eur': request.form.get('amount_eur') or None,
+            'vat_amount_eur': request.form.get('vat_amount_eur') or None,
+            'issue_date': request.form.get('issue_date') or None,
+            'due_date': request.form.get('due_date') or None,
+            'document_type': request.form.get('document_type', 'fatura'),
+            'status': 'pending_review',
+        })
+        flash('Fatura registada com sucesso.', 'success')
+        return redirect(url_for('compras.faturas'))
+
+    return render_template('compras/review_draft.html',
+                           inv=inv,
+                           document_type_labels=DOCUMENT_TYPE_LABELS)
 
 
 @compras_bp.route('/artigos', methods=['GET', 'POST'])
@@ -132,9 +161,7 @@ def nova_fatura():
             file_bytes = file.read()
             try:
                 invoice_id = faturas_svc.create_draft_from_pdf(file_bytes, file.filename, username, source='email_upload')
-                update_invoice(invoice_id, {'status': 'pending_review'})
-                flash('Ficheiro processado. Documento registado para revisão pelo gestor.', 'info')
-                return redirect(url_for('compras.index'))
+                return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
             except ServiceError as exc:
                 flash(str(exc), 'warning')
                 return redirect(url_for('compras.nova_fatura'))
@@ -152,9 +179,7 @@ def nova_fatura():
             file_bytes = file.read()
             try:
                 invoice_id = faturas_svc.create_draft_from_image(file_bytes, file.filename, username, source='photo')
-                update_invoice(invoice_id, {'status': 'pending_review'})
-                flash('Fotografia processada. Documento registado para revisão pelo gestor.', 'info')
-                return redirect(url_for('compras.index'))
+                return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
             except ServiceError as exc:
                 flash(str(exc), 'warning')
                 return redirect(url_for('compras.nova_fatura'))

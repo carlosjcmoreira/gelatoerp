@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.nova_fatura") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <h5 class="mb-1">🔍 Verificar Documento</h5>
+    <p class="text-muted small mb-3">Verifique os dados extraídos automaticamente. Corrija os campos necessários antes de confirmar.</p>
+
+    {% if inv.ocr_confidence is not none %}
+    <div class="mb-3">
+        {% if inv.ocr_confidence >= 0.8 %}
+        <span class="badge bg-success fs-6">✓ Alta confiança ({{ "%.0f%%"|format(inv.ocr_confidence * 100) }})</span>
+        {% elif inv.ocr_confidence >= 0.5 %}
+        <span class="badge bg-warning text-dark fs-6">⚠ Confiança média ({{ "%.0f%%"|format(inv.ocr_confidence * 100) }}) — verifique os campos</span>
+        {% else %}
+        <span class="badge bg-danger fs-6">✗ Baixa confiança ({{ "%.0f%%"|format(inv.ocr_confidence * 100) }}) — reveja com atenção</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('compras.review_draft', invoice_id=inv.id) }}">
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title mb-3 text-muted small text-uppercase">Fornecedor</h6>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Fornecedor <span class="text-danger">*</span></label>
+                    <input type="text" name="supplier_name" class="form-control"
+                           value="{{ inv.supplier_name or '' }}" required
+                           placeholder="Nome do fornecedor">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">NIF do Fornecedor</label>
+                    <input type="text" name="supplier_nif" class="form-control"
+                           value="{{ inv.supplier_nif or '' }}"
+                           placeholder="Ex: 123456789" maxlength="20">
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title mb-3 text-muted small text-uppercase">Documento</h6>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Tipo de Documento</label>
+                    <select name="document_type" class="form-select">
+                        {% for key, label in document_type_labels.items() %}
+                        <option value="{{ key }}" {% if inv.document_type == key %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Nº Documento</label>
+                    <input type="text" name="invoice_number" class="form-control"
+                           value="{{ inv.invoice_number or '' }}"
+                           placeholder="Ex: FT 2025/001">
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">Valor Total (€) <span class="text-danger">*</span></label>
+                        <input type="number" name="amount_eur" class="form-control"
+                               step="0.01" min="0" required
+                               value="{{ '%.2f'|format(inv.amount_eur) if inv.amount_eur is not none else '' }}"
+                               placeholder="0.00">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">IVA (€)</label>
+                        <input type="number" name="vat_amount_eur" class="form-control"
+                               step="0.01" min="0"
+                               value="{{ '%.2f'|format(inv.vat_amount_eur) if inv.vat_amount_eur is not none else '' }}"
+                               placeholder="0.00">
+                    </div>
+                </div>
+
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">Data de Emissão</label>
+                        <input type="date" name="issue_date" class="form-control"
+                               value="{{ inv.issue_date.strftime('%Y-%m-%d') if inv.issue_date else '' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label fw-semibold">Data de Vencimento</label>
+                        <input type="date" name="due_date" class="form-control"
+                               value="{{ inv.due_date.strftime('%Y-%m-%d') if inv.due_date else '' }}">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-grid gap-2">
+            <button type="submit" class="btn btn-success btn-lg">✅ Confirmar e Registar</button>
+            <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-outline-secondary">Cancelar</a>
+        </div>
+
+    </form>
+</div>
+{% endblock %}
