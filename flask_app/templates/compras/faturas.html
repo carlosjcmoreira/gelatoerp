@@ -3,10 +3,7 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <div class="d-flex align-items-center justify-content-between mb-3">
-        <h5 class="mb-0">🧾 Faturas</h5>
-        <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-primary btn-sm">➕ Registar Documento</a>
-    </div>
+    <h5 class="mb-3">🧾 Faturas</h5>
 
     {% if invoices %}
     <div class="table-responsive">
@@ -82,7 +79,6 @@
     <div class="text-center text-muted py-5">
         <div style="font-size:2.5rem;">🧾</div>
         <p class="mt-2">Sem faturas registadas.</p>
-        <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-primary btn-sm mt-1">➕ Registar Documento</a>
     </div>
     {% endif %}
 </div>
