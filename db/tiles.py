@@ -42,7 +42,6 @@ def run_migrations_tile_config():
         _HIDDEN_DEFAULTS = [
             ('producao', 'ordem', 'Ordem de Produção'),
             ('producao', 'receitas', 'Receitas de Gelado'),
-            ('producao', 'sabores_ativos', 'Lista de Sabores'),
         ]
         for module, tile_id, label in _HIDDEN_DEFAULTS:
             cursor.execute("""
@@ -50,6 +49,12 @@ def run_migrations_tile_config():
                 VALUES (%s, %s, %s, FALSE)
                 ON CONFLICT (module, tile_id) DO NOTHING
             """, (module, tile_id, label))
+
+        cursor.execute("""
+            INSERT INTO tile_config (module, tile_id, label, visible)
+            VALUES ('producao', 'sabores_ativos', 'Sabores Ativos', TRUE)
+            ON CONFLICT (module, tile_id) DO UPDATE SET visible = TRUE
+        """)
 
         conn.commit()
         logger.info("run_migrations_tile_config: tile_config ready")

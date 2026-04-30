@@ -1052,11 +1052,15 @@ def sabores_ativos():
         changes = 0
         receitas_list = get_all_receitas_gelado()
         for r in receitas_list:
-            if not r['nome_corrente'] or not str(r['nome_corrente']).strip():
-                continue
+            new_nome_corrente = request.form.get(f'nome_corrente_{r["id"]}', '').strip() or None
             new_ativo = request.form.get(f'ativo_{r["id"]}') == 'on'
-            if new_ativo != r['ativo']:
+            nome_corrente_changed = new_nome_corrente != (r['nome_corrente'] or None)
+            ativo_changed = new_ativo != r['ativo']
+            if nome_corrente_changed:
+                update_receita_gelado(r['id'], r['nome'], new_nome_corrente)
+            if ativo_changed:
                 update_receita_gelado_ativo(r['id'], new_ativo)
+            if nome_corrente_changed or ativo_changed:
                 changes += 1
         if changes > 0:
             flash(f"{changes} sabor(es) atualizado(s)!", "success")
@@ -1065,8 +1069,7 @@ def sabores_ativos():
         return redirect(url_for('producao.sabores_ativos'))
 
     receitas_list = get_all_receitas_gelado()
-    receitas_filtered = [r for r in receitas_list if r['nome_corrente'] and str(r['nome_corrente']).strip()]
-    receitas_filtered.sort(key=lambda r: (not r['ativo'], r['nome_corrente'].lower()))
+    receitas_list.sort(key=lambda r: (not r['ativo'], (r['nome_corrente'] or r['nome']).lower()))
     return render_template('producao/sabores_ativos.html',
                            active_tab='sabores_ativos', tabs=_tabs_with_urls(),
-                           receitas=receitas_filtered)
+                           receitas=receitas_list)

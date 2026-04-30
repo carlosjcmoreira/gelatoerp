@@ -14,6 +14,7 @@ from database import (
     get_ordens_transferencia, confirmar_ordem_transferencia, rejeitar_ordem_transferencia,
     get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
+    get_all_receitas_gelado, update_receita_gelado, update_receita_gelado_ativo,
 )
 
 import flask_app.services.vendas as vendas_svc
@@ -28,6 +29,7 @@ TAB_DEFS = [
     {'id': 'quebras', 'label': 'Registar Quebras', 'icon': '⚠️', 'endpoint': 'vendas.quebras'},
     {'id': 'pesagem', 'label': 'Pesagem Fim de Dia', 'icon': '⚖️', 'endpoint': 'vendas.pesagem'},
     {'id': 'fecho_caixa', 'label': 'Fecho de Caixa', 'icon': '💵', 'endpoint': 'vendas.fecho_caixa'},
+    {'id': 'sabores_ativos', 'label': 'Sabores Ativos', 'icon': '✅', 'endpoint': 'vendas.sabores_ativos'},
 ]
 
 
@@ -827,3 +829,40 @@ def fecho_caixa_justificar():
 
     ok = salvar_justificacao_fecho(fecho_id, justificacao)
     return jsonify({'ok': ok})
+
+
+@vendas_bp.route('/sabores-ativos', methods=['GET', 'POST'])
+@login_required
+def sabores_ativos():
+    if not _check_vendas_access():
+        return redirect(url_for('home.index'))
+    loja_id, loja_nome = _get_user_loja()
+
+    if request.method == 'POST':
+        changes = 0
+        receitas_list = get_all_receitas_gelado()
+        for r in receitas_list:
+            new_nome_corrente = request.form.get(f'nome_corrente_{r["id"]}', '').strip() or None
+            new_ativo = request.form.get(f'ativo_{r["id"]}') == 'on'
+            nome_corrente_changed = new_nome_corrente != (r['nome_corrente'] or None)
+            ativo_changed = new_ativo != r['ativo']
+            if nome_corrente_changed:
+                update_receita_gelado(r['id'], r['nome'], new_nome_corrente)
+            if ativo_changed:
+                update_receita_gelado_ativo(r['id'], new_ativo)
+            if nome_corrente_changed or ativo_changed:
+                changes += 1
+        if changes > 0:
+            flash(f"{changes} sabor(es) atualizado(s)!", "success")
+        else:
+            flash("Nenhuma alteração detetada.", "info")
+        return redirect(url_for('vendas.sabores_ativos', loja_id=loja_id))
+
+    receitas_list = get_all_receitas_gelado()
+    receitas_list.sort(key=lambda r: (not r['ativo'], (r['nome_corrente'] or r['nome']).lower()))
+    tabs = _build_tabs('sabores_ativos', loja_id)
+    return render_template('vendas/sabores_ativos.html',
+                           loja_id=loja_id,
+                           loja_nome=loja_nome,
+                           receitas=receitas_list,
+                           tabs=tabs)
