@@ -86,15 +86,81 @@ def review_draft(invoice_id):
         return redirect(url_for('compras.faturas'))
 
     if request.method == 'POST':
+        errors = []
+
+        supplier_name = request.form.get('supplier_name', '').strip() or None
+        if not supplier_name:
+            errors.append('O nome do fornecedor é obrigatório.')
+
+        raw_amount = request.form.get('amount_eur', '').strip()
+        amount_eur = None
+        if not raw_amount:
+            errors.append('O valor total é obrigatório.')
+        else:
+            try:
+                amount_eur = float(raw_amount.replace(',', '.'))
+                if amount_eur < 0:
+                    errors.append('O valor total não pode ser negativo.')
+            except ValueError:
+                errors.append('Valor total inválido.')
+
+        raw_vat = request.form.get('vat_amount_eur', '').strip()
+        vat_amount_eur = None
+        if raw_vat:
+            try:
+                vat_amount_eur = float(raw_vat.replace(',', '.'))
+                if vat_amount_eur < 0:
+                    errors.append('O valor do IVA não pode ser negativo.')
+            except ValueError:
+                errors.append('Valor de IVA inválido.')
+
+        raw_issue = request.form.get('issue_date', '').strip()
+        raw_due = request.form.get('due_date', '').strip()
+        issue_date = None
+        due_date = None
+        if raw_issue:
+            try:
+                from datetime import date as _date
+                issue_date = _date.fromisoformat(raw_issue)
+            except ValueError:
+                errors.append('Data de emissão inválida.')
+        if raw_due:
+            try:
+                from datetime import date as _date
+                due_date = _date.fromisoformat(raw_due)
+            except ValueError:
+                errors.append('Data de vencimento inválida.')
+
+        doc_type = request.form.get('document_type', 'fatura')
+        if doc_type not in DOCUMENT_TYPE_LABELS:
+            doc_type = 'fatura'
+
+        if errors:
+            for e in errors:
+                flash(e, 'warning')
+            inv.update({
+                'supplier_name': supplier_name,
+                'supplier_nif': request.form.get('supplier_nif', '').strip() or None,
+                'invoice_number': request.form.get('invoice_number', '').strip() or None,
+                'amount_eur': amount_eur,
+                'vat_amount_eur': vat_amount_eur,
+                'issue_date': issue_date,
+                'due_date': due_date,
+                'document_type': doc_type,
+            })
+            return render_template('compras/review_draft.html',
+                                   inv=inv,
+                                   document_type_labels=DOCUMENT_TYPE_LABELS)
+
         update_invoice(invoice_id, {
-            'supplier_name': request.form.get('supplier_name', '').strip() or None,
+            'supplier_name': supplier_name,
             'supplier_nif': request.form.get('supplier_nif', '').strip() or None,
             'invoice_number': request.form.get('invoice_number', '').strip() or None,
-            'amount_eur': request.form.get('amount_eur') or None,
-            'vat_amount_eur': request.form.get('vat_amount_eur') or None,
-            'issue_date': request.form.get('issue_date') or None,
-            'due_date': request.form.get('due_date') or None,
-            'document_type': request.form.get('document_type', 'fatura'),
+            'amount_eur': amount_eur,
+            'vat_amount_eur': vat_amount_eur,
+            'issue_date': issue_date.isoformat() if issue_date else None,
+            'due_date': due_date.isoformat() if due_date else None,
+            'document_type': doc_type,
             'status': 'pending_review',
         })
         flash('Fatura registada com sucesso.', 'success')
