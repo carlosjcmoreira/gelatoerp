@@ -13,10 +13,10 @@
             <form method="post" enctype="multipart/form-data" action="{{ url_for('compras.nova_fatura') }}">
                 <input type="hidden" name="channel" value="email_upload">
                 <div class="mb-3">
-                    <label class="form-label fw-semibold">Ficheiro PDF / Excel <span class="text-danger">*</span></label>
+                    <label class="form-label fw-semibold">Ficheiro PDF <span class="text-danger">*</span></label>
                     <input type="file" name="pdf_file" class="form-control"
-                           accept=".pdf,.xlsx,.xls" required>
-                    <div class="form-text">PDF de fatura (extracção OCR automática) ou Excel de histórico para importação em batch.</div>
+                           accept=".pdf" required>
+                    <div class="form-text">PDF de fatura — extracção OCR automática dos dados.</div>
                 </div>
                 <button type="submit" class="btn btn-primary w-100">Processar ficheiro</button>
             </form>

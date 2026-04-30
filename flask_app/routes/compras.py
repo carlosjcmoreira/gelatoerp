@@ -9,6 +9,7 @@ from database import (
     delete_artigo_administrativo,
     criar_ordem_transferencia,
     create_invoice,
+    update_invoice,
     get_suppliers,
     propose_invoice_payment,
     suggest_payment_date,
@@ -22,7 +23,7 @@ from flask_app.services import ServiceError
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'xlsx', 'xls'}
+ALLOWED_UPLOAD_EXTENSIONS = {'pdf'}
 ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'}
 
 
@@ -95,7 +96,7 @@ def nova_fatura():
         channel = request.form.get('channel', 'manual')
         username = _get_username()
 
-        # ── Canal 1: Upload PDF / Excel ───────────────────────────────────────
+        # ── Canal 1: Upload PDF ────────────────────────────────────────────────
         if channel == 'email_upload':
             file = request.files.get('pdf_file')
             if not file or not file.filename:
@@ -103,15 +104,17 @@ def nova_fatura():
                 return redirect(url_for('compras.nova_fatura'))
             ext = _ext(file.filename)
             if ext not in ALLOWED_UPLOAD_EXTENSIONS:
-                flash('Tipo não suportado. Usa PDF ou Excel.', 'warning')
+                flash('Tipo não suportado. Usa um ficheiro PDF.', 'warning')
                 return redirect(url_for('compras.nova_fatura'))
             file_bytes = file.read()
             try:
-                faturas_svc.create_draft_from_pdf(file_bytes, file.filename, username, source='email_upload')
+                invoice_id = faturas_svc.create_draft_from_pdf(file_bytes, file.filename, username, source='email_upload')
+                update_invoice(invoice_id, {'status': 'pending_review'})
                 flash('Ficheiro processado. Documento registado para revisão pelo gestor.', 'info')
+                return redirect(url_for('compras.index'))
             except ServiceError as exc:
                 flash(str(exc), 'warning')
-            return redirect(url_for('compras.index'))
+                return redirect(url_for('compras.nova_fatura'))
 
         # ── Canal 2: Fotografia ────────────────────────────────────────────────
         if channel == 'photo':
@@ -125,11 +128,13 @@ def nova_fatura():
                 return redirect(url_for('compras.nova_fatura'))
             file_bytes = file.read()
             try:
-                faturas_svc.create_draft_from_image(file_bytes, file.filename, username, source='photo')
+                invoice_id = faturas_svc.create_draft_from_image(file_bytes, file.filename, username, source='photo')
+                update_invoice(invoice_id, {'status': 'pending_review'})
                 flash('Fotografia processada. Documento registado para revisão pelo gestor.', 'info')
+                return redirect(url_for('compras.index'))
             except ServiceError as exc:
                 flash(str(exc), 'warning')
-            return redirect(url_for('compras.index'))
+                return redirect(url_for('compras.nova_fatura'))
 
         # ── Canal 3: Entrada Manual ───────────────────────────────────────────
         supplier_name = request.form.get('supplier_name', '').strip()
