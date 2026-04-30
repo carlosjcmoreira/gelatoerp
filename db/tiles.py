@@ -53,7 +53,7 @@ def run_migrations_tile_config():
         cursor.execute("""
             INSERT INTO tile_config (module, tile_id, label, visible)
             VALUES ('producao', 'sabores_ativos', 'Sabores Ativos', TRUE)
-            ON CONFLICT (module, tile_id) DO UPDATE SET visible = TRUE
+            ON CONFLICT (module, tile_id) DO NOTHING
         """)
 
         conn.commit()

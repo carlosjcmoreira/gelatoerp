@@ -38,12 +38,14 @@
         </table>
     </div>
 </form>
-{% else %}
-<div class="alert alert-info">Sem receitas registadas.</div>
-{% endif %}
 
 <div class="save-bar-spacer"></div>
 <div class="save-bar">
     <button type="submit" form="saboresForm" class="btn btn-primary w-100">Guardar Alterações</button>
 </div>
+
+{% else %}
+<div class="alert alert-info">Sem receitas registadas.</div>
+{% endif %}
+
 {% endblock %}

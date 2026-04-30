@@ -860,9 +860,7 @@ def sabores_ativos():
 
     receitas_list = get_all_receitas_gelado()
     receitas_list.sort(key=lambda r: (not r['ativo'], (r['nome_corrente'] or r['nome']).lower()))
-    tabs = _build_tabs('sabores_ativos', loja_id)
     return render_template('vendas/sabores_ativos.html',
                            loja_id=loja_id,
                            loja_nome=loja_nome,
-                           receitas=receitas_list,
-                           tabs=tabs)
+                           receitas=receitas_list)

@@ -58,7 +58,7 @@ TABS = [
     {'id': 'quebra', 'label': 'Registar Quebra de Produção', 'icon': '⚠️', 'url_endpoint': 'producao.registar_quebra'},
     {'id': 'dashboard', 'label': 'Dashboard Produção', 'icon': '📊', 'url_endpoint': 'producao.dashboard'},
     {'id': 'receitas', 'label': 'Receitas de Gelado', 'icon': '📖', 'url_endpoint': 'producao.receitas'},
-    {'id': 'sabores_ativos', 'label': 'Lista de Sabores', 'icon': '✅', 'url_endpoint': 'producao.sabores_ativos'},
+    {'id': 'sabores_ativos', 'label': 'Sabores Ativos', 'icon': '✅', 'url_endpoint': 'producao.sabores_ativos'},
 ]
 
 def _tabs_with_urls():
