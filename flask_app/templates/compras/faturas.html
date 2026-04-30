@@ -16,7 +16,9 @@
                     <th>Tipo</th>
                     <th class="text-end">Valor (€)</th>
                     <th>Estado</th>
+                    <th>Método Pgto</th>
                     <th>Vencimento</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
@@ -56,14 +58,68 @@
                         {% if ds == 'overdue' %}Vencida{% else %}{{ status_labels.get(inv.status, inv.status) }}{% endif %}
                     </span>
                 </td>
+                <td class="text-muted small">
+                    {% if inv.status == 'paid' and inv.get('payment_method') %}
+                        {% set pm_label = namespace(val=inv.payment_method) %}
+                        {% for m in payment_methods %}{% if m.metodo == inv.payment_method %}{% set pm_label.val = m.label %}{% endif %}{% endfor %}
+                        {{ pm_label.val }}
+                    {% else %}—{% endif %}
+                </td>
                 <td class="text-nowrap small {% if ds == 'overdue' %}text-danger fw-bold{% endif %}">
                     {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                </td>
+                <td>
+                    {% if inv.status in ('pending_review', 'scheduled') %}
+                    <button type="button" class="btn btn-outline-success btn-sm py-0 px-2"
+                            data-bs-toggle="modal"
+                            data-bs-target="#modalPagar{{ inv.id }}"
+                            title="Registar pagamento">✅</button>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
+
+    <!-- Modais de pagamento -->
+    {% for inv in invoices %}
+    {% if inv.status in ('pending_review', 'scheduled') %}
+    <div class="modal fade" id="modalPagar{{ inv.id }}" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title small">Registar Pagamento</h6>
+                    <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" action="{{ url_for('compras.marcar_paga', invoice_id=inv.id) }}">
+                    <div class="modal-body">
+                        <p class="small text-muted mb-2">{{ inv.supplier_name or '(sem fornecedor)' }} — {{ '%.2f €'|format(inv.amount_eur) if inv.amount_eur is not none else '—' }}</p>
+                        <div class="mb-2">
+                            <label class="form-label small mb-1 fw-semibold">Método de Pagamento</label>
+                            <select name="payment_method" class="form-select form-select-sm">
+                                <option value="">— selecionar —</option>
+                                {% for m in payment_methods %}
+                                <option value="{{ m.metodo }}">{{ m.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-1">
+                            <label class="form-label small mb-1 fw-semibold">Data de Pagamento</label>
+                            <input type="date" name="paid_date" class="form-control form-control-sm"
+                                   value="{{ today.strftime('%Y-%m-%d') }}">
+                        </div>
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-success btn-sm">Confirmar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endfor %}
 
     <!-- Legenda de estados -->
     <div class="d-flex flex-wrap gap-2 mt-2">

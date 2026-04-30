@@ -254,7 +254,8 @@ def get_invoices(status: str = None, store_id: int = None,
                    i.document_type,
                    i.centro_custo_id,
                    i.categoria_custo_id,
-                   ip.confirmed_date AS payment_confirmed_date
+                   ip.confirmed_date AS payment_confirmed_date,
+                   i.payment_method
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -266,6 +267,7 @@ def get_invoices(status: str = None, store_id: int = None,
     for r in rows:
         inv = _row_to_invoice(r)
         inv['payment_confirmed_date'] = r[26] if len(r) > 26 else None
+        inv['payment_method'] = r[27] if len(r) > 27 else None
         result.append(inv)
     return result
 
@@ -288,7 +290,8 @@ def get_invoice(invoice_id: int) -> dict:
                    i.ocr_raw,
                    ip.confirmed_date AS payment_confirmed_date,
                    i.stock_registado_at,
-                   i.stock_registado_por
+                   i.stock_registado_por,
+                   i.payment_method
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -302,6 +305,7 @@ def get_invoice(invoice_id: int) -> dict:
     inv['payment_confirmed_date'] = row[27] if len(row) > 27 else None
     inv['stock_registado_at'] = row[28] if len(row) > 28 else None
     inv['stock_registado_por'] = row[29] if len(row) > 29 else None
+    inv['payment_method'] = row[30] if len(row) > 30 else None
     return inv
 
 
@@ -351,7 +355,7 @@ def update_invoice(invoice_id: int, data: dict):
         'supplier_name', 'supplier_nif', 'invoice_number', 'amount_eur', 'vat_amount_eur',
         'issue_date', 'due_date', 'store_id', 'category', 'onedrive_subfolder',
         'onedrive_path', 'status', 'cfo_confirmed_date', 'paid_date', 'notes', 'supplier_id',
-        'document_type', 'centro_custo_id', 'categoria_custo_id',
+        'document_type', 'centro_custo_id', 'categoria_custo_id', 'payment_method',
     ]
     for key in allowed:
         if key in data:

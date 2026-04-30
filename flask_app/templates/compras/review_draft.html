@@ -92,11 +92,51 @@
             </div>
         </div>
 
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title mb-3 text-muted small text-uppercase">Pagamento</h6>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" name="ja_paga" id="jaPaga"
+                           onchange="togglePagamento(this.checked)">
+                    <label class="form-check-label fw-semibold" for="jaPaga">
+                        Fatura já foi paga
+                    </label>
+                </div>
+
+                <div id="pagamentoFields" style="display:none;">
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Método de Pagamento</label>
+                            <select name="payment_method" class="form-select">
+                                <option value="">— selecionar —</option>
+                                {% for m in payment_methods %}
+                                <option value="{{ m.metodo }}">{{ m.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Data de Pagamento</label>
+                            <input type="date" name="paid_date" class="form-control"
+                                   value="{{ today.strftime('%Y-%m-%d') if today else '' }}"
+                                   id="paidDateInput">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="d-grid gap-2">
             <button type="submit" class="btn btn-success btn-lg">✅ Confirmar e Registar</button>
             <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-outline-secondary">Cancelar</a>
         </div>
 
     </form>
+
+<script>
+function togglePagamento(checked) {
+    document.getElementById('pagamentoFields').style.display = checked ? '' : 'none';
+}
+</script>
 </div>
 {% endblock %}

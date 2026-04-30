@@ -70,10 +70,12 @@ def faturas():
             inv['display_status'] = 'overdue'
         else:
             inv['display_status'] = inv['status']
+    payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     return render_template('compras/faturas.html',
                            invoices=invoices,
                            status_labels=INVOICE_STATUS_LABELS,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
+                           payment_methods=payment_methods,
                            today=today)
 
 
@@ -135,6 +137,20 @@ def review_draft(invoice_id):
         if doc_type not in DOCUMENT_TYPE_LABELS:
             doc_type = 'fatura'
 
+        ja_paga = request.form.get('ja_paga') == 'on'
+        payment_method = request.form.get('payment_method', '').strip() or None
+        raw_paid_date = request.form.get('paid_date', '').strip()
+        paid_date = None
+        if ja_paga:
+            if raw_paid_date:
+                try:
+                    from datetime import date as _date
+                    paid_date = _date.fromisoformat(raw_paid_date)
+                except ValueError:
+                    errors.append('Data de pagamento inválida.')
+            else:
+                paid_date = date.today()
+
         if errors:
             for e in errors:
                 flash(e, 'warning')
@@ -148,10 +164,14 @@ def review_draft(invoice_id):
                 'due_date': due_date,
                 'document_type': doc_type,
             })
+            payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
             return render_template('compras/review_draft.html',
                                    inv=inv,
-                                   document_type_labels=DOCUMENT_TYPE_LABELS)
+                                   document_type_labels=DOCUMENT_TYPE_LABELS,
+                                   payment_methods=payment_methods,
+                                   today=date.today())
 
+        new_status = 'paid' if ja_paga else 'pending_review'
         update_invoice(invoice_id, {
             'supplier_name': supplier_name,
             'supplier_nif': request.form.get('supplier_nif', '').strip() or None,
@@ -161,14 +181,51 @@ def review_draft(invoice_id):
             'issue_date': issue_date.isoformat() if issue_date else None,
             'due_date': due_date.isoformat() if due_date else None,
             'document_type': doc_type,
-            'status': 'pending_review',
+            'status': new_status,
+            'paid_date': paid_date.isoformat() if paid_date else None,
+            'payment_method': payment_method if ja_paga else None,
         })
-        flash('Fatura registada com sucesso.', 'success')
+        if ja_paga:
+            flash('Fatura registada e marcada como paga.', 'success')
+        else:
+            flash('Fatura registada com sucesso.', 'success')
         return redirect(url_for('compras.faturas'))
 
+    payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     return render_template('compras/review_draft.html',
                            inv=inv,
-                           document_type_labels=DOCUMENT_TYPE_LABELS)
+                           document_type_labels=DOCUMENT_TYPE_LABELS,
+                           payment_methods=payment_methods,
+                           today=date.today())
+
+
+@compras_bp.route('/faturas/<int:invoice_id>/marcar-paga', methods=['POST'])
+@perm_required('acesso_administrativo')
+def marcar_paga(invoice_id):
+    inv = get_invoice(invoice_id)
+    if not inv or inv['status'] == 'paid':
+        flash('Fatura não encontrada ou já marcada como paga.', 'warning')
+        return redirect(url_for('compras.faturas'))
+
+    payment_method = request.form.get('payment_method', '').strip() or None
+    raw_paid_date = request.form.get('paid_date', '').strip()
+    paid_date = None
+    if raw_paid_date:
+        try:
+            paid_date = date.fromisoformat(raw_paid_date)
+        except ValueError:
+            flash('Data de pagamento inválida.', 'warning')
+            return redirect(url_for('compras.faturas'))
+    else:
+        paid_date = date.today()
+
+    update_invoice(invoice_id, {
+        'status': 'paid',
+        'paid_date': paid_date.isoformat(),
+        'payment_method': payment_method,
+    })
+    flash('Pagamento registado com sucesso.', 'success')
+    return redirect(url_for('compras.faturas'))
 
 
 @compras_bp.route('/artigos', methods=['GET', 'POST'])
