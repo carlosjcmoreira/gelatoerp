@@ -17,8 +17,17 @@ from database import (
     get_cost_centers,
     get_cost_categories_tree,
 )
+import flask_app.services.faturas as faturas_svc
+from flask_app.services import ServiceError
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_UPLOAD_EXTENSIONS = {'pdf', 'xlsx', 'xls'}
+ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'}
+
+
+def _ext(filename: str) -> str:
+    return filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
 
 compras_bp = Blueprint('compras', __name__)
 
@@ -83,6 +92,46 @@ def artigos():
 @perm_required('acesso_administrativo')
 def nova_fatura():
     if request.method == 'POST':
+        channel = request.form.get('channel', 'manual')
+        username = _get_username()
+
+        # ── Canal 1: Upload PDF / Excel ───────────────────────────────────────
+        if channel == 'email_upload':
+            file = request.files.get('pdf_file')
+            if not file or not file.filename:
+                flash('Selecciona um ficheiro PDF.', 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+            ext = _ext(file.filename)
+            if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+                flash('Tipo não suportado. Usa PDF ou Excel.', 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+            file_bytes = file.read()
+            try:
+                faturas_svc.create_draft_from_pdf(file_bytes, file.filename, username, source='email_upload')
+                flash('Ficheiro processado. Documento registado para revisão pelo gestor.', 'info')
+            except ServiceError as exc:
+                flash(str(exc), 'warning')
+            return redirect(url_for('compras.index'))
+
+        # ── Canal 2: Fotografia ────────────────────────────────────────────────
+        if channel == 'photo':
+            file = request.files.get('photo_file')
+            if not file or not file.filename:
+                flash('Selecciona uma fotografia.', 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+            ext = _ext(file.filename)
+            if ext not in ALLOWED_IMAGE_EXTENSIONS:
+                flash('Tipo não suportado. Usa JPG, PNG ou HEIC.', 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+            file_bytes = file.read()
+            try:
+                faturas_svc.create_draft_from_image(file_bytes, file.filename, username, source='photo')
+                flash('Fotografia processada. Documento registado para revisão pelo gestor.', 'info')
+            except ServiceError as exc:
+                flash(str(exc), 'warning')
+            return redirect(url_for('compras.index'))
+
+        # ── Canal 3: Entrada Manual ───────────────────────────────────────────
         supplier_name = request.form.get('supplier_name', '').strip()
         supplier_nif = request.form.get('supplier_nif', '').strip() or None
         invoice_number = request.form.get('invoice_number', '').strip() or None
