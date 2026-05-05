@@ -211,7 +211,9 @@
                                 <td>
                                     <input type="checkbox" name="ids" value="{{ inv.id }}"
                                            class="form-check-input inv-cb inv-cb-grupo-{{ gid }}"
-                                           data-grupo="{{ gid }}">
+                                           data-grupo="{{ gid }}"
+                                           data-amount="{{ inv.amount_eur if inv.amount_eur is not none else 0 }}"
+                                           data-doc-type="{{ inv.document_type or 'fatura' }}">
                                 </td>
                                 <td class="small">
                                     <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}"
@@ -620,11 +622,22 @@
     function getCheckedCbs() { return document.querySelectorAll('.inv-cb:checked'); }
 
     function updateBulkBar() {
-        const n = getCheckedCbs().length;
+        const checked = Array.from(getCheckedCbs());
+        const n = checked.length;
         if (n > 0) {
             bulkBar.classList.remove('d-none');
             bulkBar.classList.add('d-flex');
-            bulkCount.textContent = n + ' documento(s) selecionado(s)';
+            let sum = 0;
+            checked.forEach(function(cb) {
+                const amt = parseFloat(cb.dataset.amount);
+                if (!isNaN(amt)) {
+                    sum += cb.dataset.docType === 'nota_credito' ? amt : -amt;
+                }
+            });
+            const sign = sum > 0 ? '+' : '';
+            const abs = Math.abs(sum).toFixed(2).replace('.', ',');
+            const formatted = (sum < 0 ? '-' : sign) + abs + '\u00a0\u20ac';
+            bulkCount.textContent = n + ' fatura(s)\u00a0\u00b7\u00a0' + formatted;
         } else {
             bulkBar.classList.add('d-none');
             bulkBar.classList.remove('d-flex');
