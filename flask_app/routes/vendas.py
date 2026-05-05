@@ -885,20 +885,18 @@ def fecho_historico_editar(record_id):
             except ValueError:
                 return None
 
-        fields = {
-            'colaborador': request.form.get('colaborador', '').strip() or None,
-            'total_moedas': _parse_dec('total_moedas'),
-            'valor_notas': _parse_dec('valor_notas'),
-            'total_caixa': _parse_dec('total_caixa'),
-            'envelope_sobra': _parse_dec('envelope_sobra'),
-            'total_vendas_pos': _parse_dec('total_vendas_pos'),
-            'dinheiro_pos': _parse_dec('dinheiro_pos'),
-            'cartao_pos': _parse_dec('cartao_pos'),
-            'ubereats_pos': _parse_dec('ubereats_pos'),
-            'tpa_getnet': _parse_dec('tpa_getnet'),
-            'justificacao_desvio': request.form.get('justificacao_desvio', '').strip() or None,
-        }
-        fields = {k: v for k, v in fields.items() if v is not None}
+        # Include None for submitted fields so manager can clear existing values.
+        # Only skip fields absent from the form altogether.
+        _numeric = ['total_moedas', 'valor_notas', 'total_caixa', 'envelope_sobra',
+                    'total_vendas_pos', 'dinheiro_pos', 'cartao_pos', 'ubereats_pos', 'tpa_getnet']
+        _text = ['colaborador', 'justificacao_desvio']
+        fields = {}
+        for name in _numeric:
+            if name in request.form:
+                fields[name] = _parse_dec(name)
+        for name in _text:
+            if name in request.form:
+                fields[name] = request.form.get(name, '').strip() or None
 
         upsert_fecho_caixa(registo['data'], registo['loja_id'], fields, user.get('username', 'gestor'))
         flash('Registo atualizado com sucesso.', 'success')
