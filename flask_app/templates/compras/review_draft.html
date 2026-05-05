@@ -126,6 +126,69 @@
             </div>
         </div>
 
+        {% if cost_centers or cost_categories_tree %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title mb-3 text-muted small text-uppercase">Catalogação</h6>
+
+                <div class="row g-2 mb-3">
+                    {% if cost_centers %}
+                    <div class="col-sm-6">
+                        <label class="form-label fw-semibold">Centro de Custo</label>
+                        <select name="centro_custo_id" class="form-select">
+                            <option value="">— Não atribuído —</option>
+                            {% for cc in cost_centers %}
+                            <option value="{{ cc.id }}"
+                                {% if inv.centro_custo_id == cc.id %}selected{% endif %}>
+                                {{ cc.code }} — {{ cc.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    {% if cost_categories_tree %}
+                    <div class="col-sm-6">
+                        <label class="form-label fw-semibold">Categoria de Custo</label>
+                        <select name="categoria_custo_id" class="form-select">
+                            <option value="">— Não atribuída —</option>
+                            {% for top in cost_categories_tree %}
+                            <optgroup label="{{ top.name }}">
+                                {% for sub in top.children %}
+                                <option value="{{ sub.id }}"
+                                    {% if inv.categoria_custo_id == sub.id %}selected{% endif %}>
+                                    {{ sub.name }}
+                                </option>
+                                {% endfor %}
+                                {% if not top.children %}
+                                <option value="{{ top.id }}"
+                                    {% if inv.categoria_custo_id == top.id %}selected{% endif %}>
+                                    ({{ top.name }})
+                                </option>
+                                {% endif %}
+                            </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="mb-0">
+                    <label class="form-label fw-semibold">Notas</label>
+                    <textarea name="notes" class="form-control" rows="2"
+                              placeholder="Observações opcionais">{{ inv.notes or '' }}</textarea>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title mb-2 text-muted small text-uppercase">Notas</h6>
+                <textarea name="notes" class="form-control" rows="2"
+                          placeholder="Observações opcionais">{{ inv.notes or '' }}</textarea>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="d-grid gap-2">
             <button type="submit" class="btn btn-success btn-lg">✅ Confirmar e Registar</button>
             <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-outline-secondary">Cancelar</a>

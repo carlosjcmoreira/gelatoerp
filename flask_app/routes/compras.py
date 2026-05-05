@@ -137,6 +137,12 @@ def review_draft(invoice_id):
         if doc_type not in DOCUMENT_TYPE_LABELS:
             doc_type = 'fatura'
 
+        centro_custo_raw = request.form.get('centro_custo_id', '').strip()
+        centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
+        categoria_custo_raw = request.form.get('categoria_custo_id', '').strip()
+        categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
+        notes = request.form.get('notes', '').strip() or None
+
         ja_paga = request.form.get('ja_paga') == 'on'
         payment_method = request.form.get('payment_method', '').strip() or None
         raw_paid_date = request.form.get('paid_date', '').strip()
@@ -163,12 +169,19 @@ def review_draft(invoice_id):
                 'issue_date': issue_date,
                 'due_date': due_date,
                 'document_type': doc_type,
+                'centro_custo_id': centro_custo_id,
+                'categoria_custo_id': categoria_custo_id,
+                'notes': notes,
             })
             payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
+            cost_centers = get_cost_centers(ativo_only=True)
+            cost_categories_tree = get_cost_categories_tree()
             return render_template('compras/review_draft.html',
                                    inv=inv,
                                    document_type_labels=DOCUMENT_TYPE_LABELS,
                                    payment_methods=payment_methods,
+                                   cost_centers=cost_centers,
+                                   cost_categories_tree=cost_categories_tree,
                                    today=date.today())
 
         new_status = 'paid' if ja_paga else 'pending_review'
@@ -184,6 +197,9 @@ def review_draft(invoice_id):
             'status': new_status,
             'paid_date': paid_date.isoformat() if paid_date else None,
             'payment_method': payment_method if ja_paga else None,
+            'centro_custo_id': centro_custo_id,
+            'categoria_custo_id': categoria_custo_id,
+            'notes': notes,
         })
         if ja_paga:
             flash('Fatura registada e marcada como paga.', 'success')
@@ -191,11 +207,15 @@ def review_draft(invoice_id):
             flash('Fatura registada com sucesso.', 'success')
         return redirect(url_for('compras.faturas'))
 
+    cost_centers = get_cost_centers(ativo_only=True)
+    cost_categories_tree = get_cost_categories_tree()
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     return render_template('compras/review_draft.html',
                            inv=inv,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,
+                           cost_centers=cost_centers,
+                           cost_categories_tree=cost_categories_tree,
                            today=date.today())
 
 
