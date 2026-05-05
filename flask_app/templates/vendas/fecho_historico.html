@@ -54,6 +54,7 @@
                                       action="{{ url_for('vendas.fecho_historico_eliminar', record_id=r.id) }}"
                                       class="d-inline"
                                       onsubmit="return confirm('Eliminar o registo de {{ r.data.strftime('%d/%m/%Y') if r.data else r.data_str }}? Esta ação não pode ser desfeita.')">
+                                    <input type="hidden" name="_loja_id" value="{{ loja_id }}">
                                     <button type="submit" class="btn btn-xs btn-outline-danger" title="Eliminar">🗑️</button>
                                 </form>
                             </td>

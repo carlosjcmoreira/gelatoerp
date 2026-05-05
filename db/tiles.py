@@ -42,6 +42,7 @@ def run_migrations_tile_config():
         _HIDDEN_DEFAULTS = [
             ('producao', 'ordem', 'Ordem de Produção'),
             ('producao', 'receitas', 'Receitas de Gelado'),
+            ('vendas', 'fecho_historico', 'Histórico Caixa'),
         ]
         for module, tile_id, label in _HIDDEN_DEFAULTS:
             cursor.execute("""

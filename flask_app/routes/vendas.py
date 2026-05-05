@@ -873,6 +873,10 @@ def fecho_historico_editar(record_id):
 
     loja_id, loja_nome = _get_user_loja()
 
+    if loja_id and registo.get('loja_id') != loja_id:
+        flash('Sem acesso a este registo na loja activa.', 'danger')
+        return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
+
     if request.method == 'POST':
         def _parse_dec(name):
             v = request.form.get(name, '').strip().replace(',', '.')
@@ -921,6 +925,11 @@ def fecho_historico_eliminar(record_id):
         return redirect(url_for('vendas.fecho_historico'))
 
     loja_id, loja_nome = _get_user_loja()
+
+    if loja_id and registo.get('loja_id') != loja_id:
+        flash('Sem acesso a este registo na loja activa.', 'danger')
+        return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
+
     data_str = registo['data_str'] if registo.get('data_str') else str(registo.get('data', ''))
 
     delete_fecho_caixa_by_id(record_id)
