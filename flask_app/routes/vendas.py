@@ -14,6 +14,7 @@ from database import (
     get_ordens_transferencia, confirmar_ordem_transferencia, rejeitar_ordem_transferencia,
     get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
+    list_fecho_caixa, delete_fecho_caixa_by_id,
     get_all_receitas_gelado, update_receita_gelado, update_receita_gelado_ativo,
 )
 
@@ -30,6 +31,7 @@ TAB_DEFS = [
     {'id': 'pesagem', 'label': 'Pesagem Fim de Dia', 'icon': '⚖️', 'endpoint': 'vendas.pesagem'},
     {'id': 'fecho_caixa', 'label': 'Fecho de Caixa', 'icon': '💵', 'endpoint': 'vendas.fecho_caixa'},
     {'id': 'sabores_ativos', 'label': 'Sabores Ativos', 'icon': '✅', 'endpoint': 'vendas.sabores_ativos'},
+    {'id': 'fecho_historico', 'label': 'Histórico Caixa', 'icon': '📋', 'endpoint': 'vendas.fecho_historico', 'gestor_only': True},
 ]
 
 
@@ -81,6 +83,9 @@ def _build_tabs(active_id, loja_id=None):
     from db.tiles import get_tile_visibility
     visibility = get_tile_visibility('vendas')
 
+    user = session.get('user', {})
+    is_gestor = bool(user.get('acesso_gestor'))
+
     # Determine store capabilities to filter tabs
     store_type = 'loja'
     requires_eod = True
@@ -96,7 +101,10 @@ def _build_tabs(active_id, loja_id=None):
 
     tabs = []
     for t in TAB_DEFS:
-        if not visibility.get(t['id'], True):
+        gestor_only = t.get('gestor_only', False)
+        if gestor_only and not is_gestor:
+            continue
+        if not gestor_only and not visibility.get(t['id'], True):
             continue
         if t['id'] in _loja_only and store_type != 'loja':
             continue
@@ -829,6 +837,95 @@ def fecho_caixa_justificar():
 
     ok = salvar_justificacao_fecho(fecho_id, justificacao)
     return jsonify({'ok': ok})
+
+
+@vendas_bp.route('/fecho-historico')
+@login_required
+def fecho_historico():
+    user = session.get('user', {})
+    if not user.get('acesso_gestor'):
+        flash('Acesso restrito a gestores.', 'danger')
+        return redirect(url_for('home.index'))
+
+    loja_id, loja_nome = _get_user_loja()
+    registos = list_fecho_caixa(loja_id) if loja_id else []
+
+    return render_template('vendas/fecho_historico.html',
+                           active_tab='fecho_historico',
+                           loja_id=loja_id,
+                           loja_nome=loja_nome,
+                           registos=registos,
+                           tabs=_build_tabs('fecho_historico', loja_id))
+
+
+@vendas_bp.route('/fecho-historico/<int:record_id>/editar', methods=['GET', 'POST'])
+@login_required
+def fecho_historico_editar(record_id):
+    user = session.get('user', {})
+    if not user.get('acesso_gestor'):
+        flash('Acesso restrito a gestores.', 'danger')
+        return redirect(url_for('home.index'))
+
+    registo = get_fecho_caixa_by_id(record_id)
+    if not registo:
+        flash('Registo não encontrado.', 'danger')
+        return redirect(url_for('vendas.fecho_historico'))
+
+    loja_id, loja_nome = _get_user_loja()
+
+    if request.method == 'POST':
+        def _parse_dec(name):
+            v = request.form.get(name, '').strip().replace(',', '.')
+            try:
+                return float(v) if v else None
+            except ValueError:
+                return None
+
+        fields = {
+            'colaborador': request.form.get('colaborador', '').strip() or None,
+            'total_moedas': _parse_dec('total_moedas'),
+            'valor_notas': _parse_dec('valor_notas'),
+            'total_caixa': _parse_dec('total_caixa'),
+            'envelope_sobra': _parse_dec('envelope_sobra'),
+            'total_vendas_pos': _parse_dec('total_vendas_pos'),
+            'dinheiro_pos': _parse_dec('dinheiro_pos'),
+            'cartao_pos': _parse_dec('cartao_pos'),
+            'ubereats_pos': _parse_dec('ubereats_pos'),
+            'tpa_getnet': _parse_dec('tpa_getnet'),
+            'justificacao_desvio': request.form.get('justificacao_desvio', '').strip() or None,
+        }
+        fields = {k: v for k, v in fields.items() if v is not None}
+
+        upsert_fecho_caixa(registo['data'], registo['loja_id'], fields, user.get('username', 'gestor'))
+        flash('Registo atualizado com sucesso.', 'success')
+        return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
+
+    return render_template('vendas/fecho_historico_editar.html',
+                           active_tab='fecho_historico',
+                           loja_id=loja_id,
+                           loja_nome=loja_nome,
+                           registo=registo)
+
+
+@vendas_bp.route('/fecho-historico/<int:record_id>/eliminar', methods=['POST'])
+@login_required
+def fecho_historico_eliminar(record_id):
+    user = session.get('user', {})
+    if not user.get('acesso_gestor'):
+        flash('Acesso restrito a gestores.', 'danger')
+        return redirect(url_for('home.index'))
+
+    registo = get_fecho_caixa_by_id(record_id)
+    if not registo:
+        flash('Registo não encontrado.', 'danger')
+        return redirect(url_for('vendas.fecho_historico'))
+
+    loja_id, loja_nome = _get_user_loja()
+    data_str = registo['data_str'] if registo.get('data_str') else str(registo.get('data', ''))
+
+    delete_fecho_caixa_by_id(record_id)
+    flash(f'Registo de {data_str} eliminado.', 'success')
+    return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
 
 
 @vendas_bp.route('/sabores-ativos', methods=['GET', 'POST'])

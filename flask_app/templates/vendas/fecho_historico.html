@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.index", loja_id=loja_id) %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">📋 Histórico de Caixa — {{ loja_nome }}</h5>
+    <p class="text-muted small mb-3">Consulta, edição e eliminação de registos de fecho de caixa</p>
+
+    {% include 'components/flash_messages.html' ignore missing %}
+
+    {% if registos %}
+    <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">{{ registos|length }} registo(s)</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 small align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Data</th>
+                            <th class="text-end">Total Caixa</th>
+                            <th class="text-end">Vds POS</th>
+                            <th class="text-end">Desv. Num.</th>
+                            <th class="text-end">Desv. TPA</th>
+                            <th>Registado por</th>
+                            <th class="text-center">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in registos %}
+                        {% set dn = r.desvio_numerario %}
+                        {% set dt = r.desvio_tpa %}
+                        {% set tem_desvio = (dn is not none and dn|abs >= 1) or (dt is not none and dt|abs >= 1) %}
+                        <tr class="{% if tem_desvio and not r.justificacao_desvio %}table-warning{% elif tem_desvio and r.justificacao_desvio %}table-info{% endif %}">
+                            <td class="fw-semibold text-nowrap">
+                                {{ r.data.strftime('%d/%m/%Y') if r.data else r.data_str }}
+                            </td>
+                            <td class="text-end">{{ '%.2f'|format(r.total_caixa or 0) }} €</td>
+                            <td class="text-end">{{ '%.2f'|format(r.total_vendas_pos or 0) }} €</td>
+                            <td class="text-end {% if dn is not none %}{% if dn|abs < 1 %}text-success{% else %}text-danger fw-bold{% endif %}{% endif %}">
+                                {% if dn is not none %}{% if dn >= 0 %}+{% endif %}{{ '%.2f'|format(dn) }}{% else %}—{% endif %}
+                            </td>
+                            <td class="text-end {% if dt is not none %}{% if dt|abs < 1 %}text-success{% else %}text-danger fw-bold{% endif %}{% endif %}">
+                                {% if dt is not none %}{% if dt >= 0 %}+{% endif %}{{ '%.2f'|format(dt) }}{% else %}—{% endif %}
+                            </td>
+                            <td class="text-muted text-truncate" style="max-width:90px" title="{{ r.registado_por or '' }}">
+                                {{ r.registado_por or '—' }}
+                            </td>
+                            <td class="text-center text-nowrap">
+                                <a href="{{ url_for('vendas.fecho_historico_editar', record_id=r.id, loja_id=loja_id) }}"
+                                   class="btn btn-xs btn-outline-primary me-1" title="Editar">✏️</a>
+                                <form method="POST"
+                                      action="{{ url_for('vendas.fecho_historico_eliminar', record_id=r.id) }}"
+                                      class="d-inline"
+                                      onsubmit="return confirm('Eliminar o registo de {{ r.data.strftime('%d/%m/%Y') if r.data else r.data_str }}? Esta ação não pode ser desfeita.')">
+                                    <button type="submit" class="btn btn-xs btn-outline-danger" title="Eliminar">🗑️</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% if r.justificacao_desvio %}
+                        <tr class="table-light">
+                            <td colspan="7" class="text-muted small fst-italic px-3 py-1">
+                                📝 {{ r.justificacao_desvio }}
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-secondary">
+        Sem registos de fecho de caixa para {{ loja_nome }}.
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.btn-xs {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    border-radius: 0.2rem;
+}
+</style>
+{% endblock %}

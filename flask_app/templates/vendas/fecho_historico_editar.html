@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.fecho_historico", loja_id=loja_id) %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">✏️ Editar Fecho de Caixa</h5>
+    <p class="text-muted small mb-3">
+        {{ loja_nome }} — {{ registo.data.strftime('%d/%m/%Y') if registo.data else registo.data_str }}
+    </p>
+
+    {% include 'components/flash_messages.html' ignore missing %}
+
+    {% set dn = registo.desvio_numerario %}
+    {% set dt = registo.desvio_tpa %}
+
+    {% if dn is not none or dt is not none %}
+    <div class="row g-2 mb-3">
+        {% if dn is not none %}
+        <div class="col-6">
+            <div class="kpi-card {% if dn|abs >= 1 %}border-danger{% else %}border-success{% endif %}">
+                <div class="kpi-card-title">Desvio Numerário (atual)</div>
+                <div class="kpi-card-value {% if dn|abs < 1 %}text-success{% else %}text-danger{% endif %}">
+                    {% if dn >= 0 %}+{% endif %}{{ '%.2f'|format(dn) }} €
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% if dt is not none %}
+        <div class="col-6">
+            <div class="kpi-card {% if dt|abs >= 1 %}border-danger{% else %}border-success{% endif %}">
+                <div class="kpi-card-title">Desvio TPA (atual)</div>
+                <div class="kpi-card-value {% if dt|abs < 1 %}text-success{% else %}text-danger{% endif %}">
+                    {% if dt >= 0 %}+{% endif %}{{ '%.2f'|format(dt) }} €
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="card shadow-sm">
+        <div class="card-header fw-semibold">📝 Campos Editáveis</div>
+        <div class="card-body">
+            <form method="POST">
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Colaborador</label>
+                    <input type="text" name="colaborador" class="form-control form-control-sm"
+                           placeholder="Nome do colaborador"
+                           value="{{ registo.colaborador or '' }}">
+                </div>
+
+                <h6 class="text-muted small text-uppercase mb-2">💵 Numerário</h6>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small">Total Moedas (€)</label>
+                        <input type="text" name="total_moedas" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.total_moedas) if registo.total_moedas is not none else '' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Valor Notas (€)</label>
+                        <input type="text" name="valor_notas" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.valor_notas) if registo.valor_notas is not none else '' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Total Caixa (€)</label>
+                        <input type="text" name="total_caixa" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.total_caixa) if registo.total_caixa is not none else '' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Envelope / Sobra (€)</label>
+                        <input type="text" name="envelope_sobra" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.envelope_sobra) if registo.envelope_sobra is not none else '' }}">
+                    </div>
+                </div>
+
+                <h6 class="text-muted small text-uppercase mb-2">🖥️ POS / TPA</h6>
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small">Total Vendas POS (€)</label>
+                        <input type="text" name="total_vendas_pos" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.total_vendas_pos) if registo.total_vendas_pos is not none else '' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Dinheiro POS (€)</label>
+                        <input type="text" name="dinheiro_pos" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.dinheiro_pos) if registo.dinheiro_pos is not none else '' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Cartão POS (€)</label>
+                        <input type="text" name="cartao_pos" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.cartao_pos) if registo.cartao_pos is not none else '' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">Uber Eats POS (€)</label>
+                        <input type="text" name="ubereats_pos" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.ubereats_pos) if registo.ubereats_pos is not none else '' }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small">TPA Getnet (€)</label>
+                        <input type="text" name="tpa_getnet" class="form-control form-control-sm"
+                               inputmode="decimal" placeholder="0.00"
+                               value="{{ '%.2f'|format(registo.tpa_getnet) if registo.tpa_getnet is not none else '' }}">
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">💬 Justificação de Desvio</label>
+                    <textarea name="justificacao_desvio" class="form-control form-control-sm" rows="2"
+                              placeholder="Ex: Terminal com falha, gorjeta não registada...">{{ registo.justificacao_desvio or '' }}</textarea>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm flex-fill">💾 Guardar Alterações</button>
+                    <a href="{{ url_for('vendas.fecho_historico', loja_id=loja_id) }}"
+                       class="btn btn-outline-secondary btn-sm flex-fill">✕ Cancelar</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="mt-3 text-muted small">
+        <div>Registado por: <strong>{{ registo.registado_por or '—' }}</strong></div>
+        {% if registo.colaborador %}
+        <div>Colaborador: <strong>{{ registo.colaborador }}</strong></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

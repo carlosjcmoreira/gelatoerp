@@ -18,6 +18,7 @@ _ALLOWED_SET = (
     'colaborador', 'moedas_json',
     'total_moedas', 'valor_notas', 'total_caixa', 'envelope_sobra',
     'total_vendas_pos', 'dinheiro_pos', 'cartao_pos', 'ubereats_pos', 'tpa_getnet',
+    'justificacao_desvio',
     'imagem_caixa_path', 'ocr_raw', 'ocr_confianca',
 )
 
@@ -131,6 +132,30 @@ def get_fecho_caixa_by_id(fecho_id: int) -> dict | None:
         cur.execute(f"SELECT {', '.join(_COLS)} FROM fecho_caixa WHERE id = %s", (fecho_id,))
         row = cur.fetchone()
     return _row_to_dict(row) if row else None
+
+
+def list_fecho_caixa(loja_id: int) -> list:
+    """Return all fecho_caixa records for a loja, ordered by date descending."""
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {', '.join(_COLS)} FROM fecho_caixa WHERE loja_id = %s ORDER BY data DESC",
+            (loja_id,)
+        )
+        return [_row_to_dict(row) for row in cur.fetchall()]
+
+
+def delete_fecho_caixa_by_id(record_id: int) -> bool:
+    """Delete a fecho_caixa record by primary key. Returns True if a row was deleted."""
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM fecho_caixa WHERE id = %s", (record_id,))
+            conn.commit()
+            return cur.rowcount > 0
+    except Exception as e:
+        logger.error("delete_fecho_caixa_by_id failed: %s", e)
+        raise
 
 
 def salvar_justificacao_fecho(fecho_id: int, justificacao: str) -> bool:
