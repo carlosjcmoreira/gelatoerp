@@ -138,9 +138,15 @@ def review_draft(invoice_id):
             doc_type = 'fatura'
 
         centro_custo_raw = request.form.get('centro_custo_id', '').strip()
-        centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
+        try:
+            centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
+        except ValueError:
+            centro_custo_id = None
         categoria_custo_raw = request.form.get('categoria_custo_id', '').strip()
-        categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
+        try:
+            categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
+        except ValueError:
+            categoria_custo_id = None
         notes = request.form.get('notes', '').strip() or None
 
         ja_paga = request.form.get('ja_paga') == 'on'
