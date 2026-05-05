@@ -2,6 +2,12 @@
 {% set back_url = url_for("financeiro.index") %}
 
 {% block content %}
+{% set _sd = {
+    'pending_review': 'Aguarda confirmação pelo responsável financeiro',
+    'scheduled': 'Pagamento confirmado e agendado para a data de vencimento',
+    'paid': 'Pagamento já efectuado',
+    'cancelled': 'Documento cancelado ou anulado',
+} %}
 <div class="container-fluid px-3 py-3 pb-5">
     <div class="d-flex align-items-center justify-content-between mb-3">
         <h5 class="mb-0">📄 Documentos</h5>
@@ -238,7 +244,9 @@
                                         {% elif inv.status == 'pending_review' %}bg-warning text-dark
                                         {% elif inv.status == 'scheduled' %}bg-info text-dark
                                         {% elif inv.status == 'paid' %}bg-success
-                                        {% else %}bg-secondary{% endif %}">
+                                        {% else %}bg-secondary{% endif %}"
+                                        data-bs-toggle="tooltip"
+                                        title="{% if overdue %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
                                         {{ 'Vencida' if overdue else inv.status_label }}
                                     </span>
                                 </td>
@@ -306,7 +314,9 @@
                             {% elif inv.status == 'pending_review' %}bg-warning text-dark
                             {% elif inv.status == 'scheduled' %}bg-info text-dark
                             {% elif inv.status == 'paid' %}bg-success
-                            {% else %}bg-secondary{% endif %}">
+                            {% else %}bg-secondary{% endif %}"
+                            data-bs-toggle="tooltip"
+                            title="{% if inv.display_status == 'overdue' %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
                             {{ inv.status_label }}
                         </span>
                     </td>
@@ -368,7 +378,9 @@
                             {% elif inv.status == 'pending_review' %}bg-warning text-dark
                             {% elif inv.status == 'scheduled' %}bg-info text-dark
                             {% elif inv.status == 'paid' %}bg-success
-                            {% else %}bg-secondary{% endif %}">
+                            {% else %}bg-secondary{% endif %}"
+                            data-bs-toggle="tooltip"
+                            title="{% if inv.display_status == 'overdue' %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
                             {{ inv.status_label }}
                         </span>
                     </td>
@@ -392,56 +404,47 @@
     <form method="get" class="mb-3" data-no-loading>
         <input type="hidden" name="order_by" value="{{ order_by }}">
         <input type="hidden" name="order_dir" value="{{ order_dir }}">
-        <div class="row g-2">
-            <div class="col-12 col-sm-6 col-md-5">
-                <input type="text" name="q" class="form-control form-control-sm"
-                       placeholder="Pesquisar fornecedor ou nº documento" value="{{ search }}">
-            </div>
-            <div class="col-6 col-sm-3 col-md-2">
-                <select name="status" class="form-select form-select-sm">
-                    <option value="">Todos estados</option>
-                    {% for k, v in status_labels.items() %}
-                    <option value="{{ k }}" {% if status_filter == k %}selected{% endif %}>{{ v }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-6 col-sm-3 col-md-2">
-                <select name="store_id" class="form-select form-select-sm">
-                    <option value="">Todas as lojas</option>
-                    {% for s in stores %}
-                    <option value="{{ s.id }}" {% if store_id|string == s.id|string %}selected{% endif %}>{{ s.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <input type="text" name="q" class="form-control form-control-sm"
+                   style="flex: 2 1 180px; min-width: 0"
+                   placeholder="Pesquisar fornecedor ou nº documento" value="{{ search }}">
+            <select name="status" class="form-select form-select-sm" style="flex: 1 1 130px; min-width: 0">
+                <option value="">Todos estados</option>
+                {% for k, v in status_labels.items() %}
+                <option value="{{ k }}" {% if status_filter == k %}selected{% endif %}>{{ v }}</option>
+                {% endfor %}
+            </select>
+            <select name="store_id" class="form-select form-select-sm" style="flex: 1 1 110px; min-width: 0">
+                <option value="">Todas as lojas</option>
+                {% for s in stores %}
+                <option value="{{ s.id }}" {% if store_id|string == s.id|string %}selected{% endif %}>{{ s.name }}</option>
+                {% endfor %}
+            </select>
             {% if cost_centers %}
-            <div class="col-6 col-sm-3 col-md-2">
-                <select name="centro_custo_id" class="form-select form-select-sm">
-                    <option value="">Todos os centros</option>
-                    {% for cc in cost_centers %}
-                    <option value="{{ cc.id }}" {% if centro_custo_filter == cc.id %}selected{% endif %}>{{ cc.code }} — {{ cc.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
+            <select name="centro_custo_id" class="form-select form-select-sm" style="flex: 1 1 130px; min-width: 0">
+                <option value="">Todos os centros</option>
+                {% for cc in cost_centers %}
+                <option value="{{ cc.id }}" {% if centro_custo_filter == cc.id %}selected{% endif %}>{{ cc.code }} — {{ cc.name }}</option>
+                {% endfor %}
+            </select>
             {% endif %}
             {% if cost_categories_tree %}
-            <div class="col-6 col-sm-3 col-md-2">
-                <select name="categoria_custo_id" class="form-select form-select-sm">
-                    <option value="">Todas as categorias</option>
-                    {% for top in cost_categories_tree %}
-                    <optgroup label="{{ top.name }}">
-                        {% for sub in top.children %}
-                        <option value="{{ sub.id }}" {% if categoria_custo_filter == sub.id %}selected{% endif %}>{{ sub.name }}</option>
-                        {% endfor %}
-                        {% if not top.children %}
-                        <option value="{{ top.id }}" {% if categoria_custo_filter == top.id %}selected{% endif %}>({{ top.name }})</option>
-                        {% endif %}
-                    </optgroup>
+            <select name="categoria_custo_id" class="form-select form-select-sm" style="flex: 1 1 130px; min-width: 0">
+                <option value="">Todas as categorias</option>
+                {% for top in cost_categories_tree %}
+                <optgroup label="{{ top.name }}">
+                    {% for sub in top.children %}
+                    <option value="{{ sub.id }}" {% if categoria_custo_filter == sub.id %}selected{% endif %}>{{ sub.name }}</option>
                     {% endfor %}
-                </select>
-            </div>
+                    {% if not top.children %}
+                    <option value="{{ top.id }}" {% if categoria_custo_filter == top.id %}selected{% endif %}>({{ top.name }})</option>
+                    {% endif %}
+                </optgroup>
+                {% endfor %}
+            </select>
             {% endif %}
-            <div class="col-6 col-sm-3 col-md-2 d-flex gap-1">
-                <button type="submit" class="btn btn-primary btn-sm flex-grow-1">Filtrar</button>
+            <div class="d-flex gap-1 flex-shrink-0">
+                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
                 <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm">✕</a>
             </div>
         </div>
@@ -457,10 +460,10 @@
             {% if inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}{% set ns.overdue = ns.overdue + 1 %}{% endif %}
             {% if inv.status == 'paid' %}{% set ns.paid = ns.paid + 1 %}{% endif %}
         {% endfor %}
-        {% if ns.overdue > 0 %}<span class="badge bg-danger">{{ ns.overdue }} vencida(s)</span>{% endif %}
-        {% if ns.pending > 0 %}<span class="badge bg-warning text-dark">{{ ns.pending }} pendente(s)</span>{% endif %}
-        {% if ns.scheduled > 0 %}<span class="badge bg-info text-dark">{{ ns.scheduled }} agendada(s)</span>{% endif %}
-        {% if ns.paid > 0 %}<span class="badge bg-success">{{ ns.paid }} paga(s)</span>{% endif %}
+        {% if ns.overdue > 0 %}<span class="badge bg-danger" data-bs-toggle="tooltip" title="Prazo de pagamento ultrapassado — requer atenção imediata">{{ ns.overdue }} vencida(s)</span>{% endif %}
+        {% if ns.pending > 0 %}<span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="{{ _sd['pending_review'] }}">{{ ns.pending }} pendente(s)</span>{% endif %}
+        {% if ns.scheduled > 0 %}<span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="{{ _sd['scheduled'] }}">{{ ns.scheduled }} agendada(s)</span>{% endif %}
+        {% if ns.paid > 0 %}<span class="badge bg-success" data-bs-toggle="tooltip" title="{{ _sd['paid'] }}">{{ ns.paid }} paga(s)</span>{% endif %}
     </div>
 
     <!-- Bulk action form wraps the table so checkboxes are submitted -->
@@ -535,7 +538,9 @@
                     style="cursor:pointer"
                     onclick="window.location='{{ url_for('faturas.detail', invoice_id=inv.id) }}'">
                     <td onclick="event.stopPropagation()">
-                        <input type="checkbox" name="ids" value="{{ inv.id }}" class="inv-cb form-check-input">
+                        <input type="checkbox" name="ids" value="{{ inv.id }}" class="inv-cb form-check-input"
+                               data-amount="{{ inv.amount_eur if inv.amount_eur is not none else '' }}"
+                               data-doc-type="{{ inv.document_type or 'fatura' }}">
                     </td>
                     <td class="fw-semibold text-truncate" style="max-width:180px">{{ inv.supplier_name or '—' }}</td>
                     <td class="text-nowrap small">{{ inv.invoice_number or '—' }}</td>
@@ -566,7 +571,9 @@
                             {% elif inv.status == 'scheduled' %}bg-info text-dark
                             {% elif inv.status == 'paid' %}bg-success
                             {% elif inv.status == 'cancelled' %}bg-secondary
-                            {% else %}bg-secondary{% endif %}">
+                            {% else %}bg-secondary{% endif %}"
+                            data-bs-toggle="tooltip"
+                            title="{% if overdue %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
                             {{ 'Vencida' if overdue else inv.status_label }}
                         </span>
                     </td>
@@ -707,12 +714,23 @@
     function getChecked() { return document.querySelectorAll('.inv-cb:checked'); }
 
     function updateBulkBar() {
-        const n = getChecked().length;
+        const checked = Array.from(getChecked());
+        const n = checked.length;
         const total = getCbs().length;
         if (n > 0) {
             bulkBar.classList.remove('d-none');
             bulkBar.classList.add('d-flex');
-            bulkCount.textContent = n + ' fatura(s) selecionada(s)';
+            let sum = 0;
+            checked.forEach(function(cb) {
+                const amt = parseFloat(cb.dataset.amount);
+                if (!isNaN(amt)) {
+                    sum += cb.dataset.docType === 'nota_credito' ? amt : -amt;
+                }
+            });
+            const sign = sum > 0 ? '+' : '';
+            const abs = Math.abs(sum).toFixed(2).replace('.', ',');
+            const formatted = (sum < 0 ? '-' : sign) + abs + '\u00a0\u20ac';
+            bulkCount.textContent = n + ' fatura(s)\u00a0\u00b7\u00a0' + formatted;
         } else {
             bulkBar.classList.add('d-none');
             bulkBar.classList.remove('d-flex');
@@ -906,6 +924,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (nEl && infoEl) {
         nEl.addEventListener('input', function() { infoEl.textContent = nEl.value || '1'; });
     }
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function(el) {
+        new bootstrap.Tooltip(el, { trigger: 'hover', placement: 'top' });
+    });
 });
 </script>
 {% endblock %}

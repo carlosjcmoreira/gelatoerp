@@ -604,10 +604,11 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 
 #loading-overlay .loading-icon {
-    font-size: 2.8rem;
-    display: inline-block;
+    display: block;
+    line-height: 0;
     animation: spin-gelado 1.2s linear infinite;
-    transform-origin: center center;
+    transform-origin: center;
+    will-change: transform;
 }
 
 #loading-overlay .loading-text {
