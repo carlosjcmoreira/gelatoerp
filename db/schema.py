@@ -2571,6 +2571,50 @@ def run_migrations_tarefas():
                 pass
 
 
+_LOCK_FECHO_CAIXA_AUDIT = 202640
+
+
+def run_migrations_fecho_caixa_audit():
+    """Create fecho_caixa_audit table for tracking manager edits/deletes. Advisory lock 202640."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_FECHO_CAIXA_AUDIT,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_fecho_caixa_audit: lock held by another worker, skipping")
+                return
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS fecho_caixa_audit (
+                    id SERIAL PRIMARY KEY,
+                    fecho_caixa_id INTEGER NOT NULL,
+                    acao VARCHAR(10) NOT NULL CHECK (acao IN (\'edit\', \'delete\')),
+                    utilizador VARCHAR(100) NOT NULL,
+                    timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+                    valores_anteriores JSONB NOT NULL
+                )
+            ''')
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_fecho_caixa_audit_fecho_id "
+                "ON fecho_caixa_audit(fecho_caixa_id)"
+            )
+
+            conn.commit()
+            logger.info("run_migrations_fecho_caixa_audit: table ready")
+        except Exception as exc:
+            logger.error("run_migrations_fecho_caixa_audit failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_FECHO_CAIXA_AUDIT,))
+                conn.commit()
+            except Exception:
+                pass
+
+
 def run_migrations_tarefas_v2():
     """Add loja_id + equipa columns to tarefas; make frequencia nullable.
     Advisory lock 202620."""

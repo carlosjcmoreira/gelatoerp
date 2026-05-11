@@ -15,6 +15,7 @@ from database import (
     get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
     list_fecho_caixa, delete_fecho_caixa_by_id,
+    upsert_fecho_caixa_audited, delete_fecho_caixa_audited, get_fecho_caixa_audit,
     get_all_receitas_gelado, update_receita_gelado, update_receita_gelado_ativo,
 )
 
@@ -898,15 +899,21 @@ def fecho_historico_editar(record_id):
             if name in request.form:
                 fields[name] = request.form.get(name, '').strip() or None
 
-        upsert_fecho_caixa(registo['data'], registo['loja_id'], fields, user.get('username', 'gestor'))
+        valores_anteriores = {k: v for k, v in registo.items() if k not in ('_empty',)}
+        upsert_fecho_caixa_audited(
+            registo['data'], registo['loja_id'], fields, user.get('username', 'gestor'),
+            registo['id'], valores_anteriores,
+        )
         flash('Registo atualizado com sucesso.', 'success')
         return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
 
+    audit_log = get_fecho_caixa_audit(record_id)
     return render_template('vendas/fecho_historico_editar.html',
                            active_tab='fecho_historico',
                            loja_id=loja_id,
                            loja_nome=loja_nome,
-                           registo=registo)
+                           registo=registo,
+                           audit_log=audit_log)
 
 
 @vendas_bp.route('/fecho-historico/<int:record_id>/eliminar', methods=['POST'])
@@ -930,7 +937,8 @@ def fecho_historico_eliminar(record_id):
 
     data_str = registo['data_str'] if registo.get('data_str') else str(registo.get('data', ''))
 
-    delete_fecho_caixa_by_id(record_id)
+    valores_anteriores = {k: v for k, v in registo.items() if k not in ('_empty',)}
+    delete_fecho_caixa_audited(record_id, user.get('username', 'gestor'), valores_anteriores)
     flash(f'Registo de {data_str} eliminado.', 'success')
     return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
 

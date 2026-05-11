@@ -158,6 +158,139 @@ def delete_fecho_caixa_by_id(record_id: int) -> bool:
         raise
 
 
+def _audit_json(valores_anteriores: dict) -> str:
+    """Serialise a fecho_caixa row dict to a JSON string safe for JSONB insertion."""
+    import decimal
+
+    def _default(obj):
+        if isinstance(obj, decimal.Decimal):
+            return float(obj)
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
+        raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+
+    return json.dumps(valores_anteriores, default=_default)
+
+
+def _write_audit_cur(cur, fecho_caixa_id: int, acao: str, utilizador: str, audit_json: str) -> None:
+    """Insert one audit row using an existing cursor (caller must commit)."""
+    cur.execute("""
+        INSERT INTO fecho_caixa_audit (fecho_caixa_id, acao, utilizador, valores_anteriores)
+        VALUES (%s, %s, %s, %s)
+    """, (fecho_caixa_id, acao, utilizador, audit_json))
+
+
+def delete_fecho_caixa_audited(record_id: int, utilizador: str, valores_anteriores: dict) -> bool:
+    """Delete a fecho_caixa record and write an audit row in a single transaction.
+
+    Raises on failure so the caller knows neither the delete nor the audit row
+    was persisted.
+    """
+    audit_json = _audit_json(valores_anteriores)
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM fecho_caixa WHERE id = %s", (record_id,))
+            deleted = cur.rowcount > 0
+            if deleted:
+                _write_audit_cur(cur, record_id, 'delete', utilizador, audit_json)
+            conn.commit()
+            return deleted
+    except Exception as e:
+        logger.error("delete_fecho_caixa_audited failed: %s", e)
+        raise
+
+
+def upsert_fecho_caixa_audited(data, loja_id: int, fields: dict, utilizador: str,
+                                fecho_id: int, valores_anteriores: dict) -> dict:
+    """Upsert a fecho_caixa record and write an 'edit' audit row in a single transaction.
+
+    fecho_id and valores_anteriores must reflect the existing record (captured
+    before calling this function).  Raises on failure.
+    """
+    set_parts = []
+    values = []
+    insert_cols = []
+    insert_vals = []
+
+    for col in _ALLOWED_SET:
+        if col not in fields:
+            continue
+        if col == 'ocr_raw':
+            continue
+        val = fields[col]
+        if col == 'moedas_json' and isinstance(val, (dict, list)):
+            val = json.dumps(val)
+        set_parts.append(f"{col} = %s")
+        values.append(val)
+        insert_cols.append(col)
+        insert_vals.append(val)
+
+    set_parts.append("registado_por = %s")
+    values.append(utilizador)
+    set_parts.append("updated_at = NOW()")
+
+    select_cols = ', '.join(_COLS)
+    audit_json = _audit_json(valores_anteriores)
+
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
+
+            loja_nome = _get_loja_name(cur, loja_id)
+            set_parts.append("loja = %s")
+            values.append(loja_nome)
+
+            col_names = ', '.join(['data', 'loja_id', 'loja', 'registado_por'] + insert_cols)
+            placeholders = ', '.join(['%s'] * (4 + len(insert_cols)))
+            all_insert_vals = [data, loja_id, loja_nome, utilizador] + insert_vals
+            update_str = ', '.join(set_parts)
+
+            cur.execute(f"""
+                INSERT INTO fecho_caixa ({col_names})
+                VALUES ({placeholders})
+                ON CONFLICT (data, loja_id) DO UPDATE SET {update_str}
+                RETURNING {select_cols}
+            """, all_insert_vals + values)
+            row = cur.fetchone()
+
+            _write_audit_cur(cur, fecho_id, 'edit', utilizador, audit_json)
+            conn.commit()
+        return _row_to_dict(row) if row else {}
+    except Exception as e:
+        logger.error("upsert_fecho_caixa_audited failed: %s", e)
+        raise
+
+
+def get_fecho_caixa_audit(fecho_caixa_id: int) -> list:
+    """Return audit entries for a fecho_caixa record, newest first."""
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT id, fecho_caixa_id, acao, utilizador, timestamp, valores_anteriores
+                FROM fecho_caixa_audit
+                WHERE fecho_caixa_id = %s
+                ORDER BY timestamp DESC
+            """, (fecho_caixa_id,))
+            rows = cur.fetchall()
+        result = []
+        for row in rows:
+            entry = {
+                'id': row[0],
+                'fecho_caixa_id': row[1],
+                'acao': row[2],
+                'utilizador': row[3],
+                'timestamp': row[4],
+                'valores_anteriores': row[5] if isinstance(row[5], dict) else json.loads(row[5]),
+            }
+            result.append(entry)
+        return result
+    except Exception as e:
+        logger.error("get_fecho_caixa_audit failed: %s", e)
+        return []
+
+
 def salvar_justificacao_fecho(fecho_id: int, justificacao: str) -> bool:
     """Save/update the deviation justification for a fecho_caixa row."""
     try:

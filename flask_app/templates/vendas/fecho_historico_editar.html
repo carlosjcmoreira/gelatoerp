@@ -133,5 +133,86 @@
         <div>Colaborador: <strong>{{ registo.colaborador }}</strong></div>
         {% endif %}
     </div>
+
+    {% if audit_log %}
+    <div class="mt-3">
+        <div class="accordion" id="auditAccordion">
+            <div class="accordion-item border">
+                <h2 class="accordion-header" id="auditHeading">
+                    <button class="accordion-button collapsed py-2 px-3 small fw-semibold" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#auditBody"
+                            aria-expanded="false" aria-controls="auditBody">
+                        🕓 Histórico de alterações ({{ audit_log|length }})
+                    </button>
+                </h2>
+                <div id="auditBody" class="accordion-collapse collapse" aria-labelledby="auditHeading">
+                    <div class="accordion-body p-0">
+                        {% for entry in audit_log %}
+                        {% set ant = entry.valores_anteriores %}
+                        <div class="border-bottom px-3 py-2 small">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span>
+                                    {% if entry.acao == 'delete' %}
+                                    <span class="badge bg-danger">Eliminação</span>
+                                    {% else %}
+                                    <span class="badge bg-warning text-dark">Edição</span>
+                                    {% endif %}
+                                    <strong class="ms-1">{{ entry.utilizador }}</strong>
+                                </span>
+                                <span class="text-muted">
+                                    {{ entry.timestamp.strftime('%d/%m/%Y %H:%M') if entry.timestamp else '—' }}
+                                </span>
+                            </div>
+                            <div class="text-muted" style="font-size:0.78rem;">
+                                <span>Valores anteriores:</span>
+                                <table class="table table-sm table-borderless mb-0 mt-1" style="font-size:0.78rem;">
+                                    <tbody>
+                                        {% if ant.colaborador is defined and ant.colaborador %}
+                                        <tr><td class="py-0 text-muted">Colaborador</td><td class="py-0">{{ ant.colaborador }}</td></tr>
+                                        {% endif %}
+                                        {% if ant.total_moedas is defined and ant.total_moedas is not none %}
+                                        <tr><td class="py-0 text-muted">Total Moedas</td><td class="py-0">{{ '%.2f'|format(ant.total_moedas|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.valor_notas is defined and ant.valor_notas is not none %}
+                                        <tr><td class="py-0 text-muted">Valor Notas</td><td class="py-0">{{ '%.2f'|format(ant.valor_notas|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.total_caixa is defined and ant.total_caixa is not none %}
+                                        <tr><td class="py-0 text-muted">Total Caixa</td><td class="py-0">{{ '%.2f'|format(ant.total_caixa|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.envelope_sobra is defined and ant.envelope_sobra is not none %}
+                                        <tr><td class="py-0 text-muted">Envelope/Sobra</td><td class="py-0">{{ '%.2f'|format(ant.envelope_sobra|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.total_vendas_pos is defined and ant.total_vendas_pos is not none %}
+                                        <tr><td class="py-0 text-muted">Total Vendas POS</td><td class="py-0">{{ '%.2f'|format(ant.total_vendas_pos|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.dinheiro_pos is defined and ant.dinheiro_pos is not none %}
+                                        <tr><td class="py-0 text-muted">Dinheiro POS</td><td class="py-0">{{ '%.2f'|format(ant.dinheiro_pos|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.cartao_pos is defined and ant.cartao_pos is not none %}
+                                        <tr><td class="py-0 text-muted">Cartão POS</td><td class="py-0">{{ '%.2f'|format(ant.cartao_pos|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.ubereats_pos is defined and ant.ubereats_pos is not none %}
+                                        <tr><td class="py-0 text-muted">Uber Eats POS</td><td class="py-0">{{ '%.2f'|format(ant.ubereats_pos|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.tpa_getnet is defined and ant.tpa_getnet is not none %}
+                                        <tr><td class="py-0 text-muted">TPA Getnet</td><td class="py-0">{{ '%.2f'|format(ant.tpa_getnet|float) }} €</td></tr>
+                                        {% endif %}
+                                        {% if ant.justificacao_desvio is defined and ant.justificacao_desvio %}
+                                        <tr><td class="py-0 text-muted">Justificação</td><td class="py-0">{{ ant.justificacao_desvio }}</td></tr>
+                                        {% endif %}
+                                        {% if ant.registado_por is defined and ant.registado_por %}
+                                        <tr><td class="py-0 text-muted">Registado por</td><td class="py-0">{{ ant.registado_por }}</td></tr>
+                                        {% endif %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 </div>
 {% endblock %}
