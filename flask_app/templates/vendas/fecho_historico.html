@@ -3,10 +3,42 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-    <h5 class="mb-1">📋 Histórico de Caixa — {{ loja_nome }}</h5>
+    <h5 class="mb-1">📋 Histórico de Caixa — Todas as Lojas</h5>
     <p class="text-muted small mb-3">Consulta, edição e eliminação de registos de fecho de caixa</p>
 
     {% include 'components/flash_messages.html' ignore missing %}
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body py-2 px-3">
+            <form method="GET" action="" class="row g-2 align-items-end">
+                <div class="col-12 col-sm-4">
+                    <label class="form-label small mb-1 fw-semibold">Loja</label>
+                    <select name="filtro_loja_id" class="form-select form-select-sm">
+                        <option value="">Todas as lojas</option>
+                        {% for store in all_stores %}
+                        <option value="{{ store.id }}" {% if filtro_loja_id == store.id %}selected{% endif %}>
+                            {{ store.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-sm-3">
+                    <label class="form-label small mb-1 fw-semibold">De</label>
+                    <input type="date" name="data_inicio" class="form-control form-control-sm"
+                           value="{{ filtro_data_inicio }}">
+                </div>
+                <div class="col-6 col-sm-3">
+                    <label class="form-label small mb-1 fw-semibold">Até</label>
+                    <input type="date" name="data_fim" class="form-control form-control-sm"
+                           value="{{ filtro_data_fim }}">
+                </div>
+                <div class="col-12 col-sm-2 d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm flex-fill">🔍 Filtrar</button>
+                    <a href="{{ url_for('vendas.fecho_historico') }}" class="btn btn-outline-secondary btn-sm">✕</a>
+                </div>
+            </form>
+        </div>
+    </div>
 
     {% if registos %}
     <div class="card shadow-sm">
@@ -19,6 +51,7 @@
                     <thead class="table-dark">
                         <tr>
                             <th>Data</th>
+                            <th>Loja</th>
                             <th class="text-end">Total Caixa</th>
                             <th class="text-end">Vds POS</th>
                             <th class="text-end">Desv. Num.</th>
@@ -36,6 +69,9 @@
                             <td class="fw-semibold text-nowrap">
                                 {{ r.data.strftime('%d/%m/%Y') if r.data else r.data_str }}
                             </td>
+                            <td class="text-nowrap">
+                                <span class="badge bg-secondary">{{ r.loja or '—' }}</span>
+                            </td>
                             <td class="text-end">{{ '%.2f'|format(r.total_caixa or 0) }} €</td>
                             <td class="text-end">{{ '%.2f'|format(r.total_vendas_pos or 0) }} €</td>
                             <td class="text-end {% if dn is not none %}{% if dn|abs < 1 %}text-success{% else %}text-danger fw-bold{% endif %}{% endif %}">
@@ -48,20 +84,20 @@
                                 {{ r.registado_por or '—' }}
                             </td>
                             <td class="text-center text-nowrap">
-                                <a href="{{ url_for('vendas.fecho_historico_editar', record_id=r.id, loja_id=loja_id) }}"
+                                <a href="{{ url_for('vendas.fecho_historico_editar', record_id=r.id, loja_id=r.loja_id) }}"
                                    class="btn btn-xs btn-outline-primary me-1" title="Editar">✏️</a>
                                 <form method="POST"
                                       action="{{ url_for('vendas.fecho_historico_eliminar', record_id=r.id) }}"
                                       class="d-inline"
-                                      onsubmit="return confirm('Eliminar o registo de {{ r.data.strftime('%d/%m/%Y') if r.data else r.data_str }}? Esta ação não pode ser desfeita.')">
-                                    <input type="hidden" name="_loja_id" value="{{ loja_id }}">
+                                      onsubmit="return confirm('Eliminar o registo de {{ r.data.strftime('%d/%m/%Y') if r.data else r.data_str }} ({{ r.loja or '' }})? Esta ação não pode ser desfeita.')">
+                                    <input type="hidden" name="_loja_id" value="{{ r.loja_id }}">
                                     <button type="submit" class="btn btn-xs btn-outline-danger" title="Eliminar">🗑️</button>
                                 </form>
                             </td>
                         </tr>
                         {% if r.justificacao_desvio %}
                         <tr class="table-light">
-                            <td colspan="7" class="text-muted small fst-italic px-3 py-1">
+                            <td colspan="8" class="text-muted small fst-italic px-3 py-1">
                                 📝 {{ r.justificacao_desvio }}
                             </td>
                         </tr>
@@ -74,7 +110,9 @@
     </div>
     {% else %}
     <div class="alert alert-secondary">
-        Sem registos de fecho de caixa para {{ loja_nome }}.
+        Sem registos de fecho de caixa
+        {% if filtro_loja_id %}para a loja selecionada{% endif %}
+        {% if filtro_data_inicio or filtro_data_fim %}no período indicado{% endif %}.
     </div>
     {% endif %}
 </div>

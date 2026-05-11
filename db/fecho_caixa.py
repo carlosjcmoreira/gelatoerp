@@ -145,6 +145,44 @@ def list_fecho_caixa(loja_id: int) -> list:
         return [_row_to_dict(row) for row in cur.fetchall()]
 
 
+def list_fecho_caixa_all_stores(
+    loja_id: int | None = None,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+) -> list:
+    """Return fecho_caixa records across all stores, with optional filters.
+
+    Args:
+        loja_id: If given, restrict to this store.
+        data_inicio: If given, only records on or after this date.
+        data_fim: If given, only records on or before this date.
+
+    Returns records ordered by date descending, then by store name.
+    """
+    conditions = []
+    params = []
+
+    if loja_id is not None:
+        conditions.append("loja_id = %s")
+        params.append(loja_id)
+    if data_inicio is not None:
+        conditions.append("data >= %s")
+        params.append(data_inicio)
+    if data_fim is not None:
+        conditions.append("data <= %s")
+        params.append(data_fim)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT {', '.join(_COLS)} FROM fecho_caixa {where_clause} ORDER BY data DESC, loja ASC",
+            params,
+        )
+        return [_row_to_dict(row) for row in cur.fetchall()]
+
+
 def delete_fecho_caixa_by_id(record_id: int) -> bool:
     """Delete a fecho_caixa record by primary key. Returns True if a row was deleted."""
     try:

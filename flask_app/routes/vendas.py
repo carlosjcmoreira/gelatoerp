@@ -14,7 +14,7 @@ from database import (
     get_ordens_transferencia, confirmar_ordem_transferencia, rejeitar_ordem_transferencia,
     get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
-    list_fecho_caixa, delete_fecho_caixa_by_id,
+    list_fecho_caixa, list_fecho_caixa_all_stores, delete_fecho_caixa_by_id,
     upsert_fecho_caixa_audited, delete_fecho_caixa_audited, get_fecho_caixa_audit,
     get_all_receitas_gelado, update_receita_gelado, update_receita_gelado_ativo,
 )
@@ -849,13 +849,48 @@ def fecho_historico():
         return redirect(url_for('home.index'))
 
     loja_id, loja_nome = _get_user_loja()
-    registos = list_fecho_caixa(loja_id) if loja_id else []
+
+    # Filter parameters
+    filtro_loja_id = None
+    filtro_loja_raw = request.args.get('filtro_loja_id', '').strip()
+    if filtro_loja_raw:
+        try:
+            filtro_loja_id = int(filtro_loja_raw)
+        except (ValueError, TypeError):
+            pass
+
+    filtro_data_inicio = None
+    filtro_data_fim = None
+    data_inicio_raw = request.args.get('data_inicio', '').strip()
+    data_fim_raw = request.args.get('data_fim', '').strip()
+    try:
+        if data_inicio_raw:
+            filtro_data_inicio = datetime.strptime(data_inicio_raw, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        pass
+    try:
+        if data_fim_raw:
+            filtro_data_fim = datetime.strptime(data_fim_raw, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        pass
+
+    registos = list_fecho_caixa_all_stores(
+        loja_id=filtro_loja_id,
+        data_inicio=filtro_data_inicio,
+        data_fim=filtro_data_fim,
+    )
+
+    all_stores = get_vendas_module_stores()
 
     return render_template('vendas/fecho_historico.html',
                            active_tab='fecho_historico',
                            loja_id=loja_id,
                            loja_nome=loja_nome,
                            registos=registos,
+                           all_stores=all_stores,
+                           filtro_loja_id=filtro_loja_id,
+                           filtro_data_inicio=data_inicio_raw,
+                           filtro_data_fim=data_fim_raw,
                            tabs=_build_tabs('fecho_historico', loja_id))
 
 
@@ -873,10 +908,8 @@ def fecho_historico_editar(record_id):
         return redirect(url_for('vendas.fecho_historico'))
 
     loja_id, loja_nome = _get_user_loja()
-
-    if loja_id and registo.get('loja_id') != loja_id:
-        flash('Sem acesso a este registo na loja activa.', 'danger')
-        return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
+    registo_loja_id = registo.get('loja_id')
+    registo_loja_nome = registo.get('loja') or loja_nome
 
     if request.method == 'POST':
         def _parse_dec(name):
@@ -905,13 +938,13 @@ def fecho_historico_editar(record_id):
             registo['id'], valores_anteriores,
         )
         flash('Registo atualizado com sucesso.', 'success')
-        return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
+        return redirect(url_for('vendas.fecho_historico'))
 
     audit_log = get_fecho_caixa_audit(record_id)
     return render_template('vendas/fecho_historico_editar.html',
                            active_tab='fecho_historico',
                            loja_id=loja_id,
-                           loja_nome=loja_nome,
+                           loja_nome=registo_loja_nome,
                            registo=registo,
                            audit_log=audit_log)
 
@@ -931,16 +964,12 @@ def fecho_historico_eliminar(record_id):
 
     loja_id, loja_nome = _get_user_loja()
 
-    if loja_id and registo.get('loja_id') != loja_id:
-        flash('Sem acesso a este registo na loja activa.', 'danger')
-        return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
-
     data_str = registo['data_str'] if registo.get('data_str') else str(registo.get('data', ''))
 
     valores_anteriores = {k: v for k, v in registo.items() if k not in ('_empty',)}
     delete_fecho_caixa_audited(record_id, user.get('username', 'gestor'), valores_anteriores)
-    flash(f'Registo de {data_str} eliminado.', 'success')
-    return redirect(url_for('vendas.fecho_historico', loja_id=loja_id))
+    flash(f'Registo de {data_str} ({registo.get("loja", "")}) eliminado.', 'success')
+    return redirect(url_for('vendas.fecho_historico'))
 
 
 @vendas_bp.route('/sabores-ativos', methods=['GET', 'POST'])
