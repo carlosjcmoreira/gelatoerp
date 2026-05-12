@@ -503,7 +503,39 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
                 GROUP BY data
             ) sub
         """, (today - timedelta(days=28),))
-        inflows_pos_est = float(cursor.fetchone()['weekly_pos'])
+        inflows_pos_fallback = float(cursor.fetchone()['weekly_pos'])
+
+    # ── Forecast-based per-week POS estimates ───────────────────────────────
+    # Call get_previsao_30dias() and aggregate est_total by date.
+    # For each liquidity week, sum forecast estimates for days in [week_start, week_end].
+    # Scale to 7 days when only partial coverage exists.
+    # Fall back to inflows_pos_fallback (28d rolling average) when no forecast data.
+    _forecast_by_date: dict = {}
+    try:
+        from db.vendas_diarias import get_previsao_30dias as _get_forecast
+        _fc = _get_forecast()
+        for _f in _fc.get('forecast', []):
+            _d = _date.fromisoformat(_f['date'])
+            _est = _f.get('est_total')
+            if _est is not None:
+                _forecast_by_date[_d] = _est
+    except Exception:
+        pass  # silent fallback: all weeks use 28d average
+
+    def _pos_for_week(ws, we):
+        """Return (amount, fonte) for a Mon-Sun week using forecast or 28d fallback."""
+        covered = []
+        cur = ws
+        while cur <= we:
+            if cur in _forecast_by_date:
+                covered.append(_forecast_by_date[cur])
+            cur += timedelta(days=1)
+        if not covered:
+            return inflows_pos_fallback, 'media_28d'
+        n = len(covered)
+        total = sum(covered)
+        scaled = round(total / n * 7, 2) if n < 7 else round(total, 2)
+        return scaled, 'previsao'
 
     from db.avencas import get_avencas as _get_avencas, next_due_date as _avenca_next_due_date
     avencas_ativas = list(_get_avencas(ativo_only=True))
@@ -604,8 +636,10 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             if week_start <= d <= week_end
         )
 
+        inflows_pos_week, vendas_fonte = _pos_for_week(week_start, week_end)
+
         total_out = round(outflows_invoices + outflows_credit + outflows_vat, 2)
-        total_in = round(inflows_events + inflows_pos_est, 2)
+        total_in = round(inflows_events + inflows_pos_week, 2)
         balance = round(total_in - total_out, 2)
 
         result.append({
@@ -618,7 +652,8 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             'outflows_credit_items': credit_items,
             'outflows_vat': round(outflows_vat, 2),
             'outflows_vat_items': vat_items,
-            'inflows_pos': round(inflows_pos_est, 2),
+            'inflows_pos': round(inflows_pos_week, 2),
+            'vendas_fonte': vendas_fonte,
             'inflows_events': round(inflows_events, 2),
             'total_in': total_in,
             'total_out': total_out,

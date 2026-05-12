@@ -175,9 +175,16 @@
                 </td>
             </tr>
             <tr>
-                <td class="ps-2 small">Vendas POS <span class="text-muted" style="font-size:0.7rem">(est. 28d)</span></td>
+                <td class="ps-2 small">Vendas POS</td>
                 {% for w in weekly %}
-                <td class="text-end small text-success">{{ fmt_pos(w.inflows_pos) }}</td>
+                <td class="text-end small text-success">
+                    {{ fmt_pos(w.inflows_pos) }}
+                    {% if w.vendas_fonte == 'previsao' %}
+                    <span class="badge rounded-pill text-bg-success ms-1" style="font-size:0.6rem;vertical-align:middle">Prev.</span>
+                    {% else %}
+                    <span class="badge rounded-pill text-bg-secondary ms-1" style="font-size:0.6rem;vertical-align:middle">Média</span>
+                    {% endif %}
+                </td>
                 {% endfor %}
                 <td class="text-end small text-success fw-semibold">{{ fmt_pos(pos_total) }}</td>
             </tr>
@@ -233,7 +240,8 @@
             <h6 class="card-title mb-2" style="font-size:0.85rem">ℹ️ Legenda</h6>
             <ul class="small text-muted mb-0" style="column-count:2;column-gap:2rem">
                 <li><strong>Categorias de custo</strong>: baseadas nas categorias das faturas agendadas/confirmadas. Clique numa linha para expandir os registos individuais.</li>
-                <li><strong>POS est.</strong>: Média diária dos últimos 28 dias × 7 dias</li>
+                <li><strong>POS — Prev.</strong>: Estimativa da previsão de 30 dias (ajustada por tempo e tendência recente)</li>
+                <li><strong>POS — Média</strong>: Média diária dos últimos 28 dias × 7 dias (semanas além do horizonte de previsão)</li>
                 <li><strong>Eventos</strong>: Pagamentos de eventos com data esperada na semana</li>
                 <li><strong>Crédito</strong>: Prestações de contratos de crédito ativos com débito previsto na semana</li>
                 <li><strong>IVA</strong>: Pagamentos de IVA com data de pagamento prevista na semana</li>
