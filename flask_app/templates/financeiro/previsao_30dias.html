@@ -374,12 +374,13 @@ function renderBacktest() {
     const metricsKey = activeLoja === 'mat' ? 'mat' : (activeLoja === 'bol' ? 'bol' : 'total');
     const lojaLabel = activeLoja === 'mat' ? 'Matosinhos' : (activeLoja === 'bol' ? 'Bolhão' : 'Total');
 
-    // Badge
-    const badge = document.getElementById('backtestBadge');
-    badge.textContent = `Treino: Jan+Fev · ${bt.n_train_days ?? '?'} dias`;
-
     // Metrics
     const m = (bt.metrics || {})[metricsKey];
+
+    // Badge
+    const badge = document.getElementById('backtestBadge');
+    const testDays = m ? m.n_days : '?';
+    badge.textContent = `Treino: ${bt.n_train_days ?? '?'} dias (Jan+Fev) · Teste: ${testDays} dias (Mar+Abr)`;
     const metricEl = document.getElementById('backtestMetric');
     if (!m) {
         metricEl.innerHTML = `<span class="acc-muted">Sem dados suficientes (${lojaLabel})</span>`;
