@@ -158,6 +158,7 @@
                                     <th>Produto</th>
                                     <th class="text-end">2026</th>
                                     <th class="text-end">2025 base</th>
+                                    <th class="text-end">Var. €</th>
                                     <th class="text-end">Var. %</th>
                                 </tr>
                             </thead>
@@ -181,6 +182,7 @@
                                     <th>Produto</th>
                                     <th class="text-end">2026</th>
                                     <th class="text-end">2025 base</th>
+                                    <th class="text-end">Var. €</th>
                                     <th class="text-end">Var. %</th>
                                 </tr>
                             </thead>
@@ -286,11 +288,15 @@ function renderYtd(filterKey) {
     }
 }
 
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 function rowTop10(rank, p) {
     const cls = deltaClass(p.diff_eur);
     return `<tr>
         <td class="prod-rank">${rank}</td>
-        <td class="text-truncate" style="max-width:180px;" title="${p.produto}">${p.produto}</td>
+        <td class="text-truncate" style="max-width:180px;" title="${esc(p.produto)}">${esc(p.produto)}</td>
         <td class="text-end fw-semibold">${fmt(p.y2026)}</td>
         <td class="text-end text-muted">${fmt(p.y2025)}</td>
         <td class="text-end ${cls}">${fmtDelta(p.diff_eur)}</td>
@@ -300,11 +306,13 @@ function rowTop10(rank, p) {
 
 function rowTop5(rank, p) {
     const cls = deltaClass(p.diff_pct);
+    const clsEur = deltaClass(p.diff_eur);
     return `<tr>
         <td class="prod-rank">${rank}</td>
-        <td class="text-truncate" style="max-width:200px;" title="${p.produto}">${p.produto}</td>
+        <td class="text-truncate" style="max-width:160px;" title="${esc(p.produto)}">${esc(p.produto)}</td>
         <td class="text-end fw-semibold">${fmt(p.y2026)}</td>
         <td class="text-end text-muted">${fmt(p.y2025)}</td>
+        <td class="text-end ${clsEur}">${fmtDelta(p.diff_eur)}</td>
         <td class="text-end ${cls}">${deltaArrow(p.diff_pct)} ${fmtPct(p.diff_pct)}</td>
     </tr>`;
 }
@@ -323,7 +331,7 @@ function renderProdutos(filterKey) {
     const top5 = [...withPct].sort((a, b) => b.diff_pct - a.diff_pct).slice(0, 5);
     document.getElementById('bodyTop5').innerHTML =
         top5.length ? top5.map((p, i) => rowTop5(i + 1, p)).join('') :
-        '<tr><td colspan="5" class="text-center text-muted py-3">Sem dados</td></tr>';
+        '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';
 
     // Bottom 5: lowest variation % (products that had 2025 sales or have 2026 sales)
     const forBottom = prods.filter(p => p.y2025 > 0 || p.y2026 > 0);
@@ -334,7 +342,7 @@ function renderProdutos(filterKey) {
     }).slice(0, 5);
     document.getElementById('bodyBot5').innerHTML =
         bot5.length ? bot5.map((p, i) => rowTop5(i + 1, p)).join('') :
-        '<tr><td colspan="5" class="text-center text-muted py-3">Sem dados</td></tr>';
+        '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';
 }
 
 function applyFilter(filterKey) {
