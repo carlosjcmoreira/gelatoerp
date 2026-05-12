@@ -311,8 +311,25 @@ def get_dashboard_vendas() -> dict:
                 ORDER BY vd.loja
             """, (cutoff, cutoff))
             ytd_rows = cur.fetchall()
+
+            # ── YTD sums: per produto × loja ─────────────────────────────────
+            cur.execute("""
+                SELECT vd.produto, vd.loja,
+                       SUM(CASE WHEN EXTRACT(YEAR FROM vd.data) = 2026 THEN vd.valor_euros ELSE 0 END) AS ytd_2026,
+                       SUM(CASE WHEN EXTRACT(YEAR FROM vd.data) = 2025
+                                 AND EXTRACT(MONTH FROM vd.data) * 100 + EXTRACT(DAY FROM vd.data)
+                                     <= EXTRACT(MONTH FROM %s::date) * 100 + EXTRACT(DAY FROM %s::date)
+                                THEN vd.valor_euros ELSE 0 END) AS ytd_2025
+                FROM vendas_detalhe vd
+                LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+                WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
+                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                GROUP BY vd.produto, vd.loja
+            """, (cutoff, cutoff))
+            produto_rows = cur.fetchall()
         else:
             ytd_rows = []
+            produto_rows = []
 
     # ── Build monthly structure ───────────────────────────────────────────────
     lojas: list[str] = []
@@ -354,9 +371,50 @@ def get_dashboard_vendas() -> dict:
             ytd['total']['y2025'] + entry['y2025'],
         )
 
+    # ── Build produtos structure ──────────────────────────────────────────────
+    # produtos[filter_key] = [{produto, y2026, y2025, diff_eur, diff_pct}, ...]
+    # Accumulate per-produto totals across lojas for the 'total' key,
+    # and keep per-loja lists for individual loja filter keys.
+    _prod_total: dict = {}   # produto -> {y2026, y2025}
+    _prod_loja: dict = {}    # loja -> {produto -> {y2026, y2025}}
+
+    for produto, loja, y26, y25 in produto_rows:
+        y26, y25 = float(y26 or 0), float(y25 or 0)
+        # total aggregation
+        if produto not in _prod_total:
+            _prod_total[produto] = {'y2026': 0.0, 'y2025': 0.0}
+        _prod_total[produto]['y2026'] += y26
+        _prod_total[produto]['y2025'] += y25
+        # per-loja
+        _prod_loja.setdefault(loja, {}).setdefault(produto, {'y2026': 0.0, 'y2025': 0.0})
+        _prod_loja[loja][produto]['y2026'] += y26
+        _prod_loja[loja][produto]['y2025'] += y25
+
+    def _prod_list(mapping: dict) -> list:
+        result = []
+        for produto, vals in mapping.items():
+            y26, y25 = round(vals['y2026'], 2), round(vals['y2025'], 2)
+            if y26 == 0 and y25 == 0:
+                continue
+            diff_eur = round(y26 - y25, 2)
+            diff_pct = round((y26 - y25) / y25 * 100, 1) if y25 else None
+            result.append({
+                'produto': produto,
+                'y2026': y26,
+                'y2025': y25,
+                'diff_eur': diff_eur,
+                'diff_pct': diff_pct,
+            })
+        return result
+
+    produtos: dict = {'total': _prod_list(_prod_total)}
+    for loja in lojas:
+        produtos[loja] = _prod_list(_prod_loja.get(loja, {}))
+
     return {
         'lojas': lojas,
         'cutoff': cutoff.isoformat() if cutoff else None,
         'monthly': monthly,
         'ytd': ytd,
+        'produtos': produtos,
     }
