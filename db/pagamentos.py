@@ -523,19 +523,27 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         pass  # silent fallback: all weeks use 28d average
 
     def _pos_for_week(ws, we):
-        """Return (amount, fonte) for a Mon-Sun week using forecast or 28d fallback."""
-        covered = []
+        """Return (amount, fonte) for a Mon-Sun week blending forecast and 28d fallback.
+
+        For each of the 7 days in [ws, we]:
+          - if the day has a forecast estimate, use est_total for that day
+          - otherwise use inflows_pos_fallback / 7 (daily 28d average)
+        fonte is 'previsao' if at least one day used the forecast, else 'media_28d'.
+        This avoids any synthetic scaling and correctly handles horizon-boundary weeks.
+        """
+        daily_fallback = inflows_pos_fallback / 7.0
+        total = 0.0
+        forecast_days = 0
         cur = ws
         while cur <= we:
             if cur in _forecast_by_date:
-                covered.append(_forecast_by_date[cur])
+                total += _forecast_by_date[cur]
+                forecast_days += 1
+            else:
+                total += daily_fallback
             cur += timedelta(days=1)
-        if not covered:
-            return inflows_pos_fallback, 'media_28d'
-        n = len(covered)
-        total = sum(covered)
-        scaled = round(total / n * 7, 2) if n < 7 else round(total, 2)
-        return scaled, 'previsao'
+        fonte = 'previsao' if forecast_days > 0 else 'media_28d'
+        return round(total, 2), fonte
 
     from db.avencas import get_avencas as _get_avencas, next_due_date as _avenca_next_due_date
     avencas_ativas = list(_get_avencas(ativo_only=True))
