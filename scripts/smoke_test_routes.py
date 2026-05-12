@@ -31,7 +31,6 @@ STATIC_ROUTES = [
     '/financeiro/credito/',
     '/financeiro/faturas/',
     '/financeiro/pagamentos/',
-    '/financeiro/cashflow/',
     '/financeiro/centros-custo/',
     '/financeiro/categorias/',
     '/financeiro/avencas/',
