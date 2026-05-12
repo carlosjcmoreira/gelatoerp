@@ -132,7 +132,7 @@ function fmtT(v) {
 }
 function rainCell(mm) {
     if (mm == null) return '<span class="text-muted">—</span>';
-    if (mm < 0.5) return '<span class="rain-sun">☀️ sem chuva</span>';
+    if (mm < 0.5) return '<span class="rain-sun">☀️ Sem chuva</span>';
     if (mm < 3)   return `<span class="rain-light">🌦 ${mm.toFixed(1)} mm</span>`;
     return `<span class="rain-heavy">🌧 ${mm.toFixed(1)} mm</span>`;
 }
