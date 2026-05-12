@@ -506,10 +506,10 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         inflows_pos_fallback = float(cursor.fetchone()['weekly_pos'])
 
     # ── Forecast-based per-week POS estimates ───────────────────────────────
-    # Call get_previsao_30dias() and aggregate est_total by date.
-    # For each liquidity week, sum forecast estimates for days in [week_start, week_end].
-    # Scale to 7 days when only partial coverage exists.
-    # Fall back to inflows_pos_fallback (28d rolling average) when no forecast data.
+    # Call get_previsao_30dias() and build a per-date lookup of est_total.
+    # For each liquidity week, blend: days covered by the forecast use est_total;
+    # days beyond the 30-day horizon use inflows_pos_fallback / 7 (daily 28d avg).
+    # Weeks with no forecast coverage at all stay as 'media_28d'.
     _forecast_by_date: dict = {}
     try:
         from db.vendas_diarias import get_previsao_30dias as _get_forecast
@@ -519,8 +519,12 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             _est = _f.get('est_total')
             if _est is not None:
                 _forecast_by_date[_d] = _est
-    except Exception:
-        pass  # silent fallback: all weeks use 28d average
+    except Exception as _fc_err:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            'get_weekly_liquidity: forecast unavailable, using 28d fallback for all weeks: %s',
+            _fc_err,
+        )
 
     def _pos_for_week(ws, we):
         """Return (amount, fonte) for a Mon-Sun week blending forecast and 28d fallback.
