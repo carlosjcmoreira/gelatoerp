@@ -196,9 +196,6 @@ def create_app():
     app.register_blueprint(tarefas_bp, url_prefix='/tarefas')
     app.register_blueprint(agente_bp, url_prefix='/agente')
 
-    import weather_scheduler
-    weather_scheduler.start_weather_scheduler()
-
     @app.route('/healthcheck')
     def healthcheck():
         return 'OK', 200

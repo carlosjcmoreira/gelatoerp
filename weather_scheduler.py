@@ -106,6 +106,9 @@ def start_weather_scheduler():
             )
             _scheduler.start()
             logger.info("Weather scheduler started (bi-daily: 07-08h and 13-14h Lisbon time; meteo calibration: Mon 03:00)")
+            t = threading.Thread(target=_run_weather_update, daemon=True, name="weather-init")
+            t.start()
+            logger.info("Weather scheduler: triggered immediate update on startup")
         except Exception as e:
             logger.error("Failed to start weather scheduler: %s", e)
 
