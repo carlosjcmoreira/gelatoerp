@@ -78,15 +78,6 @@ def delete_quebra_area(id: int):
         cursor.execute("DELETE FROM quebras WHERE id = %s", (id,))
         conn.commit()
 
-def add_venda(data: date, loja: str, valor_euros: float):
-    store_id = get_store_id_by_name(loja)
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO vendas (data, loja, valor_euros, store_id)
-            VALUES (%s, %s, %s, %s)
-        ''', (data, loja, valor_euros, store_id))
-        conn.commit()
 
 @ttl_cache_args('sabores_list', ttl=600)
 @db_retry
@@ -1083,11 +1074,6 @@ def delete_producao(id: int):
         cursor.execute("DELETE FROM producao WHERE id = %s", (id,))
         conn.commit()
 
-def delete_venda(id: int):
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM vendas WHERE id = %s", (id,))
-        conn.commit()
 
 def import_producao_csv(df: pd.DataFrame, loja: str):
     with db_connection() as conn:

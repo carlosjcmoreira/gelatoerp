@@ -39,16 +39,6 @@ def registar_producao(data: date, loja: str, quantidade_kg: float,
     invalidate_for_date(data, loja=loja)
 
 
-def registar_venda(data: date, loja: str, valor_euros: float) -> None:
-    """
-    Registers a venda and invalidates KPI cache for that date/store.
-    """
-    from database import add_venda
-    from flask_app.services.kpi import invalidate_for_date
-    add_venda(data=data, loja=loja, valor_euros=valor_euros)
-    invalidate_for_date(data, loja=loja)
-
-
 def registar_quebra(data: date, loja: str, quantidade_kg: float,
                     motivo: str = None, sabor: str = None, lote: str = None) -> None:
     """

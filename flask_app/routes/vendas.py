@@ -619,16 +619,10 @@ def fecho_caixa_ocr():
         'imagem_caixa_path': rel_path,
         'ocr_confianca': resultado.get('ocr_confianca'),
     }.items() if v is not None}
+    # Cash-close data lives in fecho_caixa only. KPI/liquidity reports read
+    # from vendas_detalhe (Gestor uploads); the legacy vendas table is no
+    # longer written here.
     upsert_fecho_caixa(data_sel, loja_id, fields, username)
-
-    # Sync total_vendas_pos into vendas table (same as manual save)
-    if fields.get('total_vendas_pos') is not None:
-        try:
-            from db.producao import add_venda
-            add_venda(data_sel, loja_nome, fields['total_vendas_pos'])
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("add_venda sync (OCR) failed: %s", e)
 
     return jsonify({
         'ok': True,
@@ -755,16 +749,10 @@ def fecho_caixa():
             }
             # Remove None-valued optional fields so they don't overwrite existing data
             fields = {k: v for k, v in fields.items() if v is not None}
+            # Cash-close data lives in fecho_caixa only. KPI/liquidity reports
+            # read from vendas_detalhe (Gestor uploads); the legacy vendas table
+            # is no longer written here.
             upsert_fecho_caixa(data_sel, loja_id, fields, username)
-
-            # Sync total_vendas_pos into vendas table
-            if fields.get('total_vendas_pos') is not None:
-                try:
-                    from db.producao import add_venda
-                    add_venda(data_sel, loja_nome, fields['total_vendas_pos'])
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).warning("add_venda sync failed: %s", e)
 
             flash('Fecho de caixa guardado!', 'success')
             return redirect(url_for('vendas.fecho_caixa', loja_id=loja_id, data=data_str))
