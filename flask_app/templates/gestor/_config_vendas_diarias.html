@@ -8,6 +8,7 @@
                        oninput="filterTable()">
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="selectAll(true)">Selecionar todos</button>
                 <button type="button" class="btn btn-outline-secondary btn-sm" onclick="selectAll(false)">Desselecionar todos</button>
+                <span id="saveStatus" class="small text-success ms-2" style="display:none;">✓ Guardado</span>
                 <span class="text-muted small ms-auto" id="countLabel">{{ produtos|length }} produto(s)</span>
             </div>
             <div class="table-responsive" style="max-height:60vh;overflow-y:auto;">
@@ -28,6 +29,7 @@
                             <td class="text-center">
                                 <input class="form-check-input prod-chk" type="checkbox"
                                        name="conta_{{ p.id }}"
+                                       data-id="{{ p.id }}"
                                        {% if p.get('conta_vendas_diarias', True) %}checked{% endif %}>
                             </td>
                             <td class="small prod-name">{{ p.produto }}</td>
@@ -45,9 +47,10 @@
                     </tbody>
                 </table>
             </div>
-            <div class="mt-3 d-flex gap-2">
-                <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
-                <a href="{{ url_for('gestor.index') }}" class="btn btn-outline-secondary btn-sm">Cancelar</a>
+            <div class="mt-3 d-flex gap-2 align-items-center">
+                <button type="submit" class="btn btn-primary btn-sm">Guardar todos</button>
+                <a href="{{ url_for('gestor.index') }}" class="btn btn-outline-secondary btn-sm">Voltar</a>
+                <span class="text-muted small ms-2">As alterações individuais são guardadas automaticamente.</span>
             </div>
         </form>
         {% else %}
@@ -57,6 +60,39 @@
 </div>
 
 <script>
+const TOGGLE_URL = "{{ url_for('gestor.config_vendas_diarias_toggle') }}";
+let _saveTimer = null;
+
+function showSaved() {
+    const el = document.getElementById('saveStatus');
+    el.style.display = '';
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(() => { el.style.display = 'none'; }, 2000);
+}
+
+async function autoToggle(chk) {
+    const id = parseInt(chk.dataset.id);
+    const conta = chk.checked;
+    try {
+        const resp = await fetch(TOGGLE_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id, conta})
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            showSaved();
+        } else {
+            chk.checked = !conta;
+            alert('Erro ao guardar: ' + (data.error || 'desconhecido'));
+        }
+    } catch (e) {
+        chk.checked = !conta;
+        alert('Erro de rede ao guardar.');
+    }
+    syncHeaderCheck();
+}
+
 function filterTable() {
     const q = document.getElementById('searchProduto').value.toLowerCase();
     const rows = document.querySelectorAll('#tblProdutos .prod-row');
@@ -92,7 +128,7 @@ function syncHeaderCheck() {
 
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.prod-chk').forEach(c => {
-        c.addEventListener('change', syncHeaderCheck);
+        c.addEventListener('change', () => autoToggle(c));
     });
     syncHeaderCheck();
 });

@@ -463,6 +463,20 @@ def config_vendas_diarias():
                            produtos=db.get_produtos_vendas_config())
 
 
+@gestor_bp.route('/config-vendas-diarias/toggle', methods=['POST'])
+@perm_required('acesso_gestor')
+def config_vendas_diarias_toggle():
+    """AJAX endpoint: toggle conta_vendas_diarias for a single product."""
+    try:
+        produto_id = int(request.json.get('id'))
+        conta = bool(request.json.get('conta'))
+        db.update_conta_vendas_diarias_batch([{'id': produto_id, 'conta': conta}])
+        return jsonify({'ok': True})
+    except Exception as exc:
+        logger.warning("config_vendas_diarias_toggle error: %s", exc)
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
 @gestor_bp.route('/regras-negocio', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def regras_negocio():
