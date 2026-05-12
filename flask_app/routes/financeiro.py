@@ -132,12 +132,14 @@ def variaveis_previsao():
 @financeiro_bp.route('/previsao-30-dias')
 @perm_required('acesso_gestor')
 def previsao_30dias():
-    from db.vendas_diarias import get_previsao_30dias
+    from db.vendas_diarias import get_previsao_30dias, get_backtesting_marco_abril
     import json
     data = get_previsao_30dias()
+    backtest = get_backtesting_marco_abril()
     return render_template(
         'financeiro/previsao_30dias.html',
         data_json=json.dumps(data, ensure_ascii=False, default=str),
+        backtest_json=json.dumps(backtest, ensure_ascii=False, default=str),
     )
 
 

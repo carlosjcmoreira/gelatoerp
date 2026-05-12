@@ -160,8 +160,37 @@
     </div>
 
     <div id="accuracyCard" class="accuracy-card mt-3 d-none">
-        <div class="acc-label">Precisão do Modelo</div>
+        <div class="acc-label">Precisão do Modelo — últimos 30 dias</div>
         <div class="acc-metric" id="accuracyMetric"></div>
+    </div>
+
+    <div class="card mt-3" id="backtestCard">
+        <div class="card-header d-flex align-items-center justify-content-between py-2 px-3">
+            <span style="font-size:0.82rem;font-weight:700;">📊 Backtesting — Março &amp; Abril 2026</span>
+            <span class="badge bg-secondary-subtle text-secondary-emphasis" id="backtestBadge" style="font-size:0.7rem;"></span>
+        </div>
+        <div class="card-body p-3">
+            <div class="accuracy-card mb-3">
+                <div class="acc-label">Métricas de erro (sem tendência recente)</div>
+                <div class="acc-metric" id="backtestMetric"></div>
+            </div>
+            <div class="table-scroll-x">
+                <table class="table table-sm table-hover mb-0" id="backtestTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Semana</th>
+                            <th class="text-end">Previsão €</th>
+                            <th class="text-end">Real €</th>
+                            <th class="text-end">Δ%</th>
+                            <th class="text-end text-muted" style="font-size:0.68rem;">Dias c/ dados</th>
+                        </tr>
+                    </thead>
+                    <tbody id="backtestBody">
+                        <tr><td colspan="5" class="text-center text-muted py-3">A calcular…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <div class="mt-2 pv-legend">
@@ -177,7 +206,8 @@
 </div>
 
 <script>
-const RAW = {{ data_json | safe }};
+const RAW      = {{ data_json | safe }};
+const BACKTEST = {{ backtest_json | safe }};
 
 const MONTHS_SHORT  = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const WEEKDAYS_PT   = ['','Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
@@ -337,6 +367,68 @@ function render() {
     document.getElementById('tableBody').innerHTML = html;
 }
 
+function renderBacktest() {
+    const bt = BACKTEST;
+    const estKey  = activeLoja === 'mat' ? 'est_mat'   : (activeLoja === 'bol' ? 'est_bol'   : 'est_total');
+    const realKey = activeLoja === 'mat' ? 'real_mat'  : (activeLoja === 'bol' ? 'real_bol'  : 'real_total');
+    const metricsKey = activeLoja === 'mat' ? 'mat' : (activeLoja === 'bol' ? 'bol' : 'total');
+    const lojaLabel = activeLoja === 'mat' ? 'Matosinhos' : (activeLoja === 'bol' ? 'Bolhão' : 'Total');
+
+    // Badge
+    const badge = document.getElementById('backtestBadge');
+    badge.textContent = `Treino: Jan+Fev · ${bt.n_train_days ?? '?'} dias`;
+
+    // Metrics
+    const m = (bt.metrics || {})[metricsKey];
+    const metricEl = document.getElementById('backtestMetric');
+    if (!m) {
+        metricEl.innerHTML = `<span class="acc-muted">Sem dados suficientes (${lojaLabel})</span>`;
+    } else {
+        let mapeHtml = '';
+        if (m.mape != null) {
+            let cls = 'acc-good';
+            if (m.mape > 15) cls = 'acc-bad';
+            else if (m.mape > 8) cls = 'acc-ok';
+            mapeHtml = `<span>Erro médio: <span class="${cls}">${m.mape.toFixed(1)}%</span></span>
+                        <span class="acc-muted">·</span>`;
+        }
+        const maeHtml = m.mae != null
+            ? `<span class="acc-muted">MAE: ${new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(m.mae)}</span>
+               <span class="acc-muted">·</span>`
+            : '';
+        metricEl.innerHTML = `${mapeHtml}${maeHtml}<span class="acc-muted">${m.n_days} dia${m.n_days !== 1 ? 's' : ''} com dados reais (${lojaLabel})</span>`;
+    }
+
+    // Weekly table
+    const tbody = document.getElementById('backtestBody');
+    if (!bt.weeks || !bt.weeks.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Sem dados</td></tr>';
+        return;
+    }
+    let html = '';
+    bt.weeks.forEach(w => {
+        const est  = w[estKey];
+        const real = w[realKey];
+        let deltaHtml = '—';
+        if (est != null && real != null && est !== 0) {
+            const pct = (real - est) / est * 100;
+            const sign = pct >= 0 ? '+' : '';
+            const cls  = pct >= 0 ? 'delta-pos' : 'delta-neg';
+            deltaHtml = `<span class="${cls}">${sign}${pct.toFixed(1)}%</span>`;
+        }
+        const estFmt  = est  != null ? `<span class="est-val">${fmt(est)}</span>`  : '—';
+        const realFmt = real != null ? `<span class="real-val">${fmt(real)}</span>` : '<span class="text-muted">—</span>';
+        html += `<tr>
+            <td class="fw-semibold">${w.week_label}</td>
+            <td class="text-end">${estFmt}</td>
+            <td class="text-end">${realFmt}</td>
+            <td class="text-end">${deltaHtml}</td>
+            <td class="text-end text-muted" style="font-size:0.72rem;">${w.n_days}</td>
+        </tr>`;
+    });
+    tbody.innerHTML = html;
+}
+
 document.getElementById('lojaFilters').addEventListener('click', e => {
     const b = e.target.closest('.pv-pill-btn');
     if (!b) return;
@@ -345,12 +437,14 @@ document.getElementById('lojaFilters').addEventListener('click', e => {
         x.classList.toggle('active', x === b));
     render();
     renderAccuracy();
+    renderBacktest();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
     renderPerfBadges();
     render();
     renderAccuracy();
+    renderBacktest();
 });
 </script>
 {% endblock %}

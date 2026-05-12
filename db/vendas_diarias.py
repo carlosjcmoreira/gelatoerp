@@ -740,6 +740,268 @@ def get_previsao_30dias() -> dict:
     }
 
 
+def get_backtesting_marco_abril() -> dict:
+    """Backtest the forecast model against March–April 2026.
+
+    Training DOW averages: January + February 2026 (only).
+    Test period: 2026-03-01 to 2026-04-30.
+    Formula (no perf_factor to avoid circularity):
+        est = avg_dow_sales × tmax_ratio × rain_factor
+
+    Returns:
+        metrics — {total, mat, bol} each with {mae, mape, n_days} or None
+        weeks   — list of {week_label, iso_week,
+                            est_total, real_total,
+                            est_mat, real_mat,
+                            est_bol, real_bol, n_days}
+        n_train_days — int: distinct training days used
+    """
+    TRAIN_START = date(2026, 1, 1)
+    TRAIN_END   = date(2026, 2, 28)
+    TEST_START  = date(2026, 3, 1)
+    TEST_END    = date(2026, 4, 30)
+
+    with db_connection() as conn:
+        cur = conn.cursor()
+
+        # ── 1. Training DOW averages (Jan+Feb 2026, sales + weather) ─────────
+        cur.execute("""
+            WITH daily_sales AS (
+                SELECT
+                    vd.data,
+                    SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Matosinhos') AS sales_mat,
+                    SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Bolhão')     AS sales_bol,
+                    SUM(vd.valor_euros)                                         AS sales_total
+                FROM vendas_detalhe vd
+                LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+                WHERE vd.data BETWEEN %s AND %s
+                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                GROUP BY vd.data
+            ),
+            wx_mat AS (
+                SELECT data, AVG(temperatura_max) AS tmax
+                FROM weather_data
+                WHERE store_id = 1 AND data BETWEEN %s AND %s
+                GROUP BY data
+            ),
+            wx_bol AS (
+                SELECT data, AVG(temperatura_max) AS tmax
+                FROM weather_data
+                WHERE store_id = 2 AND data BETWEEN %s AND %s
+                GROUP BY data
+            )
+            SELECT
+                EXTRACT(ISODOW FROM ds.data)::int AS dow,
+                COUNT(*)                           AS n_days,
+                ROUND(AVG(ds.sales_total)::numeric, 2) AS avg_total,
+                ROUND(AVG(ds.sales_mat)::numeric,   2) AS avg_mat,
+                ROUND(AVG(ds.sales_bol)::numeric,   2) AS avg_bol,
+                ROUND(AVG(wx_mat.tmax)::numeric,    1) AS avg_tmax_mat,
+                ROUND(AVG(wx_bol.tmax)::numeric,    1) AS avg_tmax_bol
+            FROM daily_sales ds
+            LEFT JOIN wx_mat ON wx_mat.data = ds.data
+            LEFT JOIN wx_bol ON wx_bol.data = ds.data
+            GROUP BY dow
+            ORDER BY dow
+        """, (TRAIN_START, TRAIN_END,
+              TRAIN_START, TRAIN_END,
+              TRAIN_START, TRAIN_END))
+        hist_rows = cur.fetchall()
+
+        # ── 2. Actual sales for test period ──────────────────────────────────
+        cur.execute("""
+            SELECT vd.data,
+                   SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Matosinhos') AS mat,
+                   SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Bolhão')     AS bol,
+                   SUM(vd.valor_euros)                                         AS total
+            FROM vendas_detalhe vd
+            LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+            WHERE vd.data BETWEEN %s AND %s
+              AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+            GROUP BY vd.data
+            ORDER BY vd.data
+        """, (TEST_START, TEST_END))
+        actual_rows = cur.fetchall()
+
+        # ── 3. Weather for test period ────────────────────────────────────────
+        cur.execute("""
+            SELECT data, store_id,
+                   ROUND(AVG(temperatura_max)::numeric, 1) AS tmax,
+                   ROUND(AVG(precipitacao_mm)::numeric,  1) AS precip
+            FROM weather_data
+            WHERE data BETWEEN %s AND %s
+            GROUP BY data, store_id
+            ORDER BY data, store_id
+        """, (TEST_START, TEST_END))
+        wx_rows = cur.fetchall()
+
+    # ── Build training DOW lookup ───────────────────────────────────────────
+    hist_by_dow: dict = {}
+    n_train_days = 0
+    for r in hist_rows:
+        dow = int(r[0])
+        n = int(r[1])
+        n_train_days += n
+        hist_by_dow[dow] = {
+            'n_days':       n,
+            'avg_total':    float(r[2]) if r[2] is not None else None,
+            'avg_mat':      float(r[3]) if r[3] is not None else None,
+            'avg_bol':      float(r[4]) if r[4] is not None else None,
+            'avg_tmax_mat': float(r[5]) if r[5] is not None else None,
+            'avg_tmax_bol': float(r[6]) if r[6] is not None else None,
+        }
+
+    # ── Build weather lookup ─────────────────────────────────────────────────
+    wx_by_date: dict = {}
+    for r in wx_rows:
+        d, sid = r[0], int(r[1])
+        wx_by_date.setdefault(d, {})[sid] = {
+            'tmax':   float(r[2]) if r[2] is not None else None,
+            'precip': float(r[3]) if r[3] is not None else None,
+        }
+
+    # ── Build actual sales lookup ────────────────────────────────────────────
+    actual_by_date: dict = {}
+    for r in actual_rows:
+        actual_by_date[r[0]] = {
+            'mat':   float(r[1]) if r[1] is not None else None,
+            'bol':   float(r[2]) if r[2] is not None else None,
+            'total': float(r[3]) if r[3] is not None else None,
+        }
+
+    def _tmax_ratio(forecast_tmax, hist_tmax):
+        if forecast_tmax is None or hist_tmax is None or hist_tmax == 0:
+            return 1.0
+        return max(0.6, min(1.4, forecast_tmax / hist_tmax))
+
+    def _rain_factor(precip):
+        if precip is None:
+            return 1.0
+        if precip > 3.0:
+            return 0.85
+        if precip > 0.5:
+            return 0.93
+        return 1.0
+
+    def _est(avg, tmax_r, rain_f):
+        if avg is None:
+            return None
+        return round(avg * tmax_r * rain_f, 2)
+
+    # ── Compute per-day errors and weekly aggregates ──────────────────────────
+    acc_errs: dict = {'total': ([], []), 'mat': ([], []), 'bol': ([], [])}
+    # weekly: {iso_week: {est_mat, est_bol, real_mat, real_bol, n_days}}
+    weekly: dict = {}
+
+    def _record_err(key, est_v, real_v):
+        if est_v is None or real_v is None:
+            return
+        ae = abs(real_v - est_v)
+        acc_errs[key][0].append(ae)
+        if real_v != 0:
+            acc_errs[key][1].append(ae / abs(real_v) * 100)
+
+    cur_date = TEST_START
+    while cur_date <= TEST_END:
+        iso_dow = cur_date.isoweekday()
+        h = hist_by_dow.get(iso_dow, {})
+        wx_day = wx_by_date.get(cur_date, {})
+        wx_mat = wx_day.get(1, {})
+        wx_bol = wx_day.get(2, {})
+
+        tmax_mat  = wx_mat.get('tmax')
+        tmax_bol  = wx_bol.get('tmax')
+        prec_mat  = wx_mat.get('precip')
+        prec_bol  = wx_bol.get('precip')
+
+        if prec_mat is not None and prec_bol is not None:
+            precip = (prec_mat + prec_bol) / 2.0
+        else:
+            precip = prec_mat if prec_mat is not None else prec_bol
+
+        ratio_mat = _tmax_ratio(tmax_mat, h.get('avg_tmax_mat'))
+        ratio_bol = _tmax_ratio(tmax_bol, h.get('avg_tmax_bol'))
+        rain      = _rain_factor(precip)
+
+        est_mat   = _est(h.get('avg_mat'), ratio_mat, rain)
+        est_bol   = _est(h.get('avg_bol'), ratio_bol, rain)
+        est_total = round((est_mat or 0) + (est_bol or 0), 2) if (est_mat is not None or est_bol is not None) else None
+
+        actual  = actual_by_date.get(cur_date, {})
+        real_mat   = actual.get('mat')
+        real_bol   = actual.get('bol')
+        real_total = actual.get('total')
+
+        _record_err('mat',   est_mat,   real_mat)
+        _record_err('bol',   est_bol,   real_bol)
+        _record_err('total', est_total, real_total)
+
+        # ISO week key
+        iso_week = cur_date.isocalendar()[1]
+        year_w   = cur_date.isocalendar()[0]
+        wkey     = (year_w, iso_week)
+        if wkey not in weekly:
+            weekly[wkey] = {
+                'iso_week': iso_week, 'year': year_w,
+                'est_mat': 0.0, 'est_bol': 0.0,
+                'real_mat': None, 'real_bol': None,
+                'has_est': False, 'n_days': 0,
+            }
+        w = weekly[wkey]
+        if est_mat is not None:
+            w['est_mat'] += est_mat
+            w['has_est'] = True
+        if est_bol is not None:
+            w['est_bol'] += est_bol
+            w['has_est'] = True
+        if real_mat is not None:
+            w['real_mat'] = (w['real_mat'] or 0) + real_mat
+        if real_bol is not None:
+            w['real_bol'] = (w['real_bol'] or 0) + real_bol
+        if real_mat is not None or real_bol is not None:
+            w['n_days'] += 1
+
+        cur_date += timedelta(days=1)
+
+    def _to_metric(key):
+        errors, pct_errors = acc_errs[key]
+        if not errors:
+            return None
+        return {
+            'n_days': len(errors),
+            'mae':    round(sum(errors) / len(errors), 2),
+            'mape':   round(sum(pct_errors) / len(pct_errors), 1) if pct_errors else None,
+        }
+
+    # ── Serialise weekly rows ────────────────────────────────────────────────
+    weeks_out = []
+    for wkey in sorted(weekly.keys()):
+        w = weekly[wkey]
+        est_t  = round(w['est_mat'] + w['est_bol'], 2) if w['has_est'] else None
+        real_m = round(w['real_mat'], 2)  if w['real_mat'] is not None else None
+        real_b = round(w['real_bol'], 2)  if w['real_bol'] is not None else None
+        real_t = round((real_m or 0) + (real_b or 0), 2) if (real_m is not None or real_b is not None) else None
+        weeks_out.append({
+            'iso_week':   w['iso_week'],
+            'week_label': f"W{w['iso_week']}",
+            'est_total':  est_t,
+            'real_total': real_t,
+            'est_mat':    round(w['est_mat'], 2) if w['has_est'] else None,
+            'real_mat':   real_m,
+            'est_bol':    round(w['est_bol'], 2) if w['has_est'] else None,
+            'real_bol':   real_b,
+            'n_days':     w['n_days'],
+        })
+
+    return {
+        'metrics':      {'total': _to_metric('total'), 'mat': _to_metric('mat'), 'bol': _to_metric('bol')},
+        'weeks':        weeks_out,
+        'n_train_days': n_train_days,
+        'test_start':   TEST_START.isoformat(),
+        'test_end':     TEST_END.isoformat(),
+    }
+
+
 def get_dashboard_vendas() -> dict:
     """Return aggregated sales data for the Dashboard de Vendas.
 
