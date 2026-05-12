@@ -494,6 +494,20 @@ def get_previsao_30dias() -> dict:
         """, (start, end))
         wx_future_rows = cur.fetchall()
 
+        # ── 3b. Past weather for last 30 days (for accuracy computation) ────────
+        cur.execute("""
+            SELECT
+                data,
+                store_id,
+                ROUND(AVG(temperatura_max)::numeric, 1) AS tmax,
+                ROUND(AVG(precipitacao_mm)::numeric, 1) AS precip
+            FROM weather_data
+            WHERE data BETWEEN %s AND %s
+            GROUP BY data, store_id
+            ORDER BY data, store_id
+        """, (recent_start, recent_end))
+        wx_past_rows = cur.fetchall()
+
         # ── 4. Actual sales for the forecast window (today onward, for comparison)
         cur.execute("""
             SELECT vd.data,
@@ -559,6 +573,15 @@ def get_previsao_30dias() -> dict:
     for r in wx_future_rows:
         d, sid = r[0], int(r[1])
         wx_future.setdefault(d, {})[sid] = {
+            'tmax':   float(r[2]) if r[2] is not None else None,
+            'precip': float(r[3]) if r[3] is not None else None,
+        }
+
+    # ── Build past weather lookup (for accuracy computation) ────────────────────
+    wx_past: dict = {}
+    for r in wx_past_rows:
+        d, sid = r[0], int(r[1])
+        wx_past.setdefault(d, {})[sid] = {
             'tmax':   float(r[2]) if r[2] is not None else None,
             'precip': float(r[3]) if r[3] is not None else None,
         }
@@ -641,6 +664,71 @@ def get_previsao_30dias() -> dict:
 
         cur_date += timedelta(days=1)
 
+    # ── Compute forecast accuracy over last 30 days with actual sales data ───────
+    # For each recent day with actual sales, reconstruct the base-model estimate
+    # (DOW avg × tmax_ratio × rain_factor, perf_factor excluded to avoid circular
+    # self-calibration), then measure MAE/MAPE against real sales.
+    acc_errs: dict = {'total': ([], []), 'mat': ([], []), 'bol': ([], [])}
+
+    def _record_err(key, est_v, real_v):
+        if est_v is None or real_v is None:
+            return
+        ae = abs(real_v - est_v)
+        acc_errs[key][0].append(ae)
+        if real_v != 0:
+            acc_errs[key][1].append(ae / abs(real_v) * 100)
+
+    for r in recent_rows:
+        d_past = r[0]
+        act_mat = float(r[1]) if r[1] is not None else None
+        act_bol = float(r[2]) if r[2] is not None else None
+        if act_mat is None and act_bol is None:
+            continue
+
+        iso_dow = d_past.isoweekday()
+        h = hist_by_dow.get(iso_dow, {})
+        wx_day = wx_past.get(d_past, {})
+        wx_mat_p = wx_day.get(1, {})
+        wx_bol_p = wx_day.get(2, {})
+
+        tmax_mat_p = wx_mat_p.get('tmax')
+        tmax_bol_p = wx_bol_p.get('tmax')
+        precip_mat_p = wx_mat_p.get('precip')
+        precip_bol_p = wx_bol_p.get('precip')
+
+        if precip_mat_p is not None and precip_bol_p is not None:
+            precip_p = (precip_mat_p + precip_bol_p) / 2.0
+        else:
+            precip_p = precip_mat_p if precip_mat_p is not None else precip_bol_p
+
+        r_mat = _tmax_ratio(tmax_mat_p, h.get('avg_tmax_mat'))
+        r_bol = _tmax_ratio(tmax_bol_p, h.get('avg_tmax_bol'))
+        rain_p = _rain_factor(precip_p)
+
+        est_mat_p = _est(h.get('avg_mat'), r_mat, rain_p, None)
+        est_bol_p = _est(h.get('avg_bol'), r_bol, rain_p, None)
+
+        _record_err('mat', est_mat_p, act_mat)
+        _record_err('bol', est_bol_p, act_bol)
+        if act_mat is not None and act_bol is not None and est_mat_p is not None and est_bol_p is not None:
+            _record_err('total', est_mat_p + est_bol_p, act_mat + act_bol)
+
+    def _to_metric(key):
+        errors, pct_errors = acc_errs[key]
+        if not errors:
+            return None
+        return {
+            'n_days': len(errors),
+            'mae':    round(sum(errors) / len(errors), 2),
+            'mape':   round(sum(pct_errors) / len(pct_errors), 1) if pct_errors else None,
+        }
+
+    accuracy = {
+        'total': _to_metric('total'),
+        'mat':   _to_metric('mat'),
+        'bol':   _to_metric('bol'),
+    }
+
     return {
         'forecast':        forecast,
         'historical_dow':  hist_by_dow,
@@ -648,6 +736,7 @@ def get_previsao_30dias() -> dict:
         'perf_factor_bol': perf_factor_bol,
         'perf_days':       perf_days,
         'cutoff':          cutoff.isoformat() if cutoff else None,
+        'accuracy':        accuracy,
     }
 
 

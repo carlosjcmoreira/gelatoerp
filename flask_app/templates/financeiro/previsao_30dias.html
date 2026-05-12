@@ -83,6 +83,31 @@
 .perf-badge-pos { background: #d1fae5; color: #065f46; }
 .perf-badge-neg { background: #fee2e2; color: #991b1b; }
 .perf-badge-neu { background: var(--bs-secondary-bg); color: var(--bs-secondary-color); }
+.accuracy-card {
+    background: var(--bs-tertiary-bg);
+    border-radius: 0.5rem;
+    border: 1px solid var(--bs-border-color);
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+}
+.accuracy-card .acc-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--bs-secondary-color);
+    margin-bottom: 0.3rem;
+}
+.accuracy-card .acc-metric {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.acc-good  { color: #10b981; font-weight: 700; }
+.acc-ok    { color: #f59e0b; font-weight: 700; }
+.acc-bad   { color: #ef4444; font-weight: 700; }
+.acc-muted { color: var(--bs-secondary-color); }
 </style>
 {% endblock %}
 
@@ -134,6 +159,11 @@
         </div>
     </div>
 
+    <div id="accuracyCard" class="accuracy-card mt-3 d-none">
+        <div class="acc-label">Precisão do Modelo</div>
+        <div class="acc-metric" id="accuracyMetric"></div>
+    </div>
+
     <div class="mt-2 pv-legend">
         <span><span class="est-val">€</span> = estimativa</span>
         <span><span class="real-val">€</span> = vendas reais confirmadas</span>
@@ -179,6 +209,34 @@ function deltaCell(real, est) {
 function fmtDate(iso) {
     const [y, m, d] = iso.split('-');
     return `${d} ${MONTHS_SHORT[parseInt(m)]}`;
+}
+
+function renderAccuracy() {
+    const acc = (RAW.accuracy || {})[activeLoja];
+    const card = document.getElementById('accuracyCard');
+    const metric = document.getElementById('accuracyMetric');
+    if (!acc) { card.classList.add('d-none'); return; }
+
+    const lojaLabel = activeLoja === 'mat' ? 'Matosinhos' : (activeLoja === 'bol' ? 'Bolhão' : 'Total');
+    const n = acc.n_days;
+
+    let mapeHtml = '';
+    if (acc.mape != null) {
+        let cls = 'acc-good';
+        if (acc.mape > 15) cls = 'acc-bad';
+        else if (acc.mape > 8) cls = 'acc-ok';
+        mapeHtml = `<span>Erro médio: <span class="${cls}">${acc.mape.toFixed(1)}%</span></span>
+                    <span class="acc-muted">·</span>`;
+    }
+
+    let maeHtml = '';
+    if (acc.mae != null) {
+        maeHtml = `<span class="acc-muted">MAE: ${new Intl.NumberFormat('pt-PT', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(acc.mae)}</span>
+                   <span class="acc-muted">·</span>`;
+    }
+
+    metric.innerHTML = `${mapeHtml}${maeHtml}<span class="acc-muted">${n} dia${n !== 1 ? 's' : ''} com dados reais (${lojaLabel})</span>`;
+    card.classList.remove('d-none');
 }
 
 function perfBadgeHtml(factor, label) {
@@ -286,11 +344,13 @@ document.getElementById('lojaFilters').addEventListener('click', e => {
     document.querySelectorAll('#lojaFilters .pv-pill-btn').forEach(x =>
         x.classList.toggle('active', x === b));
     render();
+    renderAccuracy();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
     renderPerfBadges();
     render();
+    renderAccuracy();
 });
 </script>
 {% endblock %}
