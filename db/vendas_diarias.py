@@ -271,15 +271,19 @@ def get_dashboard_vendas() -> dict:
         cur = conn.cursor()
 
         # ── Monthly aggregates for 2025 and 2026 ─────────────────────────────
+        # Applies the same conta_vendas_diarias filter as get_vendas_diarias_yoy()
+        # so excluded products (e.g. consultoria, catering) are omitted here too.
         cur.execute("""
-            SELECT loja,
-                   EXTRACT(YEAR FROM data)::int  AS ano,
-                   EXTRACT(MONTH FROM data)::int AS mes,
-                   SUM(valor_euros)              AS total
-            FROM vendas_detalhe
-            WHERE EXTRACT(YEAR FROM data) IN (2025, 2026)
-            GROUP BY loja, ano, mes
-            ORDER BY loja, ano, mes
+            SELECT vd.loja,
+                   EXTRACT(YEAR FROM vd.data)::int  AS ano,
+                   EXTRACT(MONTH FROM vd.data)::int AS mes,
+                   SUM(vd.valor_euros)              AS total
+            FROM vendas_detalhe vd
+            LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+            WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
+              AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+            GROUP BY vd.loja, ano, mes
+            ORDER BY vd.loja, ano, mes
         """)
         monthly_rows = cur.fetchall()
 
@@ -293,16 +297,18 @@ def get_dashboard_vendas() -> dict:
         # ── YTD sums: per loja ────────────────────────────────────────────────
         if cutoff:
             cur.execute("""
-                SELECT loja,
-                       SUM(CASE WHEN EXTRACT(YEAR FROM data) = 2026 THEN valor_euros ELSE 0 END) AS ytd_2026,
-                       SUM(CASE WHEN EXTRACT(YEAR FROM data) = 2025
-                                 AND EXTRACT(MONTH FROM data) * 100 + EXTRACT(DAY FROM data)
+                SELECT vd.loja,
+                       SUM(CASE WHEN EXTRACT(YEAR FROM vd.data) = 2026 THEN vd.valor_euros ELSE 0 END) AS ytd_2026,
+                       SUM(CASE WHEN EXTRACT(YEAR FROM vd.data) = 2025
+                                 AND EXTRACT(MONTH FROM vd.data) * 100 + EXTRACT(DAY FROM vd.data)
                                      <= EXTRACT(MONTH FROM %s::date) * 100 + EXTRACT(DAY FROM %s::date)
-                                THEN valor_euros ELSE 0 END) AS ytd_2025
-                FROM vendas_detalhe
-                WHERE EXTRACT(YEAR FROM data) IN (2025, 2026)
-                GROUP BY loja
-                ORDER BY loja
+                                THEN vd.valor_euros ELSE 0 END) AS ytd_2025
+                FROM vendas_detalhe vd
+                LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+                WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
+                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                GROUP BY vd.loja
+                ORDER BY vd.loja
             """, (cutoff, cutoff))
             ytd_rows = cur.fetchall()
         else:
