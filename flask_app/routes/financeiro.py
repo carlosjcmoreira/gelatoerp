@@ -27,6 +27,7 @@ FINANCEIRO_GROUPS = [
             {'key': 'dashboard_vendas', 'label': 'Dashboard de Vendas', 'icon': '📊', 'active': True,  'url_func': 'financeiro.dashboard_vendas'},
             {'key': 'vendas_diarias', 'label': 'Vendas Diárias',       'icon': '📅', 'active': True,  'url_func': 'financeiro.vendas_diarias'},
             {'key': 'variaveis_previsao', 'label': 'Variáveis de Previsão', 'icon': '🌡️', 'active': True,  'url_func': 'financeiro.variaveis_previsao'},
+            {'key': 'previsao_30dias',   'label': 'Previsão 30 Dias',      'icon': '🔮', 'active': True,  'url_func': 'financeiro.previsao_30dias'},
             {'key': 'meteorologia',      'label': 'Meteorologia',          'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
         ],
     },
@@ -124,6 +125,18 @@ def variaveis_previsao():
     data = get_variaveis_previsao()
     return render_template(
         'financeiro/variaveis_previsao.html',
+        data_json=json.dumps(data, ensure_ascii=False, default=str),
+    )
+
+
+@financeiro_bp.route('/previsao-30-dias')
+@perm_required('acesso_gestor')
+def previsao_30dias():
+    from db.vendas_diarias import get_previsao_30dias
+    import json
+    data = get_previsao_30dias()
+    return render_template(
+        'financeiro/previsao_30dias.html',
         data_json=json.dumps(data, ensure_ascii=False, default=str),
     )
 

@@ -386,6 +386,271 @@ def get_variaveis_previsao() -> dict:
     return {'summary': summary, 'detail': detail}
 
 
+def get_previsao_30dias() -> dict:
+    """Return 30-day sales forecast using 2026 historical DOW averages × weather × recent performance.
+
+    Model per day:
+      est_sales = avg_dow_sales × tmax_ratio × rain_factor × perf_factor
+      tmax_ratio   = forecast_tmax / avg_dow_tmax  (capped [0.6, 1.4], default 1 if missing)
+      rain_factor  = 0.85 if precip > 3 mm, 0.93 if precip > 0.5 mm, else 1.0
+      perf_factor  = avg(actual / hist_dow_avg) over last 30 days with data, capped [0.7, 1.3]
+
+    Per-store estimates (mat/bol) use the same formula independently.
+    perf_factor is computed separately for Matosinhos and Bolhão.
+
+    Returns dict with:
+      forecast        — list of 30 days {date, dow, dow_name,
+                         tmax_mat, tmax_bol, precip,
+                         est_total, est_mat, est_bol,
+                         real_total, real_mat, real_bol, is_today}
+      historical_dow  — {dow: {avg_total, avg_mat, avg_bol,
+                                avg_tmax_mat, avg_tmax_bol, n_days}}
+      perf_factor_mat — recent performance multiplier for Matosinhos (float or None)
+      perf_factor_bol — recent performance multiplier for Bolhão (float or None)
+      perf_days       — number of recent days used to compute the factors
+      cutoff          — ISO date of last day with actual vendas_detalhe data
+    """
+    today = date.today()
+    start = today
+    end = today + timedelta(days=29)
+    recent_start = today - timedelta(days=30)
+    recent_end = today - timedelta(days=1)
+
+    DOW_NAMES_PT = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+
+    with db_connection() as conn:
+        cur = conn.cursor()
+
+        # ── 1. Historical 2026 DOW averages (sales + weather), excl. recent 30d ─
+        # We include all 2026 past data so the baseline is robust; the recent
+        # performance factor will then capture any drift vs. that baseline.
+        cur.execute("""
+            WITH daily_sales AS (
+                SELECT
+                    vd.data,
+                    SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Matosinhos') AS sales_mat,
+                    SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Bolhão')     AS sales_bol,
+                    SUM(vd.valor_euros)                                         AS sales_total
+                FROM vendas_detalhe vd
+                LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+                WHERE EXTRACT(YEAR FROM vd.data) = 2026
+                  AND vd.data < %s
+                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                GROUP BY vd.data
+            ),
+            wx_mat AS (
+                SELECT data, AVG(temperatura_max) AS tmax
+                FROM weather_data
+                WHERE store_id = 1 AND EXTRACT(YEAR FROM data) = 2026 AND data < %s
+                GROUP BY data
+            ),
+            wx_bol AS (
+                SELECT data, AVG(temperatura_max) AS tmax
+                FROM weather_data
+                WHERE store_id = 2 AND EXTRACT(YEAR FROM data) = 2026 AND data < %s
+                GROUP BY data
+            )
+            SELECT
+                EXTRACT(ISODOW FROM ds.data)::int AS dow,
+                COUNT(*) AS n_days,
+                ROUND(AVG(ds.sales_total)::numeric, 2) AS avg_total,
+                ROUND(AVG(ds.sales_mat)::numeric, 2)   AS avg_mat,
+                ROUND(AVG(ds.sales_bol)::numeric, 2)   AS avg_bol,
+                ROUND(AVG(wx_mat.tmax)::numeric, 1)    AS avg_tmax_mat,
+                ROUND(AVG(wx_bol.tmax)::numeric, 1)    AS avg_tmax_bol
+            FROM daily_sales ds
+            LEFT JOIN wx_mat ON wx_mat.data = ds.data
+            LEFT JOIN wx_bol ON wx_bol.data = ds.data
+            GROUP BY dow
+            ORDER BY dow
+        """, (today, today, today))
+        hist_rows = cur.fetchall()
+
+        # ── 2. Recent actual sales (last 30 days) for performance factor ────────
+        cur.execute("""
+            SELECT vd.data,
+                   SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Matosinhos') AS mat,
+                   SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Bolhão')     AS bol
+            FROM vendas_detalhe vd
+            LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+            WHERE vd.data BETWEEN %s AND %s
+              AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+            GROUP BY vd.data
+            ORDER BY vd.data
+        """, (recent_start, recent_end))
+        recent_rows = cur.fetchall()
+
+        # ── 3. Future weather for next 30 days (avg across fontes per store) ────
+        cur.execute("""
+            SELECT
+                data,
+                store_id,
+                ROUND(AVG(temperatura_max)::numeric, 1) AS tmax,
+                ROUND(AVG(precipitacao_mm)::numeric, 1) AS precip
+            FROM weather_data
+            WHERE data BETWEEN %s AND %s
+            GROUP BY data, store_id
+            ORDER BY data, store_id
+        """, (start, end))
+        wx_future_rows = cur.fetchall()
+
+        # ── 4. Actual sales for the forecast window (today onward, for comparison)
+        cur.execute("""
+            SELECT vd.data,
+                   SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Matosinhos') AS mat,
+                   SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Bolhão')     AS bol,
+                   SUM(vd.valor_euros)                                         AS total
+            FROM vendas_detalhe vd
+            LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+            WHERE vd.data BETWEEN %s AND %s
+              AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+            GROUP BY vd.data
+        """, (start, end))
+        actual_rows = cur.fetchall()
+
+        # ── 5. Last date with actual data ────────────────────────────────────────
+        cur.execute("""
+            SELECT MAX(data) FROM vendas_detalhe
+            WHERE EXTRACT(YEAR FROM data) = 2026
+        """)
+        cutoff_row = cur.fetchone()
+
+    # ── Build historical DOW lookup ─────────────────────────────────────────────
+    hist_by_dow: dict = {}
+    for r in hist_rows:
+        dow = int(r[0])
+        hist_by_dow[dow] = {
+            'n_days':       int(r[1]),
+            'avg_total':    float(r[2]) if r[2] is not None else None,
+            'avg_mat':      float(r[3]) if r[3] is not None else None,
+            'avg_bol':      float(r[4]) if r[4] is not None else None,
+            'avg_tmax_mat': float(r[5]) if r[5] is not None else None,
+            'avg_tmax_bol': float(r[6]) if r[6] is not None else None,
+        }
+
+    # ── Compute recent performance factors ─────────────────────────────────────
+    # For each recent day with actual sales, compute ratio = actual / hist_dow_avg.
+    # Average these ratios per store and cap to [0.7, 1.3].
+    ratios_mat: list = []
+    ratios_bol: list = []
+    for r in recent_rows:
+        d_actual = r[0]
+        act_mat = float(r[1]) if r[1] is not None else None
+        act_bol = float(r[2]) if r[2] is not None else None
+        dow = d_actual.isoweekday()
+        h = hist_by_dow.get(dow, {})
+        if act_mat is not None and h.get('avg_mat') and h['avg_mat'] > 0:
+            ratios_mat.append(act_mat / h['avg_mat'])
+        if act_bol is not None and h.get('avg_bol') and h['avg_bol'] > 0:
+            ratios_bol.append(act_bol / h['avg_bol'])
+
+    def _avg_capped(ratios, lo=0.7, hi=1.3):
+        if not ratios:
+            return None
+        avg = sum(ratios) / len(ratios)
+        return round(max(lo, min(hi, avg)), 3)
+
+    perf_factor_mat = _avg_capped(ratios_mat)
+    perf_factor_bol = _avg_capped(ratios_bol)
+    perf_days = max(len(ratios_mat), len(ratios_bol))
+
+    # ── Build future weather lookup ─────────────────────────────────────────────
+    wx_future: dict = {}
+    for r in wx_future_rows:
+        d, sid = r[0], int(r[1])
+        wx_future.setdefault(d, {})[sid] = {
+            'tmax':   float(r[2]) if r[2] is not None else None,
+            'precip': float(r[3]) if r[3] is not None else None,
+        }
+
+    actual_by_date: dict = {}
+    for r in actual_rows:
+        actual_by_date[r[0]] = {
+            'mat':   float(r[1]) if r[1] is not None else None,
+            'bol':   float(r[2]) if r[2] is not None else None,
+            'total': float(r[3]) if r[3] is not None else None,
+        }
+
+    cutoff = cutoff_row[0] if cutoff_row and cutoff_row[0] else None
+
+    def _tmax_ratio(forecast_tmax, hist_tmax):
+        if forecast_tmax is None or hist_tmax is None or hist_tmax == 0:
+            return 1.0
+        return max(0.6, min(1.4, forecast_tmax / hist_tmax))
+
+    def _rain_factor(precip):
+        if precip is None:
+            return 1.0
+        if precip > 3.0:
+            return 0.85
+        if precip > 0.5:
+            return 0.93
+        return 1.0
+
+    def _est(avg, tmax_r, rain_f, perf_f):
+        if avg is None:
+            return None
+        pf = perf_f if perf_f is not None else 1.0
+        return round(avg * tmax_r * rain_f * pf, 2)
+
+    # ── Build forecast rows ─────────────────────────────────────────────────────
+    forecast = []
+    cur_date = start
+    while cur_date <= end:
+        iso_dow = cur_date.isoweekday()  # 1=Mon … 7=Sun
+        h = hist_by_dow.get(iso_dow, {})
+        wx_day = wx_future.get(cur_date, {})
+        wx_mat_d = wx_day.get(1, {})
+        wx_bol_d = wx_day.get(2, {})
+
+        tmax_mat = wx_mat_d.get('tmax')
+        tmax_bol = wx_bol_d.get('tmax')
+        precip_mat = wx_mat_d.get('precip')
+        precip_bol = wx_bol_d.get('precip')
+
+        if precip_mat is not None and precip_bol is not None:
+            precip = round((precip_mat + precip_bol) / 2.0, 1)
+        else:
+            precip = precip_mat if precip_mat is not None else precip_bol
+
+        ratio_mat = _tmax_ratio(tmax_mat, h.get('avg_tmax_mat'))
+        ratio_bol = _tmax_ratio(tmax_bol, h.get('avg_tmax_bol'))
+        rain = _rain_factor(precip)
+
+        est_mat   = _est(h.get('avg_mat'), ratio_mat, rain, perf_factor_mat)
+        est_bol   = _est(h.get('avg_bol'), ratio_bol, rain, perf_factor_bol)
+        est_total = round((est_mat or 0) + (est_bol or 0), 2) if (est_mat is not None or est_bol is not None) else None
+
+        actual = actual_by_date.get(cur_date, {})
+
+        forecast.append({
+            'date':       cur_date.isoformat(),
+            'dow':        iso_dow,
+            'dow_name':   DOW_NAMES_PT[iso_dow],
+            'tmax_mat':   tmax_mat,
+            'tmax_bol':   tmax_bol,
+            'precip':     precip,
+            'est_total':  est_total,
+            'est_mat':    est_mat,
+            'est_bol':    est_bol,
+            'real_total': actual.get('total'),
+            'real_mat':   actual.get('mat'),
+            'real_bol':   actual.get('bol'),
+            'is_today':   cur_date == today,
+        })
+
+        cur_date += timedelta(days=1)
+
+    return {
+        'forecast':        forecast,
+        'historical_dow':  hist_by_dow,
+        'perf_factor_mat': perf_factor_mat,
+        'perf_factor_bol': perf_factor_bol,
+        'perf_days':       perf_days,
+        'cutoff':          cutoff.isoformat() if cutoff else None,
+    }
+
+
 def get_dashboard_vendas() -> dict:
     """Return aggregated sales data for the Dashboard de Vendas.
 
