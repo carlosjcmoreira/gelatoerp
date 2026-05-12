@@ -1070,6 +1070,22 @@ def update_produtos_vendas_config_batch(updates: list):
             """, (u['gelado_kpi'], u['pastelaria'], u['confeitaria'], u['id']))
         conn.commit()
 
+
+def update_conta_vendas_diarias_batch(updates: list):
+    """Set conta_vendas_diarias flag for a batch of produtos_vendas_config rows.
+
+    Each entry in *updates* must have keys: id (int), conta (bool).
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        for u in updates:
+            cursor.execute("""
+                UPDATE produtos_vendas_config
+                SET conta_vendas_diarias = %s
+                WHERE id = %s
+            """, (u['conta'], u['id']))
+        conn.commit()
+
 def get_produtos_by_area(area: str) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()

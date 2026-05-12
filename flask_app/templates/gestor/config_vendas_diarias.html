@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">📅 Filtro Vendas Diárias</h5>
+    <p class="text-muted small mb-3">Selecione quais produtos contam para os totais de Vendas Diárias.</p>
+    {% include "gestor/_config_vendas_diarias.html" %}
+</div>
+{% endblock %}

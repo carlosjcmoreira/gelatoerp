@@ -22,6 +22,7 @@ TABS = [
     {'id': 'upload_producao', 'label': 'Upload Produção', 'icon': '📤', 'url_endpoint': 'gestor.upload_producao'},
     {'id': 'upload_pesagem', 'label': 'Upload Pesagem', 'icon': '⚖️', 'url_endpoint': 'gestor.upload_pesagem'},
     {'id': 'vendas_detalhe', 'label': 'Vendas Detalhe', 'icon': '🛒', 'url_endpoint': 'gestor.vendas_detalhe'},
+    {'id': 'config_vendas_diarias', 'label': 'Filtro Vendas Diárias', 'icon': '📅', 'url_endpoint': 'gestor.config_vendas_diarias'},
     {'id': 'alocacao_produtos', 'label': 'Alocação de Produtos', 'icon': '📋', 'url_endpoint': 'gestor.regras_negocio'},
     {'id': 'ajustes_producao', 'label': 'Ajustes Produção', 'icon': '🔧', 'url_endpoint': 'gestor.ajustes_producao'},
     {'id': 'motivos_quebra', 'label': 'Motivos Quebra', 'icon': '⚠️', 'url_endpoint': 'gestor.motivos_quebra'},
@@ -443,6 +444,23 @@ def _handle_delete_vendas():
         flash(f'Erro: {str(e)}', 'error')
 
     return redirect(url_for('gestor.vendas_detalhe'))
+
+
+@gestor_bp.route('/config-vendas-diarias', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def config_vendas_diarias():
+    if request.method == 'POST':
+        produtos = db.get_produtos_vendas_config()
+        updates = [
+            {'id': p['id'], 'conta': request.form.get(f'conta_{p["id"]}') == 'on'}
+            for p in produtos
+        ]
+        db.update_conta_vendas_diarias_batch(updates)
+        flash('Filtro de Vendas Diárias guardado com sucesso!', 'success')
+        return redirect(url_for('gestor.config_vendas_diarias'))
+    db.sync_produtos_vendas_config()
+    return render_template('gestor/config_vendas_diarias.html',
+                           produtos=db.get_produtos_vendas_config())
 
 
 @gestor_bp.route('/regras-negocio', methods=['GET', 'POST'])

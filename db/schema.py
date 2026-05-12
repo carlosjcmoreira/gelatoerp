@@ -2917,3 +2917,31 @@ def run_data_fix_stock_gelado_march2026_dedup():
                 conn.rollback()
             except Exception:
                 pass
+
+
+def run_migrations_conta_vendas_diarias():
+    """Add conta_vendas_diarias column to produtos_vendas_config.
+
+    Advisory lock 202613. Defaults to TRUE so all existing products continue
+    to appear in Vendas Diárias totals until the user explicitly excludes them.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(202613)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_conta_vendas_diarias: lock held by another worker, skipping")
+                return
+
+            cursor.execute("""
+                ALTER TABLE produtos_vendas_config
+                ADD COLUMN IF NOT EXISTS conta_vendas_diarias BOOLEAN NOT NULL DEFAULT TRUE
+            """)
+            conn.commit()
+            logger.info("run_migrations_conta_vendas_diarias: column added (or already present)")
+        except Exception as exc:
+            logger.error("run_migrations_conta_vendas_diarias failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass

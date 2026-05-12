@@ -63,13 +63,17 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
         # Uses date range matching the full ISO year so ISO-boundary days
         # (e.g. Dec 29-31 that are ISO W1 of ano but calendar year ano-1)
         # are included correctly.
+        # Only sums products where conta_vendas_diarias = TRUE (or not yet in
+        # config — NULL coalesce keeps backward-compatibility).
         current_sales: dict = {}
         try:
             cur.execute("""
-                SELECT data, loja, SUM(valor_euros)
-                FROM vendas_detalhe
-                WHERE data BETWEEN %s AND %s
-                GROUP BY data, loja
+                SELECT vd.data, vd.loja, SUM(vd.valor_euros)
+                FROM vendas_detalhe vd
+                LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+                WHERE vd.data BETWEEN %s AND %s
+                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                GROUP BY vd.data, vd.loja
             """, (iter_start, iter_end))
             for row in cur.fetchall():
                 d, loja, total = row[0], row[1], float(row[2] or 0)
@@ -111,13 +115,18 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
         # Load the full prior ISO year so that ISO-boundary days at the start
         # of ano (e.g. Dec 30-31 of ano-1 that open ISO W1 of ano) can be
         # compared against Dec 30-31 of ano-2 that open ISO W1 of ano-1.
+        # Apply the same conta_vendas_diarias filter so YoY comparison is
+        # consistent — if a product is excluded from ano, it's excluded from
+        # ano-1 too.
         prior_detalhe: dict = {}
         try:
             cur.execute("""
-                SELECT data, loja, SUM(valor_euros)
-                FROM vendas_detalhe
-                WHERE data BETWEEN %s AND %s
-                GROUP BY data, loja
+                SELECT vd.data, vd.loja, SUM(vd.valor_euros)
+                FROM vendas_detalhe vd
+                LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+                WHERE vd.data BETWEEN %s AND %s
+                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                GROUP BY vd.data, vd.loja
             """, (prior_start, prior_end))
             for row in cur.fetchall():
                 d, loja, total = row[0], row[1], float(row[2] or 0)
