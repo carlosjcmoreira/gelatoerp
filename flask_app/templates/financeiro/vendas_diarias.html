@@ -15,10 +15,17 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     border-bottom: none;
+    position: sticky;
+    top: 56px;
+    z-index: 3;
+    background: var(--bs-secondary-bg);
 }
 .vd-table thead tr:last-child th {
     font-size: 0.7rem;
     font-weight: 600;
+    position: sticky;
+    z-index: 2;
+    background: var(--bs-secondary-bg);
 }
 .vd-table td, .vd-table th {
     font-size: 0.78rem;
@@ -198,4 +205,15 @@
     {% endif %}
 
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var rows = document.querySelectorAll('.vd-table thead tr');
+    if (rows.length >= 2) {
+        var row1H = rows[0].getBoundingClientRect().height;
+        rows[1].querySelectorAll('th').forEach(function (th) {
+            th.style.top = (56 + row1H) + 'px';
+        });
+    }
+});
+</script>
 {% endblock %}
