@@ -1,8 +1,4 @@
-"""M0b: Pagamentos, IVA e Liquidez Semanal — payment scheduling, VAT periods, weekly liquidity.
-
-NOTE: IVA and liquidity functions that aggregate from `vendas` should eventually be updated to
-use `vendas_detalhe` (Gestor uploads) as the authoritative source per the business rule in Task #203.
-"""
+"""M0b: Pagamentos, IVA e Liquidez Semanal — payment scheduling, VAT periods, weekly liquidity."""
 from calendar import monthrange
 from datetime import date as _date, timedelta
 from psycopg2.extras import RealDictCursor
@@ -403,7 +399,7 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
 
         cursor.execute("""
             SELECT COALESCE(SUM(valor_euros), 0)
-            FROM vendas
+            FROM vendas_detalhe
             WHERE EXTRACT(YEAR FROM data) = %s
               AND EXTRACT(MONTH FROM data) = %s
         """, (year, month))
@@ -499,9 +495,13 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         event_rows = {r['expected_payment_date']: float(r['total']) for r in cursor.fetchall()}
 
         cursor.execute("""
-            SELECT COALESCE(AVG(valor_euros), 0) * 7 AS weekly_pos
-            FROM vendas
-            WHERE data >= %s
+            SELECT COALESCE(AVG(daily_total), 0) * 7 AS weekly_pos
+            FROM (
+                SELECT data, SUM(valor_euros) AS daily_total
+                FROM vendas_detalhe
+                WHERE data >= %s
+                GROUP BY data
+            ) sub
         """, (today - timedelta(days=28),))
         inflows_pos_est = float(cursor.fetchone()['weekly_pos'])
 

@@ -2,9 +2,6 @@
 
 Each function returns a small dict of display-ready values.
 Functions must never raise — they return safe defaults on any error.
-
-NOTE: Dashboard sales widgets that read from `vendas` should eventually be updated to use
-`vendas_detalhe` (Gestor uploads) as the primary source per the business rule in Task #203.
 """
 import logging
 from datetime import date, timedelta
@@ -35,14 +32,13 @@ def widget_eurokg() -> dict:
         )
         ultima_pesagem = cur.fetchone()[0]
         cur.execute(
-            """SELECT COALESCE(SUM(v.valor_euros), 0), COALESCE(SUM(p.quantidade_kg), 0)
-               FROM vendas v
-               CROSS JOIN (
-                   SELECT COALESCE(SUM(quantidade_kg), 0) as quantidade_kg
-                   FROM producao
-                   WHERE data >= %s AND tipo = 'producao'
-               ) p
-               WHERE v.data >= %s""",
+            """SELECT
+                   (SELECT COALESCE(SUM(valor_euros), 0)
+                    FROM vendas_detalhe
+                    WHERE data >= %s) AS total_vendas,
+                   (SELECT COALESCE(SUM(quantidade_kg), 0)
+                    FROM producao
+                    WHERE data >= %s AND tipo = 'producao') AS total_prod""",
             (first_of_month, first_of_month)
         )
         row = cur.fetchone()

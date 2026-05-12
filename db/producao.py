@@ -455,11 +455,12 @@ def get_quebras_df(loja: str = None, data_inicio: date = None, data_fim: date = 
 
 @db_retry
 def get_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
-    # NOTE (Task #203): This function reads from `vendas` (cash-close daily totals).
-    # Per business rule, `vendas_detalhe` (Gestor uploads) is the authoritative source.
-    # Callers that use this for financial KPIs (Euro/kg, etc.) should be updated to
-    # aggregate from `vendas_detalhe` instead. See Tasks #204/#205.
-    query = "SELECT * FROM vendas WHERE 1=1"
+    """Return daily sales totals aggregated from vendas_detalhe (Gestor uploads)."""
+    query = """
+        SELECT data, loja, SUM(valor_euros) AS valor_euros
+        FROM vendas_detalhe
+        WHERE 1=1
+    """
     params = []
     if loja:
         query += " AND loja = %s"
@@ -470,6 +471,7 @@ def get_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = N
     if data_fim:
         query += " AND data <= %s"
         params.append(data_fim)
+    query += " GROUP BY data, loja ORDER BY data"
     with db_connection() as conn:
         return pd.read_sql_query(query, conn, params=params)
 
