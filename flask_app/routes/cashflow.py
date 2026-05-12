@@ -6,7 +6,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_app.auth import perm_required
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
-from db.cashflow import build_cashflow_13weeks, get_cashflow_config, set_cashflow_config
+from db.cashflow import get_cashflow_config, set_cashflow_config
 from db.faturas import ONEDRIVE_SUBFOLDERS
 from db.centros_custo import (
     get_colaboradores, get_colaboradores_calculados,
@@ -24,38 +24,6 @@ logger = logging.getLogger(__name__)
 
 cashflow_bp = Blueprint('cashflow', __name__)
 
-
-@cashflow_bp.route('/')
-@perm_required('acesso_gestor')
-def index():
-    data = build_cashflow_13weeks()
-    return render_template('financeiro/cashflow/index.html',
-                           weeks=data['weeks'],
-                           alerts=data['alerts'],
-                           config=data['config'],
-                           threshold=data['threshold'],
-                           overdraft_total_plafond=data['overdraft_total_plafond'],
-                           overdraft_utilizado=data['overdraft_utilizado'],
-                           overdraft_disponivel=data['overdraft_disponivel'],
-                           today=data['today'])
-
-
-@cashflow_bp.route('/semana/<int:week_num>')
-@perm_required('acesso_gestor')
-def semana(week_num):
-    data = build_cashflow_13weeks()
-    weeks = data['weeks']
-    if week_num < 1 or week_num > len(weeks):
-        flash('Semana inválida.', 'warning')
-        return redirect(url_for('cashflow.index'))
-    week = weeks[week_num - 1]
-    return render_template('financeiro/cashflow/semana.html',
-                           week=week,
-                           week_num=week_num,
-                           alerts=[a for a in data['alerts'] if a.get('semana') == week_num],
-                           threshold=data['threshold'],
-                           overdraft_disponivel=data['overdraft_disponivel'],
-                           today=data['today'])
 
 
 @cashflow_bp.route('/configuracoes', methods=['GET', 'POST'])

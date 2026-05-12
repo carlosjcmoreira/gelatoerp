@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block head %}
+<style>
+.vd-filter-bar {
+    background: var(--bs-secondary-bg);
+    border-radius: 0.5rem;
+    padding: 0.6rem 0.75rem;
+}
+.vd-table thead tr:first-child th {
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: none;
+}
+.vd-table thead tr:last-child th {
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.vd-table td, .vd-table th {
+    font-size: 0.78rem;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.vd-week-cell {
+    writing-mode: horizontal-tb;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--bs-secondary-color);
+    text-align: center;
+    background: var(--bs-secondary-bg);
+}
+.vd-future {
+    opacity: 0.45;
+}
+.vd-delta-pos { color: #198754; }
+.vd-delta-neg { color: #dc3545; }
+.vd-dash { color: var(--bs-secondary-color); }
+</style>
+{% endblock %}
+
+{% macro fmt(val) %}{% if val is not none %}{{ '{:,.0f}'.format(val) }}{% else %}<span class="vd-dash">—</span>{% endif %}{% endmacro %}
+
+{% macro delta(atual, anterior) %}
+{% if atual is not none and anterior is not none and anterior > 0 %}
+  {% set d = (atual - anterior) / anterior * 100 %}
+  <span class="{{ 'vd-delta-pos' if d >= 0 else 'vd-delta-neg' }}">{{ '%+.1f'|format(d) }}%</span>
+{% elif atual is not none and anterior == 0 and atual > 0 %}
+  <span class="vd-delta-pos">novo</span>
+{% else %}
+  <span class="vd-dash">—</span>
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">📅 Vendas Diárias — YoY</h5>
+    </div>
+
+    {# ── Filter bar ─────────────────────────────────────────────────────────── #}
+    <form method="get" class="vd-filter-bar mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-sm-3 col-md-2">
+                <label class="form-label mb-1" style="font-size:0.7rem;font-weight:600;">Ano</label>
+                <select name="ano" class="form-select form-select-sm" onchange="this.form.submit()">
+                    {% for a in anos_disponiveis %}
+                    <option value="{{ a }}" {% if a == ano_sel %}selected{% endif %}>{{ a }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-md-2">
+                <label class="form-label mb-1" style="font-size:0.7rem;font-weight:600;">Mês</label>
+                <select name="mes" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">Todos</option>
+                    {% for i in range(1, 13) %}
+                    <option value="{{ i }}" {% if mes_sel == i %}selected{% endif %}>{{ meses_pt[i] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-md-2">
+                <label class="form-label mb-1" style="font-size:0.7rem;font-weight:600;">Semana ISO</label>
+                <select name="semana" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">Todas</option>
+                    {% for i in range(1, 54) %}
+                    <option value="{{ i }}" {% if semana_sel == i %}selected{% endif %}>W{{ i }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-md-2">
+                <label class="form-label mb-1" style="font-size:0.7rem;font-weight:600;">Dia da semana</label>
+                <select name="weekday" class="form-select form-select-sm" onchange="this.form.submit()">
+                    <option value="">Todos</option>
+                    {% for i in range(7) %}
+                    <option value="{{ i }}" {% if weekday_sel == i %}selected{% endif %}>{{ weekday_names[i] }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-auto">
+                <a href="{{ url_for('financeiro.vendas_diarias') }}" class="btn btn-outline-secondary btn-sm w-100">Limpar</a>
+            </div>
+        </div>
+    </form>
+
+    {# ── Table ──────────────────────────────────────────────────────────────── #}
+    {% if rows %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover vd-table">
+            <thead class="table-light">
+                <tr>
+                    <th rowspan="2" class="align-middle text-center">Sem</th>
+                    <th rowspan="2" class="align-middle text-center">Dia</th>
+                    <th rowspan="2" class="align-middle">Data</th>
+                    <th colspan="3" class="text-center border-start">Total</th>
+                    <th colspan="3" class="text-center border-start">Matosinhos</th>
+                    <th colspan="3" class="text-center border-start">Bolhão</th>
+                </tr>
+                <tr>
+                    <th class="text-end border-start">{{ ano_sel }}</th>
+                    <th class="text-end">{{ ano_anterior }}</th>
+                    <th class="text-end">Δ%</th>
+                    <th class="text-end border-start">{{ ano_sel }}</th>
+                    <th class="text-end">{{ ano_anterior }}</th>
+                    <th class="text-end">Δ%</th>
+                    <th class="text-end border-start">{{ ano_sel }}</th>
+                    <th class="text-end">{{ ano_anterior }}</th>
+                    <th class="text-end">Δ%</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr class="{{ 'vd-future' if row.is_future else '' }}">
+                    {% if row.week_rowspan > 0 %}
+                    <td rowspan="{{ row.week_rowspan }}" class="vd-week-cell">W{{ row.iso_week }}</td>
+                    {% endif %}
+                    <td class="text-center fw-bold">{{ row.day_abbr }}</td>
+                    <td>{{ row.date_label }}</td>
+
+                    {# Total #}
+                    <td class="text-end border-start">
+                        {% if not row.is_future %}{{ fmt(row.total_atual) }}{% else %}<span class="vd-dash">—</span>{% endif %}
+                    </td>
+                    <td class="text-end">{{ fmt(row.total_anterior) }}</td>
+                    <td class="text-end">
+                        {% if not row.is_future %}{{ delta(row.total_atual, row.total_anterior) }}{% else %}<span class="vd-dash">—</span>{% endif %}
+                    </td>
+
+                    {# Matosinhos #}
+                    <td class="text-end border-start">
+                        {% if not row.is_future %}{{ fmt(row.matosinhos_atual) }}{% else %}<span class="vd-dash">—</span>{% endif %}
+                    </td>
+                    <td class="text-end">{{ fmt(row.matosinhos_anterior) }}</td>
+                    <td class="text-end">
+                        {% if not row.is_future %}{{ delta(row.matosinhos_atual, row.matosinhos_anterior) }}{% else %}<span class="vd-dash">—</span>{% endif %}
+                    </td>
+
+                    {# Bolhão #}
+                    <td class="text-end border-start">
+                        {% if not row.is_future %}{{ fmt(row.bolhao_atual) }}{% else %}<span class="vd-dash">—</span>{% endif %}
+                    </td>
+                    <td class="text-end">{{ fmt(row.bolhao_anterior) }}</td>
+                    <td class="text-end">
+                        {% if not row.is_future %}{{ delta(row.bolhao_atual, row.bolhao_anterior) }}{% else %}<span class="vd-dash">—</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot class="table-secondary fw-bold">
+                <tr>
+                    <td colspan="3">Total</td>
+
+                    <td class="text-end border-start">{{ fmt(totais.total_atual) }}</td>
+                    <td class="text-end">{{ fmt(totais.total_anterior) }}</td>
+                    <td class="text-end">{{ delta(totais.total_atual, totais.total_anterior) }}</td>
+
+                    <td class="text-end border-start">{{ fmt(totais.matosinhos_atual) }}</td>
+                    <td class="text-end">{{ fmt(totais.matosinhos_anterior) }}</td>
+                    <td class="text-end">{{ delta(totais.matosinhos_atual, totais.matosinhos_anterior) }}</td>
+
+                    <td class="text-end border-start">{{ fmt(totais.bolhao_atual) }}</td>
+                    <td class="text-end">{{ fmt(totais.bolhao_anterior) }}</td>
+                    <td class="text-end">{{ delta(totais.bolhao_atual, totais.bolhao_anterior) }}</td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    <div class="text-muted mt-1" style="font-size:0.68rem;">
+        {{ rows|length }} dia(s) · Ano anterior: mesmo nº semana ISO + dia da semana · Fonte primária: vendas; fallback: histórico
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-5" style="font-size:0.9rem;">
+        Sem dados para os filtros seleccionados.
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

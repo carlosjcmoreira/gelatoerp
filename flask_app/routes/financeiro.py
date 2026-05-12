@@ -18,16 +18,16 @@ FINANCEIRO_GROUPS = [
             {'key': 'liquidez',   'label': 'Liquidez',          'icon': '📈', 'active': True,  'url': '/financeiro/pagamentos/liquidez'},
             {'key': 'avencas',    'label': 'Avenças',           'icon': '🔁', 'active': True,  'url_func': 'avencas.index'},
             {'key': 'debitos',    'label': 'Débitos Diretos',   'icon': '🔄', 'active': True,  'url_func': 'cashflow.debitos'},
+            {'key': 'salarios',   'label': 'Salários',          'icon': '👥', 'active': True,  'url_func': 'cashflow.salarios'},
         ],
     },
     {
         'label': 'Planeamento & Previsão',
         'modules': [
-            {'key': 'cashflow',      'label': 'Cash Flow',           'icon': '📊', 'active': True,  'url_func': 'cashflow.index'},
-            {'key': 'salarios',      'label': 'Salários',            'icon': '👥', 'active': True,  'url_func': 'cashflow.salarios'},
-            {'key': 'previsao',      'label': 'Previsão de Vendas',  'icon': '🔮', 'active': True,  'url_func': 'forecast.index'},
-            {'key': 'modelo',        'label': 'Modelo de Previsão',  'icon': '📉', 'active': True,  'url_func': 'forecast.modelo'},
-            {'key': 'meteorologia',  'label': 'Meteorologia',        'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
+            {'key': 'vendas_diarias', 'label': 'Vendas Diárias',       'icon': '📅', 'active': True,  'url_func': 'financeiro.vendas_diarias'},
+            {'key': 'previsao',       'label': 'Previsão de Vendas',   'icon': '🔮', 'active': True,  'url_func': 'forecast.index'},
+            {'key': 'modelo',         'label': 'Modelo de Previsão',   'icon': '📉', 'active': True,  'url_func': 'forecast.modelo'},
+            {'key': 'meteorologia',   'label': 'Meteorologia',         'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
         ],
     },
     {
@@ -114,3 +114,80 @@ def liquidar_fornecedor():
         flash(f'{ok} documento(s) liquidado(s) via {method_label} em {paid_date.strftime("%d/%m/%Y")}.', 'success')
 
     return redirect(url_for('faturas.index', view='fornecedor'))
+
+
+@financeiro_bp.route('/vendas-diarias')
+@perm_required('acesso_gestor')
+def vendas_diarias():
+    from db.vendas_diarias import get_vendas_diarias_yoy
+    from db.connection import db_connection
+
+    today = date.today()
+    ano_atual = today.year
+
+    try:
+        with db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT DISTINCT EXTRACT(YEAR FROM data)::int FROM vendas ORDER BY 1 DESC"
+            )
+            anos_disponiveis = [r[0] for r in cur.fetchall()] or [ano_atual]
+    except Exception:
+        anos_disponiveis = [ano_atual]
+
+    try:
+        ano_sel = int(request.args.get('ano', ano_atual))
+    except (ValueError, TypeError):
+        ano_sel = ano_atual
+
+    try:
+        mes_sel_raw = request.args.get('mes', '')
+        mes_sel = int(mes_sel_raw) if mes_sel_raw else None
+    except (ValueError, TypeError):
+        mes_sel = None
+
+    try:
+        semana_sel_raw = request.args.get('semana', '')
+        semana_sel = int(semana_sel_raw) if semana_sel_raw else None
+    except (ValueError, TypeError):
+        semana_sel = None
+
+    try:
+        weekday_sel_raw = request.args.get('weekday', '')
+        weekday_sel = int(weekday_sel_raw) if weekday_sel_raw else None
+    except (ValueError, TypeError):
+        weekday_sel = None
+
+    rows = get_vendas_diarias_yoy(ano_sel, mes=mes_sel, iso_week=semana_sel, weekday=weekday_sel)
+
+    def _sum(vals):
+        data_pts = [v for v in vals if v is not None]
+        return round(sum(data_pts), 2) if data_pts else None
+
+    totais = {
+        'total_atual':         _sum(r['total_atual']         for r in rows if not r['is_future']),
+        'total_anterior':      _sum(r['total_anterior']      for r in rows),
+        'bolhao_atual':        _sum(r['bolhao_atual']        for r in rows if not r['is_future']),
+        'bolhao_anterior':     _sum(r['bolhao_anterior']     for r in rows),
+        'matosinhos_atual':    _sum(r['matosinhos_atual']    for r in rows if not r['is_future']),
+        'matosinhos_anterior': _sum(r['matosinhos_anterior'] for r in rows),
+    }
+
+    MESES_PT = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+    WEEKDAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+
+    return render_template(
+        'financeiro/vendas_diarias.html',
+        rows=rows,
+        totais=totais,
+        ano_sel=ano_sel,
+        mes_sel=mes_sel,
+        semana_sel=semana_sel,
+        weekday_sel=weekday_sel,
+        anos_disponiveis=anos_disponiveis,
+        ano_anterior=ano_sel - 1,
+        meses_pt=MESES_PT,
+        weekday_names=WEEKDAY_NAMES,
+        hoje=today,
+    )

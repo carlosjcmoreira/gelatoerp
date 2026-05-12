@@ -84,6 +84,13 @@ def _seed_all_tiles():
         fin_tiles = [{'id': m['key'], 'label': m['label']} for g in FINANCEIRO_GROUPS for m in g['modules']]
         seed_tile_config('financeiro', fin_tiles)
 
+        from db.connection import db_connection as _dbc
+        with _dbc() as _conn:
+            _conn.cursor().execute(
+                "DELETE FROM tile_config WHERE module = 'financeiro' AND tile_id = 'cashflow'"
+            )
+            _conn.commit()
+
         logger.info("_seed_all_tiles: all module tiles seeded")
     except Exception as exc:
         logger.error("_seed_all_tiles failed: %s", exc)
