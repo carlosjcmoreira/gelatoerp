@@ -242,6 +242,12 @@ body {
     padding-top: 56px;
 }
 
+.table-scroll-x {
+    overflow-x: auto;
+    overflow-y: clip;
+    -webkit-overflow-scrolling: touch;
+}
+
 .login-container {
     max-width: 400px;
     margin: 15vh auto 0;
