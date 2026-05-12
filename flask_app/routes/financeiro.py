@@ -130,6 +130,8 @@ def vendas_diarias():
             cur = conn.cursor()
             cur.execute("""
                 SELECT DISTINCT year_val FROM (
+                    SELECT EXTRACT(YEAR FROM data)::int AS year_val FROM vendas_detalhe
+                    UNION
                     SELECT EXTRACT(YEAR FROM data)::int AS year_val FROM vendas
                     UNION
                     SELECT EXTRACT(YEAR FROM data)::int AS year_val FROM sales_historico

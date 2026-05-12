@@ -1,4 +1,8 @@
-"""M0b: Pagamentos, IVA e Liquidez Semanal — payment scheduling, VAT periods, weekly liquidity."""
+"""M0b: Pagamentos, IVA e Liquidez Semanal — payment scheduling, VAT periods, weekly liquidity.
+
+NOTE: IVA and liquidity functions that aggregate from `vendas` should eventually be updated to
+use `vendas_detalhe` (Gestor uploads) as the authoritative source per the business rule in Task #203.
+"""
 from calendar import monthrange
 from datetime import date as _date, timedelta
 from psycopg2.extras import RealDictCursor

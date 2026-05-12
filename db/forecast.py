@@ -5,6 +5,13 @@ Implements:
 - 5-step forecast algorithm: historical base, YoY factor, meteo adjustment, confidence band, manual override
 - Weekly recalibration from real POS sales
 - MAPE accuracy dashboard data
+
+NOTE: Several functions in this module read from the `vendas` table (daily cash-close totals).
+Per the business rule established in Task #203, `vendas_detalhe` (Gestor uploads) is the
+authoritative source for financial analysis. These functions should be updated to query
+`vendas_detalhe` (aggregated by data+loja) as primary, with `vendas` as fallback.
+Affected: build_forecast_for_loja, _build_forecast_batch, get_ly_mtd_total,
+          get_recent_daily_sales, get_forecast_accuracy_data.
 """
 
 from datetime import date, timedelta

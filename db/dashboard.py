@@ -2,6 +2,9 @@
 
 Each function returns a small dict of display-ready values.
 Functions must never raise — they return safe defaults on any error.
+
+NOTE: Dashboard sales widgets that read from `vendas` should eventually be updated to use
+`vendas_detalhe` (Gestor uploads) as the primary source per the business rule in Task #203.
 """
 import logging
 from datetime import date, timedelta
