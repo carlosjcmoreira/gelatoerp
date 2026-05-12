@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block head %}
+<style>
+.vp-pill-btn {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+}
+.vp-pill-btn.active {
+    background: var(--bs-primary);
+    color: #fff;
+    border-color: var(--bs-primary);
+}
+.vp-section-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--bs-secondary-color);
+    margin-bottom: 0.35rem;
+}
+#mainTable th {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    white-space: nowrap;
+}
+#mainTable td {
+    font-size: 0.8rem;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.vp-month-hdr td {
+    background: var(--bs-tertiary-bg);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+    color: var(--bs-secondary-color);
+    border-top: 2px solid var(--bs-border-color);
+}
+.vp-dow-row { cursor: pointer; }
+.vp-dow-row:hover { background: var(--bs-tertiary-bg); }
+.vp-detail-row td {
+    background: var(--bs-body-bg);
+    font-size: 0.77rem;
+    color: var(--bs-secondary-color);
+}
+.vp-chevron {
+    display: inline-block;
+    font-size: 0.65rem;
+    transition: transform 0.15s;
+    color: var(--bs-secondary-color);
+    user-select: none;
+    width: 1rem;
+    text-align: center;
+}
+.vp-chevron.open { transform: rotate(90deg); }
+.rain-sun   { color: #f59e0b; }
+.rain-light { color: #3b82f6; }
+.rain-heavy { color: #1d4ed8; font-weight: 600; }
+.temp-val   { color: #0891b2; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">🌡️ Variáveis de Previsão</h5>
+        <span class="badge bg-secondary-subtle text-secondary-emphasis">2026</span>
+    </div>
+
+    <div class="mb-2">
+        <div class="vp-section-label">Mês</div>
+        <div class="d-flex flex-wrap gap-1" id="monthFilters"></div>
+    </div>
+    <div class="mb-4">
+        <div class="vp-section-label">Dia da semana</div>
+        <div class="d-flex flex-wrap gap-1" id="dowFilters"></div>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0" id="mainTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="min-width:120px;">Dia</th>
+                            <th class="text-end">Total €</th>
+                            <th class="text-end">Matosinhos €</th>
+                            <th class="text-end">Bolhão €</th>
+                            <th class="text-end">Tmax Mat.</th>
+                            <th class="text-end">Tmax Bol.</th>
+                            <th class="text-end">Chuva</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <tr><td colspan="7" class="text-center text-muted py-4">A carregar…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="text-muted mt-2" style="font-size:0.7rem;">
+        Médias por dia da semana · 2026 · Temperatura = máxima do dia · Chuva = precipitação média (mm) · "—" = sem dados meteorológicos
+    </div>
+</div>
+
+<script>
+const RAW = {{ data_json | safe }};
+
+const MONTHS_LONG  = ['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const MONTHS_SHORT = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const DOW_NAMES    = ['','Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+
+let activeMon = null;
+let activeDow = null;
+const expandedSet = new Set();
+
+function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmt(v) {
+    if (v == null) return '—';
+    return new Intl.NumberFormat('pt-PT',{style:'currency',currency:'EUR',maximumFractionDigits:0}).format(v);
+}
+function fmtT(v) {
+    if (v == null) return '<span class="text-muted">—</span>';
+    return `<span class="temp-val">${v.toFixed(1)} °C</span>`;
+}
+function rainCell(mm) {
+    if (mm == null) return '<span class="text-muted">—</span>';
+    if (mm < 0.5) return '<span class="rain-sun">☀️ sem chuva</span>';
+    if (mm < 3)   return `<span class="rain-light">🌦 ${mm.toFixed(1)} mm</span>`;
+    return `<span class="rain-heavy">🌧 ${mm.toFixed(1)} mm</span>`;
+}
+
+function initFilters() {
+    const months = [...new Set(RAW.summary.map(r => r.month))].sort((a,b)=>a-b);
+    const mEl = document.getElementById('monthFilters');
+    const dEl = document.getElementById('dowFilters');
+
+    function makeBtn(label, cls, dataset, container) {
+        const b = document.createElement('button');
+        b.className = `btn btn-outline-primary btn-sm vp-pill-btn ${cls}`;
+        Object.entries(dataset).forEach(([k,v]) => b.dataset[k] = v);
+        b.textContent = label;
+        container.appendChild(b);
+        return b;
+    }
+
+    makeBtn('Todos', 'active', {mon: ''}, mEl);
+    months.forEach(m => makeBtn(MONTHS_SHORT[m], '', {mon: m}, mEl));
+
+    makeBtn('Todos', 'active', {dow: ''}, dEl);
+    for (let d = 1; d <= 7; d++) makeBtn(DOW_NAMES[d], '', {dow: d}, dEl);
+
+    mEl.addEventListener('click', e => {
+        const b = e.target.closest('.vp-pill-btn');
+        if (!b) return;
+        activeMon = b.dataset.mon ? parseInt(b.dataset.mon) : null;
+        mEl.querySelectorAll('.vp-pill-btn').forEach(x => x.classList.toggle('active', x === b));
+        expandedSet.clear();
+        render();
+    });
+    dEl.addEventListener('click', e => {
+        const b = e.target.closest('.vp-pill-btn');
+        if (!b) return;
+        activeDow = b.dataset.dow ? parseInt(b.dataset.dow) : null;
+        dEl.querySelectorAll('.vp-pill-btn').forEach(x => x.classList.toggle('active', x === b));
+        expandedSet.clear();
+        render();
+    });
+}
+
+function render() {
+    let rows = RAW.summary;
+    if (activeMon) rows = rows.filter(r => r.month === activeMon);
+    if (activeDow) rows = rows.filter(r => r.dow  === activeDow);
+
+    const byMonth = {};
+    rows.forEach(r => { (byMonth[r.month] = byMonth[r.month] || []).push(r); });
+    const months = Object.keys(byMonth).map(Number).sort((a,b)=>a-b);
+
+    let html = '';
+    if (!months.length) {
+        html = '<tr><td colspan="7" class="text-center text-muted py-4">Sem dados</td></tr>';
+    } else {
+        months.forEach(m => {
+            if (!activeMon) {
+                html += `<tr class="vp-month-hdr"><td colspan="7" class="py-2 ps-3">📅 ${esc(MONTHS_LONG[m])}</td></tr>`;
+            }
+            byMonth[m].forEach(r => {
+                const key = `${r.month}-${r.dow}`;
+                const open = expandedSet.has(key);
+                html += `<tr class="vp-dow-row" data-month="${r.month}" data-dow="${r.dow}">
+                    <td>
+                        <span class="vp-chevron${open?' open':''}" data-key="${esc(key)}">▶</span>
+                        <strong>${esc(DOW_NAMES[r.dow])}</strong>
+                        <small class="text-muted ms-1">(${r.n_days}×)</small>
+                    </td>
+                    <td class="text-end fw-semibold">${fmt(r.avg_total)}</td>
+                    <td class="text-end">${fmt(r.avg_mat)}</td>
+                    <td class="text-end">${fmt(r.avg_bol)}</td>
+                    <td class="text-end">${fmtT(r.avg_tmax_mat)}</td>
+                    <td class="text-end">${fmtT(r.avg_tmax_bol)}</td>
+                    <td class="text-end">${rainCell(r.avg_precip)}</td>
+                </tr>`;
+
+                if (open) {
+                    const details = RAW.detail.filter(d => d.month === r.month && d.dow === r.dow);
+                    details.forEach(d => {
+                        const dt  = d.date.split('-');
+                        const lbl = `${dt[2]}/${dt[1]}`;
+                        html += `<tr class="vp-detail-row">
+                            <td class="ps-4 text-muted">↳ ${lbl}</td>
+                            <td class="text-end">${fmt(d.total)}</td>
+                            <td class="text-end">${fmt(d.mat)}</td>
+                            <td class="text-end">${fmt(d.bol)}</td>
+                            <td class="text-end">${fmtT(d.tmax_mat)}</td>
+                            <td class="text-end">${fmtT(d.tmax_bol)}</td>
+                            <td class="text-end">${rainCell(d.precip)}</td>
+                        </tr>`;
+                    });
+                }
+            });
+        });
+    }
+
+    document.getElementById('tableBody').innerHTML = html;
+
+    document.querySelectorAll('.vp-dow-row').forEach(row => {
+        row.addEventListener('click', () => {
+            const month = parseInt(row.dataset.month);
+            const dow   = parseInt(row.dataset.dow);
+            const key   = `${month}-${dow}`;
+            if (expandedSet.has(key)) expandedSet.delete(key);
+            else expandedSet.add(key);
+            render();
+        });
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => { initFilters(); render(); });
+</script>
+{% endblock %}

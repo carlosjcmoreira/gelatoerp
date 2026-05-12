@@ -26,9 +26,8 @@ FINANCEIRO_GROUPS = [
         'modules': [
             {'key': 'dashboard_vendas', 'label': 'Dashboard de Vendas', 'icon': '📊', 'active': True,  'url_func': 'financeiro.dashboard_vendas'},
             {'key': 'vendas_diarias', 'label': 'Vendas Diárias',       'icon': '📅', 'active': True,  'url_func': 'financeiro.vendas_diarias'},
-            {'key': 'previsao',       'label': 'Previsão de Vendas',   'icon': '🔮', 'active': True,  'url_func': 'forecast.index'},
-            {'key': 'modelo',         'label': 'Modelo de Previsão',   'icon': '📉', 'active': True,  'url_func': 'forecast.modelo'},
-            {'key': 'meteorologia',   'label': 'Meteorologia',         'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
+            {'key': 'variaveis_previsao', 'label': 'Variáveis de Previsão', 'icon': '🌡️', 'active': True,  'url_func': 'financeiro.variaveis_previsao'},
+            {'key': 'meteorologia',      'label': 'Meteorologia',          'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
         ],
     },
     {
@@ -115,6 +114,18 @@ def liquidar_fornecedor():
         flash(f'{ok} documento(s) liquidado(s) via {method_label} em {paid_date.strftime("%d/%m/%Y")}.', 'success')
 
     return redirect(url_for('faturas.index', view='fornecedor'))
+
+
+@financeiro_bp.route('/variaveis-previsao')
+@perm_required('acesso_gestor')
+def variaveis_previsao():
+    from db.vendas_diarias import get_variaveis_previsao
+    import json
+    data = get_variaveis_previsao()
+    return render_template(
+        'financeiro/variaveis_previsao.html',
+        data_json=json.dumps(data, ensure_ascii=False, default=str),
+    )
 
 
 @financeiro_bp.route('/dashboard-vendas')

@@ -257,6 +257,135 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
     return rows
 
 
+def get_variaveis_previsao() -> dict:
+    """Return sales × weather pivot data for 2026 for the Variáveis de Previsão tile.
+
+    Returns a dict with:
+      summary — list of {month, dow, n_days, avg_total, avg_mat, avg_bol,
+                          avg_tmax_mat, avg_tmax_bol, avg_precip}
+      detail  — list of {date, month, dow, total, mat, bol,
+                          tmax_mat, tmax_bol, precip}
+
+    store_id 1 = Matosinhos, store_id 2 = Bolhão.
+    Weather: AVG(temperatura_max) and AVG(precipitacao_mm) across all sources per store×date.
+    Precipitation for detail/summary: average of both stores when both available, otherwise
+    whichever is present.
+    """
+    _CTE = """
+        WITH daily_sales AS (
+            SELECT
+                vd.data,
+                SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Matosinhos') AS sales_mat,
+                SUM(vd.valor_euros) FILTER (WHERE vd.loja = 'Bolhão')     AS sales_bol,
+                SUM(vd.valor_euros)                                         AS sales_total
+            FROM vendas_detalhe vd
+            LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+            WHERE EXTRACT(YEAR FROM vd.data) = 2026
+              AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+            GROUP BY vd.data
+        ),
+        wx_mat AS (
+            SELECT data,
+                   AVG(temperatura_max)  AS tmax,
+                   AVG(precipitacao_mm)  AS precip
+            FROM weather_data
+            WHERE store_id = 1 AND EXTRACT(YEAR FROM data) = 2026
+            GROUP BY data
+        ),
+        wx_bol AS (
+            SELECT data,
+                   AVG(temperatura_max)  AS tmax,
+                   AVG(precipitacao_mm)  AS precip
+            FROM weather_data
+            WHERE store_id = 2 AND EXTRACT(YEAR FROM data) = 2026
+            GROUP BY data
+        )
+    """
+
+    _PRECIP_EXPR = """
+        CASE
+            WHEN wx_mat.precip IS NOT NULL AND wx_bol.precip IS NOT NULL
+                THEN (wx_mat.precip + wx_bol.precip) / 2.0
+            ELSE COALESCE(wx_mat.precip, wx_bol.precip)
+        END
+    """
+
+    with db_connection() as conn:
+        cur = conn.cursor()
+
+        cur.execute(_CTE + f"""
+            SELECT
+                EXTRACT(MONTH  FROM ds.data)::int AS month,
+                EXTRACT(ISODOW FROM ds.data)::int AS dow,
+                COUNT(*)                           AS n_days,
+                ROUND(AVG(ds.sales_total)::numeric, 2)  AS avg_total,
+                ROUND(AVG(ds.sales_mat)::numeric,   2)  AS avg_mat,
+                ROUND(AVG(ds.sales_bol)::numeric,   2)  AS avg_bol,
+                ROUND(AVG(wx_mat.tmax)::numeric,    1)  AS avg_tmax_mat,
+                ROUND(AVG(wx_bol.tmax)::numeric,    1)  AS avg_tmax_bol,
+                ROUND(AVG({_PRECIP_EXPR})::numeric, 1)  AS avg_precip
+            FROM daily_sales ds
+            LEFT JOIN wx_mat ON wx_mat.data = ds.data
+            LEFT JOIN wx_bol ON wx_bol.data = ds.data
+            GROUP BY month, dow
+            ORDER BY month, dow
+        """)
+        summary_rows = cur.fetchall()
+
+        cur.execute(_CTE + f"""
+            SELECT
+                ds.data,
+                EXTRACT(MONTH  FROM ds.data)::int AS month,
+                EXTRACT(ISODOW FROM ds.data)::int AS dow,
+                ROUND(ds.sales_total::numeric, 2) AS total,
+                ROUND(ds.sales_mat::numeric,   2) AS mat,
+                ROUND(ds.sales_bol::numeric,   2) AS bol,
+                ROUND(wx_mat.tmax::numeric,    1) AS tmax_mat,
+                ROUND(wx_bol.tmax::numeric,    1) AS tmax_bol,
+                ROUND(({_PRECIP_EXPR})::numeric, 1) AS precip
+            FROM daily_sales ds
+            LEFT JOIN wx_mat ON wx_mat.data = ds.data
+            LEFT JOIN wx_bol ON wx_bol.data = ds.data
+            ORDER BY ds.data
+        """)
+        detail_rows = cur.fetchall()
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    summary = [
+        {
+            'month':       int(r[0]),
+            'dow':         int(r[1]),
+            'n_days':      int(r[2]),
+            'avg_total':   _f(r[3]),
+            'avg_mat':     _f(r[4]),
+            'avg_bol':     _f(r[5]),
+            'avg_tmax_mat': _f(r[6]),
+            'avg_tmax_bol': _f(r[7]),
+            'avg_precip':  _f(r[8]),
+        }
+        for r in summary_rows
+    ]
+
+    detail = [
+        {
+            'date':     r[0].isoformat(),
+            'month':    int(r[1]),
+            'dow':      int(r[2]),
+            'total':    _f(r[3]),
+            'mat':      _f(r[4]),
+            'bol':      _f(r[5]),
+            'tmax_mat': _f(r[6]),
+            'tmax_bol': _f(r[7]),
+            'precip':   _f(r[8]),
+        }
+        for r in detail_rows
+    ]
+
+    return {'summary': summary, 'detail': detail}
+
+
 def get_dashboard_vendas() -> dict:
     """Return aggregated sales data for the Dashboard de Vendas.
 
