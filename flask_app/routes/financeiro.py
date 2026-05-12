@@ -24,6 +24,7 @@ FINANCEIRO_GROUPS = [
     {
         'label': 'Planeamento & Previsão',
         'modules': [
+            {'key': 'dashboard_vendas', 'label': 'Dashboard de Vendas', 'icon': '📊', 'active': True,  'url_func': 'financeiro.dashboard_vendas'},
             {'key': 'vendas_diarias', 'label': 'Vendas Diárias',       'icon': '📅', 'active': True,  'url_func': 'financeiro.vendas_diarias'},
             {'key': 'previsao',       'label': 'Previsão de Vendas',   'icon': '🔮', 'active': True,  'url_func': 'forecast.index'},
             {'key': 'modelo',         'label': 'Modelo de Previsão',   'icon': '📉', 'active': True,  'url_func': 'forecast.modelo'},
@@ -114,6 +115,20 @@ def liquidar_fornecedor():
         flash(f'{ok} documento(s) liquidado(s) via {method_label} em {paid_date.strftime("%d/%m/%Y")}.', 'success')
 
     return redirect(url_for('faturas.index', view='fornecedor'))
+
+
+@financeiro_bp.route('/dashboard-vendas')
+@perm_required('acesso_gestor')
+def dashboard_vendas():
+    from db.vendas_diarias import get_dashboard_vendas
+    import json
+    data = get_dashboard_vendas()
+    return render_template(
+        'financeiro/dashboard_vendas.html',
+        data_json=json.dumps(data, ensure_ascii=False, default=str),
+        cutoff=data.get('cutoff'),
+        lojas=data.get('lojas', []),
+    )
 
 
 @financeiro_bp.route('/vendas-diarias')

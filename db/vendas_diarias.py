@@ -255,3 +255,102 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
             i = j
 
     return rows
+
+
+def get_dashboard_vendas() -> dict:
+    """Return aggregated sales data for the Dashboard de Vendas.
+
+    Returns a dict with:
+      lojas       — list of store names
+      cutoff      — last date with 2026 data (ISO string)
+      monthly     — {filter_key: {year: {month: total}}}
+                    filter_key ∈ {"total"} ∪ lojas
+      ytd         — {filter_key: {y2026, y2025, diff_eur, diff_pct}}
+    """
+    with db_connection() as conn:
+        cur = conn.cursor()
+
+        # ── Monthly aggregates for 2025 and 2026 ─────────────────────────────
+        cur.execute("""
+            SELECT loja,
+                   EXTRACT(YEAR FROM data)::int  AS ano,
+                   EXTRACT(MONTH FROM data)::int AS mes,
+                   SUM(valor_euros)              AS total
+            FROM vendas_detalhe
+            WHERE EXTRACT(YEAR FROM data) IN (2025, 2026)
+            GROUP BY loja, ano, mes
+            ORDER BY loja, ano, mes
+        """)
+        monthly_rows = cur.fetchall()
+
+        # ── Last date with 2026 data ──────────────────────────────────────────
+        cur.execute("""
+            SELECT MAX(data) FROM vendas_detalhe
+            WHERE EXTRACT(YEAR FROM data) = 2026
+        """)
+        cutoff = cur.fetchone()[0]  # date or None
+
+        # ── YTD sums: per loja ────────────────────────────────────────────────
+        if cutoff:
+            cur.execute("""
+                SELECT loja,
+                       SUM(CASE WHEN EXTRACT(YEAR FROM data) = 2026 THEN valor_euros ELSE 0 END) AS ytd_2026,
+                       SUM(CASE WHEN EXTRACT(YEAR FROM data) = 2025
+                                 AND EXTRACT(MONTH FROM data) * 100 + EXTRACT(DAY FROM data)
+                                     <= EXTRACT(MONTH FROM %s::date) * 100 + EXTRACT(DAY FROM %s::date)
+                                THEN valor_euros ELSE 0 END) AS ytd_2025
+                FROM vendas_detalhe
+                WHERE EXTRACT(YEAR FROM data) IN (2025, 2026)
+                GROUP BY loja
+                ORDER BY loja
+            """, (cutoff, cutoff))
+            ytd_rows = cur.fetchall()
+        else:
+            ytd_rows = []
+
+    # ── Build monthly structure ───────────────────────────────────────────────
+    lojas: list[str] = []
+    # monthly[filter_key][year][month] = total
+    monthly: dict = {'total': {2025: {}, 2026: {}}}
+
+    for loja, ano, mes, total in monthly_rows:
+        if loja not in lojas:
+            lojas.append(loja)
+        if loja not in monthly:
+            monthly[loja] = {2025: {}, 2026: {}}
+        monthly[loja].setdefault(ano, {})[mes] = round(float(total or 0), 2)
+        monthly['total'].setdefault(ano, {})[mes] = round(
+            monthly['total'].get(ano, {}).get(mes, 0.0) + float(total or 0), 2
+        )
+
+    lojas.sort()
+
+    # ── Build YTD structure ───────────────────────────────────────────────────
+    def _ytd_entry(y2026: float, y2025: float) -> dict:
+        diff_eur = round(y2026 - y2025, 2)
+        diff_pct = round((y2026 - y2025) / y2025 * 100, 1) if y2025 else None
+        return {
+            'y2026': round(y2026, 2),
+            'y2025': round(y2025, 2),
+            'diff_eur': diff_eur,
+            'diff_pct': diff_pct,
+        }
+
+    ytd: dict = {'total': _ytd_entry(0.0, 0.0)}
+    for loja in lojas:
+        ytd[loja] = _ytd_entry(0.0, 0.0)
+
+    for loja, y2026, y2025 in ytd_rows:
+        entry = _ytd_entry(float(y2026 or 0), float(y2025 or 0))
+        ytd[loja] = entry
+        ytd['total'] = _ytd_entry(
+            ytd['total']['y2026'] + entry['y2026'],
+            ytd['total']['y2025'] + entry['y2025'],
+        )
+
+    return {
+        'lojas': lojas,
+        'cutoff': cutoff.isoformat() if cutoff else None,
+        'monthly': monthly,
+        'ytd': ytd,
+    }

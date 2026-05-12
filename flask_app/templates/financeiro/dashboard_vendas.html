@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block head %}
+<style>
+.dvd-filter-btn.active {
+    background: var(--bs-primary);
+    color: #fff;
+    border-color: var(--bs-primary);
+}
+.ytd-card {
+    border-radius: 0.75rem;
+    padding: 1.1rem 1.4rem;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+}
+.ytd-val-main {
+    font-size: 1.6rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+.ytd-val-sub {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--bs-secondary-color);
+}
+.ytd-delta {
+    font-size: 1rem;
+    font-weight: 600;
+}
+.ytd-delta.pos { color: #198754; }
+.ytd-delta.neg { color: #dc3545; }
+.ytd-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--bs-secondary-color);
+    margin-bottom: 0.3rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">📊 Dashboard de Vendas</h5>
+        {% if cutoff %}
+        <span class="text-muted small">Dados até {{ cutoff }}</span>
+        {% endif %}
+    </div>
+
+    {# ── Shared loja filter ──────────────────────────────────────────────── #}
+    <div class="btn-group mb-4" role="group" id="filterBtns">
+        <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn active" data-filter="total">Total</button>
+        {% for loja in lojas %}
+        <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn" data-filter="{{ loja }}">{{ loja }}</button>
+        {% endfor %}
+    </div>
+
+    {# ── YTD widget ──────────────────────────────────────────────────────── #}
+    <div class="row g-3 mb-4" id="ytdSection">
+        <div class="col-12 col-sm-4">
+            <div class="ytd-card h-100">
+                <div class="ytd-label">Vendas 2026 (acumulado)</div>
+                <div class="ytd-val-main" id="ytdVal2026">—</div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-4">
+            <div class="ytd-card h-100">
+                <div class="ytd-label">Vendas 2025 (mesmo período)</div>
+                <div class="ytd-val-sub" id="ytdVal2025">—</div>
+            </div>
+        </div>
+        <div class="col-12 col-sm-4">
+            <div class="ytd-card h-100">
+                <div class="ytd-label">Variação</div>
+                <div id="ytdDeltaEur" class="ytd-delta mb-1">—</div>
+                <div id="ytdDeltaPct" class="ytd-delta" style="font-size:1.3rem;">—</div>
+            </div>
+        </div>
+    </div>
+
+    {# ── Monthly bar chart ───────────────────────────────────────────────── #}
+    <div class="card">
+        <div class="card-body p-2 p-md-3">
+            <div id="chartVendas" style="height:340px;"></div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+const RAW = {{ data_json | safe }};
+const MONTHS_PT = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+function fmt(v) {
+    if (v == null || isNaN(v)) return '—';
+    return new Intl.NumberFormat('pt-PT', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(v);
+}
+function fmtDelta(v) {
+    if (v == null || isNaN(v)) return '—';
+    const sign = v >= 0 ? '+' : '';
+    return sign + new Intl.NumberFormat('pt-PT', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(v);
+}
+function fmtPct(v) {
+    if (v == null || isNaN(v)) return '—';
+    const sign = v >= 0 ? '+' : '';
+    return sign + v.toFixed(1) + '%';
+}
+
+function getMonthlyData(filterKey) {
+    const src = RAW.monthly[filterKey] || {};
+    const months = Array.from({length: 12}, (_, i) => i + 1);
+    const vals2025 = months.map(m => (src[2025] && src[2025][m]) ? src[2025][m] : 0);
+    const vals2026 = months.map(m => (src[2026] && src[2026][m]) ? src[2026][m] : 0);
+    return {months, vals2025, vals2026};
+}
+
+function getYtdData(filterKey) {
+    return RAW.ytd[filterKey] || {y2026: null, y2025: null, diff_eur: null, diff_pct: null};
+}
+
+let currentFilter = 'total';
+
+function renderChart(filterKey) {
+    const {months, vals2025, vals2026} = getMonthlyData(filterKey);
+    const labels = months.map(m => MONTHS_PT[m]);
+
+    const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
+    const fontColor = isDark ? '#ccc' : '#555';
+
+    const trace2025 = {
+        x: labels,
+        y: vals2025,
+        name: '2025',
+        type: 'bar',
+        marker: {color: isDark ? '#6c757d' : '#adb5bd'},
+        hovertemplate: '%{x} 2025<br>%{y:,.0f} €<extra></extra>',
+    };
+    const trace2026 = {
+        x: labels,
+        y: vals2026,
+        name: '2026',
+        type: 'bar',
+        marker: {color: '#0d6efd'},
+        hovertemplate: '%{x} 2026<br>%{y:,.0f} €<extra></extra>',
+    };
+
+    const layout = {
+        barmode: 'group',
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        margin: {t: 20, b: 40, l: 60, r: 10},
+        xaxis: {
+            showgrid: false,
+            tickfont: {size: 11, color: fontColor},
+        },
+        yaxis: {
+            showgrid: true,
+            gridcolor: gridColor,
+            tickfont: {size: 11, color: fontColor},
+            tickformat: ',.0f',
+            ticksuffix: ' €',
+        },
+        legend: {
+            orientation: 'h',
+            x: 0, y: 1.08,
+            font: {size: 12},
+        },
+        bargap: 0.2,
+        bargroupgap: 0.05,
+    };
+
+    Plotly.react('chartVendas', [trace2025, trace2026], layout, {
+        responsive: true,
+        displayModeBar: false,
+        locale: 'pt',
+    });
+}
+
+function renderYtd(filterKey) {
+    const d = getYtdData(filterKey);
+    document.getElementById('ytdVal2026').textContent = fmt(d.y2026);
+    document.getElementById('ytdVal2025').textContent = fmt(d.y2025);
+
+    const dEurEl = document.getElementById('ytdDeltaEur');
+    const dPctEl = document.getElementById('ytdDeltaPct');
+
+    dEurEl.textContent = d.diff_eur != null ? fmtDelta(d.diff_eur) : '—';
+    dPctEl.textContent = d.diff_pct != null ? fmtPct(d.diff_pct) : '—';
+
+    ['pos','neg'].forEach(c => { dEurEl.classList.remove(c); dPctEl.classList.remove(c); });
+    if (d.diff_eur != null) {
+        const cls = d.diff_eur >= 0 ? 'pos' : 'neg';
+        dEurEl.classList.add(cls);
+        dPctEl.classList.add(cls);
+    }
+}
+
+function applyFilter(filterKey) {
+    currentFilter = filterKey;
+    document.querySelectorAll('.dvd-filter-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.filter === filterKey);
+    });
+    renderChart(filterKey);
+    renderYtd(filterKey);
+}
+
+document.querySelectorAll('.dvd-filter-btn').forEach(b => {
+    b.addEventListener('click', () => applyFilter(b.dataset.filter));
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    applyFilter('total');
+});
+
+// Re-render on theme change
+const themeObserver = new MutationObserver(() => renderChart(currentFilter));
+themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ['data-bs-theme']});
+</script>
+{% endblock %}
