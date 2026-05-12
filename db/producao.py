@@ -455,6 +455,10 @@ def get_quebras_df(loja: str = None, data_inicio: date = None, data_fim: date = 
 
 @db_retry
 def get_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
+    # NOTE (Task #203): This function reads from `vendas` (cash-close daily totals).
+    # Per business rule, `vendas_detalhe` (Gestor uploads) is the authoritative source.
+    # Callers that use this for financial KPIs (Euro/kg, etc.) should be updated to
+    # aggregate from `vendas_detalhe` instead. See Tasks #204/#205.
     query = "SELECT * FROM vendas WHERE 1=1"
     params = []
     if loja:

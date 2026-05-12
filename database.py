@@ -1,6 +1,13 @@
 # Backward-compatibility shim.
 # All domain code lives in the db/ package (split by domain).
 # Existing imports such as `from database import X` continue to work unchanged.
+#
+# NOTE (Task #203 — sales source of truth): vendas_detalhe (Gestor uploads) is the
+# authoritative source for all financial KPIs and analysis. Functions re-exported here
+# that read from the `vendas` table (cash-close daily totals) are identified for update
+# in Tasks #204 (forecast engine) and #205 (Euro/kg / dashboard / pagamentos). The
+# `get_vendas_df` function in db.producao and forecast functions in db.forecast are the
+# primary targets.
 from db.core import *        # noqa: F401,F403 — connection pool, schema init, cache
 from db.auth import *        # noqa: F401,F403 — authentication, sessions, users
 from db.config import *      # noqa: F401,F403 — system config, stores, artigos, faturas migrations

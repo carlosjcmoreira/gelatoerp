@@ -66,6 +66,21 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
             if loja not in current_sales.get(d, {}):
                 current_sales.setdefault(d, {})[loja] = total
 
+        # ── current year: sales_historico fallback ───────────────────────────
+        try:
+            cur.execute("""
+                SELECT data, loja, SUM(valor_euros)
+                FROM sales_historico
+                WHERE EXTRACT(YEAR FROM data) = %s
+                GROUP BY data, loja
+            """, (ano,))
+            for row in cur.fetchall():
+                d, loja, total = row[0], row[1], float(row[2] or 0)
+                if loja not in current_sales.get(d, {}):
+                    current_sales.setdefault(d, {})[loja] = total
+        except Exception as exc:
+            logger.warning("get_vendas_diarias_yoy: sales_historico (current) failed: %s", exc)
+
         # ── prior year: vendas_detalhe (primary) ─────────────────────────────
         prior_detalhe: dict = {}
         try:
