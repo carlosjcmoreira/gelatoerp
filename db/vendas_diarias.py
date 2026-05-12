@@ -36,6 +36,7 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
     with db_connection() as conn:
         cur = conn.cursor()
 
+        # ── current year: vendas (priority) ──────────────────────────────────
         cur.execute("""
             SELECT data, loja, SUM(valor_euros)
             FROM vendas
@@ -47,6 +48,22 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
             d, loja, total = row[0], row[1], float(row[2] or 0)
             current_sales.setdefault(d, {})[loja] = total
 
+        # ── current year: vendas_detalhe fallback ────────────────────────────
+        try:
+            cur.execute("""
+                SELECT data, loja, SUM(valor_euros)
+                FROM vendas_detalhe
+                WHERE EXTRACT(YEAR FROM data) = %s
+                GROUP BY data, loja
+            """, (ano,))
+            for row in cur.fetchall():
+                d, loja, total = row[0], row[1], float(row[2] or 0)
+                if loja not in current_sales.get(d, {}):
+                    current_sales.setdefault(d, {})[loja] = total
+        except Exception as exc:
+            logger.warning("get_vendas_diarias_yoy: vendas_detalhe (current) failed: %s", exc)
+
+        # ── prior year: vendas (priority) ────────────────────────────────────
         cur.execute("""
             SELECT data, loja, SUM(valor_euros)
             FROM vendas
@@ -58,6 +75,7 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
             d, loja, total = row[0], row[1], float(row[2] or 0)
             prior_vendas.setdefault(d, {})[loja] = total
 
+        # ── prior year: sales_historico fallback ─────────────────────────────
         prior_historico: dict = {}
         try:
             cur.execute("""
@@ -72,11 +90,28 @@ def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, week
         except Exception as exc:
             logger.warning("get_vendas_diarias_yoy: sales_historico failed: %s", exc)
 
+        # ── prior year: vendas_detalhe fallback ──────────────────────────────
+        prior_detalhe: dict = {}
+        try:
+            cur.execute("""
+                SELECT data, loja, SUM(valor_euros)
+                FROM vendas_detalhe
+                WHERE EXTRACT(YEAR FROM data) = %s
+                GROUP BY data, loja
+            """, (ano - 1,))
+            for row in cur.fetchall():
+                d, loja, total = row[0], row[1], float(row[2] or 0)
+                prior_detalhe.setdefault(d, {})[loja] = total
+        except Exception as exc:
+            logger.warning("get_vendas_diarias_yoy: vendas_detalhe (prior) failed: %s", exc)
+
     def _get_prior(d, loja):
         if d in prior_vendas and loja in prior_vendas[d]:
             return prior_vendas[d][loja]
         if d in prior_historico and loja in prior_historico[d]:
             return prior_historico[d][loja]
+        if d in prior_detalhe and loja in prior_detalhe[d]:
+            return prior_detalhe[d][loja]
         return None
 
     rows = []
