@@ -28,7 +28,6 @@ FINANCEIRO_GROUPS = [
             {'key': 'vendas_diarias', 'label': 'Vendas Diárias',       'icon': '📅', 'active': True,  'url_func': 'financeiro.vendas_diarias'},
             {'key': 'variaveis_previsao', 'label': 'Variáveis de Previsão', 'icon': '🌡️', 'active': True,  'url_func': 'financeiro.variaveis_previsao'},
             {'key': 'previsao_30dias',   'label': 'Previsão 30 Dias',      'icon': '🔮', 'active': True,  'url_func': 'financeiro.previsao_30dias'},
-            {'key': 'meteorologia',      'label': 'Meteorologia',          'icon': '🌤️', 'active': True,  'url_func': 'meteorologia.index'},
         ],
     },
     {

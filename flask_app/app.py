@@ -162,7 +162,6 @@ def create_app():
     from flask_app.routes.faturas import faturas_bp
     from flask_app.routes.pagamentos import pagamentos_bp
     from flask_app.routes.store_placeholder import store_placeholder_bp
-    from flask_app.routes.meteorologia import meteorologia_bp
     from flask_app.routes.forecast import forecast_bp
     from flask_app.routes.cashflow import cashflow_bp
     from flask_app.routes.centros_custo import centros_custo_bp
@@ -187,7 +186,6 @@ def create_app():
     app.register_blueprint(faturas_bp, url_prefix='/financeiro/faturas')
     app.register_blueprint(pagamentos_bp, url_prefix='/financeiro/pagamentos')
     app.register_blueprint(store_placeholder_bp, url_prefix='/loja')
-    app.register_blueprint(meteorologia_bp, url_prefix='/meteorologia')
     app.register_blueprint(forecast_bp, url_prefix='/forecast')
     app.register_blueprint(cashflow_bp, url_prefix='/financeiro/cashflow')
     app.register_blueprint(centros_custo_bp, url_prefix='/financeiro/centros-custo')
