@@ -128,9 +128,13 @@ def vendas_diarias():
     try:
         with db_connection() as conn:
             cur = conn.cursor()
-            cur.execute(
-                "SELECT DISTINCT EXTRACT(YEAR FROM data)::int FROM vendas ORDER BY 1 DESC"
-            )
+            cur.execute("""
+                SELECT DISTINCT year_val FROM (
+                    SELECT EXTRACT(YEAR FROM data)::int AS year_val FROM vendas
+                    UNION
+                    SELECT EXTRACT(YEAR FROM data)::int AS year_val FROM sales_historico
+                ) t ORDER BY year_val DESC
+            """)
             anos_disponiveis = [r[0] for r in cur.fetchall()] or [ano_atual]
     except Exception:
         anos_disponiveis = [ano_atual]
