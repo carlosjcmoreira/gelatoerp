@@ -405,6 +405,7 @@ def get_dashboard_vendas() -> dict:
                 'diff_eur': diff_eur,
                 'diff_pct': diff_pct,
             })
+        result.sort(key=lambda x: x['y2026'], reverse=True)
         return result
 
     produtos: dict = {'total': _prod_list(_prod_total)}
