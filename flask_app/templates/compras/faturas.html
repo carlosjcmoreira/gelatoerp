@@ -3,21 +3,22 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <h5 class="mb-3">🧾 Faturas{% if supplier_filter %} <span class="badge text-bg-primary fw-normal ms-1" style="font-size:0.75rem">{{ supplier_filter }}</span>{% endif %}</h5>
+    {% set active_supplier = suppliers | selectattr('id', 'equalto', supplier_filter_id) | first | default(None) %}
+    <h5 class="mb-3">🧾 Faturas{% if active_supplier %} <span class="badge text-bg-primary fw-normal ms-1" style="font-size:0.75rem">{{ active_supplier.name }}</span>{% endif %}</h5>
 
     {# ── Filtro de fornecedor ─────────────────────────────────── #}
     {% if suppliers %}
     <form method="get" action="" class="mb-3">
         <div class="d-flex align-items-center gap-2" style="max-width:420px">
             <label class="form-label mb-0 text-nowrap small fw-semibold" for="supplier-filter">Fornecedor</label>
-            <select id="supplier-filter" name="supplier" class="form-select form-select-sm"
+            <select id="supplier-filter" name="supplier_id" class="form-select form-select-sm"
                     onchange="this.form.submit()">
-                <option value=""{% if not supplier_filter %} selected{% endif %}>(Todos)</option>
+                <option value=""{% if not supplier_filter_id %} selected{% endif %}>(Todos)</option>
                 {% for s in suppliers %}
-                <option value="{{ s }}"{% if supplier_filter == s %} selected{% endif %}>{{ s }}</option>
+                <option value="{{ s.id }}"{% if supplier_filter_id == s.id %} selected{% endif %}>{{ s.name }}</option>
                 {% endfor %}
             </select>
-            {% if supplier_filter %}
+            {% if supplier_filter_id %}
             <a href="{{ url_for('compras.faturas') }}" class="btn btn-outline-secondary btn-sm text-nowrap">✕ Limpar</a>
             {% endif %}
         </div>

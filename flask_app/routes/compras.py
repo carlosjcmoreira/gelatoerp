@@ -65,8 +65,9 @@ def faturas():
     from datetime import date as _date
     from db.faturas import get_invoice_suppliers
     today = _date.today()
-    supplier_filter = request.args.get('supplier', '').strip() or None
-    invoices = get_invoices(supplier_name=supplier_filter)
+    supplier_id_raw = request.args.get('supplier_id', '').strip()
+    supplier_filter_id = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
+    invoices = get_invoices(supplier_id=supplier_filter_id)
     for inv in invoices:
         if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
             inv['display_status'] = 'overdue'
@@ -77,7 +78,7 @@ def faturas():
     return render_template('compras/faturas.html',
                            invoices=invoices,
                            suppliers=suppliers,
-                           supplier_filter=supplier_filter,
+                           supplier_filter_id=supplier_filter_id,
                            status_labels=INVOICE_STATUS_LABELS,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,

@@ -209,18 +209,22 @@ _ORDER_COL_MAP = {
 
 
 def get_invoice_suppliers() -> list:
-    """Return distinct supplier names from non-draft invoices, sorted alphabetically."""
+    """Return suppliers that have at least one non-draft invoice, sorted by name.
+
+    Each entry is a dict with 'id' (int) and 'name' (str).
+    Only suppliers linked via supplier_id are returned; invoices without a
+    supplier_id are not represented and remain accessible via the 'All' option.
+    """
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT DISTINCT supplier_name
-            FROM invoices
-            WHERE status != 'draft'
-              AND supplier_name IS NOT NULL
-              AND supplier_name != ''
-            ORDER BY supplier_name
+            SELECT DISTINCT s.id, s.name
+            FROM suppliers s
+            JOIN invoices i ON i.supplier_id = s.id
+            WHERE i.status != 'draft'
+            ORDER BY s.name
         """)
-        return [row[0] for row in cursor.fetchall()]
+        return [{'id': row[0], 'name': row[1]} for row in cursor.fetchall()]
 
 
 def get_invoices(status: str = None, store_id: int = None,
@@ -228,7 +232,8 @@ def get_invoices(status: str = None, store_id: int = None,
                  order_dir: str = 'asc',
                  centro_custo_id: int = None,
                  categoria_custo_id: int = None,
-                 supplier_name: str = None) -> list:
+                 supplier_name: str = None,
+                 supplier_id: int = None) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         where = []
@@ -251,6 +256,9 @@ def get_invoices(status: str = None, store_id: int = None,
         if categoria_custo_id:
             where.append("i.categoria_custo_id = %s")
             params.append(categoria_custo_id)
+        if supplier_id:
+            where.append("i.supplier_id = %s")
+            params.append(supplier_id)
         if supplier_name:
             where.append("LOWER(i.supplier_name) = LOWER(%s)")
             params.append(supplier_name)
