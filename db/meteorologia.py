@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, timedelta
 from db.connection import db_connection
 
 
@@ -123,6 +123,24 @@ def get_weather_data_all_stores_today() -> list:
             'vento_kmh': r[7], 'condicao': r[8], 'score': r[9], 'updated_at': r[10]
         } for r in rows
     ]
+
+
+def get_missing_weather_dates(store_id: int, start: date, end: date) -> list:
+    """Return a sorted list of dates in [start, end] with no open-meteo entry for store_id."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT data FROM weather_data
+            WHERE store_id = %s AND fonte = 'open-meteo' AND data BETWEEN %s AND %s
+        """, (store_id, start, end))
+        existing = {r[0] for r in cursor.fetchall()}
+    missing = []
+    current = start
+    while current <= end:
+        if current not in existing:
+            missing.append(current)
+        current += timedelta(days=1)
+    return missing
 
 
 def delete_weather_data_by_store_fonte(store_id: int, fonte: str = None,
