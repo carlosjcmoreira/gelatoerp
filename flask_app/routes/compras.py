@@ -62,12 +62,31 @@ def index():
 @compras_bp.route('/faturas')
 @perm_required('acesso_administrativo')
 def faturas():
-    from datetime import date as _date
+    from datetime import date as _date, datetime as _datetime
     from db.faturas import get_invoice_suppliers
     today = _date.today()
     supplier_id_raw = request.args.get('supplier_id', '').strip()
     supplier_filter_id = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
-    invoices = get_invoices(supplier_id=supplier_filter_id)
+    status_filter = request.args.get('status', '').strip()
+    date_from_raw = request.args.get('date_from', '').strip()
+    date_to_raw = request.args.get('date_to', '').strip()
+    date_field = request.args.get('date_field', 'issue_date').strip()
+    if date_field not in ('issue_date', 'due_date'):
+        date_field = 'issue_date'
+    def _parse_date(s):
+        try:
+            return _datetime.strptime(s, '%Y-%m-%d').date() if s else None
+        except ValueError:
+            return None
+    date_from = _parse_date(date_from_raw)
+    date_to = _parse_date(date_to_raw)
+    invoices = get_invoices(
+        supplier_id=supplier_filter_id,
+        status=status_filter or None,
+        date_from=date_from,
+        date_to=date_to,
+        date_field=date_field,
+    )
     for inv in invoices:
         if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
             inv['display_status'] = 'overdue'
@@ -75,10 +94,16 @@ def faturas():
             inv['display_status'] = inv['status']
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     suppliers = get_invoice_suppliers()
+    has_filters = bool(supplier_filter_id or status_filter or date_from_raw or date_to_raw)
     return render_template('compras/faturas.html',
                            invoices=invoices,
                            suppliers=suppliers,
                            supplier_filter_id=supplier_filter_id,
+                           status_filter=status_filter,
+                           date_from_raw=date_from_raw,
+                           date_to_raw=date_to_raw,
+                           date_field=date_field,
+                           has_filters=has_filters,
                            status_labels=INVOICE_STATUS_LABELS,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,

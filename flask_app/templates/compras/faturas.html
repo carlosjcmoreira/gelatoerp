@@ -6,24 +6,57 @@
     {% set active_supplier = suppliers | selectattr('id', 'equalto', supplier_filter_id) | first | default(None) %}
     <h5 class="mb-3">🧾 Faturas{% if active_supplier %} <span class="badge text-bg-primary fw-normal ms-1" style="font-size:0.75rem">{{ active_supplier.name }}</span>{% endif %}</h5>
 
-    {# ── Filtro de fornecedor ─────────────────────────────────── #}
-    {% if suppliers %}
+    {# ── Filtros ──────────────────────────────────────────────── #}
     <form method="get" action="" class="mb-3">
-        <div class="d-flex align-items-center gap-2" style="max-width:420px">
-            <label class="form-label mb-0 text-nowrap small fw-semibold" for="supplier-filter">Fornecedor</label>
-            <select id="supplier-filter" name="supplier_id" class="form-select form-select-sm"
-                    onchange="this.form.submit()">
-                <option value=""{% if not supplier_filter_id %} selected{% endif %}>(Todos)</option>
-                {% for s in suppliers %}
-                <option value="{{ s.id }}"{% if supplier_filter_id == s.id %} selected{% endif %}>{{ s.name }}</option>
-                {% endfor %}
-            </select>
-            {% if supplier_filter_id %}
-            <a href="{{ url_for('compras.faturas') }}" class="btn btn-outline-secondary btn-sm text-nowrap">✕ Limpar</a>
+        <div class="row g-2 align-items-end">
+            {% if suppliers %}
+            <div class="col-12 col-sm-auto">
+                <label class="form-label small fw-semibold mb-1" for="supplier-filter">Fornecedor</label>
+                <select id="supplier-filter" name="supplier_id" class="form-select form-select-sm">
+                    <option value=""{% if not supplier_filter_id %} selected{% endif %}>(Todos)</option>
+                    {% for s in suppliers %}
+                    <option value="{{ s.id }}"{% if supplier_filter_id == s.id %} selected{% endif %}>{{ s.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <div class="col-12 col-sm-auto">
+                <label class="form-label small fw-semibold mb-1" for="status-filter">Estado</label>
+                <select id="status-filter" name="status" class="form-select form-select-sm">
+                    <option value=""{% if not status_filter %} selected{% endif %}>(Todos)</option>
+                    <option value="pending_review"{% if status_filter == 'pending_review' %} selected{% endif %}>A rever</option>
+                    <option value="scheduled"{% if status_filter == 'scheduled' %} selected{% endif %}>Agendado</option>
+                    <option value="paid"{% if status_filter == 'paid' %} selected{% endif %}>Pago</option>
+                    <option value="overdue"{% if status_filter == 'overdue' %} selected{% endif %}>Vencido</option>
+                </select>
+            </div>
+            <div class="col-12 col-sm-auto">
+                <label class="form-label small fw-semibold mb-1" for="date-field">Data por</label>
+                <select id="date-field" name="date_field" class="form-select form-select-sm">
+                    <option value="issue_date"{% if date_field == 'issue_date' %} selected{% endif %}>Emissão</option>
+                    <option value="due_date"{% if date_field == 'due_date' %} selected{% endif %}>Vencimento</option>
+                </select>
+            </div>
+            <div class="col-6 col-sm-auto">
+                <label class="form-label small fw-semibold mb-1" for="date-from">De</label>
+                <input type="date" id="date-from" name="date_from" class="form-control form-control-sm"
+                       value="{{ date_from_raw }}">
+            </div>
+            <div class="col-6 col-sm-auto">
+                <label class="form-label small fw-semibold mb-1" for="date-to">Até</label>
+                <input type="date" id="date-to" name="date_to" class="form-control form-control-sm"
+                       value="{{ date_to_raw }}">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+            </div>
+            {% if has_filters %}
+            <div class="col-auto">
+                <a href="{{ url_for('compras.faturas') }}" class="btn btn-outline-secondary btn-sm">Limpar</a>
+            </div>
             {% endif %}
         </div>
     </form>
-    {% endif %}
 
     {% if invoices %}
     <div class="table-responsive">

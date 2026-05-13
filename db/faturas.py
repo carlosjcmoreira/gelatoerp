@@ -233,7 +233,9 @@ def get_invoices(status: str = None, store_id: int = None,
                  centro_custo_id: int = None,
                  categoria_custo_id: int = None,
                  supplier_name: str = None,
-                 supplier_id: int = None) -> list:
+                 supplier_id: int = None,
+                 date_from=None, date_to=None,
+                 date_field: str = 'issue_date') -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         where = []
@@ -262,6 +264,13 @@ def get_invoices(status: str = None, store_id: int = None,
         if supplier_name:
             where.append("LOWER(i.supplier_name) = LOWER(%s)")
             params.append(supplier_name)
+        _date_col = 'i.due_date' if date_field == 'due_date' else 'i.issue_date'
+        if date_from:
+            where.append(f"{_date_col} >= %s")
+            params.append(date_from)
+        if date_to:
+            where.append(f"{_date_col} <= %s")
+            params.append(date_to)
         if search:
             where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s)")
             s = f'%{search.lower()}%'
