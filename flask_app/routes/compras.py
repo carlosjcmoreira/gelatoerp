@@ -63,16 +63,21 @@ def index():
 @perm_required('acesso_administrativo')
 def faturas():
     from datetime import date as _date
+    from db.faturas import get_invoice_suppliers
     today = _date.today()
-    invoices = get_invoices()
+    supplier_filter = request.args.get('supplier', '').strip() or None
+    invoices = get_invoices(supplier_name=supplier_filter)
     for inv in invoices:
         if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
             inv['display_status'] = 'overdue'
         else:
             inv['display_status'] = inv['status']
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
+    suppliers = get_invoice_suppliers()
     return render_template('compras/faturas.html',
                            invoices=invoices,
+                           suppliers=suppliers,
+                           supplier_filter=supplier_filter,
                            status_labels=INVOICE_STATUS_LABELS,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,

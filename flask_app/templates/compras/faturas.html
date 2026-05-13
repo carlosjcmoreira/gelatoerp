@@ -3,7 +3,26 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <h5 class="mb-3">🧾 Faturas</h5>
+    <h5 class="mb-3">🧾 Faturas{% if supplier_filter %} <span class="badge text-bg-primary fw-normal ms-1" style="font-size:0.75rem">{{ supplier_filter }}</span>{% endif %}</h5>
+
+    {# ── Filtro de fornecedor ─────────────────────────────────── #}
+    {% if suppliers %}
+    <form method="get" action="" class="mb-3">
+        <div class="d-flex align-items-center gap-2" style="max-width:420px">
+            <label class="form-label mb-0 text-nowrap small fw-semibold" for="supplier-filter">Fornecedor</label>
+            <select id="supplier-filter" name="supplier" class="form-select form-select-sm"
+                    onchange="this.form.submit()">
+                <option value=""{% if not supplier_filter %} selected{% endif %}>(Todos)</option>
+                {% for s in suppliers %}
+                <option value="{{ s }}"{% if supplier_filter == s %} selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+            {% if supplier_filter %}
+            <a href="{{ url_for('compras.faturas') }}" class="btn btn-outline-secondary btn-sm text-nowrap">✕ Limpar</a>
+            {% endif %}
+        </div>
+    </form>
+    {% endif %}
 
     {% if invoices %}
     <div class="table-responsive">

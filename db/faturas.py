@@ -208,11 +208,27 @@ _ORDER_COL_MAP = {
 }
 
 
+def get_invoice_suppliers() -> list:
+    """Return distinct supplier names from non-draft invoices, sorted alphabetically."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT supplier_name
+            FROM invoices
+            WHERE status != 'draft'
+              AND supplier_name IS NOT NULL
+              AND supplier_name != ''
+            ORDER BY supplier_name
+        """)
+        return [row[0] for row in cursor.fetchall()]
+
+
 def get_invoices(status: str = None, store_id: int = None,
                  search: str = None, order_by: str = 'due_date',
                  order_dir: str = 'asc',
                  centro_custo_id: int = None,
-                 categoria_custo_id: int = None) -> list:
+                 categoria_custo_id: int = None,
+                 supplier_name: str = None) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         where = []
@@ -235,6 +251,9 @@ def get_invoices(status: str = None, store_id: int = None,
         if categoria_custo_id:
             where.append("i.categoria_custo_id = %s")
             params.append(categoria_custo_id)
+        if supplier_name:
+            where.append("LOWER(i.supplier_name) = LOWER(%s)")
+            params.append(supplier_name)
         if search:
             where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s)")
             s = f'%{search.lower()}%'
