@@ -423,6 +423,7 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
 def run_migrations_tesouraria_manuais():
     """Idempotent: create tesouraria_entradas_manuais table for manual Eventos/B2B inflow entries."""
     import logging as _log
+    import psycopg2.errors as _pgerr
     try:
         with db_connection() as conn:
             cursor = conn.cursor()
@@ -436,10 +437,15 @@ def run_migrations_tesouraria_manuais():
                 )
             """)
             conn.commit()
-    except Exception as _exc:
-        _log.getLogger(__name__).warning(
-            'run_migrations_tesouraria_manuais: table may already exist, skipping: %s', _exc
+    except (_pgerr.DuplicateTable, _pgerr.UniqueViolation) as _exc:
+        _log.getLogger(__name__).info(
+            'run_migrations_tesouraria_manuais: table already exists, skipping: %s', _exc
         )
+    except Exception as _exc:
+        _log.getLogger(__name__).error(
+            'run_migrations_tesouraria_manuais: unexpected error: %s', _exc
+        )
+        raise
 
 
 def get_tesouraria_manuais(week_starts: list) -> dict:

@@ -242,7 +242,9 @@
                 <td class="text-end" style="color:#198754">
                     +{{ "%.0f €"|format(day_data.amount) }}
                     {% if day_data.fonte == 'previsao' %}
-                    <span class="badge rounded-pill text-bg-success" style="font-size:0.55rem">P</span>
+                    <span class="badge rounded-pill text-bg-success" style="font-size:0.55rem">Prev.</span>
+                    {% else %}
+                    <span class="badge rounded-pill text-bg-secondary" style="font-size:0.55rem">Média</span>
                     {% endif %}
                 </td>
                 {% else %}
