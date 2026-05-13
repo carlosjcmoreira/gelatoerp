@@ -420,6 +420,90 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
         }
 
 
+def run_migrations_tesouraria_manuais():
+    """Idempotent: create tesouraria_entradas_manuais table for manual Eventos/B2B inflow entries."""
+    import logging as _log
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tesouraria_entradas_manuais (
+                    tipo          VARCHAR(50)   NOT NULL,
+                    semana_inicio DATE          NOT NULL,
+                    valor         NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    updated_at    TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (tipo, semana_inicio)
+                )
+            """)
+            conn.commit()
+    except Exception as _exc:
+        _log.getLogger(__name__).warning(
+            'run_migrations_tesouraria_manuais: table may already exist, skipping: %s', _exc
+        )
+
+
+def get_tesouraria_manuais(week_starts: list) -> dict:
+    """Return manual Tesouraria entries indexed by tipo → week_start_date → valor.
+
+    Args:
+        week_starts: list of date objects for the week start dates to query.
+    Returns:
+        {tipo: {week_start_date: valor_float}}
+    """
+    if not week_starts:
+        return {}
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT tipo, semana_inicio, valor
+                FROM tesouraria_entradas_manuais
+                WHERE semana_inicio = ANY(%s)
+            """, (week_starts,))
+            rows = cursor.fetchall()
+        result: dict = {}
+        for tipo, semana, valor in rows:
+            result.setdefault(tipo, {})[semana] = float(valor)
+        return result
+    except Exception:
+        return {}
+
+
+def set_tesouraria_manual(tipo: str, semana_inicio, valor: float):
+    """Upsert a manual Tesouraria Previsional entry (Eventos or B2B)."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO tesouraria_entradas_manuais (tipo, semana_inicio, valor, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (tipo, semana_inicio) DO UPDATE
+            SET valor = EXCLUDED.valor, updated_at = NOW()
+        """, (tipo, semana_inicio, round(valor, 2)))
+        conn.commit()
+
+
+def get_overdue_unscheduled_invoices() -> dict:
+    """Return count and total of invoices that are overdue and have no scheduled/confirmed payment."""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) AS cnt, COALESCE(SUM(i.amount_eur), 0) AS total
+                FROM invoices i
+                WHERE i.status IN ('pending_review', 'scheduled')
+                  AND i.due_date < CURRENT_DATE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM invoice_payments ip
+                      WHERE ip.invoice_id = i.id
+                        AND ip.status IN ('proposed', 'confirmed')
+                  )
+            """)
+            row = cursor.fetchone()
+        return {'count': int(row[0]), 'total': float(row[1])}
+    except Exception:
+        return {'count': 0, 'total': 0.0}
+
+
 def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
     """Return projected weekly cash flows for the next N weeks.
 
@@ -526,31 +610,45 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             _fc_err,
         )
 
+    _DOW_PT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+
     def _pos_for_week(ws, we):
-        """Return (amount, fonte) for a Mon-Sun week blending forecast and 28d fallback.
+        """Return (amount, fonte, daily) for a Mon-Sun week blending forecast and 28d fallback.
 
         For each of the 7 days in [ws, we]:
           - if the day has a forecast estimate, use est_total for that day
           - otherwise use inflows_pos_fallback / 7 (daily 28d average)
         fonte is 'previsao' if at least one day used the forecast, else 'media_28d'.
-        This avoids any synthetic scaling and correctly handles horizon-boundary weeks.
+        daily is a list of {date, label, amount, fonte} for drill-down.
         """
         daily_fallback = inflows_pos_fallback / 7.0
         total = 0.0
         forecast_days = 0
+        daily = []
         cur = ws
         while cur <= we:
             if cur in _forecast_by_date:
-                total += _forecast_by_date[cur]
+                amt = round(_forecast_by_date[cur], 2)
+                fonte_d = 'previsao'
                 forecast_days += 1
             else:
-                total += daily_fallback
+                amt = round(daily_fallback, 2)
+                fonte_d = 'media_28d'
+            total += amt
+            daily.append({
+                'date': cur,
+                'label': f"{_DOW_PT[cur.weekday()]} {cur.strftime('%d/%m')}",
+                'amount': amt,
+                'fonte': fonte_d,
+            })
             cur += timedelta(days=1)
         fonte = 'previsao' if forecast_days > 0 else 'media_28d'
-        return round(total, 2), fonte
+        return round(total, 2), fonte, daily
 
     from db.avencas import get_avencas as _get_avencas, next_due_date as _avenca_next_due_date
     avencas_ativas = list(_get_avencas(ativo_only=True))
+
+    _manuais = get_tesouraria_manuais(week_starts)
 
     result = []
     for w in range(weeks):
@@ -648,10 +746,15 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             if week_start <= d <= week_end
         )
 
-        inflows_pos_week, vendas_fonte = _pos_for_week(week_start, week_end)
+        inflows_pos_week, vendas_fonte, pos_daily = _pos_for_week(week_start, week_end)
+
+        inflows_eventos_manual = round(_manuais.get('eventos', {}).get(week_start, 0.0), 2)
+        inflows_b2b_manual = round(_manuais.get('b2b', {}).get(week_start, 0.0), 2)
 
         total_out = round(outflows_invoices + outflows_credit + outflows_vat, 2)
-        total_in = round(inflows_events + inflows_pos_week, 2)
+        total_in = round(
+            inflows_events + inflows_pos_week + inflows_eventos_manual + inflows_b2b_manual, 2
+        )
         balance = round(total_in - total_out, 2)
 
         result.append({
@@ -666,7 +769,10 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             'outflows_vat_items': vat_items,
             'inflows_pos': round(inflows_pos_week, 2),
             'vendas_fonte': vendas_fonte,
+            'pos_daily': pos_daily,
             'inflows_events': round(inflows_events, 2),
+            'inflows_eventos_manual': inflows_eventos_manual,
+            'inflows_b2b_manual': inflows_b2b_manual,
             'total_in': total_in,
             'total_out': total_out,
             'balance': balance,

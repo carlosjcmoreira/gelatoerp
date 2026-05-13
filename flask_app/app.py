@@ -30,6 +30,7 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_migrations_agente,
                         run_migrations_conta_vendas_diarias)
 from db.tiles import run_migrations_tile_config
+from db.pagamentos import run_migrations_tesouraria_manuais
 from db.avencas import run_migrations_avencas
 from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2, run_migrations_tarefas_v3
 from db.schema import run_migrations_fecho_caixa_audit
@@ -142,6 +143,7 @@ def create_app():
         run_migrations_agente()
         run_migrations_fecho_caixa_audit()
         run_migrations_conta_vendas_diarias()
+        run_migrations_tesouraria_manuais()
         _seed_all_tiles()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()

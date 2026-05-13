@@ -1,6 +1,6 @@
 import logging
 from datetime import date, datetime, timedelta
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_app.auth import perm_required
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -19,6 +19,8 @@ from database import (
 )
 from db.faturas import ONEDRIVE_SUBFOLDERS, update_invoice_onedrive
 from db.credito import get_payment_methods_config
+from db.cashflow import get_saldo_inicial_tesouraria, set_saldo_inicial_tesouraria
+from db.pagamentos import get_overdue_unscheduled_invoices, set_tesouraria_manual
 
 logger = logging.getLogger(__name__)
 
@@ -372,8 +374,11 @@ def iva_periodo(year, month):
 @pagamentos_bp.route('/liquidez')
 @perm_required('acesso_gestor')
 def liquidez():
+    saldo_inicial = get_saldo_inicial_tesouraria()
+    overdue_info = get_overdue_unscheduled_invoices()
+
     weekly = get_weekly_liquidity(weeks=6)
-    running_balance = 0
+    running_balance = saldo_inicial
     for w in weekly:
         running_balance += w['balance']
         w['running_balance'] = round(running_balance, 2)
@@ -438,6 +443,16 @@ def liquidez():
     total_in_all = sum(w['total_in'] for w in weekly)
     pos_total = sum(w['inflows_pos'] for w in weekly)
     events_total = sum(w['inflows_events'] for w in weekly)
+    eventos_manual_total = round(sum(w['inflows_eventos_manual'] for w in weekly), 2)
+    b2b_manual_total = round(sum(w['inflows_b2b_manual'] for w in weekly), 2)
+
+    pos_daily_totals = [0.0] * 7
+    for w in weekly:
+        for i, day in enumerate(w.get('pos_daily', [])):
+            if i < 7:
+                pos_daily_totals[i] += day['amount']
+    pos_daily_totals = [round(v, 2) for v in pos_daily_totals]
+    pos_dow_labels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
 
     item_totals_by_cat: dict = {}
     for cid, items in items_by_cat.items():
@@ -449,6 +464,8 @@ def liquidez():
     return render_template(
         'pagamentos/liquidez.html',
         weekly=weekly,
+        saldo_inicial=saldo_inicial,
+        overdue_info=overdue_info,
         categories=categories,
         items_by_cat=items_by_cat,
         credit_items_by_week=credit_items_by_week,
@@ -463,4 +480,36 @@ def liquidez():
         total_in_all=round(total_in_all, 2),
         pos_total=round(pos_total, 2),
         events_total=round(events_total, 2),
+        eventos_manual_total=eventos_manual_total,
+        b2b_manual_total=b2b_manual_total,
+        pos_daily_totals=pos_daily_totals,
+        pos_dow_labels=pos_dow_labels,
     )
+
+
+@pagamentos_bp.route('/liquidez/saldo-inicial', methods=['POST'])
+@perm_required('acesso_gestor')
+def set_saldo_inicial():
+    try:
+        valor = float(request.form.get('valor', 0) or 0)
+    except (ValueError, TypeError):
+        valor = 0.0
+    set_saldo_inicial_tesouraria(valor)
+    return redirect(url_for('pagamentos.liquidez'))
+
+
+@pagamentos_bp.route('/liquidez/manual', methods=['POST'])
+@perm_required('acesso_gestor')
+def save_manual_entry():
+    data = request.get_json(silent=True) or {}
+    tipo = (data.get('tipo') or '').strip().lower()
+    if tipo not in ('eventos', 'b2b'):
+        return jsonify({'ok': False, 'error': 'tipo inválido'}), 400
+    try:
+        semana_str = data.get('semana_inicio', '')
+        semana_inicio = date.fromisoformat(semana_str)
+        valor = float(data.get('valor', 0) or 0)
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    set_tesouraria_manual(tipo, semana_inicio, valor)
+    return jsonify({'ok': True, 'valor': round(valor, 2)})

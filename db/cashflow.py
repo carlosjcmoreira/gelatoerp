@@ -72,3 +72,17 @@ def set_cashflow_config(key: str, value: str):
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
         """, (key, value))
         conn.commit()
+
+
+def get_saldo_inicial_tesouraria() -> float:
+    """Return the current bank balance anchor for Tesouraria Previsional. Returns 0.0 if not set."""
+    cfg = get_cashflow_config()
+    try:
+        return float(cfg.get('saldo_inicial_tesouraria', 0) or 0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def set_saldo_inicial_tesouraria(valor: float):
+    """Persist the current bank balance anchor for Tesouraria Previsional."""
+    set_cashflow_config('saldo_inicial_tesouraria', str(round(valor, 2)))

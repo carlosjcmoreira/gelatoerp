@@ -15,7 +15,7 @@ FINANCEIRO_GROUPS = [
             {'key': 'faturas',    'label': 'Documentos',       'icon': '📄', 'active': True,  'url': '/financeiro/faturas/'},
             {'key': 'credito',    'label': 'Crédito',           'icon': '💳', 'active': True,  'url': '/financeiro/credito/'},
             {'key': 'iva',        'label': 'IVA',               'icon': '📋', 'active': True,  'url': '/financeiro/pagamentos/iva'},
-            {'key': 'liquidez',   'label': 'Liquidez',          'icon': '📈', 'active': True,  'url': '/financeiro/pagamentos/liquidez'},
+            {'key': 'liquidez',   'label': 'Tesouraria Previsional', 'icon': '🏦', 'active': True,  'url': '/financeiro/pagamentos/liquidez'},
             {'key': 'avencas',    'label': 'Avenças',           'icon': '🔁', 'active': True,  'url_func': 'avencas.index'},
             {'key': 'debitos',    'label': 'Débitos Diretos',   'icon': '🔄', 'active': True,  'url_func': 'cashflow.debitos'},
             {'key': 'salarios',   'label': 'Salários',          'icon': '👥', 'active': True,  'url_func': 'cashflow.salarios'},

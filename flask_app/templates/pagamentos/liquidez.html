@@ -8,8 +8,47 @@
 
 {% block content %}
 <div class="container-fluid px-2 py-3">
-    <h5 class="mb-3">📈 Liquidez — Próximas 6 Semanas</h5>
+    <h5 class="mb-3">🏦 Tesouraria Previsional — Próximas 6 Semanas</h5>
 
+    {# ── Saldo bancário (âncora) ─────────────────────────────────────────── #}
+    <div class="card mb-3 border-primary border-opacity-25 shadow-sm">
+        <div class="card-body py-2">
+            <div class="d-flex align-items-center flex-wrap gap-3">
+                <span class="small fw-semibold text-muted">💰 Saldo Bancário Atual <span class="fw-normal">(âncora da previsão)</span></span>
+                <span class="fw-bold fs-5" id="saldo-display">{{ "%.2f €"|format(saldo_inicial) }}</span>
+                <button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="editSaldo()">Editar</button>
+                <div class="d-none" id="saldo-form-wrap">
+                    <form method="POST" action="{{ url_for('pagamentos.set_saldo_inicial') }}" class="d-flex gap-1 align-items-center">
+                        <input type="number" step="0.01" name="valor" id="saldo-input"
+                               value="{{ saldo_inicial }}" class="form-control form-control-sm" style="width:140px">
+                        <button type="submit" class="btn btn-sm btn-success py-0 px-2">✓ Guardar</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="cancelSaldo()">✕</button>
+                    </form>
+                </div>
+                {% set last_rb = weekly[-1].running_balance if weekly else 0 %}
+                <span class="small text-muted ms-auto">
+                    Saldo final previsto:
+                    <strong class="{% if last_rb < 0 %}text-danger{% else %}text-success{% endif %}">
+                        {{ "%.0f €"|format(last_rb) }}
+                    </strong>
+                </span>
+            </div>
+        </div>
+    </div>
+
+    {# ── Faturas vencidas não agendadas ──────────────────────────────────── #}
+    {% if overdue_info.count > 0 %}
+    <div class="alert alert-warning py-2 mb-3 small d-flex align-items-center flex-wrap gap-2">
+        <span>⚠️ <strong>{{ overdue_info.count }} fatura{% if overdue_info.count != 1 %}s{% endif %} vencida{% if overdue_info.count != 1 %}s{% endif %}</strong>
+        sem pagamento agendado — passivo:
+        <strong>{{ "%.0f €"|format(overdue_info.total) }}</strong></span>
+        <a href="/financeiro/faturas/?status=overdue" class="btn btn-sm btn-warning py-0 px-2 ms-auto">
+            Ver faturas →
+        </a>
+    </div>
+    {% endif %}
+
+    {# ── Semanas críticas ────────────────────────────────────────────────── #}
     {% set critical_weeks = weekly | selectattr('is_critical') | list %}
     {% if critical_weeks %}
     <div class="alert alert-danger py-2 mb-3 small">
@@ -46,7 +85,7 @@
                 </td>
             </tr>
 
-            {# Linhas dinâmicas por categoria de custo (faturas) #}
+            {# Linhas dinâmicas por categoria de custo (faturas + avenças) #}
             {% for cat_id, cat_name in categories %}
             {% set css_id = cat_id if cat_id is not none else 'none' %}
             <tr class="category-row"
@@ -69,7 +108,6 @@
                 </td>
             </tr>
 
-            {# Drill-down sub-linhas para esta categoria #}
             {% if items_by_cat.get(cat_id) %}
             {% for item_key, week_amounts in items_by_cat[cat_id].items() %}
             <tr class="drill-row drill-cat-{{ css_id }} d-none bg-light" style="font-size:0.78rem">
@@ -174,8 +212,13 @@
                     ↑ Entradas
                 </td>
             </tr>
-            <tr>
-                <td class="ps-2 small">Vendas POS</td>
+
+            {# Vendas POS — expansível com drill-down diário #}
+            <tr class="category-row" data-cat="pos" style="cursor:pointer" onclick="toggleDrill('pos')">
+                <td class="ps-2 small">
+                    <span class="toggle-icon me-1" id="icon-pos">▶</span>
+                    Vendas POS
+                </td>
                 {% for w in weekly %}
                 <td class="text-end small text-success">
                     {{ fmt_pos(w.inflows_pos) }}
@@ -188,6 +231,32 @@
                 {% endfor %}
                 <td class="text-end small text-success fw-semibold">{{ fmt_pos(pos_total) }}</td>
             </tr>
+
+            {# Drill-down diário POS: Seg–Dom (index 0–6) #}
+            {% for d_idx in range(7) %}
+            <tr class="drill-row drill-cat-pos d-none" style="font-size:0.78rem;background:#f0fff4">
+                <td class="ps-4 text-muted">└ {{ pos_dow_labels[d_idx] }}</td>
+                {% for w in weekly %}
+                {% if w.pos_daily and d_idx < w.pos_daily|length %}
+                {% set day_data = w.pos_daily[d_idx] %}
+                <td class="text-end" style="color:#198754">
+                    +{{ "%.0f €"|format(day_data.amount) }}
+                    {% if day_data.fonte == 'previsao' %}
+                    <span class="badge rounded-pill text-bg-success" style="font-size:0.55rem">P</span>
+                    {% endif %}
+                </td>
+                {% else %}
+                <td class="text-end text-muted">—</td>
+                {% endif %}
+                {% endfor %}
+                <td class="text-end fw-semibold" style="color:#198754">
+                    {% set dt = pos_daily_totals[d_idx] %}
+                    {% if dt > 0 %}+{{ "%.0f €"|format(dt) }}{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+
+            {# Eventos confirmados (automático, do módulo Eventos) #}
             {% if events_total > 0 %}
             <tr>
                 <td class="ps-2 small">Eventos confirmados</td>
@@ -197,6 +266,46 @@
                 <td class="text-end small text-success fw-semibold">{{ fmt_pos(events_total) }}</td>
             </tr>
             {% endif %}
+
+            {# Vendas Eventos — linha manual editável #}
+            <tr>
+                <td class="ps-2 small">
+                    Vendas Eventos
+                    <span class="badge text-bg-warning ms-1" style="font-size:0.55rem">Manual</span>
+                </td>
+                {% for w in weekly %}
+                <td class="text-end small manual-entry-cell"
+                    data-tipo="eventos"
+                    data-semana="{{ w.week_start.isoformat() }}"
+                    data-valor="{{ w.inflows_eventos_manual }}"
+                    style="cursor:pointer"
+                    title="Clique para editar">
+                    {{ fmt_pos(w.inflows_eventos_manual) }}
+                </td>
+                {% endfor %}
+                <td class="text-end small text-success fw-semibold">{{ fmt_pos(eventos_manual_total) }}</td>
+            </tr>
+
+            {# Vendas B2B — linha manual editável #}
+            <tr>
+                <td class="ps-2 small">
+                    Vendas B2B
+                    <span class="badge text-bg-warning ms-1" style="font-size:0.55rem">Manual</span>
+                </td>
+                {% for w in weekly %}
+                <td class="text-end small manual-entry-cell"
+                    data-tipo="b2b"
+                    data-semana="{{ w.week_start.isoformat() }}"
+                    data-valor="{{ w.inflows_b2b_manual }}"
+                    style="cursor:pointer"
+                    title="Clique para editar">
+                    {{ fmt_pos(w.inflows_b2b_manual) }}
+                </td>
+                {% endfor %}
+                <td class="text-end small text-success fw-semibold">{{ fmt_pos(b2b_manual_total) }}</td>
+            </tr>
+
+            {# Total Entradas #}
             <tr class="fw-bold" style="background:#f0fff4">
                 <td class="ps-2 small text-success">Total Entradas</td>
                 {% for w in weekly %}
@@ -224,7 +333,12 @@
                 <td class="text-end small">{{ fmt_bal(total_balance) }}</td>
             </tr>
             <tr class="fw-bold border-top">
-                <td class="ps-2 small">Saldo Acumulado</td>
+                <td class="ps-2 small">
+                    Saldo Acumulado
+                    {% if saldo_inicial != 0 %}
+                    <span class="text-muted fw-normal" style="font-size:0.72rem">(desde {{ "%.0f €"|format(saldo_inicial) }})</span>
+                    {% endif %}
+                </td>
                 {% for w in weekly %}
                 <td class="text-end small">{{ fmt_bal(w.running_balance) }}</td>
                 {% endfor %}
@@ -239,12 +353,14 @@
         <div class="card-body py-2">
             <h6 class="card-title mb-2" style="font-size:0.85rem">ℹ️ Legenda</h6>
             <ul class="small text-muted mb-0" style="column-count:2;column-gap:2rem">
-                <li><strong>Categorias de custo</strong>: baseadas nas categorias das faturas agendadas/confirmadas. Clique numa linha para expandir os registos individuais.</li>
-                <li><strong>POS — Prev.</strong>: Estimativa da previsão de 30 dias (ajustada por tempo e tendência recente)</li>
-                <li><strong>POS — Média</strong>: Média diária dos últimos 28 dias × 7 dias (semanas além do horizonte de previsão)</li>
-                <li><strong>Eventos</strong>: Pagamentos de eventos com data esperada na semana</li>
-                <li><strong>Crédito</strong>: Prestações de contratos de crédito ativos com débito previsto na semana</li>
-                <li><strong>IVA</strong>: Pagamentos de IVA com data de pagamento prevista na semana</li>
+                <li><strong>Categorias de custo</strong>: faturas agendadas/confirmadas. Clique para expandir os registos.</li>
+                <li><strong>POS — Prev.</strong>: Previsão de 30 dias ajustada (clique para ver detalhe diário)</li>
+                <li><strong>POS — Média</strong>: Média diária dos últimos 28 dias × 7 dias</li>
+                <li><strong>Eventos confirmados</strong>: Pagamentos de eventos ganhos com data esperada na semana</li>
+                <li><strong>Vendas Eventos / B2B</strong>: Valores manuais — clique em qualquer célula para editar. Guardado por semana.</li>
+                <li><strong>Saldo bancário</strong>: Âncora do saldo acumulado. Edite no topo da página.</li>
+                <li><strong>Crédito</strong>: Prestações de contratos de crédito ativos</li>
+                <li><strong>IVA</strong>: Pagamentos de IVA com data prevista na semana</li>
                 <li class="text-danger"><strong>⚠️ Semana crítica</strong>: saldo semanal negativo</li>
             </ul>
         </div>
@@ -258,6 +374,72 @@ function toggleDrill(catId) {
     var isOpen = icon && icon.textContent.trim() === '▼';
     rows.forEach(function(r) { r.classList.toggle('d-none'); });
     if (icon) icon.textContent = isOpen ? '▶' : '▼';
+}
+
+function editSaldo() {
+    document.getElementById('saldo-display').classList.add('d-none');
+    document.querySelector('[onclick="editSaldo()"]').classList.add('d-none');
+    document.getElementById('saldo-form-wrap').classList.remove('d-none');
+    var inp = document.getElementById('saldo-input');
+    inp.focus();
+    inp.select();
+}
+
+function cancelSaldo() {
+    document.getElementById('saldo-display').classList.remove('d-none');
+    document.querySelector('[onclick="editSaldo()"]').classList.remove('d-none');
+    document.getElementById('saldo-form-wrap').classList.add('d-none');
+}
+
+document.querySelectorAll('.manual-entry-cell').forEach(function(cell) {
+    cell.addEventListener('click', function() { startEdit(cell); });
+});
+
+function startEdit(cell) {
+    if (cell.querySelector('input')) return;
+    var current = parseFloat(cell.dataset.valor) || 0;
+    var tipo = cell.dataset.tipo;
+    var semana = cell.dataset.semana;
+
+    var input = document.createElement('input');
+    input.type = 'number';
+    input.step = '1';
+    input.min = '0';
+    input.value = Math.round(current);
+    input.style.cssText = 'width:90px;font-size:0.8rem;text-align:right;border:2px solid #0d6efd;border-radius:3px;padding:1px 4px;outline:none';
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+
+    var saved = false;
+
+    function save() {
+        if (saved) return;
+        saved = true;
+        var v = parseFloat(input.value) || 0;
+        fetch('/financeiro/pagamentos/liquidez/manual', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({tipo: tipo, semana_inicio: semana, valor: v})
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (d.ok) {
+                location.reload();
+            } else {
+                cell.innerHTML = '<span class="text-danger small">Erro</span>';
+                setTimeout(function() { location.reload(); }, 1500);
+            }
+        }).catch(function() { location.reload(); });
+    }
+
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { saved = true; location.reload(); }
+    });
 }
 </script>
 {% endblock %}
