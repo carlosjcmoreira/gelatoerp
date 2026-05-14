@@ -44,6 +44,12 @@ def _build_draft_data(ocr: dict, supplier, file_bytes: bytes, filename: str,
         ocr_raw['payment_terms_hint'] = ocr['payment_terms_hint']
     if ocr.get('supplier_iban'):
         ocr_raw['supplier_iban'] = ocr['supplier_iban']
+    if ocr.get('document_type_hint'):
+        ocr_raw['document_type_hint'] = ocr['document_type_hint']
+
+    _valid_doc_types = {'fatura', 'nota_credito', 'nota_debito', 'nota_pagamento_imposto', 'outro'}
+    raw_hint = ocr.get('document_type_hint', 'fatura')
+    document_type = raw_hint if raw_hint in _valid_doc_types else 'fatura'
 
     return {
         'supplier_id': supplier['id'] if supplier else None,
@@ -66,7 +72,7 @@ def _build_draft_data(ocr: dict, supplier, file_bytes: bytes, filename: str,
         'ocr_raw': json.dumps(ocr_raw) if ocr_raw else None,
         'created_by': username,
         'notes': None,
-        'document_type': 'fatura',
+        'document_type': document_type,
         'source': source,
     }
 
