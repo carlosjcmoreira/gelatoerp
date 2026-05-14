@@ -591,8 +591,7 @@ def eliminar_utilizador(user_id: int):
 
     username = target['username']
     try:
-        db.revoke_user_sessions(user_id)
-        db.delete_user(user_id)
+        db.delete_user_with_sessions(user_id)
     except Exception as exc:
         logger.error("Failed to delete user %s: %s", username, exc)
         flash(f"Não foi possível eliminar o utilizador '{username}'. Pode ter registos associados que impedem a eliminação.", 'danger')
