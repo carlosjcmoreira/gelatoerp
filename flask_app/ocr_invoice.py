@@ -6,6 +6,9 @@ from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
+# Canonical set of valid document_type values — kept in sync with DOCUMENT_TYPE_LABELS in db/faturas.py
+_VALID_DOC_TYPES = frozenset({'fatura', 'nota_credito', 'nota_debito', 'nota_pagamento_imposto', 'outro'})
+
 # Uses Replit AI Integrations (Anthropic) — no personal API key required
 AI_INTEGRATIONS_ANTHROPIC_API_KEY = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
 AI_INTEGRATIONS_ANTHROPIC_BASE_URL = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
@@ -159,9 +162,10 @@ Regras para FATURAS de fornecedor privado:
         confidences = parsed.get('confidence', {})
         avg_confidence = sum(v for v in confidences.values() if v is not None) / max(len(confidences), 1)
 
-        _valid_doc_types = {'fatura', 'nota_credito', 'nota_debito', 'nota_pagamento_imposto', 'outro'}
         raw_doc_type = parsed.get('document_type_hint')
-        document_type_hint = raw_doc_type if raw_doc_type in _valid_doc_types else 'fatura'
+        document_type_hint = raw_doc_type if raw_doc_type in _VALID_DOC_TYPES else 'fatura'
+        logger.info("OCR PDF classification: document_type_hint=%r (raw=%r) confidence=%.2f",
+                    document_type_hint, raw_doc_type, avg_confidence)
 
         return {
             'document_type_hint': document_type_hint,
@@ -334,9 +338,10 @@ Regras para FATURAS/GUIAS de fornecedor privado:
         confidences = parsed.get('confidence', {})
         avg_confidence = sum(v for v in confidences.values() if v is not None) / max(len(confidences), 1)
 
-        _valid_doc_types = {'fatura', 'nota_credito', 'nota_debito', 'nota_pagamento_imposto', 'outro'}
         raw_doc_type = parsed.get('document_type_hint')
-        document_type_hint = raw_doc_type if raw_doc_type in _valid_doc_types else 'fatura'
+        document_type_hint = raw_doc_type if raw_doc_type in _VALID_DOC_TYPES else 'fatura'
+        logger.info("OCR image classification: document_type_hint=%r (raw=%r) confidence=%.2f",
+                    document_type_hint, raw_doc_type, avg_confidence)
 
         return {
             'document_type_hint': document_type_hint,

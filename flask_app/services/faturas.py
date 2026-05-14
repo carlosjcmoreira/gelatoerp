@@ -47,9 +47,11 @@ def _build_draft_data(ocr: dict, supplier, file_bytes: bytes, filename: str,
     if ocr.get('document_type_hint'):
         ocr_raw['document_type_hint'] = ocr['document_type_hint']
 
-    _valid_doc_types = {'fatura', 'nota_credito', 'nota_debito', 'nota_pagamento_imposto', 'outro'}
+    from db.faturas import DOCUMENT_TYPE_LABELS as _DTL
     raw_hint = ocr.get('document_type_hint', 'fatura')
-    document_type = raw_hint if raw_hint in _valid_doc_types else 'fatura'
+    document_type = raw_hint if raw_hint in _DTL else 'fatura'
+    if raw_hint and raw_hint != document_type:
+        logger.warning("OCR returned unknown document_type_hint %r — defaulting to 'fatura'", raw_hint)
 
     return {
         'supplier_id': supplier['id'] if supplier else None,
