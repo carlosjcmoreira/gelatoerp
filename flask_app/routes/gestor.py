@@ -590,7 +590,14 @@ def eliminar_utilizador(user_id: int):
         return redirect(url_for('gestor.gestao_utilizadores'))
 
     username = target['username']
-    db.delete_user(user_id)
+    try:
+        db.revoke_user_sessions(user_id)
+        db.delete_user(user_id)
+    except Exception as exc:
+        logger.error("Failed to delete user %s: %s", username, exc)
+        flash(f"Não foi possível eliminar o utilizador '{username}'. Pode ter registos associados que impedem a eliminação.", 'danger')
+        return redirect(url_for('gestor.gestao_utilizadores'))
+
     logger.info("User %s deleted by %s", username, current_user.get('username'))
     flash(f"Utilizador '{username}' eliminado com sucesso.", 'success')
     return redirect(url_for('gestor.gestao_utilizadores'))
