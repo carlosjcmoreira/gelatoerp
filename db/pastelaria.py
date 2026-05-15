@@ -1,5 +1,5 @@
 import psycopg2
-from psycopg2.extras import RealDictCursor, DictCursor
+from psycopg2.extras import RealDictCursor, DictCursor, execute_values
 from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger, db_retry
@@ -539,11 +539,13 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
                         (d, loja)
                     )
             if rows:
-                cursor.executemany(
+                execute_values(
+                    cursor,
                     '''INSERT INTO vendas_detalhe
                        (data, loja, produto, categoria, quantidade, valor_euros, store_id)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s)''',
-                    rows
+                       VALUES %s''',
+                    rows,
+                    page_size=500,
                 )
             conn.commit()
         except Exception:
@@ -1029,17 +1031,22 @@ def sync_produtos_vendas_config():
         cursor.execute("SELECT palavra_chave FROM regras_negocio WHERE area = 'confeitaria'")
         palavras_confeitaria = [r[0].lower() for r in cursor.fetchall()]
 
-        for produto in produtos:
-            p_lower = produto.lower()
-            is_gelado = any(kw in p_lower for kw in palavras_gelado) if palavras_gelado else False
-            is_pastelaria = any(kw in p_lower for kw in palavras_pastelaria) if palavras_pastelaria else False
-            is_confeitaria = any(kw in p_lower for kw in palavras_confeitaria) if palavras_confeitaria else False
+        if produtos:
+            rows = []
+            for produto in produtos:
+                p_lower = produto.lower()
+                is_gelado = any(kw in p_lower for kw in palavras_gelado) if palavras_gelado else False
+                is_pastelaria = any(kw in p_lower for kw in palavras_pastelaria) if palavras_pastelaria else False
+                is_confeitaria = any(kw in p_lower for kw in palavras_confeitaria) if palavras_confeitaria else False
+                rows.append((produto, is_gelado, is_pastelaria, is_confeitaria))
 
-            cursor.execute("""
-                INSERT INTO produtos_vendas_config (produto, gelado_kpi, pastelaria, confeitaria)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (produto) DO NOTHING
-            """, (produto, is_gelado, is_pastelaria, is_confeitaria))
+            execute_values(
+                cursor,
+                """INSERT INTO produtos_vendas_config (produto, gelado_kpi, pastelaria, confeitaria)
+                   VALUES %s ON CONFLICT (produto) DO NOTHING""",
+                rows,
+                page_size=200,
+            )
 
         conn.commit()
 
