@@ -1018,15 +1018,28 @@ def get_dashboard_vendas() -> dict:
         # ── Monthly aggregates for 2025 and 2026 ─────────────────────────────
         # Applies the same conta_vendas_diarias filter as get_vendas_diarias_yoy()
         # so excluded products (e.g. consultoria, catering) are omitted here too.
+        # 2025 source: vendas_detalhe if it has data, otherwise sales_historico
+        # (the NOT EXISTS guard prevents double-counting if both ever coexist).
         cur.execute("""
             SELECT vd.loja,
                    EXTRACT(YEAR FROM vd.data)::int  AS ano,
                    EXTRACT(MONTH FROM vd.data)::int AS mes,
                    SUM(vd.valor_euros)              AS total
-            FROM vendas_detalhe vd
+            FROM (
+                SELECT loja, data, valor_euros, produto
+                FROM vendas_detalhe
+                WHERE EXTRACT(YEAR FROM data) IN (2025, 2026)
+                UNION ALL
+                SELECT sh.loja, sh.data, sh.valor_euros, sh.produto
+                FROM sales_historico sh
+                WHERE EXTRACT(YEAR FROM sh.data) = 2025
+                  AND NOT EXISTS (
+                      SELECT 1 FROM vendas_detalhe vd_chk
+                      WHERE EXTRACT(YEAR FROM vd_chk.data) = 2025 LIMIT 1
+                  )
+            ) vd
             LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
-            WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
-              AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+            WHERE (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
             GROUP BY vd.loja, ano, mes
             ORDER BY vd.loja, ano, mes
         """)
@@ -1048,10 +1061,21 @@ def get_dashboard_vendas() -> dict:
                                  AND EXTRACT(MONTH FROM vd.data) * 100 + EXTRACT(DAY FROM vd.data)
                                      <= EXTRACT(MONTH FROM %s::date) * 100 + EXTRACT(DAY FROM %s::date)
                                 THEN vd.valor_euros ELSE 0 END) AS ytd_2025
-                FROM vendas_detalhe vd
+                FROM (
+                    SELECT loja, data, valor_euros, produto
+                    FROM vendas_detalhe
+                    WHERE EXTRACT(YEAR FROM data) IN (2025, 2026)
+                    UNION ALL
+                    SELECT sh.loja, sh.data, sh.valor_euros, sh.produto
+                    FROM sales_historico sh
+                    WHERE EXTRACT(YEAR FROM sh.data) = 2025
+                      AND NOT EXISTS (
+                          SELECT 1 FROM vendas_detalhe vd_chk
+                          WHERE EXTRACT(YEAR FROM vd_chk.data) = 2025 LIMIT 1
+                      )
+                ) vd
                 LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
-                WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
-                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                WHERE (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
                 GROUP BY vd.loja
                 ORDER BY vd.loja
             """, (cutoff, cutoff))
@@ -1065,10 +1089,21 @@ def get_dashboard_vendas() -> dict:
                                  AND EXTRACT(MONTH FROM vd.data) * 100 + EXTRACT(DAY FROM vd.data)
                                      <= EXTRACT(MONTH FROM %s::date) * 100 + EXTRACT(DAY FROM %s::date)
                                 THEN vd.valor_euros ELSE 0 END) AS ytd_2025
-                FROM vendas_detalhe vd
+                FROM (
+                    SELECT loja, data, valor_euros, produto
+                    FROM vendas_detalhe
+                    WHERE EXTRACT(YEAR FROM data) IN (2025, 2026)
+                    UNION ALL
+                    SELECT sh.loja, sh.data, sh.valor_euros, sh.produto
+                    FROM sales_historico sh
+                    WHERE EXTRACT(YEAR FROM sh.data) = 2025
+                      AND NOT EXISTS (
+                          SELECT 1 FROM vendas_detalhe vd_chk
+                          WHERE EXTRACT(YEAR FROM vd_chk.data) = 2025 LIMIT 1
+                      )
+                ) vd
                 LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
-                WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
-                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                WHERE (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
                 GROUP BY vd.produto, vd.loja
             """, (cutoff, cutoff))
             produto_rows = cur.fetchall()
