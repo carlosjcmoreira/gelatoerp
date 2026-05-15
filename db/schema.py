@@ -60,7 +60,7 @@ def run_migrations_stock_producao_lojas():
 
         conn.commit()
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 def init_database():
     with db_connection() as conn:
@@ -946,6 +946,11 @@ def run_migrations():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        cursor.execute(
+            "ALTER TABLE credit_contracts ADD COLUMN IF NOT EXISTS "
+            "categoria_custo_id INTEGER REFERENCES cost_categories(id)"
+        )
 
         # ── Eventos / CRM ──────────────────────────────────────────────────────────
         cursor.execute('''

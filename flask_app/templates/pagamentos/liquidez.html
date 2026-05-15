@@ -78,134 +78,6 @@
         </thead>
         <tbody>
 
-            {# ── SAÍDAS ─────────────────────────────────────────────── #}
-            <tr class="table-secondary">
-                <td colspan="{{ weekly|length + 2 }}" class="fw-bold small py-1 ps-2 text-uppercase" style="letter-spacing:.05em">
-                    ↓ Saídas
-                </td>
-            </tr>
-
-            {# Linhas dinâmicas por categoria de custo (faturas + avenças) #}
-            {% for cat_id, cat_name in categories %}
-            {% set css_id = cat_id if cat_id is not none else 'none' %}
-            <tr class="category-row"
-                data-cat="{{ css_id }}"
-                style="cursor:pointer"
-                onclick="toggleDrill('{{ css_id }}')">
-                <td class="ps-2">
-                    <span class="toggle-icon me-1" id="icon-{{ css_id }}">▶</span>
-                    <span class="small">{{ cat_name }}</span>
-                </td>
-                {% for w in weekly %}
-                {% set cat_data = w.outflows_by_category | selectattr('category_id', 'equalto', cat_id) | first | default(None) %}
-                <td class="text-end small {% if w.is_critical and cat_data and cat_data.amount > 0 %}text-danger{% endif %}">
-                    {{ fmt_neg(cat_data.amount if cat_data else 0) }}
-                </td>
-                {% endfor %}
-                <td class="text-end small fw-semibold text-danger">
-                    {% set ct = cat_totals.get(cat_id, 0) %}
-                    {{ fmt_neg(ct) }}
-                </td>
-            </tr>
-
-            {% if items_by_cat.get(cat_id) %}
-            {% for item_key, week_amounts in items_by_cat[cat_id].items() %}
-            <tr class="drill-row drill-cat-{{ css_id }} d-none bg-light" style="font-size:0.78rem">
-                <td class="ps-4 text-muted">└ {{ item_key }}</td>
-                {% for w in weekly %}
-                <td class="text-end text-muted">
-                    {% set amt = week_amounts.get(w.week, 0) %}
-                    {% if amt and amt > 0 %}-{{ "%.0f €"|format(amt) }}{% else %}—{% endif %}
-                </td>
-                {% endfor %}
-                <td class="text-end text-muted fw-semibold">
-                    {% set itotal = item_totals_by_cat.get(cat_id, {}).get(item_key, 0) %}
-                    {% if itotal and itotal > 0 %}-{{ "%.0f €"|format(itotal) }}{% else %}—{% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-            {% endif %}
-            {% endfor %}
-
-            {# Linha fixa: Crédito #}
-            {% set has_credit_items = credit_items_by_week | length > 0 %}
-            <tr class="{% if has_credit_items %}category-row{% endif %}"
-                {% if has_credit_items %}data-cat="credit" style="cursor:pointer" onclick="toggleDrill('credit')"{% endif %}>
-                <td class="ps-2 small">
-                    {% if has_credit_items %}<span class="toggle-icon me-1" id="icon-credit">▶</span>{% else %}<span class="me-3"></span>{% endif %}
-                    Contratos de Crédito
-                </td>
-                {% for w in weekly %}
-                <td class="text-end small {% if w.is_critical and w.outflows_credit > 0 %}text-danger{% endif %}">
-                    {{ fmt_neg(w.outflows_credit) }}
-                </td>
-                {% endfor %}
-                <td class="text-end small fw-semibold text-danger">{{ fmt_neg(credit_total) }}</td>
-            </tr>
-            {% if has_credit_items %}
-            {% for ckey, week_amounts in credit_items_by_week.items() %}
-            <tr class="drill-row drill-cat-credit d-none bg-light" style="font-size:0.78rem">
-                <td class="ps-4 text-muted">└ {{ ckey }}</td>
-                {% for w in weekly %}
-                <td class="text-end text-muted">
-                    {% set amt = week_amounts.get(w.week, 0) %}
-                    {% if amt and amt > 0 %}-{{ "%.0f €"|format(amt) }}{% else %}—{% endif %}
-                </td>
-                {% endfor %}
-                <td class="text-end text-muted fw-semibold">
-                    {% set itotal = credit_item_totals.get(ckey, 0) %}
-                    {% if itotal and itotal > 0 %}-{{ "%.0f €"|format(itotal) }}{% else %}—{% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-            {% endif %}
-
-            {# Linha fixa: IVA #}
-            {% set has_vat_items = vat_items_by_week | length > 0 %}
-            <tr class="{% if has_vat_items %}category-row{% endif %}"
-                {% if has_vat_items %}data-cat="vat" style="cursor:pointer" onclick="toggleDrill('vat')"{% endif %}>
-                <td class="ps-2 small">
-                    {% if has_vat_items %}<span class="toggle-icon me-1" id="icon-vat">▶</span>{% else %}<span class="me-3"></span>{% endif %}
-                    IVA
-                </td>
-                {% for w in weekly %}
-                <td class="text-end small {% if w.is_critical and w.outflows_vat > 0 %}text-danger{% endif %}">
-                    {{ fmt_neg(w.outflows_vat) }}
-                </td>
-                {% endfor %}
-                <td class="text-end small fw-semibold text-danger">{{ fmt_neg(vat_total) }}</td>
-            </tr>
-            {% if has_vat_items %}
-            {% for vkey, week_amounts in vat_items_by_week.items() %}
-            <tr class="drill-row drill-cat-vat d-none bg-light" style="font-size:0.78rem">
-                <td class="ps-4 text-muted">└ {{ vkey }}</td>
-                {% for w in weekly %}
-                <td class="text-end text-muted">
-                    {% set amt = week_amounts.get(w.week, 0) %}
-                    {% if amt and amt > 0 %}-{{ "%.0f €"|format(amt) }}{% else %}—{% endif %}
-                </td>
-                {% endfor %}
-                <td class="text-end text-muted fw-semibold">
-                    {% set itotal = vat_item_totals.get(vkey, 0) %}
-                    {% if itotal and itotal > 0 %}-{{ "%.0f €"|format(itotal) }}{% else %}—{% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-            {% endif %}
-
-            {# Total Saídas #}
-            <tr class="fw-bold border-top border-secondary" style="background:#fff3f3">
-                <td class="ps-2 small text-danger">Total Saídas</td>
-                {% for w in weekly %}
-                <td class="text-end small text-danger">
-                    {% if w.total_out > 0 %}-{{ "%.0f €"|format(w.total_out) }}{% else %}<span class="text-muted">—</span>{% endif %}
-                </td>
-                {% endfor %}
-                <td class="text-end small text-danger">
-                    {% if total_out_all > 0 %}-{{ "%.0f €"|format(total_out_all) }}{% else %}<span class="text-muted">—</span>{% endif %}
-                </td>
-            </tr>
-
             {# ── ENTRADAS ─────────────────────────────────────────────── #}
             <tr class="table-secondary">
                 <td colspan="{{ weekly|length + 2 }}" class="fw-bold small py-1 ps-2 text-uppercase" style="letter-spacing:.05em">
@@ -222,7 +94,9 @@
                 {% for w in weekly %}
                 <td class="text-end small text-success">
                     {{ fmt_pos(w.inflows_pos) }}
-                    {% if w.vendas_fonte == 'previsao' %}
+                    {% if w.vendas_fonte == 'real' %}
+                    <span class="badge rounded-pill text-bg-primary ms-1" style="font-size:0.6rem;vertical-align:middle">Real</span>
+                    {% elif w.vendas_fonte == 'previsao' %}
                     <span class="badge rounded-pill text-bg-success ms-1" style="font-size:0.6rem;vertical-align:middle">Prev.</span>
                     {% else %}
                     <span class="badge rounded-pill text-bg-secondary ms-1" style="font-size:0.6rem;vertical-align:middle">Média</span>
@@ -241,7 +115,9 @@
                 {% set day_data = w.pos_daily[d_idx] %}
                 <td class="text-end" style="color:#198754">
                     +{{ "%.0f €"|format(day_data.amount) }}
-                    {% if day_data.fonte == 'previsao' %}
+                    {% if day_data.fonte == 'real' %}
+                    <span class="badge rounded-pill text-bg-primary" style="font-size:0.55rem">Real</span>
+                    {% elif day_data.fonte == 'previsao' %}
                     <span class="badge rounded-pill text-bg-success" style="font-size:0.55rem">Prev.</span>
                     {% else %}
                     <span class="badge rounded-pill text-bg-secondary" style="font-size:0.55rem">Média</span>
@@ -320,6 +196,101 @@
                 </td>
             </tr>
 
+            {# ── SAÍDAS ─────────────────────────────────────────────── #}
+            <tr class="table-secondary">
+                <td colspan="{{ weekly|length + 2 }}" class="fw-bold small py-1 ps-2 text-uppercase" style="letter-spacing:.05em">
+                    ↓ Saídas
+                </td>
+            </tr>
+
+            {# Linhas dinâmicas por categoria de custo (faturas + avenças + crédito) #}
+            {% for cat_id, cat_name in categories %}
+            {% set css_id = cat_id if cat_id is not none else 'none' %}
+            <tr class="category-row"
+                data-cat="{{ css_id }}"
+                style="cursor:pointer"
+                onclick="toggleDrill('{{ css_id }}')">
+                <td class="ps-2">
+                    <span class="toggle-icon me-1" id="icon-{{ css_id }}">▶</span>
+                    <span class="small">{{ cat_name }}</span>
+                </td>
+                {% for w in weekly %}
+                {% set cat_data = w.outflows_by_category | selectattr('category_id', 'equalto', cat_id) | first | default(None) %}
+                <td class="text-end small {% if w.is_critical and cat_data and cat_data.amount > 0 %}text-danger{% endif %}">
+                    {{ fmt_neg(cat_data.amount if cat_data else 0) }}
+                </td>
+                {% endfor %}
+                <td class="text-end small fw-semibold text-danger">
+                    {% set ct = cat_totals.get(cat_id, 0) %}
+                    {{ fmt_neg(ct) }}
+                </td>
+            </tr>
+
+            {% if items_by_cat.get(cat_id) %}
+            {% for item_key, week_amounts in items_by_cat[cat_id].items() %}
+            <tr class="drill-row drill-cat-{{ css_id }} d-none bg-light" style="font-size:0.78rem">
+                <td class="ps-4 text-muted">└ {{ item_key }}</td>
+                {% for w in weekly %}
+                <td class="text-end text-muted">
+                    {% set amt = week_amounts.get(w.week, 0) %}
+                    {% if amt and amt > 0 %}-{{ "%.0f €"|format(amt) }}{% else %}—{% endif %}
+                </td>
+                {% endfor %}
+                <td class="text-end text-muted fw-semibold">
+                    {% set itotal = item_totals_by_cat.get(cat_id, {}).get(item_key, 0) %}
+                    {% if itotal and itotal > 0 %}-{{ "%.0f €"|format(itotal) }}{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% endif %}
+            {% endfor %}
+
+            {# Linha fixa: IVA #}
+            {% set has_vat_items = vat_items_by_week | length > 0 %}
+            <tr class="{% if has_vat_items %}category-row{% endif %}"
+                {% if has_vat_items %}data-cat="vat" style="cursor:pointer" onclick="toggleDrill('vat')"{% endif %}>
+                <td class="ps-2 small">
+                    {% if has_vat_items %}<span class="toggle-icon me-1" id="icon-vat">▶</span>{% else %}<span class="me-3"></span>{% endif %}
+                    IVA
+                </td>
+                {% for w in weekly %}
+                <td class="text-end small {% if w.is_critical and w.outflows_vat > 0 %}text-danger{% endif %}">
+                    {{ fmt_neg(w.outflows_vat) }}
+                </td>
+                {% endfor %}
+                <td class="text-end small fw-semibold text-danger">{{ fmt_neg(vat_total) }}</td>
+            </tr>
+            {% if has_vat_items %}
+            {% for vkey, week_amounts in vat_items_by_week.items() %}
+            <tr class="drill-row drill-cat-vat d-none bg-light" style="font-size:0.78rem">
+                <td class="ps-4 text-muted">└ {{ vkey }}</td>
+                {% for w in weekly %}
+                <td class="text-end text-muted">
+                    {% set amt = week_amounts.get(w.week, 0) %}
+                    {% if amt and amt > 0 %}-{{ "%.0f €"|format(amt) }}{% else %}—{% endif %}
+                </td>
+                {% endfor %}
+                <td class="text-end text-muted fw-semibold">
+                    {% set itotal = vat_item_totals.get(vkey, 0) %}
+                    {% if itotal and itotal > 0 %}-{{ "%.0f €"|format(itotal) }}{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% endif %}
+
+            {# Total Saídas #}
+            <tr class="fw-bold border-top border-secondary" style="background:#fff3f3">
+                <td class="ps-2 small text-danger">Total Saídas</td>
+                {% for w in weekly %}
+                <td class="text-end small text-danger">
+                    {% if w.total_out > 0 %}-{{ "%.0f €"|format(w.total_out) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                {% endfor %}
+                <td class="text-end small text-danger">
+                    {% if total_out_all > 0 %}-{{ "%.0f €"|format(total_out_all) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+            </tr>
+
             {# ── SALDO ─────────────────────────────────────────────── #}
             <tr class="table-secondary">
                 <td colspan="{{ weekly|length + 2 }}" class="fw-bold small py-1 ps-2 text-uppercase" style="letter-spacing:.05em">
@@ -355,13 +326,13 @@
         <div class="card-body py-2">
             <h6 class="card-title mb-2" style="font-size:0.85rem">ℹ️ Legenda</h6>
             <ul class="small text-muted mb-0" style="column-count:2;column-gap:2rem">
-                <li><strong>Categorias de custo</strong>: faturas agendadas/confirmadas. Clique para expandir os registos.</li>
+                <li><strong>Categorias de custo</strong>: faturas, avenças e créditos agrupados por categoria. Clique para expandir.</li>
+                <li><strong>POS — Real</strong>: Valor real registado em vendas (dias passados)</li>
                 <li><strong>POS — Prev.</strong>: Previsão de 30 dias ajustada (clique para ver detalhe diário)</li>
                 <li><strong>POS — Média</strong>: Média diária dos últimos 28 dias × 7 dias</li>
                 <li><strong>Eventos confirmados</strong>: Pagamentos de eventos ganhos com data esperada na semana</li>
-                <li><strong>Vendas Eventos / B2B</strong>: Valores manuais — clique em qualquer célula para editar. Guardado por semana.</li>
+                <li><strong>Vendas Eventos / B2B</strong>: Valores manuais — clique em qualquer célula para editar.</li>
                 <li><strong>Saldo bancário</strong>: Âncora do saldo acumulado. Edite no topo da página.</li>
-                <li><strong>Crédito</strong>: Prestações de contratos de crédito ativos</li>
                 <li><strong>IVA</strong>: Pagamentos de IVA com data prevista na semana</li>
                 <li class="text-danger"><strong>⚠️ Semana crítica</strong>: saldo semanal negativo</li>
             </ul>

@@ -414,14 +414,6 @@ def liquidez():
                     items_by_cat[cid][key] = {}
                 items_by_cat[cid][key][w['week']] = item['amount']
 
-    credit_items_by_week: dict = {}
-    for w in weekly:
-        for item in w['outflows_credit_items']:
-            key = item['description']
-            if key not in credit_items_by_week:
-                credit_items_by_week[key] = {}
-            credit_items_by_week[key][w['week']] = item['amount']
-
     vat_items_by_week: dict = {}
     for w in weekly:
         for item in w['outflows_vat_items']:
@@ -437,7 +429,6 @@ def liquidez():
             for w in weekly
         )
 
-    credit_total = sum(w['outflows_credit'] for w in weekly)
     vat_total = sum(w['outflows_vat'] for w in weekly)
     total_out_all = sum(w['total_out'] for w in weekly)
     total_in_all = sum(w['total_in'] for w in weekly)
@@ -458,7 +449,6 @@ def liquidez():
     for cid, items in items_by_cat.items():
         item_totals_by_cat[cid] = {k: sum(v.values()) for k, v in items.items()}
 
-    credit_item_totals = {k: sum(v.values()) for k, v in credit_items_by_week.items()}
     vat_item_totals = {k: sum(v.values()) for k, v in vat_items_by_week.items()}
 
     return render_template(
@@ -468,13 +458,10 @@ def liquidez():
         overdue_info=overdue_info,
         categories=categories,
         items_by_cat=items_by_cat,
-        credit_items_by_week=credit_items_by_week,
         vat_items_by_week=vat_items_by_week,
         cat_totals=cat_totals,
         item_totals_by_cat=item_totals_by_cat,
-        credit_item_totals=credit_item_totals,
         vat_item_totals=vat_item_totals,
-        credit_total=round(credit_total, 2),
         vat_total=round(vat_total, 2),
         total_out_all=round(total_out_all, 2),
         total_in_all=round(total_in_all, 2),

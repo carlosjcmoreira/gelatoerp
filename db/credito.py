@@ -8,27 +8,35 @@ import json
 def get_credit_contracts(estado=None):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
+        base_q = """
+            SELECT cc.*, cat.name AS categoria_custo_nome
+            FROM credit_contracts cc
+            LEFT JOIN cost_categories cat ON cat.id = cc.categoria_custo_id
+        """
         if estado:
-            cursor.execute(
-                "SELECT * FROM credit_contracts WHERE estado = %s ORDER BY label",
-                (estado,)
-            )
+            cursor.execute(base_q + " WHERE cc.estado = %s ORDER BY cc.label", (estado,))
         else:
-            cursor.execute("SELECT * FROM credit_contracts ORDER BY estado, label")
+            cursor.execute(base_q + " ORDER BY cc.estado, cc.label")
         return cursor.fetchall()
 
 
 def get_credit_contract(contract_id: int):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT * FROM credit_contracts WHERE id = %s", (contract_id,))
+        cursor.execute("""
+            SELECT cc.*, cat.name AS categoria_custo_nome
+            FROM credit_contracts cc
+            LEFT JOIN cost_categories cat ON cat.id = cc.categoria_custo_id
+            WHERE cc.id = %s
+        """, (contract_id,))
         return cursor.fetchone()
 
 
 def upsert_credit_contract(data: dict, contract_id: int = None):
     fields = ['tipo', 'label', 'banco', 'loja_associada', 'capital_inicial',
               'saldo_divida', 'tan', 'prestacao_mensal', 'dia_debito',
-              'data_inicio', 'data_fim', 'plafond', 'estado', 'notas']
+              'data_inicio', 'data_fim', 'plafond', 'estado', 'notas',
+              'categoria_custo_id']
 
     def _v(k):
         v = data.get(k)

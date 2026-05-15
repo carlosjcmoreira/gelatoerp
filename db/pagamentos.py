@@ -554,10 +554,13 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         invoice_rows = cursor.fetchall()
 
         cursor.execute("""
-            SELECT id, label, banco, tipo, prestacao_mensal, dia_debito
-            FROM credit_contracts
-            WHERE estado = 'ativo' AND tipo != 'overdraft'
-            ORDER BY label
+            SELECT cc.id, cc.label, cc.banco, cc.tipo, cc.prestacao_mensal, cc.dia_debito,
+                   cc.categoria_custo_id,
+                   COALESCE(cat.name, 'Sem categoria') AS categoria_custo_nome
+            FROM credit_contracts cc
+            LEFT JOIN cost_categories cat ON cat.id = cc.categoria_custo_id
+            WHERE cc.estado = 'ativo' AND cc.tipo != 'overdraft'
+            ORDER BY cc.label
         """)
         credit_contracts = cursor.fetchall()
 
@@ -595,6 +598,14 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         """, (today - timedelta(days=28),))
         inflows_pos_fallback = float(cursor.fetchone()['weekly_pos'])
 
+        cursor.execute("""
+            SELECT data, SUM(valor_euros) AS daily_total
+            FROM vendas_detalhe
+            WHERE data >= %s AND data < %s
+            GROUP BY data
+        """, (range_start, today))
+        _vendas_reais_by_date = {r['data']: float(r['daily_total']) for r in cursor.fetchall()}
+
     # ── Forecast-based per-week POS estimates ───────────────────────────────
     # Call get_previsao_30dias() and build a per-date lookup of est_total.
     # For each liquidity week, blend: days covered by the forecast use est_total;
@@ -619,21 +630,27 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
     _DOW_PT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
 
     def _pos_for_week(ws, we):
-        """Return (amount, fonte, daily) for a Mon-Sun week blending forecast and 28d fallback.
+        """Return (amount, fonte, daily) for a Mon-Sun week blending real/forecast/28d fallback.
 
         For each of the 7 days in [ws, we]:
-          - if the day has a forecast estimate, use est_total for that day
-          - otherwise use inflows_pos_fallback / 7 (daily 28d average)
-        fonte is 'previsao' if at least one day used the forecast, else 'media_28d'.
+          - if the day is past and has real vendas_detalhe data → use it (fonte='real')
+          - elif the day has a forecast estimate → use est_total (fonte='previsao')
+          - otherwise → use inflows_pos_fallback / 7 (daily 28d avg, fonte='media_28d')
+        Week-level fonte: 'real' if any real day, 'previsao' if any forecast day, else 'media_28d'.
         daily is a list of {date, label, amount, fonte} for drill-down.
         """
         daily_fallback = inflows_pos_fallback / 7.0
         total = 0.0
+        real_days = 0
         forecast_days = 0
         daily = []
         cur = ws
         while cur <= we:
-            if cur in _forecast_by_date:
+            if cur < today and cur in _vendas_reais_by_date:
+                amt = round(_vendas_reais_by_date[cur], 2)
+                fonte_d = 'real'
+                real_days += 1
+            elif cur in _forecast_by_date:
                 amt = round(_forecast_by_date[cur], 2)
                 fonte_d = 'previsao'
                 forecast_days += 1
@@ -648,7 +665,12 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
                 'fonte': fonte_d,
             })
             cur += timedelta(days=1)
-        fonte = 'previsao' if forecast_days > 0 else 'media_28d'
+        if real_days > 0:
+            fonte = 'real'
+        elif forecast_days > 0:
+            fonte = 'previsao'
+        else:
+            fonte = 'media_28d'
         return round(total, 2), fonte, daily
 
     from db.avencas import get_avencas as _get_avencas, next_due_date as _avenca_next_due_date
@@ -701,30 +723,32 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
                 'date': due,
             })
 
-        outflows_by_category = sorted(
-            cats.values(),
-            key=lambda c: (c['category_id'] is None, (c['category_name'] or '').lower()),
-        )
-        outflows_invoices = sum(c['amount'] for c in outflows_by_category)
-
-        credit_items = []
-        outflows_credit = 0.0
         for cc in credit_contracts:
             debit_date = _credit_debit_date_in_week(int(cc['dia_debito'] or 1), week_start, week_end)
             if debit_date is None:
                 continue
+            cid = cc['categoria_custo_id']
+            cname = cc['categoria_custo_nome'] or 'Sem categoria'
+            if cid not in cats:
+                cats[cid] = {'category_id': cid, 'category_name': cname, 'amount': 0.0, 'items': []}
             prestacao = float(cc['prestacao_mensal'] or 0)
-            outflows_credit = round(outflows_credit + prestacao, 2)
+            cats[cid]['amount'] = round(cats[cid]['amount'] + prestacao, 2)
             label = cc['label'] or ''
             banco = cc['banco'] or ''
             description = f"{label} – {banco}" if banco and banco not in label else label
-            credit_items.append({
+            cats[cid]['items'].append({
                 'type': 'credito',
                 'description': description or '(contrato)',
                 'reference': str(cc['tipo'] or ''),
                 'amount': round(prestacao, 2),
                 'date': debit_date,
             })
+
+        outflows_by_category = sorted(
+            cats.values(),
+            key=lambda c: (c['category_id'] is None, (c['category_name'] or '').lower()),
+        )
+        outflows_invoices = sum(c['amount'] for c in outflows_by_category)
 
         vat_items = []
         outflows_vat = 0.0
@@ -757,7 +781,7 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         inflows_eventos_manual = round(_manuais.get('eventos', {}).get(week_start, 0.0), 2)
         inflows_b2b_manual = round(_manuais.get('b2b', {}).get(week_start, 0.0), 2)
 
-        total_out = round(outflows_invoices + outflows_credit + outflows_vat, 2)
+        total_out = round(outflows_invoices + outflows_vat, 2)
         total_in = round(
             inflows_events + inflows_pos_week + inflows_eventos_manual + inflows_b2b_manual, 2
         )
@@ -769,8 +793,6 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             'week_end': week_end,
             'outflows_by_category': outflows_by_category,
             'outflows_invoices': round(outflows_invoices, 2),
-            'outflows_credit': round(outflows_credit, 2),
-            'outflows_credit_items': credit_items,
             'outflows_vat': round(outflows_vat, 2),
             'outflows_vat_items': vat_items,
             'inflows_pos': round(inflows_pos_week, 2),

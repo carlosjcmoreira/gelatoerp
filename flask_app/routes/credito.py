@@ -14,6 +14,7 @@ from database import (
     get_payment_revisions, add_payment_revision,
     get_confirming_contracts, get_confirming_dashboard,
     create_confirming_parcela, get_confirming_parcelas, update_confirming_parcela_estado,
+    get_cost_categories,
 )
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,7 @@ def contratos():
     contracts = get_credit_contracts(estado=estado if estado != 'todos' else None)
     edit_id = request.args.get('edit', type=int)
     edit_contract = get_credit_contract(edit_id) if edit_id else None
+    categorias = get_cost_categories(ativo_only=False)
     return render_template(
         'credito/contratos.html',
         contracts=contracts,
@@ -152,6 +154,7 @@ def contratos():
         tipos=TIPOS_CONTRATO,
         lojas=LOJAS,
         estado_filtro=estado,
+        categorias=categorias,
     )
 
 
@@ -159,6 +162,7 @@ def contratos():
 @perm_required('acesso_gestor')
 def guardar_contrato():
     contract_id = request.form.get('contract_id', type=int)
+    cat_id_raw = request.form.get('categoria_custo_id', '').strip()
     data = {
         'tipo': request.form.get('tipo'),
         'label': request.form.get('label', '').strip(),
@@ -174,6 +178,7 @@ def guardar_contrato():
         'plafond': request.form.get('plafond') or None,
         'estado': request.form.get('estado', 'ativo'),
         'notas': request.form.get('notas', '').strip(),
+        'categoria_custo_id': int(cat_id_raw) if cat_id_raw else None,
     }
     if not data['label']:
         flash('O campo «Label / Nome» é obrigatório.', 'error')

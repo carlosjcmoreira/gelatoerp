@@ -103,7 +103,19 @@
                             <option value="liquidado" {% if edit_contract and edit_contract.estado == 'liquidado' %}selected{% endif %}>Liquidado</option>
                         </select>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-3">
+                        <label class="form-label small mb-1">Categoria de Custo</label>
+                        <select name="categoria_custo_id" class="form-select form-select-sm">
+                            <option value="">— sem categoria —</option>
+                            {% for cat in categorias %}
+                            <option value="{{ cat.id }}"
+                                {% if edit_contract and edit_contract.categoria_custo_id and edit_contract.categoria_custo_id|int == cat.id %}selected{% endif %}>
+                                {{ cat.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
                         <label class="form-label small mb-1">Notas</label>
                         <input type="text" name="notas" class="form-control form-control-sm"
                                value="{{ edit_contract.notas or '' if edit_contract else '' }}"
