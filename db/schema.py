@@ -2988,3 +2988,43 @@ def run_migrations_conta_vendas_diarias():
                 conn.rollback()
             except Exception:
                 pass
+
+
+def run_migrations_cost_center_allocation():
+    """Idempotent: create cost_center_allocation table for P&L store distribution config.
+
+    Advisory lock 202614. Table stores one row per (categoria_custo_id, store_id):
+      - mode='volume_vendas': sentinel row with store_id=NULL
+      - mode='tudo_loja':     one row with the chosen store_id, percentagem=100
+      - mode='manual':        one row per store with custom percentagem
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(202614)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_cost_center_allocation: lock held, skipping")
+                return
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS cost_center_allocation (
+                    id                 SERIAL PRIMARY KEY,
+                    categoria_custo_id INTEGER NOT NULL REFERENCES cost_categories(id) ON DELETE CASCADE,
+                    store_id           INTEGER REFERENCES stores(id) ON DELETE CASCADE,
+                    percentagem        REAL    NOT NULL DEFAULT 0,
+                    modo               VARCHAR(50) NOT NULL DEFAULT 'volume_vendas',
+                    updated_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_cost_center_allocation
+                ON cost_center_allocation (categoria_custo_id, COALESCE(store_id, -1))
+            """)
+            conn.commit()
+            logger.info("run_migrations_cost_center_allocation: table ready")
+        except Exception as exc:
+            logger.error("run_migrations_cost_center_allocation failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass

@@ -350,3 +350,67 @@ def migrate_colaboradores_from_json(json_str: str) -> int:
             inserted += 1
         conn.commit()
     return inserted
+
+
+# ── Cost Center Allocation (P&L store distribution) ────────────────────────
+
+def get_all_allocations() -> dict:
+    """Return allocation config indexed by categoria_custo_id.
+
+    Returns:
+        {cat_id: {'modo': str, 'stores': {store_id: percentagem}}}
+        Categories with no rows default to {'modo': 'volume_vendas', 'stores': {}}.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT categoria_custo_id, store_id, percentagem, modo "
+            "FROM cost_center_allocation ORDER BY categoria_custo_id, store_id NULLS FIRST"
+        )
+        rows = cursor.fetchall()
+
+    result: dict = {}
+    for r in rows:
+        cid = r['categoria_custo_id']
+        if cid not in result:
+            result[cid] = {'modo': r['modo'], 'stores': {}}
+        if r['store_id'] is not None:
+            result[cid]['stores'][r['store_id']] = r['percentagem']
+    return result
+
+
+def save_allocation(categoria_custo_id: int, modo: str, store_percentages: dict) -> None:
+    """Persist allocation config for a cost category.
+
+    Replaces all existing rows for the category atomically.
+
+    Args:
+        categoria_custo_id: cost_categories.id
+        modo: 'volume_vendas' | 'tudo_loja' | 'manual'
+        store_percentages: {store_id (int): percentagem (float)}
+            - ignored for 'volume_vendas' (sentinel NULL row is written instead)
+            - one entry for 'tudo_loja'
+            - one entry per store for 'manual'
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM cost_center_allocation WHERE categoria_custo_id = %s",
+            (categoria_custo_id,)
+        )
+        if modo == 'volume_vendas':
+            cursor.execute(
+                "INSERT INTO cost_center_allocation "
+                "(categoria_custo_id, store_id, percentagem, modo) "
+                "VALUES (%s, NULL, 0, 'volume_vendas')",
+                (categoria_custo_id,)
+            )
+        else:
+            for sid, pct in store_percentages.items():
+                cursor.execute(
+                    "INSERT INTO cost_center_allocation "
+                    "(categoria_custo_id, store_id, percentagem, modo) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (categoria_custo_id, int(sid), float(pct), modo)
+                )
+        conn.commit()

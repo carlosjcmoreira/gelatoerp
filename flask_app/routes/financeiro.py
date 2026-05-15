@@ -33,8 +33,9 @@ FINANCEIRO_GROUPS = [
     {
         'label': 'Configuração',
         'modules': [
-            {'key': 'centros_custo',   'label': 'Centros de Custo',   'icon': '🏷️', 'active': True,  'url_func': 'centros_custo.index'},
-            {'key': 'categorias',      'label': 'Categorias de Custo', 'icon': '📂', 'active': True,  'url_func': 'categorias_custo.index'},
+            {'key': 'centros_custo',             'label': 'Centros de Custo',      'icon': '🏷️', 'active': True,  'url_func': 'centros_custo.index'},
+            {'key': 'categorias',                'label': 'Categorias de Custo',   'icon': '📂', 'active': True,  'url_func': 'categorias_custo.index'},
+            {'key': 'distribuicao_centros_custo','label': 'Distribuição P&L',      'icon': '📊', 'active': True,  'url_func': 'financeiro.distribuicao_centros_custo'},
         ],
     },
 ]
@@ -236,4 +237,50 @@ def vendas_diarias():
         meses_pt=MESES_PT,
         weekday_names=WEEKDAY_NAMES,
         hoje=today,
+    )
+
+
+@financeiro_bp.route('/distribuicao-centros-custo', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def distribuicao_centros_custo():
+    from db.centros_custo import get_cost_categories, get_all_allocations, save_allocation
+    from db.stores import get_all_stores
+
+    stores = [s for s in get_all_stores() if s['is_active']]
+    categories = get_cost_categories(ativo_only=True)
+
+    if request.method == 'POST':
+        for cat in categories:
+            cid = cat['id']
+            modo = request.form.get(f'modo_{cid}', 'volume_vendas')
+            store_pct: dict = {}
+
+            if modo == 'tudo_loja':
+                sid_str = request.form.get(f'tudo_loja_store_{cid}')
+                if sid_str:
+                    try:
+                        store_pct[int(sid_str)] = 100.0
+                    except (ValueError, TypeError):
+                        pass
+
+            elif modo == 'manual':
+                for store in stores:
+                    sid = store['id']
+                    val_str = request.form.get(f'pct_{cid}_{sid}', '0')
+                    try:
+                        store_pct[sid] = float(val_str)
+                    except (ValueError, TypeError):
+                        store_pct[sid] = 0.0
+
+            save_allocation(cid, modo, store_pct)
+
+        flash('Configuração de distribuição guardada com sucesso.', 'success')
+        return redirect(url_for('financeiro.distribuicao_centros_custo'))
+
+    allocations = get_all_allocations()
+    return render_template(
+        'financeiro/distribuicao_centros_custo.html',
+        categories=categories,
+        stores=stores,
+        allocations=allocations,
     )

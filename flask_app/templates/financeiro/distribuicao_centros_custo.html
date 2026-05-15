@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <h5 class="mb-1">📊 Distribuição de Centros de Custo por Loja</h5>
+    <p class="text-muted small mb-3">
+        Configure como os custos de cada categoria são rateados pelo P&amp;L de cada loja.
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ 'danger' if cat == 'danger' else ('warning' if cat == 'warning' else 'success') }} alert-dismissible fade show py-2 small" role="alert">
+          {{ msg }}<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    <div class="alert alert-info py-2 small mb-3">
+        <strong>Modos de distribuição:</strong>
+        <ul class="mb-0 mt-1">
+            <li><strong>Volume de vendas</strong> — O custo é distribuído automaticamente pelo volume de vendas de cada loja (calculado no momento do relatório).</li>
+            <li><strong>100% a uma loja</strong> — O custo é atribuído integralmente à loja selecionada.</li>
+            <li><strong>Percentagens manuais</strong> — Defina manualmente a percentagem de cada loja (devem somar 100%).</li>
+        </ul>
+    </div>
+
+    <form method="post" id="allocationForm">
+        <div class="card mb-3">
+            <div class="card-header small fw-semibold d-flex justify-content-between align-items-center">
+                <span>Configuração por Categoria de Custo</span>
+                <button type="submit" class="btn btn-primary btn-sm" id="saveBtn">💾 Guardar</button>
+            </div>
+
+            <div id="sumError" class="alert alert-danger py-2 small mx-3 mt-2 d-none">
+                ⚠️ Existem categorias em modo "Percentagens manuais" cujos valores não somam 100%.
+                Corrija antes de guardar.
+            </div>
+
+            {% if categories %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="ps-3" style="min-width:180px">Categoria</th>
+                            <th style="min-width:200px">Modo</th>
+                            {% for store in stores %}
+                            <th class="text-center" style="min-width:120px">{{ store.name }}</th>
+                            {% endfor %}
+                            <th class="text-center" style="min-width:80px">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for cat in categories %}
+                    {% set cid = cat.id %}
+                    {% set alloc = allocations.get(cid, {'modo': 'volume_vendas', 'stores': {}}) %}
+                    {% set cur_modo = alloc.modo %}
+                    <tr class="alloc-row" data-catid="{{ cid }}">
+                        <td class="ps-3 small fw-semibold">
+                            {{ cat.name }}
+                            {% if cat.parent_id %}
+                            <span class="text-muted fw-normal">↳</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <select name="modo_{{ cid }}" class="form-select form-select-sm modo-select"
+                                    data-catid="{{ cid }}" onchange="onModoChange({{ cid }}, this.value)">
+                                <option value="volume_vendas" {% if cur_modo == 'volume_vendas' %}selected{% endif %}>
+                                    📈 Volume de vendas
+                                </option>
+                                <option value="tudo_loja" {% if cur_modo == 'tudo_loja' %}selected{% endif %}>
+                                    🏪 100% a uma loja
+                                </option>
+                                <option value="manual" {% if cur_modo == 'manual' %}selected{% endif %}>
+                                    ✏️ Percentagens manuais
+                                </option>
+                            </select>
+                        </td>
+                        {% for store in stores %}
+                        {% set sid = store.id %}
+                        {% set cur_pct = alloc.stores.get(sid, 0) %}
+                        <td class="text-center store-cell store-cell-{{ cid }}" data-catid="{{ cid }}" data-storeid="{{ sid }}">
+
+                            {# volume_vendas: show dash #}
+                            <span class="cell-volume {% if cur_modo != 'volume_vendas' %}d-none{% endif %} text-muted small">—</span>
+
+                            {# tudo_loja: radio button #}
+                            <div class="cell-tudo {% if cur_modo != 'tudo_loja' %}d-none{% endif %}">
+                                <input type="radio" name="tudo_loja_store_{{ cid }}"
+                                       value="{{ sid }}"
+                                       class="form-check-input tudo-radio"
+                                       data-catid="{{ cid }}"
+                                       {% if cur_modo == 'tudo_loja' and alloc.stores.get(sid) is not none and alloc.stores.get(sid) == 100 %}checked{% endif %}
+                                       {% if cur_modo != 'tudo_loja' %}disabled{% endif %}>
+                                <label class="form-check-label small ms-1">100%</label>
+                            </div>
+
+                            {# manual: percentage input #}
+                            <div class="cell-manual {% if cur_modo != 'manual' %}d-none{% endif %} input-group input-group-sm" style="max-width:90px;margin:auto">
+                                <input type="number" name="pct_{{ cid }}_{{ sid }}"
+                                       class="form-control form-control-sm text-end manual-pct"
+                                       data-catid="{{ cid }}"
+                                       min="0" max="100" step="0.1"
+                                       value="{{ cur_pct | round(1) }}"
+                                       {% if cur_modo != 'manual' %}disabled{% endif %}>
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </td>
+                        {% endfor %}
+
+                        {# Total column — only meaningful for manual mode #}
+                        <td class="text-center">
+                            <span class="manual-total-{{ cid }} small fw-semibold {% if cur_modo == 'manual' %}{% set total_pct = alloc.stores.values() | sum %}{% if (total_pct - 100) | abs < 0.01 %}text-success{% else %}text-danger{% endif %}{% else %}d-none{% endif %}">
+                                {% if cur_modo == 'manual' %}{{ alloc.stores.values() | sum | round(1) }}%{% endif %}
+                            </span>
+                            <span class="volume-label-{{ cid }} small text-muted {% if cur_modo != 'volume_vendas' %}d-none{% endif %}">auto</span>
+                            <span class="tudo-label-{{ cid }} small text-muted {% if cur_modo != 'tudo_loja' %}d-none{% endif %}">100%</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center text-muted py-4 small">
+                Nenhuma categoria de custo ativa. <a href="{{ url_for('categorias_custo.index') }}">Crie categorias primeiro.</a>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if categories %}
+        <div class="d-grid d-md-flex justify-content-md-end">
+            <button type="submit" class="btn btn-primary" id="saveBtn2">💾 Guardar Configuração</button>
+        </div>
+        {% endif %}
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STORES = {{ stores | tojson }};
+
+function onModoChange(catId, modo) {
+    const row = document.querySelector(`.alloc-row[data-catid="${catId}"]`);
+
+    row.querySelectorAll('.cell-volume').forEach(el => el.classList.toggle('d-none', modo !== 'volume_vendas'));
+    row.querySelectorAll('.cell-tudo').forEach(el => el.classList.toggle('d-none', modo !== 'tudo_loja'));
+    row.querySelectorAll('.cell-manual').forEach(el => el.classList.toggle('d-none', modo !== 'manual'));
+
+    // Enable/disable inputs based on mode
+    row.querySelectorAll('.tudo-radio').forEach(el => {
+        el.disabled = (modo !== 'tudo_loja');
+        if (modo !== 'tudo_loja') el.checked = false;
+    });
+    row.querySelectorAll('.manual-pct').forEach(el => {
+        el.disabled = (modo !== 'manual');
+    });
+
+    // Show/hide total column labels
+    const manualTotal = row.querySelector(`.manual-total-${catId}`);
+    const volumeLabel = row.querySelector(`.volume-label-${catId}`);
+    const tudoLabel   = row.querySelector(`.tudo-label-${catId}`);
+    if (manualTotal) manualTotal.classList.toggle('d-none', modo !== 'manual');
+    if (volumeLabel) volumeLabel.classList.toggle('d-none', modo !== 'volume_vendas');
+    if (tudoLabel)   tudoLabel.classList.toggle('d-none',   modo !== 'tudo_loja');
+
+    updateTotal(catId);
+    validateAll();
+}
+
+function updateTotal(catId) {
+    const inputs = document.querySelectorAll(`.manual-pct[data-catid="${catId}"]`);
+    let total = 0;
+    inputs.forEach(inp => { total += parseFloat(inp.value) || 0; });
+    const span = document.querySelector(`.manual-total-${catId}`);
+    if (!span) return;
+    span.textContent = total.toFixed(1) + '%';
+    span.classList.remove('text-success', 'text-danger');
+    span.classList.add(Math.abs(total - 100) < 0.1 ? 'text-success' : 'text-danger');
+}
+
+// Listen for manual pct changes
+document.addEventListener('input', function(e) {
+    if (e.target.classList.contains('manual-pct')) {
+        const catId = e.target.dataset.catid;
+        updateTotal(catId);
+        validateAll();
+    }
+});
+
+function validateAll() {
+    let hasError = false;
+    document.querySelectorAll('.modo-select').forEach(sel => {
+        if (sel.value !== 'manual') return;
+        const catId = sel.dataset.catid;
+        const inputs = document.querySelectorAll(`.manual-pct[data-catid="${catId}"]`);
+        let total = 0;
+        inputs.forEach(inp => { total += parseFloat(inp.value) || 0; });
+        if (Math.abs(total - 100) >= 0.1) hasError = true;
+    });
+    document.getElementById('sumError').classList.toggle('d-none', !hasError);
+    document.getElementById('saveBtn').disabled = hasError;
+    const saveBtn2 = document.getElementById('saveBtn2');
+    if (saveBtn2) saveBtn2.disabled = hasError;
+}
+
+document.getElementById('allocationForm').addEventListener('submit', function(e) {
+    validateAll();
+    if (!document.getElementById('sumError').classList.contains('d-none')) {
+        e.preventDefault();
+    }
+});
+
+// Initialize totals on load
+document.querySelectorAll('.modo-select').forEach(sel => {
+    if (sel.value === 'manual') updateTotal(sel.dataset.catid);
+});
+validateAll();
+</script>
+{% endblock %}

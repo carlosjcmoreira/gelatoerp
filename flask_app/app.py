@@ -35,6 +35,7 @@ from db.avencas import run_migrations_avencas
 from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2, run_migrations_tarefas_v3
 from db.schema import run_migrations_fecho_caixa_audit
 from db.schema import run_migrations_user_audit_log
+from db.schema import run_migrations_cost_center_allocation
 
 
 def _start_sheets_sync_scheduler():
@@ -146,6 +147,7 @@ def create_app():
         run_migrations_conta_vendas_diarias()
         run_migrations_tesouraria_manuais()
         run_migrations_user_audit_log()
+        run_migrations_cost_center_allocation()
         _seed_all_tiles()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()
