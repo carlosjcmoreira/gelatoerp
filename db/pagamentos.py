@@ -542,7 +542,7 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
                 COALESCE(ip.amount_eur, i.amount_eur) AS amount,
                 COALESCE(ip.confirmed_date, ip.proposed_date) AS payment_date,
                 cc.id             AS category_id,
-                COALESCE(cc.name, 'Sem categoria') AS category_name
+                COALESCE(cc.name, 'Sem categoria de custo') AS category_name
             FROM invoice_payments ip
             JOIN invoices i ON i.id = ip.invoice_id
             LEFT JOIN cost_categories cc ON cc.id = i.categoria_custo_id
@@ -556,7 +556,7 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         cursor.execute("""
             SELECT cc.id, cc.label, cc.banco, cc.tipo, cc.prestacao_mensal, cc.dia_debito,
                    cc.categoria_custo_id,
-                   COALESCE(cat.name, 'Sem categoria') AS categoria_custo_nome
+                   COALESCE(cat.name, 'Sem categoria de custo') AS categoria_custo_nome
             FROM credit_contracts cc
             LEFT JOIN cost_categories cat ON cat.id = cc.categoria_custo_id
             WHERE cc.estado = 'ativo' AND cc.tipo != 'overdraft'
@@ -598,6 +598,7 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         """, (today - timedelta(days=28),))
         inflows_pos_fallback = float(cursor.fetchone()['weekly_pos'])
 
+        # Primary: vendas_detalhe (Gestor uploads) for past dates
         cursor.execute("""
             SELECT data, SUM(valor_euros) AS daily_total
             FROM vendas_detalhe
@@ -605,6 +606,17 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             GROUP BY data
         """, (range_start, today))
         _vendas_reais_by_date = {r['data']: float(r['daily_total']) for r in cursor.fetchall()}
+
+        # Fallback: vendas table for past dates not covered by vendas_detalhe
+        cursor.execute("""
+            SELECT data, SUM(valor_euros) AS daily_total
+            FROM vendas
+            WHERE data >= %s AND data < %s
+            GROUP BY data
+        """, (range_start, today))
+        for r in cursor.fetchall():
+            if r['data'] not in _vendas_reais_by_date:
+                _vendas_reais_by_date[r['data']] = float(r['daily_total'])
 
     # ── Forecast-based per-week POS estimates ───────────────────────────────
     # Call get_previsao_30dias() and build a per-date lookup of est_total.
@@ -710,7 +722,7 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             if due is None or not (week_start <= due <= week_end):
                 continue
             cid = av['categoria_custo_id']
-            cname = av['categoria_custo_nome'] or 'Sem categoria'
+            cname = av['categoria_custo_nome'] or 'Sem categoria de custo'
             if cid not in cats:
                 cats[cid] = {'category_id': cid, 'category_name': cname, 'amount': 0.0, 'items': []}
             amt = float(av['valor'] or 0)
@@ -728,7 +740,7 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             if debit_date is None:
                 continue
             cid = cc['categoria_custo_id']
-            cname = cc['categoria_custo_nome'] or 'Sem categoria'
+            cname = cc['categoria_custo_nome'] or 'Sem categoria de custo'
             if cid not in cats:
                 cats[cid] = {'category_id': cid, 'category_name': cname, 'amount': 0.0, 'items': []}
             prestacao = float(cc['prestacao_mensal'] or 0)
