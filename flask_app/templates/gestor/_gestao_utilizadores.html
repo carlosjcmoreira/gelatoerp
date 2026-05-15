@@ -140,6 +140,70 @@
 </div>
 {% endif %}
 
+{# ── Audit log ─────────────────────────────────────────────────────────────── #}
+{% if audit_log is defined and audit_log %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="card-title">Histórico de Alterações</h6>
+        <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle small">
+                <thead>
+                    <tr>
+                        <th>Data/Hora</th>
+                        <th>Executado por</th>
+                        <th>Ação</th>
+                        <th>Utilizador alvo</th>
+                        <th>Detalhes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in audit_log %}
+                    <tr>
+                        <td class="text-nowrap text-muted">{{ entry.created_at.strftime('%d/%m/%Y %H:%M') if entry.created_at else '—' }}</td>
+                        <td class="fw-semibold">{{ entry.actor_username }}</td>
+                        <td>
+                            {% if entry.action_type == 'criado' %}
+                            <span class="badge bg-success">criado</span>
+                            {% elif entry.action_type == 'eliminado' %}
+                            <span class="badge bg-danger">eliminado</span>
+                            {% elif entry.action_type == 'password_alterada' %}
+                            <span class="badge bg-warning text-dark">password alterada</span>
+                            {% elif entry.action_type == 'permissoes_alteradas' %}
+                            <span class="badge bg-primary">permissões</span>
+                            {% elif entry.action_type == 'ativado' %}
+                            <span class="badge bg-success">ativado</span>
+                            {% elif entry.action_type == 'desativado' %}
+                            <span class="badge bg-secondary">desativado</span>
+                            {% else %}
+                            <span class="badge bg-light text-dark">{{ entry.action_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ entry.target_username }}</td>
+                        <td>
+                            {% if entry.details and entry.action_type == 'permissoes_alteradas' %}
+                            {% set before = entry.details.get('antes', {}) %}
+                            {% set after = entry.details.get('depois', {}) %}
+                            {% set changed = [] %}
+                            {% for k, v in after.items() %}
+                                {% if before.get(k) != v %}
+                                    {% if changed.append(k ~ ': ' ~ (before.get(k)|string) ~ ' → ' ~ (v|string)) %}{% endif %}
+                                {% endif %}
+                            {% endfor %}
+                            <span class="text-muted">{{ changed | join(', ') }}</span>
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="text-muted small mb-0">Últimas {{ audit_log|length }} entradas</p>
+    </div>
+</div>
+{% endif %}
+
 {# ── Delete confirmation modal ─────────────────────────────────────────────── #}
 <div class="modal fade" id="deleteUserModal" tabindex="-1" aria-labelledby="deleteUserModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-sm">

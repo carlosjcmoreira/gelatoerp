@@ -15,6 +15,7 @@ import database as db
 import flask_app.services.gestor as gestor_svc
 from flask_app.services import ServiceError
 from db.credito import get_payment_methods_config, upsert_payment_method_config
+from db.auth import log_user_action, get_user_audit_log
 
 gestor_bp = Blueprint('gestor', __name__)
 
@@ -562,7 +563,8 @@ def gestao_utilizadores():
         return _handle_config_post(request.form.get('action', ''), 'gestao_utilizadores')
     return render_template('gestor/gestao_utilizadores.html',
                            users=db.get_all_users(),
-                           lojas_venda=db.get_vendas_module_stores())
+                           lojas_venda=db.get_vendas_module_stores(),
+                           audit_log=get_user_audit_log(limit=50))
 
 
 @gestor_bp.route('/utilizadores/<int:user_id>/eliminar', methods=['POST'])
@@ -598,6 +600,17 @@ def eliminar_utilizador(user_id: int):
         return redirect(url_for('gestor.gestao_utilizadores'))
 
     logger.info("User %s deleted by %s", username, current_user.get('username'))
+    log_user_action(
+        actor_id=current_user['id'],
+        actor_username=current_user['username'],
+        action_type='eliminado',
+        target_user_id=user_id,
+        target_username=username,
+        details={
+            'role': target.get('role'),
+            'ativo': target.get('ativo'),
+        },
+    )
     flash(f"Utilizador '{username}' eliminado com sucesso.", 'success')
     return redirect(url_for('gestor.gestao_utilizadores'))
 
@@ -625,6 +638,13 @@ def toggle_ativo_utilizador(user_id: int):
 
     status = 'reativado' if new_ativo else 'desativado'
     logger.info("User %s %s by %s", target['username'], status, current_user.get('username'))
+    log_user_action(
+        actor_id=current_user['id'],
+        actor_username=current_user['username'],
+        action_type='ativado' if new_ativo else 'desativado',
+        target_user_id=user_id,
+        target_username=target['username'],
+    )
     flash(f"Utilizador '{target['username']}' {status} com sucesso.", 'success')
     return redirect(url_for('gestor.gestao_utilizadores'))
 
@@ -816,9 +836,14 @@ def _handle_config_post(action, config_option):
         flash('Receita eliminada!', 'success')
 
     elif action == 'save_users_perms':
+        current_user = session['user']
         users = db.get_all_users()
         lojas_venda = db.get_vendas_module_stores()
         loja_ids = [loja['id'] for loja in lojas_venda]
+        _perm_fields = ['acesso_eurokg', 'acesso_producao', 'acesso_pastelaria', 'acesso_confeitaria',
+                        'acesso_administrativo', 'acesso_gestor', 'acesso_financeiro', 'acesso_eventos',
+                        'acesso_tarefas', 'ativo']
+        before_map = {u['id']: u for u in users}
         updates = []
         for u in users:
             uid = u['id']
@@ -841,14 +866,41 @@ def _handle_config_post(action, config_option):
                 'vendas_store_ids': vendas_store_ids,
             })
         db.update_user_permissoes_batch(updates)
+        for upd in updates:
+            uid = upd['id']
+            before = before_map.get(uid, {})
+            before_perms = {f: bool(before.get(f)) for f in _perm_fields}
+            before_perms['vendas_store_ids'] = sorted(before.get('vendas_store_ids', []))
+            after_perms = {f: upd.get(f, False) for f in _perm_fields}
+            after_perms['vendas_store_ids'] = sorted(upd.get('vendas_store_ids', []))
+            if before_perms != after_perms:
+                log_user_action(
+                    actor_id=current_user['id'],
+                    actor_username=current_user['username'],
+                    action_type='permissoes_alteradas',
+                    target_user_id=uid,
+                    target_username=before.get('username', str(uid)),
+                    details={'antes': before_perms, 'depois': after_perms},
+                )
         flash('Permissões atualizadas com sucesso!', 'success')
 
     elif action == 'add_user':
+        current_user = session['user']
         username = request.form.get('novo_username', '').strip()
         password = request.form.get('nova_password', '')
         if username and password:
             success = db.add_user(username, password)
             if success:
+                new_users = db.get_all_users()
+                new_user = next((u for u in new_users if u['username'] == username), None)
+                log_user_action(
+                    actor_id=current_user['id'],
+                    actor_username=current_user['username'],
+                    action_type='criado',
+                    target_user_id=new_user['id'] if new_user else None,
+                    target_username=username,
+                    details={'role': new_user['role'] if new_user else None},
+                )
                 flash(f"Utilizador '{username}' criado! Configure os acessos na tabela acima.", 'success')
             else:
                 flash('Utilizador já existe.', 'warning')
@@ -856,6 +908,7 @@ def _handle_config_post(action, config_option):
             flash('Preencha o utilizador e a password.', 'warning')
 
     elif action == 'change_password':
+        current_user = session['user']
         try:
             user_id = int(request.form.get('user_id'))
         except (TypeError, ValueError):
@@ -864,7 +917,18 @@ def _handle_config_post(action, config_option):
         new_pass = request.form.get('new_password', '')
         if new_pass:
             try:
+                all_users = db.get_all_users()
+                target = next((u for u in all_users if u['id'] == user_id), None)
                 db.update_user_password(user_id, new_pass)
+                if target:
+                    log_user_action(
+                        actor_id=current_user['id'],
+                        actor_username=current_user['username'],
+                        action_type='password_alterada',
+                        target_user_id=user_id,
+                        target_username=target['username'],
+                        details={'alterado_por': current_user['username']},
+                    )
                 flash('Password alterada com sucesso!', 'success')
             except Exception as exc:
                 import logging as _logging

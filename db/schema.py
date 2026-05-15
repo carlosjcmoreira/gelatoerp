@@ -2919,6 +2919,44 @@ def run_data_fix_stock_gelado_march2026_dedup():
                 pass
 
 
+def run_migrations_user_audit_log():
+    """Create user_audit_log table for tracking user management actions.
+
+    Advisory lock 202620. Idempotent — safe to call on every startup.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(202620)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_user_audit_log: lock held by another worker, skipping")
+                return
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_audit_log (
+                    id SERIAL PRIMARY KEY,
+                    actor_id INTEGER,
+                    actor_username VARCHAR(100) NOT NULL,
+                    action_type VARCHAR(50) NOT NULL,
+                    target_user_id INTEGER,
+                    target_username VARCHAR(100) NOT NULL,
+                    details JSONB,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_user_audit_log_created ON user_audit_log(created_at DESC)"
+            )
+            conn.commit()
+            logger.info("run_migrations_user_audit_log: table ready")
+        except Exception as exc:
+            logger.error("run_migrations_user_audit_log failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_conta_vendas_diarias():
     """Add conta_vendas_diarias column to produtos_vendas_config.
 

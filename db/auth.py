@@ -283,3 +283,60 @@ def count_admin_users() -> int:
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'")
         return int(cursor.fetchone()[0])
+
+
+def log_user_action(actor_id: int, actor_username: str, action_type: str,
+                    target_user_id, target_username: str, details: dict = None):
+    """Insert an entry into user_audit_log.
+
+    action_type values: criado, eliminado, password_alterada,
+                        permissoes_alteradas, ativado, desativado
+    """
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT INTO user_audit_log
+                   (actor_id, actor_username, action_type, target_user_id, target_username, details)
+                   VALUES (%s, %s, %s, %s, %s, %s)""",
+                (actor_id, actor_username, action_type, target_user_id,
+                 target_username, json.dumps(details) if details else None)
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.error("log_user_action failed (%s on %s): %s", action_type, target_username, exc)
+
+
+def get_user_audit_log(limit: int = 100) -> list:
+    """Return the most recent audit log entries, newest first."""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """SELECT id, actor_username, action_type, target_username, details, created_at
+                   FROM user_audit_log
+                   ORDER BY created_at DESC
+                   LIMIT %s""",
+                (limit,)
+            )
+            rows = cursor.fetchall()
+            result = []
+            for r in rows:
+                details = r[4]
+                if isinstance(details, str):
+                    try:
+                        details = json.loads(details)
+                    except Exception:
+                        details = {}
+                result.append({
+                    'id': r[0],
+                    'actor_username': r[1],
+                    'action_type': r[2],
+                    'target_username': r[3],
+                    'details': details,
+                    'created_at': r[5],
+                })
+            return result
+    except Exception as exc:
+        logger.error("get_user_audit_log failed: %s", exc)
+        return []
