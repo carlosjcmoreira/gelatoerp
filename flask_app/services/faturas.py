@@ -10,6 +10,56 @@ from datetime import date
 
 logger = logging.getLogger(__name__)
 
+# ── Government document → cost category mapping ───────────────────────────────
+# Each entry: (list of lowercase supplier-name substrings, category name fragment to search)
+# The fragment is matched case-insensitively against cost_categories.name.
+_GOVT_CATEGORY_MAP = [
+    (
+        ['segurança social', 'seguranca social', 'igfss', 'seg. social', 'seg social',
+         'seguridade social', 'instituto gestão financeira', 'dgss'],
+        'pessoal',
+    ),
+    (
+        ['autoridade tributária', 'autoridade tributaria', 'at -', 'at–', 'at —',
+         'finanças', 'financas', 'dgci', 'irs', 'irc', 'imposto rendimento',
+         'retenções na fonte', 'retencoes na fonte', 'dmr', 'imposto do selo'],
+        'imposto',
+    ),
+]
+
+
+def _infer_categoria_custo_id(ocr: dict):
+    """Return a cost_categories.id for a government document, or None.
+
+    Only triggers when ``document_type_hint == 'nota_pagamento_imposto'``.
+    Searches ``supplier_name`` for known keywords and then looks up the first
+    active cost category whose name contains the corresponding fragment.
+    """
+    if ocr.get('document_type_hint') != 'nota_pagamento_imposto':
+        return None
+
+    supplier_name = (ocr.get('supplier_name') or '').lower()
+
+    fragment = None
+    for keywords, frag in _GOVT_CATEGORY_MAP:
+        if any(kw in supplier_name for kw in keywords):
+            fragment = frag
+            break
+
+    if not fragment:
+        return None
+
+    try:
+        from database import get_cost_categories
+        cats = get_cost_categories(ativo_only=True)
+        for cat in cats:
+            if fragment in (cat.get('name') or '').lower():
+                return cat['id']
+    except Exception as exc:
+        logger.warning('Could not infer categoria_custo_id: %s', exc)
+
+    return None
+
 
 # ── OCR + draft creation ──────────────────────────────────────────────────────
 
@@ -53,6 +103,8 @@ def _build_draft_data(ocr: dict, supplier, file_bytes: bytes, filename: str,
     if raw_hint and raw_hint != document_type:
         logger.warning("OCR returned unknown document_type_hint %r — defaulting to 'fatura'", raw_hint)
 
+    inferred_categoria_custo_id = _infer_categoria_custo_id(ocr)
+
     return {
         'supplier_id': supplier['id'] if supplier else None,
         'supplier_name': ocr.get('supplier_name') or (supplier['name'] if supplier else None),
@@ -76,6 +128,7 @@ def _build_draft_data(ocr: dict, supplier, file_bytes: bytes, filename: str,
         'notes': None,
         'document_type': document_type,
         'source': source,
+        'categoria_custo_id': inferred_categoria_custo_id,
     }
 
 
