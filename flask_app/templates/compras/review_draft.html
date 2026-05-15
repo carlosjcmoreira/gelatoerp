@@ -168,6 +168,11 @@
                             </optgroup>
                             {% endfor %}
                         </select>
+                        {% if categoria_auto_detected and inv.categoria_custo_id %}
+                        <div class="form-text text-info" id="auto-categoria-hint">
+                            <i class="bi bi-info-circle"></i> Categoria detectada automaticamente pelo OCR — confirme ou ajuste se necessário.
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
                 </div>
@@ -200,6 +205,21 @@
 function togglePagamento(checked) {
     document.getElementById('pagamentoFields').style.display = checked ? '' : 'none';
 }
+
+(function() {
+    var categoriaHint = document.getElementById('auto-categoria-hint');
+    if (categoriaHint) {
+        var categoriaSelect = document.querySelector('select[name="categoria_custo_id"]');
+        if (categoriaSelect) {
+            var originalCategoriaValue = categoriaSelect.value;
+            categoriaSelect.addEventListener('change', function() {
+                if (categoriaSelect.value !== originalCategoriaValue) {
+                    categoriaHint.style.display = 'none';
+                }
+            });
+        }
+    }
+})();
 </script>
 </div>
 {% endblock %}

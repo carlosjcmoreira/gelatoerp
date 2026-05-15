@@ -104,6 +104,8 @@ def _build_draft_data(ocr: dict, supplier, file_bytes: bytes, filename: str,
         logger.warning("OCR returned unknown document_type_hint %r — defaulting to 'fatura'", raw_hint)
 
     inferred_categoria_custo_id = _infer_categoria_custo_id(ocr)
+    if inferred_categoria_custo_id is not None:
+        ocr_raw['auto_categoria_custo'] = True
 
     return {
         'supplier_id': supplier['id'] if supplier else None,

@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_app.auth import perm_required
 from datetime import date, datetime
+import json
 import sys, os, logging
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
@@ -218,13 +219,20 @@ def review_draft(invoice_id):
             payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
             cost_centers = get_cost_centers(ativo_only=True)
             cost_categories_tree = get_cost_categories_tree()
+            _ocr_raw = inv.get('ocr_raw') or {}
+            if isinstance(_ocr_raw, str):
+                try:
+                    _ocr_raw = json.loads(_ocr_raw)
+                except (json.JSONDecodeError, TypeError):
+                    _ocr_raw = {}
             return render_template('compras/review_draft.html',
                                    inv=inv,
                                    document_type_labels=DOCUMENT_TYPE_LABELS,
                                    payment_methods=payment_methods,
                                    cost_centers=cost_centers,
                                    cost_categories_tree=cost_categories_tree,
-                                   today=date.today())
+                                   today=date.today(),
+                                   categoria_auto_detected=bool(_ocr_raw.get('auto_categoria_custo')))
 
         new_status = 'paid' if ja_paga else 'pending_review'
         update_invoice(invoice_id, {
@@ -252,13 +260,20 @@ def review_draft(invoice_id):
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
+    _ocr_raw = inv.get('ocr_raw') or {}
+    if isinstance(_ocr_raw, str):
+        try:
+            _ocr_raw = json.loads(_ocr_raw)
+        except (json.JSONDecodeError, TypeError):
+            _ocr_raw = {}
     return render_template('compras/review_draft.html',
                            inv=inv,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,
                            cost_centers=cost_centers,
                            cost_categories_tree=cost_categories_tree,
-                           today=date.today())
+                           today=date.today(),
+                           categoria_auto_detected=bool(_ocr_raw.get('auto_categoria_custo')))
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/marcar-paga', methods=['POST'])

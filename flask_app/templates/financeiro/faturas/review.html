@@ -231,6 +231,11 @@
                             </optgroup>
                             {% endfor %}
                         </select>
+                        {% if ocr.confidence.get('auto_categoria_custo') and inv.categoria_custo_id %}
+                        <div class="form-text text-info" id="auto-categoria-hint">
+                            <i class="bi bi-info-circle"></i> Categoria detectada automaticamente pelo OCR — confirme ou ajuste se necessário.
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
                     <div class="col-12 col-md-4">
@@ -332,6 +337,20 @@
     issueDateInput.addEventListener('change', updateDueDate);
     if (issueDateInput.value) updateDueDate();
     {% endif %}
+
+    // Hide the auto-detected category hint when the user manually changes the select
+    var categoriaHint = document.getElementById('auto-categoria-hint');
+    if (categoriaHint) {
+        var categoriaSelect = document.querySelector('select[name="categoria_custo_id"]');
+        if (categoriaSelect) {
+            var originalCategoriaValue = categoriaSelect.value;
+            categoriaSelect.addEventListener('change', function() {
+                if (categoriaSelect.value !== originalCategoriaValue) {
+                    categoriaHint.style.display = 'none';
+                }
+            });
+        }
+    }
 })();
 </script>
 {% endblock %}
