@@ -35,7 +35,7 @@ FINANCEIRO_GROUPS = [
         'modules': [
             {'key': 'centros_custo',             'label': 'Centros de Custo',      'icon': '🏷️', 'active': True,  'url_func': 'centros_custo.index'},
             {'key': 'categorias',                'label': 'Categorias de Custo',   'icon': '📂', 'active': True,  'url_func': 'categorias_custo.index'},
-            {'key': 'distribuicao_centros_custo','label': 'Distribuição P&L',      'icon': '📊', 'active': True,  'url_func': 'financeiro.distribuicao_centros_custo'},
+            {'key': 'distribuicao_centros_custo','label': 'Distribuição Centros de Custo', 'icon': '📊', 'active': True,  'url_func': 'financeiro.distribuicao_centros_custo'},
         ],
     },
 ]
@@ -241,7 +241,7 @@ def vendas_diarias():
 
 
 @financeiro_bp.route('/distribuicao-centros-custo', methods=['GET', 'POST'])
-@perm_required('acesso_gestor')
+@perm_required('acesso_financeiro')
 def distribuicao_centros_custo():
     from db.centros_custo import get_cost_categories, get_all_allocations, save_allocation
     from db.stores import get_all_stores
