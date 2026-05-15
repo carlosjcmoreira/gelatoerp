@@ -77,6 +77,41 @@ def _run_meteo_calibration():
         logger.error("Meteo calibration scheduler run error: %s", e)
 
 
+def _run_daily_8h_update():
+    """Daily 8h job: refresh weather data then regenerate 30-day sales forecasts.
+
+    Runs ``_run_weather_update()`` first so the forecast engine has the
+    freshest meteo scores, then calls ``refresh_all_forecasts()`` for every
+    active store.  Each phase is wrapped independently so a weather failure
+    still allows the forecast phase to proceed (and vice versa).
+    """
+    import time as _time
+    t0 = _time.monotonic()
+    logger.info("[weather-8h] daily update starting (weather + forecast refresh)")
+
+    # Phase 1 — weather data refresh
+    try:
+        _run_weather_update()
+    except Exception as e:
+        logger.error("[weather-8h] weather phase error: %s", e)
+
+    # Phase 2 — regenerate 30-day sales forecasts for all active stores
+    try:
+        from db.forecast import refresh_all_forecasts
+        result = refresh_all_forecasts(horizon_days=30)
+        elapsed = round(_time.monotonic() - t0, 2)
+        logger.info(
+            "[weather-8h] forecast updated — stores_ok=%s stores_failed=%s "
+            "total_rows=%d elapsed=%.2fs",
+            result["stores_ok"],
+            result["stores_failed"],
+            result["total_rows"],
+            elapsed,
+        )
+    except Exception as e:
+        logger.error("[weather-8h] forecast phase error: %s", e)
+
+
 def _run_gap_fill():
     """Detect and backfill missing historical weather data (open-meteo) for all active stores.
 
@@ -217,8 +252,19 @@ def start_weather_scheduler():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+            _scheduler.add_job(
+                _run_daily_8h_update,
+                CronTrigger(hour="8", minute="0", timezone="Europe/Lisbon"),
+                id="daily_8h_forecast",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             _scheduler.start()
-            logger.info("Weather scheduler started (bi-daily: 07:30 and 13:30; gap fill: 02:00; meteo calibration: Mon 03:00)")
+            logger.info(
+                "Weather scheduler started "
+                "(bi-daily: 07:30 and 13:30; gap fill: 02:00; "
+                "meteo calibration: Mon 03:00; forecast refresh: 08:00)"
+            )
             t = threading.Thread(target=_run_weather_update, daemon=True, name="weather-init")
             t.start()
             logger.info("Weather scheduler: triggered immediate update on startup")

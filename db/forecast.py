@@ -1223,6 +1223,65 @@ def get_past_sales(loja: Optional[str], from_date: date, to_date: date) -> list[
     return rows
 
 
+# ---------------------------------------------------------------------------
+# Batch forecast refresh (used by the daily 8h scheduler job)
+# ---------------------------------------------------------------------------
+
+def refresh_all_forecasts(horizon_days: int = 30) -> dict:
+    """Regenerate 30-day sales forecasts for all active stores.
+
+    Iterates every active store and calls ``generate_forecasts`` with
+    ``force=True`` so cached-today rows are always overwritten with the
+    latest weather data.  A per-store try/except guarantees that a failure
+    on one store does not block the remaining stores.
+
+    Returns a summary dict::
+
+        {
+            "stores_ok": ["Matosinhos", "Bolhão"],
+            "stores_failed": [],
+            "total_rows": 60,
+        }
+    """
+    import logging as _logging
+    import time as _time
+    _log = _logging.getLogger(__name__)
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM stores WHERE is_active = TRUE ORDER BY name")
+        active_lojas = [r[0] for r in cursor.fetchall()]
+
+    stores_ok: list[str] = []
+    stores_failed: list[str] = []
+    total_rows = 0
+
+    for loja in active_lojas:
+        t0 = _time.monotonic()
+        try:
+            rows = generate_forecasts(loja, horizon_days=horizon_days, force=True)
+            elapsed = round(_time.monotonic() - t0, 2)
+            _log.info(
+                "[weather-8h] forecast updated — loja=%s rows=%d elapsed=%.2fs",
+                loja, len(rows), elapsed,
+            )
+            stores_ok.append(loja)
+            total_rows += len(rows)
+        except Exception as exc:
+            elapsed = round(_time.monotonic() - t0, 2)
+            _log.error(
+                "[weather-8h] forecast FAILED — loja=%s elapsed=%.2fs error=%s",
+                loja, elapsed, exc,
+            )
+            stores_failed.append(loja)
+
+    return {
+        "stores_ok": stores_ok,
+        "stores_failed": stores_failed,
+        "total_rows": total_rows,
+    }
+
+
 def get_homolog_sales(loja: str, from_date: date, to_date: date) -> dict:
     """Return {date: valor} for the same date window last year."""
     ly_from = date(from_date.year - 1, from_date.month, from_date.day)
