@@ -1082,6 +1082,9 @@ def get_dashboard_vendas() -> dict:
             ytd_rows = cur.fetchall()
 
             # ── YTD sums: per produto × loja ─────────────────────────────────
+            # Only vendas_detalhe here — sales_historico contains only daily
+            # totals ("Total Diário"), not per-product breakdowns, so it
+            # cannot provide meaningful 2025 comparison data at product level.
             cur.execute("""
                 SELECT vd.produto, vd.loja,
                        SUM(CASE WHEN EXTRACT(YEAR FROM vd.data) = 2026 THEN vd.valor_euros ELSE 0 END) AS ytd_2026,
@@ -1089,21 +1092,10 @@ def get_dashboard_vendas() -> dict:
                                  AND EXTRACT(MONTH FROM vd.data) * 100 + EXTRACT(DAY FROM vd.data)
                                      <= EXTRACT(MONTH FROM %s::date) * 100 + EXTRACT(DAY FROM %s::date)
                                 THEN vd.valor_euros ELSE 0 END) AS ytd_2025
-                FROM (
-                    SELECT loja, data, valor_euros, produto
-                    FROM vendas_detalhe
-                    WHERE EXTRACT(YEAR FROM data) IN (2025, 2026)
-                    UNION ALL
-                    SELECT sh.loja, sh.data, sh.valor_euros, sh.produto
-                    FROM sales_historico sh
-                    WHERE EXTRACT(YEAR FROM sh.data) = 2025
-                      AND NOT EXISTS (
-                          SELECT 1 FROM vendas_detalhe vd_chk
-                          WHERE EXTRACT(YEAR FROM vd_chk.data) = 2025 LIMIT 1
-                      )
-                ) vd
+                FROM vendas_detalhe vd
                 LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
-                WHERE (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
+                  AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
                 GROUP BY vd.produto, vd.loja
             """, (cutoff, cutoff))
             produto_rows = cur.fetchall()
