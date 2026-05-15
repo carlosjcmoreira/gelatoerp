@@ -80,6 +80,37 @@
         {% endif %}
     </div>
 
+    <!-- ── Totais por tipo de documento ──────────────────────────────────── -->
+    {% if totals_by_type is defined and totals_by_type %}
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+        <span class="small text-muted fw-semibold">Por tipo:</span>
+        {% set _type_colors = {
+            'fatura': 'secondary',
+            'nota_credito': 'success',
+            'nota_debito': 'warning',
+            'nota_pagamento_imposto': 'danger',
+            'outro': 'secondary'
+        } %}
+        {% for dt, info in totals_by_type.items() %}
+        {% set _color = _type_colors.get(dt, 'secondary') %}
+        {% set _badge_qs = (type_badge_base_qs + '&' if type_badge_base_qs else '') + 'document_type=' + dt %}
+        <a href="{{ url_for('faturas.index') }}?{{ _badge_qs }}"
+           class="badge text-decoration-none bg-{{ _color }}-subtle text-{{ _color }}-emphasis border border-{{ _color }}-subtle py-1 px-2"
+           style="font-size:0.75rem; {% if document_type_filter == dt %}outline:2px solid currentColor;{% endif %}"
+           title="Filtrar por {{ document_type_labels.get(dt, dt) }} (totais globais)">
+            {{ document_type_labels.get(dt, dt) }}
+            <span class="ms-1 opacity-75">{{ "%.0f €"|format(info.total) }}</span>
+            <span class="ms-1 opacity-50">({{ info.count }})</span>
+        </a>
+        {% endfor %}
+        {% if document_type_filter %}
+        {% set _clear_qs = type_badge_base_qs %}
+        <a href="{{ url_for('faturas.index') }}{% if _clear_qs %}?{{ _clear_qs }}{% endif %}"
+           class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem;">✕ Limpar filtro</a>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {% if pending_docs %}
     <div class="card mb-3">
         <div class="card-body py-2 px-3">
@@ -416,6 +447,12 @@
                 <option value="{{ k }}" {% if status_filter == k %}selected{% endif %}>{{ v }}</option>
                 {% endfor %}
             </select>
+            <select name="document_type" class="form-select form-select-sm" style="flex: 1 1 140px; min-width: 0">
+                <option value="">Todos os tipos</option>
+                {% for dt, label in document_type_labels.items() %}
+                <option value="{{ dt }}" {% if document_type_filter == dt %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
             <select name="store_id" class="form-select form-select-sm" style="flex: 1 1 110px; min-width: 0">
                 <option value="">Todas as lojas</option>
                 {% for s in stores %}
@@ -451,6 +488,12 @@
             </div>
         </div>
     </form>
+    {% if document_type_filter %}
+    <div class="alert alert-info py-1 px-3 mb-3 d-flex align-items-center justify-content-between" style="font-size:0.85rem;">
+        <span>A filtrar por tipo: <strong>{{ document_type_labels.get(document_type_filter, document_type_filter) }}</strong> — {{ invoices|length }} documento(s)</span>
+        <a href="{{ url_for('faturas.index') }}" class="btn btn-sm btn-outline-secondary py-0 px-2 ms-2">✕ Limpar</a>
+    </div>
+    {% endif %}
 
     {% if invoices %}
     <!-- Summary badges -->

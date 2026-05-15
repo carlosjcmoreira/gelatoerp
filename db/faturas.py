@@ -235,7 +235,8 @@ def get_invoices(status: str = None, store_id: int = None,
                  supplier_name: str = None,
                  supplier_id: int = None,
                  date_from=None, date_to=None,
-                 date_field: str = 'issue_date') -> list:
+                 date_field: str = 'issue_date',
+                 document_type: str = None) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         where = []
@@ -264,6 +265,9 @@ def get_invoices(status: str = None, store_id: int = None,
         if supplier_name:
             where.append("LOWER(i.supplier_name) = LOWER(%s)")
             params.append(supplier_name)
+        if document_type and document_type in DOCUMENT_TYPE_LABELS:
+            where.append("i.document_type = %s")
+            params.append(document_type)
         _date_col = 'i.due_date' if date_field == 'due_date' else 'i.issue_date'
         if date_from:
             where.append(f"{_date_col} >= %s")
@@ -306,6 +310,26 @@ def get_invoices(status: str = None, store_id: int = None,
         inv['payment_method'] = r[27] if len(r) > 27 else None
         result.append(inv)
     return result
+
+
+def get_invoices_type_totals() -> dict:
+    """Return a {document_type: {count, total}} dict for all non-draft invoices.
+
+    Uses a single GROUP BY query rather than fetching all rows.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COALESCE(document_type, 'fatura') AS dt,
+                   COUNT(*) AS n,
+                   COALESCE(SUM(amount_eur), 0) AS total
+            FROM invoices
+            WHERE status != 'draft'
+            GROUP BY dt
+            ORDER BY dt
+        """)
+        rows = cursor.fetchall()
+    return {r[0]: {'count': int(r[1]), 'total': float(r[2])} for r in rows}
 
 
 def get_invoice(invoice_id: int) -> dict:

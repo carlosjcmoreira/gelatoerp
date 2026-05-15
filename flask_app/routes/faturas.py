@@ -204,6 +204,9 @@ def index():
     categoria_custo_raw = request.args.get('categoria_custo_id', '')
     centro_custo_filter = int(centro_custo_raw) if centro_custo_raw else None
     categoria_custo_filter = int(categoria_custo_raw) if categoria_custo_raw else None
+    document_type_filter = request.args.get('document_type', '').strip()
+    if document_type_filter not in DOCUMENT_TYPE_LABELS:
+        document_type_filter = ''
 
     invoices = get_invoices(
         status=status_filter or None,
@@ -213,6 +216,7 @@ def index():
         order_dir=order_dir,
         centro_custo_id=centro_custo_filter,
         categoria_custo_id=categoria_custo_filter,
+        document_type=document_type_filter or None,
     )
 
     for inv in invoices:
@@ -225,6 +229,7 @@ def index():
     filter_qs = '?' + urlencode({k: v for k, v in {
         'q': search, 'status': status_filter, 'store_id': store_id,
         'centro_custo_id': centro_custo_raw, 'categoria_custo_id': categoria_custo_raw,
+        'document_type': document_type_filter,
     }.items()})
 
     stores = get_stores_list()
@@ -241,6 +246,16 @@ def index():
         (p for p in reversed(vat_periods) if p['status'] in ('estimated', 'declared')),
         None
     )
+
+    # Per-type totals — single GROUP BY query, no full-list fetch
+    from db.faturas import get_invoices_type_totals
+    totals_by_type = get_invoices_type_totals()
+
+    # Base query string without document_type so badge links preserve other filters
+    type_badge_base_qs = urlencode({k: v for k, v in {
+        'q': search, 'status': status_filter, 'store_id': store_id,
+        'centro_custo_id': centro_custo_raw, 'categoria_custo_id': categoria_custo_raw,
+    }.items() if v})
 
     return render_template(
         'financeiro/faturas/index.html',
@@ -261,12 +276,15 @@ def index():
         cost_categories_tree=cost_categories_tree,
         centro_custo_filter=centro_custo_filter,
         categoria_custo_filter=categoria_custo_filter,
+        document_type_filter=document_type_filter,
         document_type_labels=DOCUMENT_TYPE_LABELS,
         pending_docs=pending_docs,
         scheduled_docs=scheduled_docs,
         total_pending=total_pending,
         total_scheduled=total_scheduled,
         next_vat=next_vat,
+        totals_by_type=totals_by_type,
+        type_badge_base_qs=type_badge_base_qs,
     )
 
 

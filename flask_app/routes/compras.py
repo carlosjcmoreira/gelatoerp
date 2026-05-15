@@ -80,12 +80,16 @@ def faturas():
             return None
     date_from = _parse_date(date_from_raw)
     date_to = _parse_date(date_to_raw)
+    document_type_filter = request.args.get('document_type', '').strip()
+    if document_type_filter not in DOCUMENT_TYPE_LABELS:
+        document_type_filter = ''
     invoices = get_invoices(
         supplier_id=supplier_filter_id,
         status=status_filter or None,
         date_from=date_from,
         date_to=date_to,
         date_field=date_field,
+        document_type=document_type_filter or None,
     )
     for inv in invoices:
         if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
@@ -94,7 +98,7 @@ def faturas():
             inv['display_status'] = inv['status']
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     suppliers = get_invoice_suppliers()
-    has_filters = bool(supplier_filter_id or status_filter or date_from_raw or date_to_raw)
+    has_filters = bool(supplier_filter_id or status_filter or date_from_raw or date_to_raw or document_type_filter)
     return render_template('compras/faturas.html',
                            invoices=invoices,
                            suppliers=suppliers,
@@ -103,6 +107,7 @@ def faturas():
                            date_from_raw=date_from_raw,
                            date_to_raw=date_to_raw,
                            date_field=date_field,
+                           document_type_filter=document_type_filter,
                            has_filters=has_filters,
                            status_labels=INVOICE_STATUS_LABELS,
                            document_type_labels=DOCUMENT_TYPE_LABELS,

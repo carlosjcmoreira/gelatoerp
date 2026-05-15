@@ -31,6 +31,15 @@
                 </select>
             </div>
             <div class="col-12 col-sm-auto">
+                <label class="form-label small fw-semibold mb-1" for="doc-type-filter">Tipo de Documento</label>
+                <select id="doc-type-filter" name="document_type" class="form-select form-select-sm">
+                    <option value=""{% if not document_type_filter %} selected{% endif %}>(Todos)</option>
+                    {% for dt, label in document_type_labels.items() %}
+                    <option value="{{ dt }}"{% if document_type_filter == dt %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-sm-auto">
                 <label class="form-label small fw-semibold mb-1" for="date-field">Data por</label>
                 <select id="date-field" name="date_field" class="form-select form-select-sm">
                     <option value="issue_date"{% if date_field == 'issue_date' %} selected{% endif %}>Emissão</option>
