@@ -296,11 +296,17 @@ def _meteo_multiplier(score: Optional[int], config: list) -> tuple[float, str]:
 
 
 def _wind_multiplier(vento_kmh: Optional[float], wind_config: list) -> float:
-    """Return wind multiplier for the given speed (km/h). Default 1.0 if no data."""
+    """Return wind multiplier for the given speed (km/h). Default 1.0 if no data.
+
+    Uses half-open intervals [vento_min_i, vento_min_{i+1}) so decimal AVG values
+    (e.g. 20.4 km/h from weather_data) never fall through integer band gaps.
+    The last band always matches any speed above its start.
+    """
     if vento_kmh is None or not wind_config:
         return 1.0
-    for row in wind_config:
-        if row['vento_min'] <= vento_kmh <= row['vento_max']:
+    for i, row in enumerate(wind_config):
+        next_min = wind_config[i + 1]['vento_min'] if i + 1 < len(wind_config) else None
+        if next_min is None or vento_kmh < next_min:
             return float(row['multiplicador'])
     return float(wind_config[-1]['multiplicador'])
 
@@ -1404,13 +1410,15 @@ def calibrate_wind_multipliers(loja: str, days: int = 90) -> dict:
         if not wind_by_date:
             return {'error': 'Sem dados de vento suficientes para calibrar.', 'multipliers': {}}
 
-        # Bin sales by wind band
+        # Bin sales by wind band using half-open intervals [b[0], next_b[0]) so that
+        # decimal AVG values (e.g. 20.4 km/h) never fall through integer band gaps.
         bin_sales: dict = {b: [] for b in BANDS}
         matched = 0
         for d, vento in wind_by_date.items():
             if d in vendas_by_date:
-                for b in BANDS:
-                    if b[0] <= vento <= b[1]:
+                for i, b in enumerate(BANDS):
+                    next_min = BANDS[i + 1][0] if i + 1 < len(BANDS) else None
+                    if next_min is None or vento < next_min:
                         bin_sales[b].append(vendas_by_date[d])
                         matched += 1
                         break
