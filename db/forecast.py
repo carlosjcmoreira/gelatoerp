@@ -749,6 +749,22 @@ def _compute_mtd_yoy(cursor, loja: str, today: date) -> Optional[float]:
 # Get saved forecasts for display
 # ---------------------------------------------------------------------------
 
+def get_last_forecast_time(loja: Optional[str] = None):
+    """Return the MAX(gerado_em) timestamp for sales_forecasts, optionally filtered by loja.
+    Returns a datetime object or None if no forecasts exist."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        if loja:
+            cursor.execute(
+                "SELECT MAX(gerado_em) FROM sales_forecasts WHERE loja = %s",
+                (loja,)
+            )
+        else:
+            cursor.execute("SELECT MAX(gerado_em) FROM sales_forecasts")
+        row = cursor.fetchone()
+        return row[0] if row and row[0] else None
+
+
 def get_forecasts(loja: Optional[str] = None, from_date: Optional[date] = None, to_date: Optional[date] = None) -> list[dict]:
     """Retrieve saved forecasts. If loja is None, returns all stores (consolidated)."""
     today = date.today()

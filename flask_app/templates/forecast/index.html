@@ -29,6 +29,16 @@
                 Ref. 3 sem.
             </span>
             {% endif %}
+            {% if last_updated %}
+            <span class="badge bg-light text-muted border epoch-badge"
+                  title="Data e hora da última geração de previsões">
+                {% if last_updated.date() == today %}
+                    Actualizado hoje às {{ last_updated.strftime('%H:%M') }}
+                {% else %}
+                    Actualizado {{ last_updated.strftime('%d/%m às %H:%M') }}
+                {% endif %}
+            </span>
+            {% endif %}
         </div>
     </div>
 

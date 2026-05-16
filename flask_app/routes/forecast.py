@@ -22,6 +22,7 @@ from db.forecast import (
     get_epoch_label,
     get_homolog_sales,
     get_past_sales,
+    get_last_forecast_time,
 )
 
 forecast_bp = Blueprint('forecast', __name__)
@@ -120,6 +121,8 @@ def index():
         for c in consolidated:
             c['weekday_label'] = WEEKDAY_PT[c['data'].weekday()]
 
+    last_updated = get_last_forecast_time(loja)
+
     return render_template(
         'forecast/index.html',
         stores=stores,
@@ -131,6 +134,7 @@ def index():
         today=today,
         from_date=from_date,
         to_date=to_date,
+        last_updated=last_updated,
     )
 
 
@@ -519,6 +523,8 @@ def modelo():
     total_real = sum(r['valor'] for r in past_rows)
     total_fc = sum(float(f.get('previsao_eur') or f.get('effective_value') or 0) for f in fc_rows)
 
+    last_updated = get_last_forecast_time(loja)
+
     return render_template(
         'forecast/modelo.html',
         stores=stores,
@@ -531,4 +537,5 @@ def modelo():
         total_fc=total_fc,
         week_real=week_real,
         week_fc=week_fc,
+        last_updated=last_updated,
     )

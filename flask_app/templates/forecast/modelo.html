@@ -24,8 +24,18 @@
 
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h5 class="mb-0">📊 Modelo de Previsão — 21+21 Dias</h5>
-        <div class="text-muted" style="font-size:0.75rem;">
-            {{ today.strftime('%d/%m/%Y') }}
+        <div class="d-flex gap-2 align-items-center">
+            {% if last_updated %}
+            <span class="badge bg-light text-muted border" style="font-size:0.7rem;"
+                  title="Data e hora da última geração de previsões">
+                {% if last_updated.date() == today %}
+                    Actualizado hoje às {{ last_updated.strftime('%H:%M') }}
+                {% else %}
+                    Actualizado {{ last_updated.strftime('%d/%m às %H:%M') }}
+                {% endif %}
+            </span>
+            {% endif %}
+            <span class="text-muted" style="font-size:0.75rem;">{{ today.strftime('%d/%m/%Y') }}</span>
         </div>
     </div>
 
