@@ -54,9 +54,9 @@
     </div>
     {% endif %}
 
-    <!-- Auto-calibration panel — always visible when a store is selected -->
-    <div class="card">
-        <div class="card-header py-2 small fw-semibold">Calibração Automática</div>
+    <!-- Auto-calibration panel (meteo) -->
+    <div class="card mb-4">
+        <div class="card-header py-2 small fw-semibold">Calibração Automática — Condição Meteorológica</div>
         <div class="card-body py-2">
             <p class="small text-muted mb-3">
                 Recalcula os multiplicadores a partir dos dados reais de vendas e meteorologia
@@ -65,6 +65,89 @@
                 A calibração automática também é executada semanalmente (segunda-feira, 03:00).
             </p>
             <form method="POST" action="{{ url_for('forecast.meteo_config_calibrar') }}" data-no-loading>
+                <input type="hidden" name="loja" value="{{ selected_loja }}">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <label class="small fw-semibold mb-0">Janela de análise:</label>
+                    <select name="days" class="form-select form-select-sm" style="max-width:130px;">
+                        <option value="90">90 dias</option>
+                        <option value="120">120 dias</option>
+                        <option value="180">180 dias</option>
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-outline-success">
+                        Calibrar agora
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── Wind speed bands ── -->
+    <h5 class="mb-2">💨 Impacto do Vento</h5>
+    <p class="small text-muted mb-3">
+        O multiplicador de vento é aplicado <em>sobre</em> o multiplicador meteorológico.
+        Os valores por omissão refletem a exposição costeira de cada loja:
+        {% if selected_loja == 'Matosinhos' %}
+            <strong>Matosinhos</strong> (costa atlântica — penalidades mais fortes com vento).
+        {% elif selected_loja == 'Bolhão' %}
+            <strong>Bolhão</strong> (centro urbano do Porto — mais abrigada, penalidades mais suaves).
+        {% else %}
+            <strong>{{ selected_loja }}</strong> (valores por omissão genéricos).
+        {% endif %}
+    </p>
+
+    {% if wind_config %}
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">Multiplicadores por Velocidade do Vento — {{ selected_loja }}</div>
+        <div class="card-body py-2">
+            <p class="small text-muted mb-2">
+                Dados de vento provenientes de <em>weather_data.vento_kmh</em>.
+                Um multiplicador de 0.75 significa –25% de vendas esperadas em dias ventosos.
+            </p>
+            {% for w in wind_config %}
+            <form method="POST" action="{{ url_for('forecast.wind_config_update') }}" class="mb-3" data-no-loading>
+                <input type="hidden" name="loja" value="{{ selected_loja }}">
+                <input type="hidden" name="vento_min" value="{{ w.vento_min }}">
+                <input type="hidden" name="vento_max" value="{{ w.vento_max }}">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <div class="small fw-semibold" style="min-width:130px;">
+                        {% if w.vento_min == 0 %}🟢 Calmo
+                        {% elif w.vento_min <= 21 %}🟡 Moderado
+                        {% elif w.vento_min <= 36 %}🟠 Forte
+                        {% else %}🔴 Muito forte{% endif %}
+                    </div>
+                    <div class="text-muted small" style="min-width:100px;">
+                        {% if w.vento_max >= 999 %}&gt; {{ w.vento_min - 1 }} km/h
+                        {% else %}{{ w.vento_min }}–{{ w.vento_max }} km/h{% endif %}
+                    </div>
+                    <input type="number" name="multiplicador" class="form-control form-control-sm"
+                           value="{{ w.multiplicador }}" step="0.01" min="0.10" max="2.00" style="max-width:90px;" required>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Guardar</button>
+                    {% if w.updated_at %}
+                    <span class="text-muted small ms-1">act. {{ w.updated_at.strftime('%d/%m/%Y') }}</span>
+                    {% endif %}
+                </div>
+            </form>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info small mb-3">
+        Sem configuração de vento para {{ selected_loja }}. Reinicie a aplicação para gerar os valores por omissão.
+    </div>
+    {% endif %}
+
+    <!-- Auto-calibration panel (wind) -->
+    <div class="card">
+        <div class="card-header py-2 small fw-semibold">Calibração Automática — Vento</div>
+        <div class="card-body py-2">
+            <p class="small text-muted mb-3">
+                Recalcula os multiplicadores de vento a partir dos dados reais de vendas e
+                velocidade do vento (<em>weather_data.vento_kmh</em>).
+                Aplica 50% de amortecimento quando existem menos de 10 dias por banda,
+                para evitar sobre-ajuste em dados escassos.
+                A calibração automática também é executada semanalmente (segunda-feira, 03:00).
+            </p>
+            <form method="POST" action="{{ url_for('forecast.wind_config_calibrar') }}" data-no-loading>
                 <input type="hidden" name="loja" value="{{ selected_loja }}">
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <label class="small fw-semibold mb-0">Janela de análise:</label>

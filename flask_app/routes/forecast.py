@@ -19,6 +19,9 @@ from db.forecast import (
     get_meteo_config,
     update_meteo_config,
     calibrate_meteo_multipliers,
+    get_wind_config,
+    update_wind_config,
+    calibrate_wind_multipliers,
     get_epoch_label,
     get_homolog_sales,
     get_past_sales,
@@ -330,11 +333,13 @@ def meteo_config():
         return redirect(url_for('forecast.meteo_config', loja=loja))
 
     config = get_meteo_config(loja) if loja else []
+    wind_config = get_wind_config(loja) if loja else []
     return render_template(
         'forecast/meteo_config.html',
         stores=stores,
         selected_loja=loja,
         config=config,
+        wind_config=wind_config,
     )
 
 
@@ -365,6 +370,61 @@ def meteo_config_calibrar():
     else:
         flash(
             f'Multiplicadores recalibrados com {result["matched_days"]} dias de dados '
+            f'(janela de {result["days_analysed"]} dias).',
+            'success',
+        )
+
+    return redirect(url_for('forecast.meteo_config', loja=loja))
+
+
+# ---------------------------------------------------------------------------
+# Wind config — manual update + auto-calibration
+# ---------------------------------------------------------------------------
+
+@forecast_bp.route('/wind-config', methods=['POST'])
+@perm_required('acesso_gestor')
+def wind_config_update():
+    loja = request.form.get('loja', '').strip()
+    store_names = _store_names()
+    if not loja or loja not in store_names:
+        flash('Loja inválida.', 'error')
+        return redirect(url_for('forecast.meteo_config'))
+
+    try:
+        vento_min = int(request.form.get('vento_min', 0))
+        vento_max = int(request.form.get('vento_max', 20))
+        mult = float(request.form.get('multiplicador', '1').replace(',', '.'))
+        update_wind_config(loja, vento_min, vento_max, mult)
+        flash('Multiplicador de vento actualizado.', 'success')
+    except (ValueError, TypeError):
+        flash('Valor inválido.', 'error')
+
+    return redirect(url_for('forecast.meteo_config', loja=loja))
+
+
+@forecast_bp.route('/wind-config/calibrar', methods=['POST'])
+@perm_required('acesso_gestor')
+def wind_config_calibrar():
+    loja = request.form.get('loja', '').strip()
+    days_str = request.form.get('days', '90')
+
+    store_names = _store_names()
+    if not loja or loja not in store_names:
+        flash('Loja inválida.', 'error')
+        return redirect(url_for('forecast.meteo_config'))
+
+    try:
+        days = max(90, min(180, int(days_str)))
+    except (ValueError, TypeError):
+        days = 90
+
+    result = calibrate_wind_multipliers(loja, days=days)
+
+    if 'error' in result:
+        flash(f'Calibração de vento falhou: {result["error"]}', 'warning')
+    else:
+        flash(
+            f'Multiplicadores de vento recalibrados com {result["matched_days"]} dias de dados '
             f'(janela de {result["days_analysed"]} dias).',
             'success',
         )

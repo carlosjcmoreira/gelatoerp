@@ -116,6 +116,83 @@ def _get_lojas(cursor):
     return [r[0] for r in cursor.fetchall()]
 
 
+def run_migrations_wind_config():
+    """Idempotent migration: forecast_wind_config table + multiplicador_vento on sales_forecasts.
+
+    Advisory lock 202616 serialises concurrent gunicorn workers.
+    Seeds wind-speed band defaults differentiated by coastal exposure:
+      Matosinhos (Atlantic coast) — stronger penalties at high wind.
+      Bolhão (Porto city centre) — more sheltered, milder penalties.
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
+    WIND_DEFAULTS = {
+        'Matosinhos': [(0, 20, 1.00), (21, 35, 0.90), (36, 55, 0.75), (56, 999, 0.58)],
+        'Bolhão':     [(0, 20, 1.00), (21, 35, 0.96), (36, 55, 0.87), (56, 999, 0.75)],
+        '_default':   [(0, 20, 1.00), (21, 35, 0.95), (36, 55, 0.85), (56, 999, 0.70)],
+    }
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(202616)")
+            acquired = cursor.fetchone()[0]
+            if not acquired:
+                return
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS forecast_wind_config (
+                    id SERIAL PRIMARY KEY,
+                    store_id INTEGER REFERENCES stores(id) ON DELETE CASCADE,
+                    loja VARCHAR(100) NOT NULL,
+                    vento_min INTEGER NOT NULL,
+                    vento_max INTEGER NOT NULL,
+                    multiplicador NUMERIC(6,4) NOT NULL DEFAULT 1.0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(loja, vento_min, vento_max)
+                )
+            """)
+
+            cursor.execute("""
+                ALTER TABLE sales_forecasts
+                ADD COLUMN IF NOT EXISTS multiplicador_vento NUMERIC(6,4)
+            """)
+
+            lojas = _get_lojas(cursor)
+            for loja in lojas:
+                cursor.execute(
+                    "SELECT id FROM stores WHERE name = %s AND is_active = TRUE LIMIT 1", (loja,)
+                )
+                store_row = cursor.fetchone()
+                store_id = store_row[0] if store_row else None
+                bands = WIND_DEFAULTS.get(loja, WIND_DEFAULTS['_default'])
+                for vento_min, vento_max, mult in bands:
+                    cursor.execute("""
+                        INSERT INTO forecast_wind_config
+                            (store_id, loja, vento_min, vento_max, multiplicador)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (loja, vento_min, vento_max) DO NOTHING
+                    """, (store_id, loja, vento_min, vento_max, mult))
+
+            conn.commit()
+        except Exception as e:
+            _log.warning("run_migrations_wind_config: %s (continuing)", e)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(202616)")
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+
 # ---------------------------------------------------------------------------
 # Forecast algorithm
 # ---------------------------------------------------------------------------
@@ -218,6 +295,40 @@ def _meteo_multiplier(score: Optional[int], config: list) -> tuple[float, str]:
     return 1.0, _score_label(score)
 
 
+def _wind_multiplier(vento_kmh: Optional[float], wind_config: list) -> float:
+    """Return wind multiplier for the given speed (km/h). Default 1.0 if no data."""
+    if vento_kmh is None or not wind_config:
+        return 1.0
+    for row in wind_config:
+        if row['vento_min'] <= vento_kmh <= row['vento_max']:
+            return float(row['multiplicador'])
+    return float(wind_config[-1]['multiplicador'])
+
+
+def _load_wind_speeds(cursor, store_id: Optional[int], today: date, horizon_days: int) -> dict:
+    """Load avg forecast wind speed per day from weather_data. Returns {date: vento_kmh}."""
+    if store_id is None:
+        return {}
+    try:
+        cursor.execute("SAVEPOINT sp_wind")
+        cursor.execute("""
+            SELECT data, AVG(vento_kmh)
+            FROM weather_data
+            WHERE store_id = %s AND vento_kmh IS NOT NULL
+              AND data >= %s AND data <= %s
+            GROUP BY data
+        """, (store_id, today + timedelta(days=1), today + timedelta(days=horizon_days)))
+        result = {r[0]: float(r[1]) for r in cursor.fetchall()}
+        cursor.execute("RELEASE SAVEPOINT sp_wind")
+        return result
+    except Exception:
+        try:
+            cursor.execute("ROLLBACK TO SAVEPOINT sp_wind")
+        except Exception:
+            pass
+        return {}
+
+
 def _score_label(score: int) -> str:
     if score < 30:
         return 'Mau tempo'
@@ -285,7 +396,7 @@ def generate_forecasts(loja: str, horizon_days: int = 7, force: bool = False) ->
         cursor.execute("""
             SELECT data, previsao_eur, banda_min, banda_max, score_meteo, condicao_meteo,
                    factor_yoy, multiplicador_meteo, base_historica, override_manual,
-                   override_motivo, gerado_em
+                   override_motivo, gerado_em, multiplicador_vento
             FROM sales_forecasts
             WHERE loja = %s AND data >= %s AND data <= %s
               AND gerado_em::date = %s
@@ -356,6 +467,7 @@ def generate_forecasts(loja: str, horizon_days: int = 7, force: bool = False) ->
                     'ly_anchor_eur': None,
                     'signal_n': group_count_cache.get(_day_group(d.weekday())) or None,
                     'effective_value': float(override_val or previsao or 0),
+                    'multiplicador_vento': float(row[12]) if row[12] is not None else 1.0,
                 })
             return results
 
@@ -403,6 +515,13 @@ def generate_forecasts(loja: str, horizon_days: int = 7, force: bool = False) ->
         # MTD YoY for header badge
         mtd_yoy = _compute_mtd_yoy(cursor, loja, today)
 
+        # --- Resolve store_id (needed for wind speeds lookup) ---
+        cursor.execute(
+            "SELECT id FROM stores WHERE name = %s AND is_active = TRUE LIMIT 1", (loja,)
+        )
+        _store_row = cursor.fetchone()
+        _store_id: Optional[int] = _store_row[0] if _store_row else None
+
         # Load meteo config
         cursor.execute("""
             SELECT score_min, score_max, multiplicador
@@ -412,9 +531,31 @@ def generate_forecasts(loja: str, horizon_days: int = 7, force: bool = False) ->
         """, (loja,))
         meteo_config = [{'score_min': r[0], 'score_max': r[1], 'multiplicador': r[2]} for r in cursor.fetchall()]
 
+        # Load wind config (per-store coastal exposure bands)
+        try:
+            cursor.execute("SAVEPOINT sp_wconf")
+            cursor.execute("""
+                SELECT vento_min, vento_max, multiplicador
+                FROM forecast_wind_config
+                WHERE loja = %s
+                ORDER BY vento_min
+            """, (loja,))
+            wind_config = [{'vento_min': r[0], 'vento_max': r[1], 'multiplicador': r[2]}
+                           for r in cursor.fetchall()]
+            cursor.execute("RELEASE SAVEPOINT sp_wconf")
+        except Exception:
+            try:
+                cursor.execute("ROLLBACK TO SAVEPOINT sp_wconf")
+            except Exception:
+                pass
+            wind_config = []
+
         # --- Load meteo scores: future (for forecast) + past 21 days (for similarity) ---
         meteo_by_date = _load_meteo_scores(cursor, today, horizon_days)
         past_meteo = _load_past_meteo_scores(cursor, today - timedelta(days=21), today - timedelta(days=1))
+
+        # Load forecast wind speeds for the horizon window
+        wind_by_date = _load_wind_speeds(cursor, _store_id, today, horizon_days)
 
         # Pre-compute per-group statistics over the last 21 days
         # Used for confidence band floor and intra-group std dev
@@ -469,9 +610,13 @@ def generate_forecasts(loja: str, horizon_days: int = 7, force: bool = False) ->
             # Step 2: Momentum nudge (last 15 vs last 30 days)
             adjusted = base * momentum_factor
 
-            # Step 3: Meteo multiplier (configured bands per store)
+            # Step 3a: Meteo multiplier (configured bands per store)
             mult, cond = _meteo_multiplier(score, meteo_config)
-            forecast = adjusted * mult
+
+            # Step 3b: Wind multiplier (coastal exposure factor)
+            vento = wind_by_date.get(target)
+            mult_vento = _wind_multiplier(vento, wind_config)
+            forecast = adjusted * mult * mult_vento
 
             # Step 4: Confidence band with group floor (never drops to 0€)
             gvals = group_vals.get(dg, [])
@@ -512,6 +657,7 @@ def generate_forecasts(loja: str, horizon_days: int = 7, force: bool = False) ->
                 'factor_yoy': round(mtd_yoy, 4) if mtd_yoy else None,
                 'factor_momentum': round(momentum_factor, 4),
                 'multiplicador_meteo': round(mult, 4),
+                'multiplicador_vento': round(mult_vento, 4),
                 'base_historica': round(base, 2),
                 'ly_anchor_eur': None,
                 'override_manual': override_val,
@@ -530,8 +676,9 @@ def generate_forecasts(loja: str, horizon_days: int = 7, force: bool = False) ->
             cursor.execute("""
                 INSERT INTO sales_forecasts
                     (loja, data, previsao_eur, banda_min, banda_max, score_meteo, condicao_meteo,
-                     factor_yoy, multiplicador_meteo, base_historica, override_manual, override_motivo, gerado_em)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     factor_yoy, multiplicador_meteo, base_historica, override_manual, override_motivo,
+                     multiplicador_vento, gerado_em)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (loja, data) DO UPDATE SET
                     previsao_eur = EXCLUDED.previsao_eur,
                     banda_min = EXCLUDED.banda_min,
@@ -541,11 +688,12 @@ def generate_forecasts(loja: str, horizon_days: int = 7, force: bool = False) ->
                     factor_yoy = EXCLUDED.factor_yoy,
                     multiplicador_meteo = EXCLUDED.multiplicador_meteo,
                     base_historica = EXCLUDED.base_historica,
+                    multiplicador_vento = EXCLUDED.multiplicador_vento,
                     gerado_em = NOW()
             """, (
                 loja, target, round(final, 2), round(band_min, 2), round(band_max, 2),
                 score, cond, round(mtd_yoy, 4) if mtd_yoy else None, round(mult, 4), round(base, 2),
-                override_val, override_mot
+                override_val, override_mot, round(mult_vento, 4)
             ))
 
         conn.commit()
@@ -1174,6 +1322,203 @@ def update_meteo_config(loja: str, score_min: int, score_max: int, multiplicador
             UPDATE forecast_meteo_config SET multiplicador = %s, updated_at = NOW()
             WHERE loja = %s AND score_min = %s AND score_max = %s
         """, (multiplicador, loja, score_min, score_max))
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Wind multiplier calibration and CRUD
+# ---------------------------------------------------------------------------
+
+def calibrate_wind_multipliers(loja: str, days: int = 90) -> dict:
+    """Calibrate wind multipliers for `loja` from historical sales + wind data.
+
+    Groups daily sales by wind speed band (0–20, 21–35, 36–55, 56+ km/h),
+    derives multipliers relative to the calm band (0–20 = 1.0).
+    Applies 50 % damping toward the stored default when fewer than 10 days
+    exist in a band, to avoid over-fitting on sparse data.
+
+    Returns a summary dict and updates forecast_wind_config.
+    """
+    today = date.today()
+    cutoff = today - timedelta(days=days)
+
+    BANDS = [(0, 20), (21, 35), (36, 55), (56, 999)]
+    LABEL_MAP = {
+        (0, 20):   'Calmo (0–20 km/h)',
+        (21, 35):  'Moderado (21–35 km/h)',
+        (36, 55):  'Forte (36–55 km/h)',
+        (56, 999): 'Muito forte (>55 km/h)',
+    }
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT id FROM stores WHERE name = %s AND is_active = TRUE LIMIT 1", (loja,)
+        )
+        store_row = cursor.fetchone()
+        store_id = store_row[0] if store_row else None
+
+        # Sales (vendas takes priority over historico)
+        cursor.execute("""
+            SELECT data, SUM(valor_euros) FROM vendas
+            WHERE loja = %s AND data >= %s AND data < %s
+            GROUP BY data
+        """, (loja, cutoff, today))
+        vendas_by_date = {r[0]: float(r[1]) for r in cursor.fetchall()}
+
+        cursor.execute("""
+            SELECT data, SUM(valor_euros) FROM sales_historico
+            WHERE loja = %s AND data >= %s AND data < %s
+            GROUP BY data
+        """, (loja, cutoff, today))
+        for r in cursor.fetchall():
+            if r[0] not in vendas_by_date:
+                vendas_by_date[r[0]] = float(r[1])
+
+        if not vendas_by_date:
+            return {'error': 'Sem dados de vendas suficientes para calibrar.', 'multipliers': {}}
+
+        wind_by_date: dict = {}
+        if store_id is not None:
+            try:
+                cursor.execute("SAVEPOINT sp_wc")
+                cursor.execute("""
+                    SELECT data, AVG(vento_kmh)
+                    FROM weather_data
+                    WHERE store_id = %s AND vento_kmh IS NOT NULL
+                      AND data >= %s AND data < %s
+                    GROUP BY data
+                """, (store_id, cutoff, today))
+                for r in cursor.fetchall():
+                    if r[1] is not None:
+                        wind_by_date[r[0]] = float(r[1])
+                cursor.execute("RELEASE SAVEPOINT sp_wc")
+            except Exception:
+                try:
+                    cursor.execute("ROLLBACK TO SAVEPOINT sp_wc")
+                except Exception:
+                    pass
+
+        if not wind_by_date:
+            return {'error': 'Sem dados de vento suficientes para calibrar.', 'multipliers': {}}
+
+        # Bin sales by wind band
+        bin_sales: dict = {b: [] for b in BANDS}
+        matched = 0
+        for d, vento in wind_by_date.items():
+            if d in vendas_by_date:
+                for b in BANDS:
+                    if b[0] <= vento <= b[1]:
+                        bin_sales[b].append(vendas_by_date[d])
+                        matched += 1
+                        break
+
+        if matched < 5:
+            return {
+                'error': (
+                    f'Dados insuficientes ({matched} dias com vendas + vento). '
+                    'São necessários pelo menos 5 dias sobrepostos.'
+                ),
+                'multipliers': {},
+            }
+
+        bin_means: dict = {}
+        for b, vals in bin_sales.items():
+            if vals:
+                bin_means[b] = statistics.mean(vals)
+
+        ref_band = (0, 20)
+        ref_value = bin_means.get(ref_band) or (
+            statistics.mean(bin_means.values()) if bin_means else 0.0
+        )
+        if ref_value <= 0:
+            return {'error': 'Valor de referência inválido para normalização.', 'multipliers': {}}
+
+        # Current stored config (used for damping)
+        cursor.execute("""
+            SELECT vento_min, vento_max, multiplicador
+            FROM forecast_wind_config WHERE loja = %s ORDER BY vento_min
+        """, (loja,))
+        current_config = {(r[0], r[1]): float(r[2]) for r in cursor.fetchall()}
+
+        derived: dict = {}
+        for b in BANDS:
+            if b in bin_means:
+                raw = bin_means[b] / ref_value
+                clamped = max(0.30, min(1.50, raw))
+                n = len(bin_sales[b])
+                default_mult = current_config.get(b, 1.0)
+                blend_weight = min(1.0, n / 10.0)
+                blended = clamped * blend_weight + default_mult * (1 - blend_weight)
+                derived[b] = round(max(0.30, min(1.50, blended)), 4)
+
+        for b, mult in derived.items():
+            cursor.execute("""
+                INSERT INTO forecast_wind_config
+                    (store_id, loja, vento_min, vento_max, multiplicador, updated_at)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (loja, vento_min, vento_max) DO UPDATE
+                    SET multiplicador = EXCLUDED.multiplicador,
+                        updated_at = NOW()
+            """, (store_id, loja, b[0], b[1], mult))
+        conn.commit()
+
+        multipliers = {}
+        for b in BANDS:
+            lbl = LABEL_MAP[b]
+            if b in derived:
+                multipliers[lbl] = {
+                    'multiplier': derived[b],
+                    'mean_sales': round(bin_means[b], 2),
+                    'n_days': len(bin_sales[b]),
+                }
+            else:
+                multipliers[lbl] = {
+                    'multiplier': None,
+                    'mean_sales': None,
+                    'n_days': 0,
+                    'note': 'Sem dados — multiplicador inalterado',
+                }
+
+        return {
+            'loja': loja,
+            'days_analysed': days,
+            'matched_days': matched,
+            'multipliers': multipliers,
+        }
+
+
+def get_wind_config(loja: str) -> list[dict]:
+    """Return wind band config for `loja`, ordered by vento_min."""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, vento_min, vento_max, multiplicador, updated_at
+                FROM forecast_wind_config WHERE loja = %s ORDER BY vento_min
+            """, (loja,))
+            return [
+                {
+                    'id': r[0], 'vento_min': r[1], 'vento_max': r[2],
+                    'multiplicador': float(r[3]),
+                    'updated_at': r[4],
+                }
+                for r in cursor.fetchall()
+            ]
+    except Exception:
+        return []
+
+
+def update_wind_config(loja: str, vento_min: int, vento_max: int, multiplicador: float):
+    """Manually update a single wind band multiplier for `loja`."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE forecast_wind_config
+            SET multiplicador = %s, updated_at = NOW()
+            WHERE loja = %s AND vento_min = %s AND vento_max = %s
+        """, (multiplicador, loja, vento_min, vento_max))
         conn.commit()
 
 

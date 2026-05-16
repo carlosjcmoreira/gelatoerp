@@ -50,14 +50,14 @@ def _run_weather_update():
 
 
 def _run_meteo_calibration():
-    """Weekly auto-calibration of weather multipliers for all active stores."""
+    """Weekly auto-calibration of weather and wind multipliers for all active stores."""
     try:
         import database as db
-        from db.forecast import calibrate_meteo_multipliers
+        from db.forecast import calibrate_meteo_multipliers, calibrate_wind_multipliers
 
         stores = db.get_all_stores()
         active_stores = [s for s in stores if s.get("is_active")]
-        logger.info("Meteo calibration: running for %d stores", len(active_stores))
+        logger.info("Meteo+wind calibration: running for %d stores", len(active_stores))
 
         for store in active_stores:
             name = store.get("name", "")
@@ -72,6 +72,18 @@ def _run_meteo_calibration():
                     )
             except Exception as e:
                 logger.error("Meteo calibration failed for store '%s': %s", name, e)
+
+            try:
+                wind_result = calibrate_wind_multipliers(name, days=90)
+                if "error" in wind_result:
+                    logger.warning("Wind calibration skipped for '%s': %s", name, wind_result["error"])
+                else:
+                    logger.info(
+                        "Wind calibration for '%s': %d matched days, multipliers updated",
+                        name, wind_result.get("matched_days", 0),
+                    )
+            except Exception as e:
+                logger.error("Wind calibration failed for store '%s': %s", name, e)
 
     except Exception as e:
         logger.error("Meteo calibration scheduler run error: %s", e)
