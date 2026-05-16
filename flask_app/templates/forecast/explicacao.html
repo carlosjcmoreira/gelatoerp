@@ -79,6 +79,17 @@
                                 × {{ "%.4f"|format(fc.multiplicador_meteo|float) }}
                             </td>
                         </tr>
+                        <tr>
+                            <td class="text-muted">
+                                💨 Vento
+                                {% if banda_vento_label %}<span class="badge bg-light text-dark ms-1" style="font-size:0.65rem;">{{ banda_vento_label }}</span>{% endif %}
+                                {% if vento_kmh is not none %}<span class="text-muted" style="font-size:0.7rem;">({{ vento_kmh }} km/h)</span>{% else %}<span class="text-muted" style="font-size:0.7rem;">Sem dados</span>{% endif %}
+                            </td>
+                            <td class="text-end fw-semibold
+                                {% if fc.multiplicador_vento is not none and fc.multiplicador_vento|float > 1 %}text-success{% elif fc.multiplicador_vento is not none and fc.multiplicador_vento|float < 1 %}text-warning{% endif %}">
+                                {% if fc.multiplicador_vento is not none %}× {{ "%.4f"|format(fc.multiplicador_vento|float) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                            </td>
+                        </tr>
                         {% if fc.override_manual %}
                         <tr class="table-warning">
                             <td class="text-muted">

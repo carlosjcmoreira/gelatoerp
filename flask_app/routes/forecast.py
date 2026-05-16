@@ -170,8 +170,42 @@ def explicacao():
     # Load meteo config for this store
     meteo_config = get_meteo_config(loja)
 
-    # Load last 8 same-weekday historical sales
+    # Load wind config and wind speed for target date
+    wind_config = get_wind_config(loja)
+
     from db.connection import db_connection as _dbc
+
+    vento_kmh = None
+    banda_vento_label = None
+    try:
+        with _dbc() as _wconn:
+            _wcur = _wconn.cursor()
+            _wcur.execute("""
+                SELECT AVG(w.vento_kmh)
+                FROM weather_data w
+                JOIN stores s ON s.id = w.store_id
+                WHERE s.name = %s AND w.data = %s AND w.vento_kmh IS NOT NULL
+            """, (loja, target_date))
+            _wrow = _wcur.fetchone()
+            if _wrow and _wrow[0] is not None:
+                vento_kmh = round(float(_wrow[0]), 1)
+    except Exception:
+        import logging as _log
+        _log.getLogger(__name__).warning(
+            "explicacao: failed to load wind speed for %s on %s", loja, target_date, exc_info=True
+        )
+
+    if vento_kmh is not None and wind_config:
+        _WIND_LABELS = ['Calmo', 'Moderado', 'Forte', 'Muito forte']
+        # Use half-open intervals [vento_min_i, vento_min_{i+1}) — matches _wind_multiplier logic
+        # so the displayed label always agrees with the multiplier used in forecast generation.
+        for _i in range(len(wind_config)):
+            _next_min = wind_config[_i + 1]['vento_min'] if _i + 1 < len(wind_config) else None
+            if _next_min is None or vento_kmh < _next_min:
+                banda_vento_label = _WIND_LABELS[_i] if _i < len(_WIND_LABELS) else f'Banda {_i + 1}'
+                break
+
+    # Load last 8 same-weekday historical sales
     wd = target_date.weekday()
     history_samples = []
     with _dbc() as conn:
@@ -216,6 +250,9 @@ def explicacao():
         fc=fc,
         history_samples=history_samples,
         meteo_config=meteo_config,
+        wind_config=wind_config,
+        vento_kmh=vento_kmh,
+        banda_vento_label=banda_vento_label,
         epoch=epoch,
     )
 

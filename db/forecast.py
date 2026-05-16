@@ -933,7 +933,7 @@ def get_forecasts(loja: Optional[str] = None, from_date: Optional[date] = None, 
             cursor.execute("""
                 SELECT loja, data, previsao_eur, banda_min, banda_max, score_meteo, condicao_meteo,
                        factor_yoy, multiplicador_meteo, base_historica, override_manual, override_motivo,
-                       venda_real, erro_real_pct, gerado_em
+                       venda_real, erro_real_pct, gerado_em, multiplicador_vento
                 FROM sales_forecasts
                 WHERE loja = %s AND data BETWEEN %s AND %s
                 ORDER BY data
@@ -942,7 +942,7 @@ def get_forecasts(loja: Optional[str] = None, from_date: Optional[date] = None, 
             cursor.execute("""
                 SELECT loja, data, previsao_eur, banda_min, banda_max, score_meteo, condicao_meteo,
                        factor_yoy, multiplicador_meteo, base_historica, override_manual, override_motivo,
-                       venda_real, erro_real_pct, gerado_em
+                       venda_real, erro_real_pct, gerado_em, multiplicador_vento
                 FROM sales_forecasts
                 WHERE data BETWEEN %s AND %s
                 ORDER BY data, loja
@@ -951,7 +951,8 @@ def get_forecasts(loja: Optional[str] = None, from_date: Optional[date] = None, 
         rows = cursor.fetchall()
         cols = ['loja', 'data', 'previsao_eur', 'banda_min', 'banda_max', 'score_meteo',
                 'condicao_meteo', 'factor_yoy', 'multiplicador_meteo', 'base_historica',
-                'override_manual', 'override_motivo', 'venda_real', 'erro_real_pct', 'gerado_em']
+                'override_manual', 'override_motivo', 'venda_real', 'erro_real_pct', 'gerado_em',
+                'multiplicador_vento']
         results = []
         for r in rows:
             d = dict(zip(cols, r))
@@ -959,6 +960,8 @@ def get_forecasts(loja: Optional[str] = None, from_date: Optional[date] = None, 
             d['day_type'] = _day_type(d['data'])
             d['day_group'] = _day_group(d['data'].weekday())
             d['effective_value'] = float(d['override_manual'] or d['previsao_eur'] or 0)
+            if d.get('multiplicador_vento') is not None:
+                d['multiplicador_vento'] = float(d['multiplicador_vento'])
             d.setdefault('factor_momentum', None)
             d.setdefault('ly_anchor_eur', None)
             d.setdefault('signal_n', None)
