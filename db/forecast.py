@@ -1359,16 +1359,17 @@ def calibrate_wind_multipliers(loja: str, days: int = 90) -> dict:
         store_row = cursor.fetchone()
         store_id = store_row[0] if store_row else None
 
-        # Sales (vendas takes priority over historico)
+        # Sales: vendas_detalhe (Gestor uploads) is authoritative; fall back to vendas for
+        # any dates not present in vendas_detalhe (matching the business rule in Task #203).
         cursor.execute("""
-            SELECT data, SUM(valor_euros) FROM vendas
+            SELECT data, SUM(valor_euros) FROM vendas_detalhe
             WHERE loja = %s AND data >= %s AND data < %s
             GROUP BY data
         """, (loja, cutoff, today))
         vendas_by_date = {r[0]: float(r[1]) for r in cursor.fetchall()}
 
         cursor.execute("""
-            SELECT data, SUM(valor_euros) FROM sales_historico
+            SELECT data, SUM(valor_euros) FROM vendas
             WHERE loja = %s AND data >= %s AND data < %s
             GROUP BY data
         """, (loja, cutoff, today))
