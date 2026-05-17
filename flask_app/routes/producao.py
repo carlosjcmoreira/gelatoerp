@@ -195,14 +195,7 @@ def stock_gelado_ajustar():
                               ('prod_mou_', 'Mouzinho'), ('prod_b2b_', 'B2B')):
             if key.startswith(prefix):
                 sabor = key[len(prefix):]
-                qty_raw = _parse_decimal(val)
-                qty, converted = _normalise_pesagem_kg(qty_raw)
-                if converted:
-                    logger.warning(
-                        "stock_gelado_ajustar: %s/%s — value %.2f looks like grams,"
-                        " stored as %.6f kg",
-                        loja, sabor, qty_raw, qty,
-                    )
+                qty = _parse_decimal(val)
                 set_stock_producao(sabor, loja, qty)
                 changes += 1
                 break
