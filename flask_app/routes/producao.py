@@ -78,19 +78,6 @@ def _parse_decimal(s):
         return 0.0
 
 
-_PESAGEM_GRAMAS_THRESHOLD = 50.0
-
-
-def _normalise_pesagem_kg(value: float) -> tuple[float, bool]:
-    """Return (kg_value, converted).
-    If value >= threshold it is almost certainly grams — divide by 1000.
-    Legitimate daily balcão quantities stay well below 20 kg per flavour.
-    """
-    if value >= _PESAGEM_GRAMAS_THRESHOLD:
-        return round(value / 1000.0, 6), True
-    return value, False
-
-
 def _format_date(val):
     if pd.isna(val) or val is None or val == '':
         return '-'
@@ -695,13 +682,7 @@ def criar_plano_sabor(sabor):
     if request.method == 'POST':
         action = request.form.get('action', '')
         if action in ('save', 'add_to_plan'):
-            pesagem_mat_raw = _parse_decimal(request.form.get('pesagem_matosinhos', '0'))
-            pesagem_mat, converted = _normalise_pesagem_kg(pesagem_mat_raw)
-            if converted:
-                flash(
-                    f'Pesagem Matosinhos convertida de {pesagem_mat_raw:g} g → {pesagem_mat:.3f} kg.',
-                    'info',
-                )
+            pesagem_mat = _parse_decimal(request.form.get('pesagem_matosinhos', '0'))
             est_bolhao = _parse_decimal(request.form.get('estimada_bolhao', '0'))
             est_matosinhos = _parse_decimal(request.form.get('estimada_matosinhos', '0'))
             est_outros = _parse_decimal(request.form.get('estimada_outros', '0'))
@@ -823,26 +804,17 @@ def ajustar_plano():
             data_plano = today
         entradas = get_plano_ajuste_dia(data_plano)
         ajustes = {}
-        converted_sabores = []
         for e in entradas:
             sabor = e['sabor']
-            pesagem_mat_raw = _parse_decimal(request.form.get(f'pesagem_{sabor}', str(e['pesagem_matosinhos'])))
-            pesagem_mat_norm, was_converted = _normalise_pesagem_kg(pesagem_mat_raw)
-            if was_converted:
-                converted_sabores.append(f'{sabor}: {pesagem_mat_raw:g} g → {pesagem_mat_norm:.3f} kg')
+            pesagem_mat = _parse_decimal(request.form.get(f'pesagem_{sabor}', str(e['pesagem_matosinhos'])))
             ajustes[sabor] = {
-                'pesagem_mat': pesagem_mat_norm,
+                'pesagem_mat': pesagem_mat,
                 'est_bol': _parse_decimal(request.form.get(f'est_bol_{sabor}', str(e['estimado_bolhao']))),
                 'est_mat': _parse_decimal(request.form.get(f'est_mat_{sabor}', str(e['estimado_matosinhos']))),
                 'est_outros': _parse_decimal(request.form.get(f'est_outros_{sabor}', str(e['estimado_outros']))),
                 'est_mou': _parse_decimal(request.form.get(f'est_mou_{sabor}', str(e['estimado_mouzinho']))),
             }
         saved = producao_svc.ajustar_plano_dia(data_plano, ajustes)
-        if converted_sabores:
-            flash(
-                'Pesagens convertidas de gramas para kg: ' + '; '.join(converted_sabores),
-                'info',
-            )
         if saved:
             flash(f"Ajustes guardados para {saved} sabor(es).", "success")
         return redirect(url_for('producao.ajustar_plano', data=str(data_plano)))

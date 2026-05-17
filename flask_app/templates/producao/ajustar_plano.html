@@ -53,8 +53,9 @@
                     </td>
                     <td>
                         <input type="text" name="pesagem_{{ item.sabor }}"
-                               class="form-control form-control-sm text-center ajuste-input"
+                               class="form-control form-control-sm text-center ajuste-input pesagem-input"
                                data-field="pesagem"
+                               data-sabor="{{ item.sabor }}"
                                placeholder="0,000"
                                value="{{ '%.3f'|format(item.pesagem_matosinhos)|replace('.', ',') if item.pesagem_matosinhos > 0 else '' }}"
                                inputmode="decimal">
@@ -104,7 +105,27 @@
 
 <div class="save-bar-spacer"></div>
 <div class="save-bar">
-    <button type="submit" form="ajusteForm" class="btn btn-primary w-100">💾 Guardar Ajustes</button>
+    <button type="button" id="btnGuardarAjustes" class="btn btn-primary w-100">💾 Guardar Ajustes</button>
+</div>
+
+<!-- Modal de confirmação de pesagens elevadas -->
+<div class="modal fade" id="modalConfirmarAjuste" tabindex="-1" aria-labelledby="modalConfirmarAjusteLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning bg-opacity-25">
+                <h6 class="modal-title" id="modalConfirmarAjusteLabel">⚠️ Pesagens elevadas — confirmar</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Os seguintes sabores têm pesagens superiores a 15 kg. Confirme que os valores estão em <strong>kg</strong> e não em gramas:</p>
+                <ul id="modalAjusteLista" class="mb-0 small"></ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Voltar a rever</button>
+                <button type="button" class="btn btn-warning btn-sm" id="modalAjusteConfirmarBtn">Confirmar e guardar</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 {% else %}
@@ -115,6 +136,8 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    var LIMIAR_KG = 15;
+
     function parseDec(s) {
         try { return parseFloat((s || '0').replace(',', '.')) || 0; } catch(e) { return 0; }
     }
@@ -123,6 +146,8 @@ document.addEventListener('DOMContentLoaded', function() {
     rows.forEach(function(row, idx) {
         var inputs = row.querySelectorAll('.ajuste-input');
         var totalCell = document.getElementById('total-' + (idx + 1));
+        var pesagemInp = row.querySelector('.pesagem-input');
+
         function updateTotal() {
             var estBol = parseDec(row.querySelector('[data-field="est_bol"]').value);
             var estMat = parseDec(row.querySelector('[data-field="est_mat"]').value);
@@ -133,7 +158,56 @@ document.addEventListener('DOMContentLoaded', function() {
         inputs.forEach(function(inp) {
             inp.addEventListener('input', updateTotal);
         });
+
+        // Highlight pesagem cell when suspicious
+        function checkPesagem() {
+            if (!pesagemInp) return;
+            var v = parseDec(pesagemInp.value);
+            if (v > LIMIAR_KG) {
+                pesagemInp.classList.add('bg-warning');
+                pesagemInp.title = 'Valor acima de ' + LIMIAR_KG + ' kg — confirme que está em kg';
+            } else {
+                pesagemInp.classList.remove('bg-warning');
+                pesagemInp.title = '';
+            }
+        }
+        if (pesagemInp) {
+            pesagemInp.addEventListener('input', checkPesagem);
+            checkPesagem();
+        }
     });
+
+    // Submit guard
+    var btnGuardar = document.getElementById('btnGuardarAjustes');
+    var modalEl = document.getElementById('modalConfirmarAjuste');
+    var modal = modalEl ? new bootstrap.Modal(modalEl) : null;
+    var listaEl = document.getElementById('modalAjusteLista');
+
+    if (btnGuardar) {
+        btnGuardar.addEventListener('click', function() {
+            var suspeitos = [];
+            document.querySelectorAll('.pesagem-input').forEach(function(inp) {
+                var v = parseDec(inp.value);
+                if (v > LIMIAR_KG) {
+                    suspeitos.push(inp.dataset.sabor + ': ' + v.toFixed(3) + ' kg');
+                }
+            });
+            if (suspeitos.length > 0 && modal) {
+                listaEl.innerHTML = suspeitos.map(function(s) { return '<li>' + s + '</li>'; }).join('');
+                modal.show();
+            } else {
+                document.getElementById('ajusteForm').submit();
+            }
+        });
+    }
+
+    var confirmarBtn = document.getElementById('modalAjusteConfirmarBtn');
+    if (confirmarBtn) {
+        confirmarBtn.addEventListener('click', function() {
+            if (modal) modal.hide();
+            document.getElementById('ajusteForm').submit();
+        });
+    }
 });
 </script>
 {% endblock %}

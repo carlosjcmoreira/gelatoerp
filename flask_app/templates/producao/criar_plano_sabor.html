@@ -26,8 +26,13 @@
 
     <div class="mb-3">
         <label class="form-label small">Pesagem Matosinhos (kg)</label>
-        <input type="text" name="pesagem_matosinhos" class="form-control form-control-sm" placeholder="0,000"
-               value="{{ '%.3f'|format(plano.pesagem_matosinhos)|replace('.', ',') if plano.pesagem_matosinhos > 0 else '' }}">
+        <input type="text" name="pesagem_matosinhos" id="pesagem_matosinhos"
+               class="form-control form-control-sm" placeholder="0,000"
+               value="{{ '%.3f'|format(plano.pesagem_matosinhos)|replace('.', ',') if plano.pesagem_matosinhos > 0 else '' }}"
+               inputmode="decimal" autocomplete="off">
+        <div id="pesagem-aviso" class="mt-1 d-none">
+            <span class="badge bg-warning text-dark">⚠️ Valor elevado — confirme que está em kg e não em gramas</span>
+        </div>
     </div>
 
     <hr>
@@ -66,7 +71,7 @@
     <hr>
 
     <div class="d-grid gap-2">
-        <button type="submit" class="btn btn-outline-secondary btn-sm">Guardar</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnGuardar">Guardar</button>
         {% if plano.no_plano %}
         <button class="btn btn-primary btn-sm" disabled>✅ Adicionado ao plano!</button>
         {% else %}
@@ -74,16 +79,40 @@
         {% endif %}
     </div>
 </form>
+
+<!-- Modal de confirmação de pesagem elevada -->
+<div class="modal fade" id="modalConfirmarPesagem" tabindex="-1" aria-labelledby="modalConfirmarPesagemLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning bg-opacity-25">
+                <h6 class="modal-title" id="modalConfirmarPesagemLabel">⚠️ Confirmar pesagem elevada</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1">Vai guardar <strong id="modalPesagemValor"></strong> kg para <strong>{{ sabor }}</strong>.</p>
+                <p class="mb-0 text-muted small">Confirma que o valor está em <strong>kg</strong> e não em gramas?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Voltar a rever</button>
+                <button type="button" class="btn btn-warning btn-sm" id="modalConfirmarBtn">Confirmar e guardar</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    var LIMIAR_KG = 15;
     var eb = document.querySelector('input[name="estimada_bolhao"]');
     var em = document.querySelector('input[name="estimada_matosinhos"]');
     var emou = document.querySelector('input[name="estimada_mouzinho"]');
     var eo = document.querySelector('input[name="estimada_outros"]');
     var total = document.getElementById('total-est');
+    var pesagemInput = document.getElementById('pesagem_matosinhos');
+    var pesagemAviso = document.getElementById('pesagem-aviso');
+
     function parseDec(s) {
         try { return parseFloat((s || '0').replace(',', '.')) || 0; } catch(e) { return 0; }
     }
@@ -98,18 +127,55 @@ document.addEventListener('DOMContentLoaded', function() {
         if (eo) eo.addEventListener('input', updateTotal);
     }
 
+    // Inline warning badge
+    function checkPesagem() {
+        var v = parseDec(pesagemInput.value);
+        if (v > LIMIAR_KG) {
+            pesagemAviso.classList.remove('d-none');
+        } else {
+            pesagemAviso.classList.add('d-none');
+        }
+    }
+    pesagemInput.addEventListener('input', checkPesagem);
+    checkPesagem();
+
+    // Submit logic: intercept when suspicious
+    var pendingAction = null;
+    var modal = new bootstrap.Modal(document.getElementById('modalConfirmarPesagem'));
+    document.getElementById('modalConfirmarValor') && null; // guard
+    var modalValorEl = document.getElementById('modalPesagemValor');
+
+    function doSubmit(action) {
+        document.getElementById('formAction').value = action;
+        document.getElementById('planoForm').submit();
+    }
+
+    function trySubmit(action) {
+        var v = parseDec(pesagemInput.value);
+        if (v > LIMIAR_KG) {
+            pendingAction = action;
+            modalValorEl.textContent = v.toFixed(3);
+            modal.show();
+        } else {
+            doSubmit(action);
+        }
+    }
+
+    document.getElementById('btnGuardar').addEventListener('click', function() {
+        trySubmit('save');
+    });
+
     var btnAdd = document.getElementById('btnAddPlan');
     if (btnAdd) {
         btnAdd.addEventListener('click', function() {
-            document.getElementById('formAction').value = 'add_to_plan';
-            var form = document.getElementById('planoForm');
-            if (form.requestSubmit) {
-                form.requestSubmit();
-            } else {
-                form.submit();
-            }
+            trySubmit('add_to_plan');
         });
     }
+
+    document.getElementById('modalConfirmarBtn').addEventListener('click', function() {
+        modal.hide();
+        doSubmit(pendingAction || 'save');
+    });
 });
 </script>
 {% endblock %}
