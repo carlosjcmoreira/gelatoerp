@@ -578,8 +578,6 @@ def get_vendas_detalhe_df(loja: str = None, data_inicio: date = None, data_fim: 
         return [dict(r) for r in cursor.fetchall()]
 
 def add_stock_gelado(data: date, loja: str, sabor: str, quantidade_kg: float, tipo: str, local: str = None):
-    if quantidade_kg > 50:
-        quantidade_kg = quantidade_kg / 1000.0
     store_id = get_store_id_by_name(loja)
     with db_connection() as conn:
         cursor = conn.cursor()

@@ -18,17 +18,15 @@
 
     <!-- ── MODO MANUAL ─────────────────────────────────────── -->
     <div id="secao-manual">
-        <form method="POST" class="mb-4" id="form-manual" onsubmit="return false;">
-            <input type="hidden" name="action" value="add">
-
+        <form id="form-manual" onsubmit="return false;" class="mb-3">
             <div class="mb-3">
                 <label class="form-label fw-semibold">Data</label>
-                <input type="date" name="data" class="form-control" value="{{ data_sel.isoformat() }}" required>
+                <input type="date" id="manual-data" class="form-control" value="{{ data_sel.isoformat() }}" required>
             </div>
 
             <div class="mb-3">
                 <label class="form-label fw-semibold">Sabor</label>
-                <select name="sabor" class="form-select" required>
+                <select id="manual-sabor" class="form-select" required>
                     {% for s in sabores %}
                     <option value="{{ s }}">{{ s }}</option>
                     {% endfor %}
@@ -49,23 +47,52 @@
             <button type="button" class="btn btn-outline-secondary btn-sm mb-3" onclick="adicionarCarapina()">
                 + Adicionar carapina
             </button>
-            <div class="mb-3 p-2 rounded" style="background:#f0f4ff;">
+            <div class="mb-3 p-2 rounded" id="total-box" style="background:#f0f4ff;">
                 <span class="fw-semibold">Total: </span>
                 <span id="total-display" class="fw-bold">0,000 kg</span>
+                <span id="total-warn" class="badge bg-warning text-dark ms-2" style="display:none;">⚠️ Valor elevado</span>
             </div>
 
-            <button type="button" class="btn btn-primary w-100" onclick="validarESubmeter()">Registar Pesagem</button>
+            <button type="button" class="btn btn-primary w-100" onclick="adicionarALista()">
+                + Adicionar à lista
+            </button>
         </form>
+
+        <!-- ── Lista de pendentes ──────────────────────────── -->
+        <div id="secao-pendentes" style="display:none;" class="mb-3">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <h6 class="mb-0 fw-semibold">📋 A confirmar</h6>
+                <span id="pendentes-badge" class="badge bg-secondary">0 entradas</span>
+            </div>
+            <div class="table-responsive mb-2">
+                <table class="table table-sm table-bordered align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Data</th>
+                            <th>Sabor</th>
+                            <th class="text-end">kg</th>
+                            <th style="width:40px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="pendentes-tbody"></tbody>
+                </table>
+            </div>
+            <div id="pendentes-aviso" class="alert alert-warning py-2 mb-2" style="display:none;font-size:0.85rem;">
+                ⚠️ Uma ou mais entradas têm valores elevados (assinaladas a laranja). Reveja antes de confirmar.
+            </div>
+            <button type="button" class="btn btn-success w-100" id="btn-confirmar"
+                    onclick="abrirModalConfirmacao()">
+                Confirmar e registar (0)
+            </button>
+        </div>
     </div>
 
     <!-- ── MODO OCR ────────────────────────────────────────── -->
     <div id="secao-ocr" style="display:none;">
 
-        <!-- Camera / file input (hidden) -->
         <input type="file" id="ocr-file-input" accept="image/*" capture="environment" style="display:none;"
                onchange="iniciarOCR(this)">
 
-        <!-- Big camera button -->
         <div class="text-center mb-3" id="ocr-camera-btn-wrap">
             <button class="btn btn-lg btn-outline-primary px-5 py-4" style="font-size:1.1rem;"
                     onclick="document.getElementById('ocr-file-input').click()">
@@ -76,16 +103,13 @@
             </div>
         </div>
 
-        <!-- Loading spinner -->
         <div id="ocr-loading" style="display:none;" class="text-center py-4">
             <div class="spinner-border text-primary" role="status"></div>
             <div class="mt-2 text-muted">A processar imagem com OCR…</div>
         </div>
 
-        <!-- Confidence / error banner (filled by JS) -->
         <div id="ocr-banner" style="display:none;"></div>
 
-        <!-- Review table (filled by JS) -->
         <div id="ocr-review" style="display:none;">
             <h6 class="mt-3 mb-2 fw-semibold">Rever pesagens extraídas</h6>
             <p class="text-muted" style="font-size:0.82rem;">
@@ -95,7 +119,6 @@
             <form method="POST" id="ocr-bulk-form">
                 <input type="hidden" name="action" value="add_bulk">
 
-                <!-- Date detected from sheet — editable in case OCR misread it -->
                 <div class="mb-3" id="ocr-data-wrap">
                     <label class="form-label small fw-semibold">Data da folha</label>
                     <input type="date" name="data" id="ocr-data" class="form-control form-control-sm"
@@ -168,13 +191,51 @@
     </div>
 </div>
 
+<!-- ── Modal de Confirmação ─────────────────────────────────── -->
+<div class="modal fade" id="modal-confirmacao" tabindex="-1" aria-labelledby="modal-confirmacao-label" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-semibold" id="modal-confirmacao-label">Confirmar Pesagens</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3" style="font-size:0.88rem;">
+                    Reveja o resumo abaixo. As entradas a laranja têm valores elevados — confirme que estão em kg.
+                </p>
+                <div id="modal-resumo"></div>
+            </div>
+            <div class="modal-footer flex-column gap-2">
+                <button type="button" class="btn btn-success w-100" onclick="confirmarERegistar()">
+                    ✅ Confirmar e registar
+                </button>
+                <button type="button" class="btn btn-outline-secondary w-100" data-bs-dismiss="modal">
+                    ← Voltar a rever
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Form oculto para submissão em lote manual ────────────── -->
+<form method="POST" id="form-bulk-manual" style="display:none;">
+    <input type="hidden" name="action" value="add_bulk_manual">
+    <div id="bulk-manual-fields"></div>
+</form>
+
 <script>
 const SABORES_CONHECIDOS = {{ sabores | tojson }};
-const OCR_URL = "{{ url_for('vendas.pesagem_ocr') }}";
+const OCR_URL  = "{{ url_for('vendas.pesagem_ocr') }}";
 const HIST_URL = "{{ url_for('vendas.pesagem_historico') }}";
 const LOJA_ID_HIST = {{ loja_id or 'null' }};
 const TODAY = "{{ today }}";
 
+const LIMIAR_TOTAL_KG    = 15;
+const LIMIAR_CARAPINA_KG = 8;
+
+let pendingList = [];
+
+/* ── Histórico ──────────────────────────────────────────── */
 function loadHistorico() {
     var url = HIST_URL + (LOJA_ID_HIST ? '?loja_id=' + LOJA_ID_HIST : '');
     fetch(url)
@@ -264,6 +325,7 @@ function renderHistorico(dias) {
 
 document.addEventListener('DOMContentLoaded', loadHistorico);
 
+/* ── Modo (manual / OCR) ────────────────────────────────── */
 function setModo(modo) {
     const isOcr = modo === 'ocr';
     document.getElementById('secao-manual').style.display = isOcr ? 'none' : '';
@@ -274,17 +336,46 @@ function setModo(modo) {
         ? 'btn btn-primary' : 'btn btn-outline-primary';
 }
 
+/* ── Helpers ────────────────────────────────────────────── */
 function parseKg(s) {
     const v = parseFloat((s || '0').replace(',', '.'));
     return isNaN(v) ? 0 : v;
 }
 
+function formatKg(v) {
+    return v.toFixed(3).replace('.', ',') + ' kg';
+}
+
+function isSuspeito(totalKg, carapinas) {
+    if (totalKg > LIMIAR_TOTAL_KG) return true;
+    for (const c of carapinas) {
+        if (c > LIMIAR_CARAPINA_KG) return true;
+    }
+    return false;
+}
+
+/* ── Form manual — carapinas ────────────────────────────── */
 function atualizarTotal() {
+    const inputs = Array.from(document.querySelectorAll('.carapina-input'));
     let total = 0;
-    document.querySelectorAll('.carapina-input').forEach(function(inp) {
-        total += parseKg(inp.value);
+    let algumaSuspeita = false;
+    inputs.forEach(function(inp) {
+        const v = parseKg(inp.value);
+        total += v;
+        if (v > LIMIAR_CARAPINA_KG) algumaSuspeita = true;
     });
-    document.getElementById('total-display').textContent = total.toFixed(3).replace('.', ',') + ' kg';
+    if (total > LIMIAR_TOTAL_KG) algumaSuspeita = true;
+
+    document.getElementById('total-display').textContent = formatKg(total);
+    const warn = document.getElementById('total-warn');
+    const box  = document.getElementById('total-box');
+    if (algumaSuspeita) {
+        warn.style.display = '';
+        box.style.background = '#fff3cd';
+    } else {
+        warn.style.display = 'none';
+        box.style.background = '#f0f4ff';
+    }
 }
 
 function adicionarCarapina() {
@@ -320,6 +411,172 @@ function renumerarCarapinas() {
     });
 }
 
+/* ── Fluxo de acumulação / lista de pendentes ───────────── */
+function adicionarALista() {
+    const inputs = Array.from(document.querySelectorAll('#carapinas-container .carapina-input'));
+    const preenchidas = inputs.filter(inp => inp.value.trim() !== '');
+
+    if (preenchidas.length === 0) {
+        alert('Preencha pelo menos uma carapina antes de adicionar à lista.');
+        if (inputs.length > 0) inputs[0].focus();
+        return;
+    }
+
+    const vazias = inputs.filter(inp => inp.value.trim() === '');
+    if (vazias.length > 0) {
+        const nomes = vazias.map(inp => {
+            const row = inp.closest('.carapina-row');
+            const lbl = row ? row.querySelector('label') : null;
+            return lbl ? lbl.textContent.replace('(kg)', '').trim() : 'Carapina';
+        });
+        const verb = vazias.length === 1 ? ' está em branco' : ' estão em branco';
+        if (!confirm(nomes.join(', ') + verb + ' — continuar apenas com os valores preenchidos?')) {
+            return;
+        }
+    }
+
+    const sabor     = document.getElementById('manual-sabor').value.trim();
+    const dataVal   = document.getElementById('manual-data').value.trim();
+    const carapinas = preenchidas.map(inp => parseKg(inp.value));
+    const totalKg   = carapinas.reduce((a, b) => a + b, 0);
+
+    pendingList.push({
+        sabor:      sabor,
+        quantidade_kg: Math.round(totalKg * 1000) / 1000,
+        data:       dataVal,
+        suspeito:   isSuspeito(totalKg, carapinas),
+    });
+
+    renderPendentes();
+    resetFormManual();
+}
+
+function renderPendentes() {
+    const n       = pendingList.length;
+    const secao   = document.getElementById('secao-pendentes');
+    const tbody   = document.getElementById('pendentes-tbody');
+    const badge   = document.getElementById('pendentes-badge');
+    const btnConf = document.getElementById('btn-confirmar');
+    const aviso   = document.getElementById('pendentes-aviso');
+
+    secao.style.display = n === 0 ? 'none' : '';
+    badge.textContent   = n + (n === 1 ? ' entrada' : ' entradas');
+    btnConf.textContent = 'Confirmar e registar (' + n + ')';
+
+    const hasSuspeito = pendingList.some(e => e.suspeito);
+    aviso.style.display = hasSuspeito ? '' : 'none';
+
+    tbody.innerHTML = pendingList.map(function(entry, idx) {
+        const fmtData = entry.data
+            ? entry.data.split('-').reverse().join('/')
+            : '—';
+        const rowClass = entry.suspeito ? 'table-warning' : '';
+        const warnBadge = entry.suspeito
+            ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.68rem;">⚠️ Elevado</span>'
+            : '';
+        return '<tr class="' + rowClass + '">' +
+            '<td style="font-size:0.85rem;">' + escHtml(fmtData) + '</td>' +
+            '<td style="font-size:0.85rem;">' + escHtml(entry.sabor) + warnBadge + '</td>' +
+            '<td class="text-end" style="font-size:0.85rem;">' + entry.quantidade_kg.toFixed(3) + '</td>' +
+            '<td class="text-center">' +
+                '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"' +
+                ' style="font-size:0.72rem;" onclick="removerPendente(' + idx + ')" title="Remover">×</button>' +
+            '</td></tr>';
+    }).join('');
+}
+
+function removerPendente(idx) {
+    pendingList.splice(idx, 1);
+    renderPendentes();
+}
+
+function resetFormManual() {
+    document.querySelectorAll('#carapinas-container .carapina-row').forEach(function(row, i) {
+        if (i === 0) {
+            const inp = row.querySelector('.carapina-input');
+            if (inp) inp.value = '';
+        } else {
+            row.remove();
+        }
+    });
+    renumerarCarapinas();
+    atualizarTotal();
+    const saborSel = document.getElementById('manual-sabor');
+    if (saborSel) saborSel.selectedIndex = 0;
+}
+
+/* ── Modal de confirmação ───────────────────────────────── */
+function abrirModalConfirmacao() {
+    if (pendingList.length === 0) return;
+
+    const resumo = document.getElementById('modal-resumo');
+    const hasSuspeito = pendingList.some(e => e.suspeito);
+
+    let html = '<table class="table table-sm table-bordered align-middle">' +
+        '<thead class="table-dark"><tr>' +
+        '<th>Data</th><th>Sabor</th><th class="text-end">kg</th>' +
+        '</tr></thead><tbody>';
+
+    pendingList.forEach(function(entry) {
+        const fmtData = entry.data
+            ? entry.data.split('-').reverse().join('/')
+            : '—';
+        const rowClass = entry.suspeito ? 'table-warning' : '';
+        const warnBadge = entry.suspeito
+            ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.68rem;">⚠️</span>'
+            : '';
+        html += '<tr class="' + rowClass + '">' +
+            '<td style="font-size:0.85rem;">' + escHtml(fmtData) + '</td>' +
+            '<td style="font-size:0.85rem;">' + escHtml(entry.sabor) + warnBadge + '</td>' +
+            '<td class="text-end fw-semibold" style="font-size:0.85rem;">' + entry.quantidade_kg.toFixed(3) + '</td>' +
+            '</tr>';
+    });
+
+    const totalGeral = pendingList.reduce((a, e) => a + e.quantidade_kg, 0);
+    html += '<tr class="table-secondary">' +
+        '<td colspan="2" class="fw-semibold ps-2">Total geral</td>' +
+        '<td class="text-end fw-semibold">' + totalGeral.toFixed(3) + ' kg</td>' +
+        '</tr>';
+    html += '</tbody></table>';
+
+    if (hasSuspeito) {
+        html += '<div class="alert alert-warning py-2 mb-0" style="font-size:0.83rem;">' +
+            '⚠️ As entradas a amarelo têm valores acima de ' + LIMIAR_TOTAL_KG + ' kg. ' +
+            'Certifique-se de que os valores estão em <strong>kg</strong> e não em gramas.' +
+            '</div>';
+    }
+
+    resumo.innerHTML = html;
+
+    const modal = new bootstrap.Modal(document.getElementById('modal-confirmacao'));
+    modal.show();
+}
+
+function confirmarERegistar() {
+    const fields = document.getElementById('bulk-manual-fields');
+    fields.innerHTML = '';
+
+    pendingList.forEach(function(entry) {
+        const addHidden = function(name, value) {
+            const inp = document.createElement('input');
+            inp.type  = 'hidden';
+            inp.name  = name;
+            inp.value = value;
+            fields.appendChild(inp);
+        };
+        addHidden('sabor[]',      entry.sabor);
+        addHidden('quantidade[]', entry.quantidade_kg.toString());
+        addHidden('data[]',       entry.data);
+    });
+
+    const modalEl = document.getElementById('modal-confirmacao');
+    const modal   = bootstrap.Modal.getInstance(modalEl);
+    if (modal) modal.hide();
+
+    document.getElementById('form-bulk-manual').submit();
+}
+
+/* ── Edição de pesagem existente ────────────────────────── */
 function abrirEdit(id, currentKg, dataStr) {
     const el = document.getElementById('edit-modal');
     if (el) el.remove();
@@ -330,7 +587,7 @@ function abrirEdit(id, currentKg, dataStr) {
     modal.innerHTML = `
 <div style="background:#fff;border-radius:12px;padding:1.2rem;width:min(90vw,340px);">
   <h6 class="mb-3 fw-semibold">Editar Pesagem</h6>
-  <form method="POST" id="edit-form">
+  <form method="POST" id="edit-form" onsubmit="return validarEdicao(this)">
     <input type="hidden" name="action" value="edit">
     <input type="hidden" name="id" value="${id}">
     <input type="hidden" name="data_redirect" value="${dataStr}">
@@ -356,6 +613,18 @@ function abrirEdit(id, currentKg, dataStr) {
     document.getElementById('edit-input').select();
 }
 
+function validarEdicao(form) {
+    const val = parseKg(document.getElementById('edit-input').value);
+    if (val > LIMIAR_TOTAL_KG) {
+        return confirm(
+            'Vai guardar ' + val.toFixed(3) + ' kg.\n' +
+            'Este valor parece elevado — confirma que está em kg (não em gramas)?'
+        );
+    }
+    return true;
+}
+
+/* ── OCR ────────────────────────────────────────────────── */
 function iniciarOCR(input) {
     const file = input.files[0];
     if (!file) return;
@@ -383,7 +652,6 @@ function iniciarOCR(input) {
             const confClass = conf >= 80 ? 'success' : conf >= 60 ? 'warning' : 'danger';
             mostrarBanner(confClass, `OCR concluído — Confiança: <strong>${conf}%</strong>`);
 
-            // Populate date field from OCR result
             const dataInput = document.getElementById('ocr-data');
             const dataHint  = document.getElementById('ocr-data-hint');
             if (data.data_ocr) {
@@ -425,11 +693,9 @@ function saboresNormalizados() {
 function encontrarSabor(nomeOCR) {
     const norm = normalizarNome(nomeOCR);
     const lista = saboresNormalizados();
-    // exact match
     for (const s of lista) {
         if (s.norm === norm) return s.original;
     }
-    // starts-with match
     for (const s of lista) {
         if (s.norm.startsWith(norm) || norm.startsWith(s.norm)) return s.original;
     }
@@ -441,7 +707,6 @@ function verificarDuplicadosOCR() {
     const cards = Array.from(container.querySelectorAll('.card'));
     const banner = document.getElementById('ocr-dup-banner');
 
-    // Collect normalised sabor names only for checked cards
     const nomes = cards.map((card, idx) => {
         const chk = document.getElementById('chk-' + idx);
         if (chk && !chk.checked) return null;
@@ -453,7 +718,6 @@ function verificarDuplicadosOCR() {
     nomes.forEach(n => { if (n) counts[n] = (counts[n] || 0) + 1; });
     const dupNorms = new Set(Object.keys(counts).filter(n => counts[n] > 1));
 
-    // Update card borders and badges
     cards.forEach((card, idx) => {
         const inp = card.querySelector('input[name="sabor[]"]');
         const lbl = card.querySelector('label[for^="chk-"]');
@@ -474,14 +738,12 @@ function verificarDuplicadosOCR() {
         } else {
             card.classList.remove('border-danger');
             if (existingBadge) existingBadge.remove();
-            // Restore warning border for originally-unknown flavours
             if (card.dataset.conhecido === '0') {
                 card.classList.add('border-warning');
             }
         }
     });
 
-    // Update banner
     if (dupNorms.size > 0) {
         const nomesList = Array.from(dupNorms).map(n => {
             const inp = Array.from(container.querySelectorAll('input[name="sabor[]"]'))
@@ -550,14 +812,12 @@ function renderLinhas(linhas) {
 </div>`;
         container.appendChild(card);
 
-        // Wire sabor input to duplicate check
         const saborInp = card.querySelector('input[name="sabor[]"]');
         if (saborInp) {
             saborInp.addEventListener('input', function() { verificarDuplicadosOCR(); });
         }
     });
 
-    // datalist for sabor autocomplete
     const dl = document.createElement('datalist');
     dl.id = 'sabores-dl';
     SABORES_CONHECIDOS.forEach(s => {
@@ -599,33 +859,8 @@ function submeterOCR() {
     form.submit();
 }
 
-function validarESubmeter() {
-    const inputs = Array.from(document.querySelectorAll('#carapinas-container .carapina-input'));
-    const vazias = inputs.filter(inp => inp.value.trim() === '');
-
-    if (vazias.length === inputs.length) {
-        alert('Nenhuma carapina tem valor registado. Por favor preencha pelo menos uma antes de continuar.');
-        if (vazias.length > 0) vazias[0].focus();
-        return;
-    }
-
-    if (vazias.length > 0) {
-        const numeros = vazias.map(inp => {
-            const row = inp.closest('.carapina-row');
-            const lbl = row ? row.querySelector('label') : null;
-            return lbl ? lbl.textContent.replace('(kg)', '').trim() : 'Carapina';
-        });
-        const verb = vazias.length === 1 ? ' está em branco' : ' estão em branco';
-        if (!confirm(numeros.join(', ') + verb + ' — continuar apenas com os valores preenchidos?')) {
-            return;
-        }
-    }
-
-    document.getElementById('form-manual').submit();
-}
-
 function escHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
               .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 </script>

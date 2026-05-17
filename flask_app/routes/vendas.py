@@ -332,6 +332,36 @@ def pesagem():
                 flash('Nenhuma pesagem válida para registar.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id, data=str(data_reg)))
 
+        elif action == 'add_bulk_manual':
+            sabores_list = request.form.getlist('sabor[]')
+            qtds_list = request.form.getlist('quantidade[]')
+            datas_list = request.form.getlist('data[]')
+            saved = 0
+            last_data = date.today()
+            for i, (sabor, qtd_str) in enumerate(zip(sabores_list, qtds_list)):
+                sabor = sabor.strip()
+                if not sabor:
+                    continue
+                try:
+                    pesagem_kg = round(float(qtd_str.replace(',', '.')), 3)
+                except (ValueError, TypeError):
+                    continue
+                if pesagem_kg < 0:
+                    continue
+                raw_d = datas_list[i] if i < len(datas_list) else ''
+                try:
+                    entry_date = datetime.strptime(raw_d.strip(), '%Y-%m-%d').date()
+                except (ValueError, TypeError):
+                    entry_date = date.today()
+                last_data = entry_date
+                add_stock_gelado(entry_date, loja_nome, sabor, pesagem_kg, 'fim')
+                saved += 1
+            if saved:
+                flash(f'{saved} pesagem(ns) confirmada(s) e registada(s)!', 'success')
+            else:
+                flash('Nenhuma pesagem válida para registar.', 'error')
+            return redirect(url_for('vendas.pesagem', loja_id=loja_id, data=str(last_data)))
+
         elif action == 'delete':
             s_id = request.form.get('id')
             if s_id:
