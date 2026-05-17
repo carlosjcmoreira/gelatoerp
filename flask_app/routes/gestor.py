@@ -237,6 +237,28 @@ def upload_pesagem():
                            total_pesagem=total_pesagem)
 
 
+_PESAGEM_UPLOAD_LIMIAR_KG = 15.0
+
+
+def _do_import_pesagem(entries: list, loja: str, tipo_pesagem: str) -> int:
+    """Save a list of parsed pesagem entries to stock_gelado atomically.
+
+    Each entry must have keys: data_iso (str ISO date), sabor (str), quantidade (float).
+    Returns the number of rows inserted.
+    """
+    from database import add_stock_gelado_bulk
+    bulk = [
+        {
+            'data': date.fromisoformat(e['data_iso']),
+            'sabor': e['sabor'],
+            'quantidade_kg': e['quantidade'],
+            'tipo': tipo_pesagem,
+        }
+        for e in entries
+    ]
+    return add_stock_gelado_bulk(bulk, loja)
+
+
 def _handle_upload_pesagem_post(loja_pesagem):
     uploaded_file = request.files.get('pesagem_file')
     loja = request.form.get('loja', loja_pesagem)
@@ -264,7 +286,6 @@ def _handle_upload_pesagem_post(loja_pesagem):
         }
 
         tipo_pesagem = 'fim' if loja == 'Bolhão' else 'inicio'
-        imported = 0
         skipped = 0
 
         all_dates_pesagem = set()
@@ -282,6 +303,8 @@ def _handle_upload_pesagem_post(loja_pesagem):
             for r in existing_records:
                 existing_set.add((r['data'], r['sabor']))
 
+        # First pass: parse all entries without writing to DB
+        entries = []
         for _, row in df_pesagem.iterrows():
             sabor_raw = str(row[sabor_col]).strip()
             sabor = sabor_mapping_upload.get(sabor_raw, sabor_raw)
@@ -293,27 +316,82 @@ def _handle_upload_pesagem_post(loja_pesagem):
                     quantidade = float(val)
                     if quantidade <= 0:
                         continue
-                    if quantidade > 50:
-                        quantidade = quantidade / 1000.0
                     data_val = pd.to_datetime(col).date()
                     if (data_val, sabor) in existing_set:
                         skipped += 1
                         continue
-                    db.add_stock_gelado(data_val, loja, sabor, round(quantidade, 3), tipo_pesagem)
+                    entries.append({
+                        'sabor': sabor,
+                        'data_iso': data_val.isoformat(),
+                        'quantidade': round(quantidade, 3),
+                        'suspeito': quantidade > _PESAGEM_UPLOAD_LIMIAR_KG,
+                    })
                     existing_set.add((data_val, sabor))
-                    imported += 1
                 except:
                     continue
 
-        flash(f'{imported} registos importados com sucesso! ({skipped} já existentes, ignorados)', 'success')
-        if imported > 0:
-            invalidate_prefix('kpi_annual')
-            invalidate_prefix('kpi_monthly')
-            invalidate_prefix('kpi_by_day')
+        if not entries:
+            flash(f'Nenhum registo novo para importar ({skipped} já existentes, ignorados).', 'info')
+            return redirect(url_for('gestor.upload_pesagem', loja=loja))
+
+        # If any entry looks suspicious, redirect to confirmation page
+        if any(e['suspeito'] for e in entries):
+            session['pending_pesagem_import'] = {
+                'loja': loja,
+                'tipo_pesagem': tipo_pesagem,
+                'entries': entries,
+                'skipped': skipped,
+            }
+            return redirect(url_for('gestor.pesagem_confirmacao'))
+
+        # No suspicious values — import atomically
+        _do_import_pesagem(entries, loja, tipo_pesagem)
+        flash(f'{len(entries)} registos importados com sucesso! ({skipped} já existentes, ignorados)', 'success')
+        invalidate_prefix('kpi_annual')
+        invalidate_prefix('kpi_monthly')
+        invalidate_prefix('kpi_by_day')
     except Exception as e:
         flash(f'Erro ao processar ficheiro: {str(e)}', 'error')
 
     return redirect(url_for('gestor.upload_pesagem', loja=loja))
+
+
+@gestor_bp.route('/pesagem-confirmacao', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def pesagem_confirmacao():
+    pending = session.get('pending_pesagem_import')
+    if not pending:
+        flash('Sem importação pendente. Por favor carregue um ficheiro.', 'info')
+        return redirect(url_for('gestor.upload_pesagem'))
+
+    loja = pending.get('loja', 'Matosinhos')
+
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        session.pop('pending_pesagem_import', None)
+        if action == 'confirm':
+            try:
+                saved = _do_import_pesagem(pending['entries'], loja, pending['tipo_pesagem'])
+                skipped = pending.get('skipped', 0)
+                flash(f'{saved} registos importados com sucesso! ({skipped} já existentes, ignorados)', 'success')
+                invalidate_prefix('kpi_annual')
+                invalidate_prefix('kpi_monthly')
+                invalidate_prefix('kpi_by_day')
+            except Exception as e:
+                flash(f'Erro ao importar — nenhum registo foi guardado: {str(e)}', 'error')
+        else:
+            flash('Importação cancelada.', 'info')
+        return redirect(url_for('gestor.upload_pesagem', loja=loja))
+
+    return render_template(
+        'gestor/pesagem_confirmacao.html',
+        active_tab='upload_pesagem',
+        tabs=get_tabs(),
+        loja=loja,
+        entries=pending['entries'],
+        skipped=pending.get('skipped', 0),
+        limiar=_PESAGEM_UPLOAD_LIMIAR_KG,
+    )
 
 
 @gestor_bp.route('/vendas-detalhe', methods=['GET', 'POST'])

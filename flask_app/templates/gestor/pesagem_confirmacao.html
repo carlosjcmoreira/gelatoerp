@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.upload_pesagem", loja=loja) %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">📋 Área do Gestor</h5>
+    <p class="text-muted small mb-3">Upload de produção, vendas e configurações</p>
+
+    <div class="card mb-3 border-warning">
+        <div class="card-header bg-warning bg-opacity-25">
+            <h6 class="card-title mb-0">⚠️ Confirmação de Importação de Pesagem — {{ loja }}</h6>
+        </div>
+        <div class="card-body">
+            <div class="alert alert-warning py-2 mb-3">
+                <strong>Atenção:</strong> O ficheiro contém
+                {% set n_sus = entries | selectattr('suspeito') | list | length %}
+                <strong>{{ n_sus }} registo{{ 'a' if n_sus != 1 else '' }}</strong> com valor superior a {{ limiar|int }} kg.
+                Certifique-se de que os valores estão em <strong>kg</strong> e não em gramas antes de confirmar.
+            </div>
+
+            <div class="table-responsive mb-3">
+                <table class="table table-sm table-bordered align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Sabor</th>
+                            <th>Data</th>
+                            <th class="text-end">Quantidade (kg)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for e in entries %}
+                        <tr{% if e.suspeito %} class="table-warning"{% endif %}>
+                            <td>{{ e.sabor }}</td>
+                            <td>{{ e.data_iso | replace('-', '/') }}</td>
+                            <td class="text-end fw-bold">
+                                {{ "%.3f"|format(e.quantidade) }}
+                                {% if e.suspeito %}
+                                <span class="badge bg-warning text-dark ms-1" title="Valor acima de {{ limiar|int }} kg">!</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot class="table-light">
+                        <tr>
+                            <th colspan="2">Total a importar</th>
+                            <th class="text-end">{{ "%.3f"|format(entries | sum(attribute='quantidade')) }} kg</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            {% if skipped > 0 %}
+            <p class="text-muted small mb-3">
+                <em>{{ skipped }} registo{{ 's' if skipped != 1 else '' }} já existente{{ 's' if skipped != 1 else '' }} ser{{ 'ão' if skipped != 1 else 'á' }} ignorado{{ 's' if skipped != 1 else '' }}.</em>
+            </p>
+            {% endif %}
+
+            <form method="POST" class="d-flex gap-2 flex-wrap">
+                <button type="submit" name="action" value="confirm" class="btn btn-warning btn-sm">
+                    ✅ Confirmar e importar {{ entries | length }} registo{{ 's' if entries | length != 1 else '' }}
+                </button>
+                <button type="submit" name="action" value="cancel" class="btn btn-outline-secondary btn-sm">
+                    ✖ Cancelar e corrigir o ficheiro
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
