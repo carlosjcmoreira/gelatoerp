@@ -594,6 +594,12 @@ def add_stock_gelado_bulk(entries: list, loja: str) -> int:
     Each entry is a dict with keys: data (date), sabor (str), quantidade_kg (float), tipo (str).
     Returns the number of rows inserted.
     Raises on any DB error — no partial writes.
+
+    Note: this function inserts directly via execute_values rather than looping
+    add_stock_gelado, because each call to add_stock_gelado opens its own connection
+    and commits immediately, making atomicity impossible. If add_stock_gelado ever
+    gains pre-insert business logic (e.g. duplicate checks, quota validation), that
+    logic should be replicated or extracted into a shared helper and applied here too.
     """
     if not entries:
         return 0

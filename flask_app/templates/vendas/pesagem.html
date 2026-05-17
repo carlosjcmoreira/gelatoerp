@@ -541,7 +541,8 @@ function abrirModalConfirmacao() {
 
     if (hasSuspeito) {
         html += '<div class="alert alert-warning py-2 mb-0" style="font-size:0.83rem;">' +
-            '⚠️ As entradas a amarelo têm valores acima de ' + LIMIAR_TOTAL_KG + ' kg. ' +
+            '⚠️ As entradas a amarelo têm o total acima de ' + LIMIAR_TOTAL_KG + ' kg ' +
+            'ou uma carapina individual acima de ' + LIMIAR_CARAPINA_KG + ' kg. ' +
             'Certifique-se de que os valores estão em <strong>kg</strong> e não em gramas.' +
             '</div>';
     }
