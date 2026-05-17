@@ -368,7 +368,12 @@ def pesagem():
                     )
                     for r in existing_records:
                         existing_set.add((r['data'], r['sabor']))
-                    new_entries = [e for e in entries if (e['data'], e['sabor']) not in existing_set]
+                    new_entries = []
+                    for e in entries:
+                        key = (e['data'], e['sabor'])
+                        if key not in existing_set:
+                            new_entries.append(e)
+                            existing_set.add(key)
                     skipped_dup = len(entries) - len(new_entries)
                     bulk_saved = add_stock_gelado_bulk(new_entries, loja_nome) if new_entries else 0
                     if bulk_saved > 0 and skipped_dup == 0:
