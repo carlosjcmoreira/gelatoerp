@@ -386,7 +386,7 @@ def pesagem():
             skipped_dup = 0
             if entries:
                 try:
-                    from database import add_stock_gelado_bulk, get_stock_gelado_df
+                    from database import add_stock_gelado_bulk
                     all_dates = set(e['data'] for e in entries)
                     existing_set = set()
                     existing_records = get_stock_gelado_df(
