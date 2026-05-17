@@ -38,7 +38,7 @@
                     <div class="flex-grow-1">
                         <label class="form-label fw-semibold mb-1">Carapina 1 (kg)</label>
                         <input type="text" name="quantidade[]" class="form-control carapina-input" placeholder="0,000"
-                               inputmode="decimal" oninput="atualizarTotal()">
+                               inputmode="decimal" oninput="autoFormatKg(this)">
                     </div>
                     <button type="button" class="btn btn-outline-danger btn-sm carapina-remove mt-3"
                             onclick="removerCarapina(this)" style="display:none;" title="Remover">×</button>
@@ -422,6 +422,22 @@ function isSuspeito(totalKg, carapinas) {
     return false;
 }
 
+/* ── Auto-formato decimal (caixa registadora) ───────────── */
+function autoFormatKg(inp) {
+    let raw = inp.value.replace(/[^\d]/g, '');
+    raw = raw.replace(/^0+/, '');
+    if (raw === '') {
+        inp.value = '';
+        atualizarTotal();
+        return;
+    }
+    while (raw.length < 3) raw = '0' + raw;
+    const intPart = raw.slice(0, raw.length - 3) || '0';
+    const decPart = raw.slice(raw.length - 3);
+    inp.value = intPart + ',' + decPart;
+    atualizarTotal();
+}
+
 /* ── Form manual — carapinas ────────────────────────────── */
 function atualizarTotal() {
     const inputs = Array.from(document.querySelectorAll('.carapina-input'));
@@ -455,7 +471,7 @@ function adicionarCarapina() {
         '<div class="flex-grow-1">' +
             '<label class="form-label fw-semibold mb-1">Carapina ' + n + ' (kg)</label>' +
             '<input type="text" name="quantidade[]" class="form-control carapina-input" placeholder="0,000"' +
-            '       inputmode="decimal" oninput="atualizarTotal()">' +
+            '       inputmode="decimal" oninput="autoFormatKg(this)">' +
         '</div>' +
         '<button type="button" class="btn btn-outline-danger btn-sm carapina-remove mt-3"' +
         '        onclick="removerCarapina(this)" title="Remover">\xd7</button>';
