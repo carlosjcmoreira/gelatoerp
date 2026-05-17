@@ -1,56 +1,112 @@
 {% extends "producao/tabs.html" %}
 
 {% block tab_content %}
-<h5 class="mb-3">Pesagens de Loja <small class="text-muted fs-6">(última pesagem por sabor)</small></h5>
-
-{% if rows %}
-<div class="table-responsive">
-    <table class="table table-sm table-striped align-middle">
-        <thead class="table-dark">
-            <tr>
-                <th class="px-2">Sabor</th>
-                {% for loja in lojas %}
-                <th class="text-center px-2 border-start" colspan="3">{{ loja }}</th>
-                {% endfor %}
-            </tr>
-            <tr>
-                <th class="px-2"></th>
-                {% for loja in lojas %}
-                <th class="text-center px-1 border-start small">kg</th>
-                <th class="text-center px-1 small">data</th>
-                <th class="px-1 small"></th>
-                {% endfor %}
-            </tr>
-        </thead>
-        <tbody>
-            {% for r in rows %}
-            <tr>
-                <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
-                {% for loja in lojas %}
-                {% set entry = r.lojas.get(loja) %}
-                <td class="text-center px-1 border-start {% if entry %}text-primary fw-semibold{% else %}text-muted{% endif %}">
-                    {{ '%.2f'|format(entry.kg) if entry else '-' }}
-                </td>
-                <td class="text-center px-1 small text-muted">
-                    {{ entry.data if entry else '-' }}
-                </td>
-                <td class="px-1">
-                    {% if entry and entry.id %}
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
-                            onclick="abrirEditPesagem({{ entry.id }}, '{{ r.sabor|e }}', '{{ loja|e }}', {{ entry.kg }}, '{{ entry.data|e }}')"
-                            title="Editar pesagem">
-                        ✏️
-                    </button>
-                    {% endif %}
-                </td>
-                {% endfor %}
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h5 class="mb-0">Pesagens de Loja
+        {% if days == 1 %}
+        <small class="text-muted fs-6">(última pesagem por sabor)</small>
+        {% else %}
+        <small class="text-muted fs-6">(últimos {{ days }} dias)</small>
+        {% endif %}
+    </h5>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Janela de datas">
+        {% for d in days_options %}
+        <a href="{{ url_for('producao.pesagens_loja', days=d) }}"
+           class="btn {% if days == d %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            {% if d == 1 %}Hoje/ontem{% else %}{{ d }}d{% endif %}
+        </a>
+        {% endfor %}
+    </div>
 </div>
+
+{% if history_rows is none %}
+    {# ── Compact cross-tab view for days=1 ── #}
+    {% if rows %}
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th class="px-2">Sabor</th>
+                    {% for loja in lojas %}
+                    <th class="text-center px-2 border-start" colspan="3">{{ loja }}</th>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <th class="px-2"></th>
+                    {% for loja in lojas %}
+                    <th class="text-center px-1 border-start small">kg</th>
+                    <th class="text-center px-1 small">data</th>
+                    <th class="px-1 small"></th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in rows %}
+                <tr>
+                    <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
+                    {% for loja in lojas %}
+                    {% set entry = r.lojas.get(loja) %}
+                    <td class="text-center px-1 border-start {% if entry %}text-primary fw-semibold{% else %}text-muted{% endif %}">
+                        {{ '%.2f'|format(entry.kg) if entry else '-' }}
+                    </td>
+                    <td class="text-center px-1 small text-muted">
+                        {{ entry.data if entry else '-' }}
+                    </td>
+                    <td class="px-1">
+                        {% if entry and entry.id %}
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                                onclick="abrirEditPesagem({{ entry.id }}, '{{ r.sabor|e }}', '{{ loja|e }}', {{ entry.kg }}, '{{ entry.data|e }}')"
+                                title="Editar pesagem">
+                            ✏️
+                        </button>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info">Sem pesagens de loja registadas hoje ou ontem.</div>
+    {% endif %}
+
 {% else %}
-<div class="alert alert-info">Sem pesagens de loja registadas.</div>
+    {# ── Flat history view for days>1 ── #}
+    {% if history_rows %}
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th class="px-2">Data</th>
+                    <th class="px-2">Loja</th>
+                    <th class="px-2">Sabor</th>
+                    <th class="text-end px-2">kg</th>
+                    <th class="px-2"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in history_rows %}
+                <tr>
+                    <td class="px-2 small text-muted">{{ r.data }}</td>
+                    <td class="px-2 small">{{ r.loja }}</td>
+                    <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
+                    <td class="text-end px-2 text-primary fw-semibold">{{ '%.2f'|format(r.kg) }}</td>
+                    <td class="px-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                                onclick="abrirEditPesagem({{ r.id }}, '{{ r.sabor|e }}', '{{ r.loja|e }}', {{ r.kg }}, '{{ r.data|e }}')"
+                                title="Editar pesagem">
+                            ✏️
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info">Sem pesagens registadas nos últimos {{ days }} dias.</div>
+    {% endif %}
 {% endif %}
 
 <!-- Modal de Edição de Pesagem -->

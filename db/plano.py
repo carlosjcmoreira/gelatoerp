@@ -814,6 +814,30 @@ def get_latest_pesagem_por_sabor_all_lojas() -> dict:
     return result
 
 
+def get_pesagens_loja_range(days: int = 7) -> list:
+    """Return all pesagens from stock_gelado within the last N days.
+
+    Unlike get_latest_pesagem_por_sabor_all_lojas(), this returns every row
+    (not just the most-recent per loja/sabor) so users can browse and edit
+    historical records.
+
+    Returns a list of dicts: {id, loja, sabor, kg, data}
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, loja, sabor, quantidade_kg, data
+            FROM stock_gelado
+            WHERE data >= CURRENT_DATE - (%s * INTERVAL '1 day')
+            ORDER BY data DESC, loja, sabor
+        """, (days,))
+        rows = cursor.fetchall()
+    return [
+        {'id': row[0], 'loja': row[1], 'sabor': row[2], 'kg': float(row[3]), 'data': row[4]}
+        for row in rows
+    ]
+
+
 def set_stock_producao(sabor: str, loja: str, quantidade_kg: float):
     """Overwrite the total production stock for a sabor+loja combination.
 

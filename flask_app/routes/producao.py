@@ -22,7 +22,7 @@ from database import (
     criar_ordem_transferencia, add_stock_producao,
     get_plano_ajuste_dia,
     get_eventos_adjudicados_para_producao, mark_production_alert_sent,
-    get_latest_pesagem_por_sabor_all_lojas, set_stock_producao,
+    get_latest_pesagem_por_sabor_all_lojas, get_pesagens_loja_range, set_stock_producao,
     get_stock_producao_by_loja, upsert_pesagem_matosinhos_inicio,
     get_active_venda_stores, get_or_create_pending_batch,
     update_stock_gelado, get_producao_history_by_day,
@@ -345,9 +345,19 @@ def eliminar_quebras_bulk():
 _PESAGENS_LOJA_ORDER = ['Bolhão', 'Matosinhos', 'Mouzinho']
 
 
+_PESAGENS_DAYS_OPTIONS = [1, 7, 14, 30]
+
+
 @producao_bp.route('/pesagens-loja', methods=['GET', 'POST'])
 @perm_required('acesso_producao')
 def pesagens_loja():
+    try:
+        days = int(request.args.get('days', 1))
+    except (ValueError, TypeError):
+        days = 1
+    if days not in _PESAGENS_DAYS_OPTIONS:
+        days = 1
+
     if request.method == 'POST':
         action = request.form.get('action')
         if action == 'edit':
@@ -362,36 +372,56 @@ def pesagens_loja():
                     flash("Dados inválidos.", "danger")
             except (ValueError, TypeError):
                 flash("Erro ao processar os dados.", "danger")
-        return redirect(url_for('producao.pesagens_loja'))
+        return redirect(url_for('producao.pesagens_loja', days=days))
 
-    pesagens_by_loja = get_latest_pesagem_por_sabor_all_lojas()
-    known = set(pesagens_by_loja.keys())
-    lojas = [l for l in _PESAGENS_LOJA_ORDER if l in known or l in ('Bolhão', 'Matosinhos')] + [
-        l for l in sorted(known) if l not in _PESAGENS_LOJA_ORDER
-    ]
-    all_sabores = set()
-    for loja_data in pesagens_by_loja.values():
-        all_sabores.update(loja_data.keys())
-    all_sabores = sorted(all_sabores)
+    if days == 1:
+        pesagens_by_loja = get_latest_pesagem_por_sabor_all_lojas()
+        known = set(pesagens_by_loja.keys())
+        lojas = [l for l in _PESAGENS_LOJA_ORDER if l in known or l in ('Bolhão', 'Matosinhos')] + [
+            l for l in sorted(known) if l not in _PESAGENS_LOJA_ORDER
+        ]
+        all_sabores = set()
+        for loja_data in pesagens_by_loja.values():
+            all_sabores.update(loja_data.keys())
+        all_sabores = sorted(all_sabores)
 
-    rows = []
-    for sabor in all_sabores:
-        row = {'sabor': sabor, 'lojas': {}}
-        for loja in lojas:
-            entry = pesagens_by_loja.get(loja, {}).get(sabor)
-            if entry:
-                row['lojas'][loja] = {
-                    'id': entry['id'],
-                    'kg': entry['kg'],
-                    'data': _format_date(entry['data']) if entry['data'] else '-',
-                }
-            else:
-                row['lojas'][loja] = None
-        rows.append(row)
+        rows = []
+        for sabor in all_sabores:
+            row = {'sabor': sabor, 'lojas': {}}
+            for loja in lojas:
+                entry = pesagens_by_loja.get(loja, {}).get(sabor)
+                if entry:
+                    row['lojas'][loja] = {
+                        'id': entry['id'],
+                        'kg': entry['kg'],
+                        'data': _format_date(entry['data']) if entry['data'] else '-',
+                    }
+                else:
+                    row['lojas'][loja] = None
+            rows.append(row)
 
-    return render_template('producao/pesagens_loja.html',
-                           active_tab='pesagens_loja', tabs=_tabs_with_urls(),
-                           lojas=lojas, rows=rows)
+        return render_template('producao/pesagens_loja.html',
+                               active_tab='pesagens_loja', tabs=_tabs_with_urls(),
+                               lojas=lojas, rows=rows,
+                               days=days, days_options=_PESAGENS_DAYS_OPTIONS,
+                               history_rows=None)
+    else:
+        raw = get_pesagens_loja_range(days)
+        history_rows = [
+            {
+                'id': r['id'],
+                'loja': r['loja'],
+                'sabor': r['sabor'],
+                'kg': r['kg'],
+                'data': _format_date(r['data']) if r['data'] else '-',
+            }
+            for r in raw
+        ]
+        return render_template('producao/pesagens_loja.html',
+                               active_tab='pesagens_loja', tabs=_tabs_with_urls(),
+                               lojas=[], rows=[],
+                               days=days, days_options=_PESAGENS_DAYS_OPTIONS,
+                               history_rows=history_rows)
 
 
 @producao_bp.route('/registo-producao', methods=['GET'])
