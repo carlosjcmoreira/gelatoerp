@@ -336,7 +336,7 @@ def pesagem():
             sabores_list = request.form.getlist('sabor[]')
             qtds_list = request.form.getlist('quantidade[]')
             datas_list = request.form.getlist('data[]')
-            saved = 0
+            entries = []
             last_data = date.today()
             for i, (sabor, qtd_str) in enumerate(zip(sabores_list, qtds_list)):
                 sabor = sabor.strip()
@@ -354,10 +354,14 @@ def pesagem():
                 except (ValueError, TypeError):
                     entry_date = date.today()
                 last_data = entry_date
-                add_stock_gelado(entry_date, loja_nome, sabor, pesagem_kg, 'fim')
-                saved += 1
-            if saved:
-                flash(f'{saved} pesagem(ns) confirmada(s) e registada(s)!', 'success')
+                entries.append({'data': entry_date, 'sabor': sabor, 'quantidade_kg': pesagem_kg, 'tipo': 'fim'})
+            if entries:
+                try:
+                    from database import add_stock_gelado_bulk
+                    saved = add_stock_gelado_bulk(entries, loja_nome)
+                    flash(f'{saved} pesagem(ns) confirmada(s) e registada(s)!', 'success')
+                except Exception:
+                    flash('Erro ao guardar as pesagens — nenhum registo foi guardado. Tente novamente.', 'error')
             else:
                 flash('Nenhuma pesagem válida para registar.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id, data=str(last_data)))

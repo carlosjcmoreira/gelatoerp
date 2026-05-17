@@ -587,6 +587,37 @@ def add_stock_gelado(data: date, loja: str, sabor: str, quantidade_kg: float, ti
         ''', (data, loja, sabor, quantidade_kg, tipo, local, store_id))
         conn.commit()
 
+
+def add_stock_gelado_bulk(entries: list, loja: str) -> int:
+    """
+    Insert multiple stock_gelado records atomically in a single transaction.
+    Each entry is a dict with keys: data (date), sabor (str), quantidade_kg (float), tipo (str).
+    Returns the number of rows inserted.
+    Raises on any DB error — no partial writes.
+    """
+    if not entries:
+        return 0
+    store_id = get_store_id_by_name(loja)
+    rows = [
+        (e['data'], loja, e['sabor'], e['quantidade_kg'], e['tipo'], None, store_id)
+        for e in entries
+    ]
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            execute_values(
+                cursor,
+                '''INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, local, store_id)
+                   VALUES %s''',
+                rows,
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return len(rows)
+
+
 def upsert_stock_gelado_matosinhos(data: date, sabor: str, quantidade_kg: float) -> None:
     """
     Insert a stock_gelado record for Matosinhos/inicio if one doesn't already
