@@ -304,6 +304,7 @@ def _handle_upload_pesagem_post(loja_pesagem):
                 existing_set.add((r['data'], r['sabor']))
 
         # First pass: parse all entries without writing to DB
+        import json as _json
         entries = []
         for _, row in df_pesagem.iterrows():
             sabor_raw = str(row[sabor_col]).strip()
@@ -334,15 +335,22 @@ def _handle_upload_pesagem_post(loja_pesagem):
             flash(f'Nenhum registo novo para importar ({skipped} já existentes, ignorados).', 'info')
             return redirect(url_for('gestor.upload_pesagem', loja=loja))
 
-        # If any entry looks suspicious, redirect to confirmation page
+        # If any entry looks suspicious, render confirmation page inline.
+        # All entry data is embedded in the page as hidden form fields so that
+        # the confirmation POST carries the payload directly — no server-side
+        # session/cache needed, which avoids cookie-size limits and gunicorn
+        # multi-worker state issues.
         if any(e['suspeito'] for e in entries):
-            session['pending_pesagem_import'] = {
-                'loja': loja,
-                'tipo_pesagem': tipo_pesagem,
-                'entries': entries,
-                'skipped': skipped,
-            }
-            return redirect(url_for('gestor.pesagem_confirmacao'))
+            return render_template(
+                'gestor/pesagem_confirmacao.html',
+                active_tab='upload_pesagem',
+                tabs=get_tabs(),
+                loja=loja,
+                entries=entries,
+                skipped=skipped,
+                limiar=_PESAGEM_UPLOAD_LIMIAR_KG,
+                entries_json=_json.dumps(entries),
+            )
 
         # No suspicious values — import atomically
         _do_import_pesagem(entries, loja, tipo_pesagem)
@@ -356,42 +364,53 @@ def _handle_upload_pesagem_post(loja_pesagem):
     return redirect(url_for('gestor.upload_pesagem', loja=loja))
 
 
-@gestor_bp.route('/pesagem-confirmacao', methods=['GET', 'POST'])
+@gestor_bp.route('/pesagem-confirmacao', methods=['POST'])
 @perm_required('acesso_gestor')
 def pesagem_confirmacao():
-    pending = session.get('pending_pesagem_import')
-    if not pending:
-        flash('Sem importação pendente. Por favor carregue um ficheiro.', 'info')
-        return redirect(url_for('gestor.upload_pesagem'))
+    """Handle the confirmation step for suspicious pesagem imports.
 
-    loja = pending.get('loja', 'Matosinhos')
+    The upload POST renders the confirmation page inline, embedding all parsed
+    entries as a JSON hidden field.  This route receives that hidden field back
+    on confirm/cancel — no server-side shared state needed, works correctly
+    across all gunicorn workers with no cookie-size constraints.
+    """
+    import json as _json
+    loja = request.form.get('loja', 'Matosinhos')
+    action = request.form.get('action', '')
 
-    if request.method == 'POST':
-        action = request.form.get('action', '')
-        session.pop('pending_pesagem_import', None)
-        if action == 'confirm':
-            try:
-                saved = _do_import_pesagem(pending['entries'], loja, pending['tipo_pesagem'])
-                skipped = pending.get('skipped', 0)
-                flash(f'{saved} registos importados com sucesso! ({skipped} já existentes, ignorados)', 'success')
-                invalidate_prefix('kpi_annual')
-                invalidate_prefix('kpi_monthly')
-                invalidate_prefix('kpi_by_day')
-            except Exception as e:
-                flash(f'Erro ao importar — nenhum registo foi guardado: {str(e)}', 'error')
-        else:
-            flash('Importação cancelada.', 'info')
+    if action != 'confirm':
+        flash('Importação cancelada.', 'info')
         return redirect(url_for('gestor.upload_pesagem', loja=loja))
 
-    return render_template(
-        'gestor/pesagem_confirmacao.html',
-        active_tab='upload_pesagem',
-        tabs=get_tabs(),
-        loja=loja,
-        entries=pending['entries'],
-        skipped=pending.get('skipped', 0),
-        limiar=_PESAGEM_UPLOAD_LIMIAR_KG,
-    )
+    try:
+        raw = request.form.get('entries_json', '[]')
+        entries_raw = _json.loads(raw)
+        tipo_pesagem = 'fim' if loja == 'Bolhão' else 'inicio'
+        entries = []
+        for e in entries_raw:
+            q = float(e['quantidade'])
+            d = date.fromisoformat(str(e['data_iso']))
+            s = str(e['sabor']).strip()
+            if q > 0 and s:
+                entries.append({
+                    'sabor': s,
+                    'data_iso': d.isoformat(),
+                    'quantidade': round(q, 3),
+                    'suspeito': q > _PESAGEM_UPLOAD_LIMIAR_KG,
+                })
+        if not entries:
+            flash('Nenhum registo válido para importar.', 'error')
+            return redirect(url_for('gestor.upload_pesagem', loja=loja))
+        saved = _do_import_pesagem(entries, loja, tipo_pesagem)
+        skipped = int(request.form.get('skipped', 0))
+        flash(f'{saved} registos importados com sucesso! ({skipped} já existentes, ignorados)', 'success')
+        invalidate_prefix('kpi_annual')
+        invalidate_prefix('kpi_monthly')
+        invalidate_prefix('kpi_by_day')
+    except Exception as e:
+        flash(f'Erro ao importar — nenhum registo foi guardado: {str(e)}', 'error')
+
+    return redirect(url_for('gestor.upload_pesagem', loja=loja))
 
 
 @gestor_bp.route('/vendas-detalhe', methods=['GET', 'POST'])

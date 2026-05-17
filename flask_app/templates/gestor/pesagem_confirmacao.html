@@ -11,10 +11,10 @@
             <h6 class="card-title mb-0">⚠️ Confirmação de Importação de Pesagem — {{ loja }}</h6>
         </div>
         <div class="card-body">
+            {% set n_sus = entries | selectattr('suspeito') | list | length %}
             <div class="alert alert-warning py-2 mb-3">
                 <strong>Atenção:</strong> O ficheiro contém
-                {% set n_sus = entries | selectattr('suspeito') | list | length %}
-                <strong>{{ n_sus }} registo{{ 'a' if n_sus != 1 else '' }}</strong> com valor superior a {{ limiar|int }} kg.
+                <strong>{{ n_sus }} registo{{ 's' if n_sus != 1 else '' }}</strong> com valor superior a {{ limiar|int }} kg.
                 Certifique-se de que os valores estão em <strong>kg</strong> e não em gramas antes de confirmar.
             </div>
 
@@ -31,7 +31,7 @@
                         {% for e in entries %}
                         <tr{% if e.suspeito %} class="table-warning"{% endif %}>
                             <td>{{ e.sabor }}</td>
-                            <td>{{ e.data_iso | replace('-', '/') }}</td>
+                            <td>{{ e.data_iso }}</td>
                             <td class="text-end fw-bold">
                                 {{ "%.3f"|format(e.quantidade) }}
                                 {% if e.suspeito %}
@@ -56,13 +56,18 @@
             </p>
             {% endif %}
 
-            <form method="POST" class="d-flex gap-2 flex-wrap">
-                <button type="submit" name="action" value="confirm" class="btn btn-warning btn-sm">
-                    ✅ Confirmar e importar {{ entries | length }} registo{{ 's' if entries | length != 1 else '' }}
-                </button>
-                <button type="submit" name="action" value="cancel" class="btn btn-outline-secondary btn-sm">
-                    ✖ Cancelar e corrigir o ficheiro
-                </button>
+            <form method="POST" action="{{ url_for('gestor.pesagem_confirmacao') }}">
+                <input type="hidden" name="loja" value="{{ loja }}">
+                <input type="hidden" name="skipped" value="{{ skipped }}">
+                <input type="hidden" name="entries_json" value="{{ entries_json | e }}">
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="submit" name="action" value="confirm" class="btn btn-warning btn-sm">
+                        ✅ Confirmar e importar {{ entries | length }} registo{{ 's' if entries | length != 1 else '' }}
+                    </button>
+                    <button type="submit" name="action" value="cancel" class="btn btn-outline-secondary btn-sm">
+                        ✖ Cancelar e corrigir o ficheiro
+                    </button>
+                </div>
             </form>
         </div>
     </div>
