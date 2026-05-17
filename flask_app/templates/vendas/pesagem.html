@@ -59,6 +59,10 @@
         </form>
 
         <!-- ── Lista de pendentes ──────────────────────────── -->
+        <div id="draft-restore-msg" class="alert alert-info alert-dismissible fade show py-2 mb-2" style="display:none;font-size:0.85rem;" role="alert">
+            <span id="draft-restore-text"></span>
+            <button type="button" class="btn-close btn-sm" onclick="this.parentElement.style.display='none';" aria-label="Fechar"></button>
+        </div>
         <div id="secao-pendentes" style="display:none;" class="mb-3">
             <div class="d-flex align-items-center justify-content-between mb-2">
                 <h6 class="mb-0 fw-semibold">📋 A confirmar</h6>
@@ -233,7 +237,57 @@ const TODAY = "{{ today }}";
 const LIMIAR_TOTAL_KG    = 15;
 const LIMIAR_CARAPINA_KG = 8;
 
+const DATA_SEL  = "{{ data_sel.isoformat() }}";
+const DRAFT_KEY = 'pesagem_draft_' + (LOJA_ID_HIST || '0') + '_' + DATA_SEL;
+
 let pendingList = [];
+
+/* ── Rascunho (localStorage) ────────────────────────────── */
+function isEntradaValida(e) {
+    return e && typeof e.sabor === 'string' && e.sabor.length > 0 &&
+           typeof e.quantidade_kg === 'number' && isFinite(e.quantidade_kg) &&
+           typeof e.data === 'string' && e.data.length > 0;
+}
+
+function saveDraft() {
+    try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(pendingList));
+    } catch (e) {}
+}
+
+function clearDraft() {
+    try {
+        localStorage.removeItem(DRAFT_KEY);
+    } catch (e) {}
+}
+
+function loadDraft() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('draft_cleared') === '1') {
+            clearDraft();
+            params.delete('draft_cleared');
+            const clean = params.toString()
+                ? window.location.pathname + '?' + params.toString()
+                : window.location.pathname;
+            history.replaceState(null, '', clean);
+            return;
+        }
+        const raw = localStorage.getItem(DRAFT_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (!Array.isArray(saved) || saved.length === 0) return;
+        const validas = saved.filter(isEntradaValida);
+        if (validas.length === 0) { clearDraft(); return; }
+        pendingList = validas;
+        renderPendentes();
+        const n = pendingList.length;
+        const msg = document.getElementById('draft-restore-text');
+        const box = document.getElementById('draft-restore-msg');
+        msg.textContent = 'Rascunho restaurado — ' + n + (n === 1 ? ' entrada por confirmar' : ' entradas por confirmar');
+        box.style.display = '';
+    } catch (e) {}
+}
 
 /* ── Histórico ──────────────────────────────────────────── */
 function loadHistorico() {
@@ -323,7 +377,10 @@ function renderHistorico(dias) {
     container.innerHTML = html;
 }
 
-document.addEventListener('DOMContentLoaded', loadHistorico);
+document.addEventListener('DOMContentLoaded', function() {
+    loadDraft();
+    loadHistorico();
+});
 
 /* ── Modo (manual / OCR) ────────────────────────────────── */
 function setModo(modo) {
@@ -448,6 +505,7 @@ function adicionarALista() {
     });
 
     renderPendentes();
+    saveDraft();
     resetFormManual();
 }
 
@@ -488,6 +546,7 @@ function renderPendentes() {
 function removerPendente(idx) {
     pendingList.splice(idx, 1);
     renderPendentes();
+    saveDraft();
 }
 
 function resetFormManual() {

@@ -355,16 +355,23 @@ def pesagem():
                     entry_date = date.today()
                 last_data = entry_date
                 entries.append({'data': entry_date, 'sabor': sabor, 'quantidade_kg': pesagem_kg, 'tipo': 'fim'})
+            bulk_saved = 0
             if entries:
                 try:
                     from database import add_stock_gelado_bulk
-                    saved = add_stock_gelado_bulk(entries, loja_nome)
-                    flash(f'{saved} pesagem(ns) confirmada(s) e registada(s)!', 'success')
+                    bulk_saved = add_stock_gelado_bulk(entries, loja_nome)
+                    if bulk_saved > 0:
+                        flash(f'{bulk_saved} pesagem(ns) confirmada(s) e registada(s)!', 'success')
+                    else:
+                        flash('Nenhuma pesagem foi guardada. Verifique os dados e tente novamente.', 'error')
                 except Exception:
                     flash('Erro ao guardar as pesagens — nenhum registo foi guardado. Tente novamente.', 'error')
             else:
                 flash('Nenhuma pesagem válida para registar.', 'error')
-            return redirect(url_for('vendas.pesagem', loja_id=loja_id, data=str(last_data)))
+            redirect_kwargs = dict(loja_id=loja_id, data=str(last_data))
+            if bulk_saved > 0:
+                redirect_kwargs['draft_cleared'] = '1'
+            return redirect(url_for('vendas.pesagem', **redirect_kwargs))
 
         elif action == 'delete':
             s_id = request.form.get('id')
