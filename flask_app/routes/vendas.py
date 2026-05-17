@@ -356,12 +356,27 @@ def pesagem():
                 last_data = entry_date
                 entries.append({'data': entry_date, 'sabor': sabor, 'quantidade_kg': pesagem_kg, 'tipo': 'fim'})
             bulk_saved = 0
+            skipped_dup = 0
             if entries:
                 try:
-                    from database import add_stock_gelado_bulk
-                    bulk_saved = add_stock_gelado_bulk(entries, loja_nome)
-                    if bulk_saved > 0:
+                    from database import add_stock_gelado_bulk, get_stock_gelado_df
+                    all_dates = set(e['data'] for e in entries)
+                    existing_set = set()
+                    existing_records = get_stock_gelado_df(
+                        loja=loja_nome, tipo='fim',
+                        data_inicio=min(all_dates), data_fim=max(all_dates)
+                    )
+                    for r in existing_records:
+                        existing_set.add((r['data'], r['sabor']))
+                    new_entries = [e for e in entries if (e['data'], e['sabor']) not in existing_set]
+                    skipped_dup = len(entries) - len(new_entries)
+                    bulk_saved = add_stock_gelado_bulk(new_entries, loja_nome) if new_entries else 0
+                    if bulk_saved > 0 and skipped_dup == 0:
                         flash(f'{bulk_saved} pesagem(ns) confirmada(s) e registada(s)!', 'success')
+                    elif bulk_saved > 0:
+                        flash(f'{bulk_saved} pesagem(ns) registada(s). {skipped_dup} já existiam e foram ignoradas.', 'success')
+                    elif skipped_dup > 0:
+                        flash(f'Todas as {skipped_dup} entradas já existiam — nenhum registo duplicado foi criado.', 'info')
                     else:
                         flash('Nenhuma pesagem foi guardada. Verifique os dados e tente novamente.', 'error')
                 except Exception:
@@ -369,7 +384,7 @@ def pesagem():
             else:
                 flash('Nenhuma pesagem válida para registar.', 'error')
             redirect_kwargs = dict(loja_id=loja_id, data=str(last_data))
-            if bulk_saved > 0:
+            if bulk_saved > 0 or skipped_dup > 0:
                 redirect_kwargs['draft_cleared'] = '1'
             return redirect(url_for('vendas.pesagem', **redirect_kwargs))
 

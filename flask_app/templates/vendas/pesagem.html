@@ -240,8 +240,13 @@ const TODAY = "{{ today }}";
 const LIMIAR_TOTAL_KG    = 15;
 const LIMIAR_CARAPINA_KG = 8;
 
-const DATA_SEL  = "{{ data_sel.isoformat() }}";
-const DRAFT_KEY = 'pesagem_draft_' + (LOJA_ID_HIST || '0') + '_' + DATA_SEL;
+const DATA_SEL     = "{{ data_sel.isoformat() }}";
+const DRAFT_PREFIX = 'pesagem_draft_' + (LOJA_ID_HIST || '0') + '_';
+
+function getDraftKey() {
+    const inp = document.getElementById('manual-data');
+    return DRAFT_PREFIX + (inp ? inp.value : DATA_SEL);
+}
 
 let pendingList = [];
 let dupWarnTimer = null;
@@ -255,13 +260,15 @@ function isEntradaValida(e) {
 
 function saveDraft() {
     try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify(pendingList));
+        localStorage.setItem(getDraftKey(), JSON.stringify(pendingList));
     } catch (e) {}
 }
 
 function clearDraft() {
     try {
-        localStorage.removeItem(DRAFT_KEY);
+        Object.keys(localStorage).forEach(function(k) {
+            if (k.startsWith(DRAFT_PREFIX)) localStorage.removeItem(k);
+        });
     } catch (e) {}
 }
 
@@ -277,7 +284,7 @@ function loadDraft() {
             history.replaceState(null, '', clean);
             return;
         }
-        const raw = localStorage.getItem(DRAFT_KEY);
+        const raw = localStorage.getItem(getDraftKey());
         if (!raw) return;
         const saved = JSON.parse(raw);
         if (!Array.isArray(saved) || saved.length === 0) return;
@@ -672,6 +679,12 @@ function confirmarERegistar() {
         addHidden('quantidade[]', entry.quantidade_kg.toString());
         addHidden('data[]',       entry.data);
     });
+
+    const btnConf = document.querySelector('#modal-confirmacao .btn-success');
+    if (btnConf) {
+        btnConf.disabled = true;
+        btnConf.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>A registar…';
+    }
 
     const modalEl = document.getElementById('modal-confirmacao');
     const modal   = bootstrap.Modal.getInstance(modalEl);
