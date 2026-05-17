@@ -56,6 +56,9 @@
             <button type="button" class="btn btn-primary w-100" onclick="adicionarALista()">
                 + Adicionar à lista
             </button>
+            <div id="dup-warn-manual" class="alert alert-warning py-2 mt-2 mb-0" style="display:none;font-size:0.85rem;" role="alert">
+                ⚠️ Este sabor já está na lista para a mesma data. Pode continuar — será registado como uma linha separada.
+            </div>
         </form>
 
         <!-- ── Lista de pendentes ──────────────────────────── -->
@@ -241,6 +244,7 @@ const DATA_SEL  = "{{ data_sel.isoformat() }}";
 const DRAFT_KEY = 'pesagem_draft_' + (LOJA_ID_HIST || '0') + '_' + DATA_SEL;
 
 let pendingList = [];
+let dupWarnTimer = null;
 
 /* ── Rascunho (localStorage) ────────────────────────────── */
 function isEntradaValida(e) {
@@ -497,6 +501,16 @@ function adicionarALista() {
     const carapinas = preenchidas.map(inp => parseKg(inp.value));
     const totalKg   = carapinas.reduce((a, b) => a + b, 0);
 
+    const isDup = pendingList.some(e => e.data === dataVal && normalizarNome(e.sabor) === normalizarNome(sabor));
+    const dupWarn = document.getElementById('dup-warn-manual');
+    if (dupWarnTimer) { clearTimeout(dupWarnTimer); dupWarnTimer = null; }
+    if (isDup) {
+        dupWarn.style.display = '';
+        dupWarnTimer = setTimeout(function() { dupWarn.style.display = 'none'; dupWarnTimer = null; }, 5000);
+    } else {
+        dupWarn.style.display = 'none';
+    }
+
     pendingList.push({
         sabor:      sabor,
         quantidade_kg: Math.round(totalKg * 1000) / 1000,
@@ -507,6 +521,15 @@ function adicionarALista() {
     renderPendentes();
     saveDraft();
     resetFormManual();
+}
+
+function calcularDuplicadosPendentes() {
+    const counts = {};
+    pendingList.forEach(function(e) {
+        const key = e.data + '|' + normalizarNome(e.sabor);
+        counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
 }
 
 function renderPendentes() {
@@ -524,17 +547,24 @@ function renderPendentes() {
     const hasSuspeito = pendingList.some(e => e.suspeito);
     aviso.style.display = hasSuspeito ? '' : 'none';
 
+    const dupCounts = calcularDuplicadosPendentes();
+
     tbody.innerHTML = pendingList.map(function(entry, idx) {
         const fmtData = entry.data
             ? entry.data.split('-').reverse().join('/')
             : '—';
+        const key = entry.data + '|' + normalizarNome(entry.sabor);
+        const isDup = (dupCounts[key] || 0) > 1;
         const rowClass = entry.suspeito ? 'table-warning' : '';
         const warnBadge = entry.suspeito
             ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.68rem;">⚠️ Elevado</span>'
             : '';
+        const dupBadge = isDup
+            ? ' <span class="badge bg-info text-dark ms-1" style="font-size:0.68rem;">Repetido</span>'
+            : '';
         return '<tr class="' + rowClass + '">' +
             '<td style="font-size:0.85rem;">' + escHtml(fmtData) + '</td>' +
-            '<td style="font-size:0.85rem;">' + escHtml(entry.sabor) + warnBadge + '</td>' +
+            '<td style="font-size:0.85rem;">' + escHtml(entry.sabor) + warnBadge + dupBadge + '</td>' +
             '<td class="text-end" style="font-size:0.85rem;">' + entry.quantidade_kg.toFixed(3) + '</td>' +
             '<td class="text-center">' +
                 '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"' +
@@ -570,6 +600,8 @@ function abrirModalConfirmacao() {
 
     const resumo = document.getElementById('modal-resumo');
     const hasSuspeito = pendingList.some(e => e.suspeito);
+    const dupCounts = calcularDuplicadosPendentes();
+    const hasDup = Object.values(dupCounts).some(c => c > 1);
 
     let html = '<table class="table table-sm table-bordered align-middle">' +
         '<thead class="table-dark"><tr>' +
@@ -580,13 +612,18 @@ function abrirModalConfirmacao() {
         const fmtData = entry.data
             ? entry.data.split('-').reverse().join('/')
             : '—';
+        const key = entry.data + '|' + normalizarNome(entry.sabor);
+        const isDup = (dupCounts[key] || 0) > 1;
         const rowClass = entry.suspeito ? 'table-warning' : '';
         const warnBadge = entry.suspeito
             ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.68rem;">⚠️</span>'
             : '';
+        const dupBadge = isDup
+            ? ' <span class="badge bg-info text-dark ms-1" style="font-size:0.68rem;">Repetido</span>'
+            : '';
         html += '<tr class="' + rowClass + '">' +
             '<td style="font-size:0.85rem;">' + escHtml(fmtData) + '</td>' +
-            '<td style="font-size:0.85rem;">' + escHtml(entry.sabor) + warnBadge + '</td>' +
+            '<td style="font-size:0.85rem;">' + escHtml(entry.sabor) + warnBadge + dupBadge + '</td>' +
             '<td class="text-end fw-semibold" style="font-size:0.85rem;">' + entry.quantidade_kg.toFixed(3) + '</td>' +
             '</tr>';
     });
@@ -599,10 +636,17 @@ function abrirModalConfirmacao() {
     html += '</tbody></table>';
 
     if (hasSuspeito) {
-        html += '<div class="alert alert-warning py-2 mb-0" style="font-size:0.83rem;">' +
+        html += '<div class="alert alert-warning py-2 mb-2" style="font-size:0.83rem;">' +
             '⚠️ As entradas a amarelo têm o total acima de ' + LIMIAR_TOTAL_KG + ' kg ' +
             'ou uma carapina individual acima de ' + LIMIAR_CARAPINA_KG + ' kg. ' +
             'Certifique-se de que os valores estão em <strong>kg</strong> e não em gramas.' +
+            '</div>';
+    }
+
+    if (hasDup) {
+        html += '<div class="alert alert-info py-2 mb-0" style="font-size:0.83rem;">' +
+            'ℹ️ As entradas marcadas com <strong>Repetido</strong> correspondem ao mesmo sabor adicionado mais do que uma vez. ' +
+            'Confirme que é intencional antes de registar.' +
             '</div>';
     }
 
