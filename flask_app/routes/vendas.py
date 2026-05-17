@@ -314,20 +314,47 @@ def pesagem():
             sabores_list = request.form.getlist('sabor[]')
             qtds_list = request.form.getlist('quantidade[]')
             data_reg = _parse_date_form()
-            saved = 0
+            entries = []
             for sabor, qtd_str in zip(sabores_list, qtds_list):
                 sabor = sabor.strip()
                 if not sabor:
                     continue
                 try:
-                    pesagem_kg = float(qtd_str.replace(',', '.'))
+                    pesagem_kg = round(float(qtd_str.replace(',', '.')), 3)
                 except (ValueError, TypeError):
                     continue
                 if pesagem_kg >= 0:
-                    add_stock_gelado(data_reg, loja_nome, sabor, pesagem_kg, 'fim')
-                    saved += 1
-            if saved:
-                flash(f'{saved} pesagem(ns) registada(s) via fotografia!', 'success')
+                    entries.append({'data': data_reg, 'sabor': sabor, 'quantidade_kg': pesagem_kg, 'tipo': 'fim'})
+            bulk_saved = 0
+            skipped_dup = 0
+            if entries:
+                try:
+                    from database import add_stock_gelado_bulk
+                    existing_set = set()
+                    existing_records = get_stock_gelado_df(
+                        loja=loja_nome, tipo='fim',
+                        data_inicio=data_reg, data_fim=data_reg
+                    )
+                    for r in existing_records:
+                        existing_set.add((r['data'], r['sabor']))
+                    new_entries = []
+                    for e in entries:
+                        key = (e['data'], e['sabor'])
+                        if key not in existing_set:
+                            new_entries.append(e)
+                            existing_set.add(key)
+                    skipped_dup = len(entries) - len(new_entries)
+                    bulk_saved = add_stock_gelado_bulk(new_entries, loja_nome) if new_entries else 0
+                    if bulk_saved > 0 and skipped_dup == 0:
+                        flash(f'{bulk_saved} pesagem(ns) registada(s) via fotografia!', 'success')
+                    elif bulk_saved > 0:
+                        flash(f'{bulk_saved} pesagem(ns) registada(s). {skipped_dup} já existiam e foram ignoradas.', 'success')
+                    elif skipped_dup > 0:
+                        flash(f'Todas as {skipped_dup} entradas já existiam — nenhum registo duplicado foi criado.', 'info')
+                    else:
+                        flash('Nenhuma pesagem válida para registar.', 'error')
+                except Exception:
+                    flash('Erro ao guardar as pesagens — nenhum registo foi guardado. Tente novamente.', 'error')
             else:
                 flash('Nenhuma pesagem válida para registar.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id, data=str(data_reg)))
