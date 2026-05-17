@@ -60,6 +60,7 @@
                 <input type="hidden" name="loja" value="{{ loja }}">
                 <input type="hidden" name="skipped" value="{{ skipped }}">
                 <input type="hidden" name="entries_json" value="{{ entries_json | e }}">
+                <input type="hidden" name="entries_sig" value="{{ entries_sig }}">
                 <div class="d-flex gap-2 flex-wrap">
                     <button type="submit" name="action" value="confirm" class="btn btn-warning btn-sm">
                         ✅ Confirmar e importar {{ entries | length }} registo{{ 's' if entries | length != 1 else '' }}

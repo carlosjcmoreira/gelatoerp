@@ -259,6 +259,29 @@ def _do_import_pesagem(entries: list, loja: str, tipo_pesagem: str) -> int:
     return add_stock_gelado_bulk(bulk, loja)
 
 
+def _sign_pesagem_payload(payload_json: str) -> str:
+    """Return HMAC-SHA256 hex digest of payload_json using the Flask secret key.
+
+    Signing the hidden-field JSON payload prevents a user from altering the
+    entries between the confirmation preview and the actual import — ensuring
+    that what was reviewed is exactly what gets imported.
+    """
+    import hmac as _hmac
+    import hashlib
+    from flask import current_app
+    key = current_app.secret_key
+    if isinstance(key, str):
+        key = key.encode()
+    return _hmac.new(key, payload_json.encode(), hashlib.sha256).hexdigest()
+
+
+def _verify_pesagem_payload(payload_json: str, signature: str) -> bool:
+    """Return True iff signature matches the HMAC of payload_json."""
+    import hmac as _hmac
+    expected = _sign_pesagem_payload(payload_json)
+    return _hmac.compare_digest(expected, signature)
+
+
 def _handle_upload_pesagem_post(loja_pesagem):
     uploaded_file = request.files.get('pesagem_file')
     loja = request.form.get('loja', loja_pesagem)
@@ -341,6 +364,7 @@ def _handle_upload_pesagem_post(loja_pesagem):
         # session/cache needed, which avoids cookie-size limits and gunicorn
         # multi-worker state issues.
         if any(e['suspeito'] for e in entries):
+            entries_json = _json.dumps(entries)
             return render_template(
                 'gestor/pesagem_confirmacao.html',
                 active_tab='upload_pesagem',
@@ -349,7 +373,8 @@ def _handle_upload_pesagem_post(loja_pesagem):
                 entries=entries,
                 skipped=skipped,
                 limiar=_PESAGEM_UPLOAD_LIMIAR_KG,
-                entries_json=_json.dumps(entries),
+                entries_json=entries_json,
+                entries_sig=_sign_pesagem_payload(entries_json),
             )
 
         # No suspicious values — import atomically
@@ -384,6 +409,10 @@ def pesagem_confirmacao():
 
     try:
         raw = request.form.get('entries_json', '[]')
+        sig = request.form.get('entries_sig', '')
+        if not _verify_pesagem_payload(raw, sig):
+            flash('Assinatura inválida — os dados foram modificados. Por favor carregue o ficheiro novamente.', 'error')
+            return redirect(url_for('gestor.upload_pesagem', loja=loja))
         entries_raw = _json.loads(raw)
         tipo_pesagem = 'fim' if loja == 'Bolhão' else 'inicio'
         entries = []
