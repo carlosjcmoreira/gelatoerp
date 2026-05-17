@@ -38,4 +38,48 @@
 <div class="mt-4 text-muted small">
     <strong>Fluxo:</strong> Carregar foto → Rever valores extraídos → Confirmar → Stock e plano atualizados
 </div>
+
+{% if historico_dias %}
+<hr class="my-4">
+<h6 class="mb-3">Histórico de Produção <small class="text-muted fw-normal">(últimos 30 dias)</small></h6>
+<div class="accordion" id="accordionHistorico" style="max-width: 520px;">
+    {% for dia in historico_dias %}
+    <div class="accordion-item">
+        <h2 class="accordion-header" id="hd{{ loop.index }}">
+            <button class="accordion-button collapsed py-2 px-3" type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#cd{{ loop.index }}"
+                    aria-expanded="false"
+                    aria-controls="cd{{ loop.index }}">
+                <span class="me-auto fw-semibold">
+                    {{ dia.data.strftime('%d/%m/%Y') if dia.data else dia.data }}
+                </span>
+                <span class="badge bg-secondary ms-3">{{ '%.1f'|format(dia.total_kg) }} kg</span>
+            </button>
+        </h2>
+        <div id="cd{{ loop.index }}" class="accordion-collapse collapse"
+             aria-labelledby="hd{{ loop.index }}">
+            <div class="accordion-body py-2 px-3">
+                <table class="table table-sm table-borderless mb-0">
+                    <tbody>
+                        {% for linha in dia.linhas %}
+                        <tr>
+                            <td class="small ps-0">{{ linha.sabor }}</td>
+                            <td class="text-end small text-muted pe-0">{{ '%.3f'|format(linha.quantidade_kg) }} kg</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="border-top">
+                            <td class="small fw-semibold ps-0">Total</td>
+                            <td class="text-end small fw-semibold pe-0">{{ '%.3f'|format(dia.total_kg) }} kg</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
 {% endblock %}

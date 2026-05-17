@@ -800,17 +800,17 @@ def get_latest_pesagem_por_sabor_all_lojas() -> dict:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT DISTINCT ON (loja, sabor) loja, sabor, quantidade_kg, data
+            SELECT DISTINCT ON (loja, sabor) id, loja, sabor, quantidade_kg, data
             FROM stock_gelado
             WHERE data >= CURRENT_DATE - INTERVAL '1 day'
             ORDER BY loja, sabor, data DESC, id DESC
         """)
         rows = cursor.fetchall()
     result = {}
-    for loja, sabor, kg, dt in rows:
+    for stock_id, loja, sabor, kg, dt in rows:
         if loja not in result:
             result[loja] = {}
-        result[loja][sabor] = {'kg': float(kg), 'data': dt}
+        result[loja][sabor] = {'id': stock_id, 'kg': float(kg), 'data': dt}
     return result
 
 

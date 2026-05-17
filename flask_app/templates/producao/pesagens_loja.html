@@ -10,7 +10,7 @@
             <tr>
                 <th class="px-2">Sabor</th>
                 {% for loja in lojas %}
-                <th class="text-center px-2 border-start" colspan="2">{{ loja }}</th>
+                <th class="text-center px-2 border-start" colspan="3">{{ loja }}</th>
                 {% endfor %}
             </tr>
             <tr>
@@ -18,6 +18,7 @@
                 {% for loja in lojas %}
                 <th class="text-center px-1 border-start small">kg</th>
                 <th class="text-center px-1 small">data</th>
+                <th class="px-1 small"></th>
                 {% endfor %}
             </tr>
         </thead>
@@ -33,6 +34,15 @@
                 <td class="text-center px-1 small text-muted">
                     {{ entry.data if entry else '-' }}
                 </td>
+                <td class="px-1">
+                    {% if entry and entry.id %}
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                            onclick="abrirEditPesagem({{ entry.id }}, '{{ r.sabor|e }}', '{{ loja|e }}', {{ entry.kg }})"
+                            title="Editar pesagem">
+                        ✏️
+                    </button>
+                    {% endif %}
+                </td>
                 {% endfor %}
             </tr>
             {% endfor %}
@@ -42,4 +52,61 @@
 {% else %}
 <div class="alert alert-info">Sem pesagens de loja registadas.</div>
 {% endif %}
+
+<!-- Modal de Edição de Pesagem -->
+<div class="modal fade" id="modalEditPesagem" tabindex="-1" aria-labelledby="modalEditPesagemLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalEditPesagemLabel">Editar Pesagem</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form method="post" id="formEditPesagem">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="edit">
+                    <input type="hidden" name="stock_id" id="editStockId">
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">Sabor</label>
+                        <div id="editSaborLabel" class="fw-semibold"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">Loja</label>
+                        <div id="editLojaLabel" class="fw-semibold"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editKg" class="form-label fw-semibold">Quantidade (kg)</label>
+                        <input type="number" id="editKg" name="kg" class="form-control"
+                               step="0.001" min="0" max="9999" required
+                               oninput="autoFormatKgEdit(this)">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function abrirEditPesagem(stockId, sabor, loja, kg) {
+    document.getElementById('editStockId').value = stockId;
+    document.getElementById('editSaborLabel').textContent = sabor;
+    document.getElementById('editLojaLabel').textContent = loja;
+    var input = document.getElementById('editKg');
+    input.value = kg.toFixed(3);
+    var modal = new bootstrap.Modal(document.getElementById('modalEditPesagem'));
+    modal.show();
+}
+
+function autoFormatKgEdit(input) {
+    var raw = input.value.replace(',', '.');
+    if (raw === '' || isNaN(parseFloat(raw))) return;
+    var parts = raw.split('.');
+    if (parts.length === 2 && parts[1].length > 3) {
+        input.value = parseFloat(raw).toFixed(3);
+    }
+}
+</script>
 {% endblock %}

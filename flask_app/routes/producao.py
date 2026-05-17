@@ -25,6 +25,7 @@ from database import (
     get_latest_pesagem_por_sabor_all_lojas, set_stock_producao,
     get_stock_producao_by_loja, upsert_pesagem_matosinhos_inicio,
     get_active_venda_stores, get_or_create_pending_batch,
+    update_stock_gelado, get_producao_history_by_day,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -344,9 +345,24 @@ def eliminar_quebras_bulk():
 _PESAGENS_LOJA_ORDER = ['Bolhão', 'Matosinhos', 'Mouzinho']
 
 
-@producao_bp.route('/pesagens-loja')
+@producao_bp.route('/pesagens-loja', methods=['GET', 'POST'])
 @perm_required('acesso_producao')
 def pesagens_loja():
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'edit':
+            try:
+                stock_id = int(request.form.get('stock_id', 0))
+                kg = float(request.form.get('kg', 0))
+                if stock_id and kg >= 0:
+                    update_stock_gelado(stock_id, kg)
+                    flash("Pesagem atualizada com sucesso.", "success")
+                else:
+                    flash("Dados inválidos.", "danger")
+            except (ValueError, TypeError):
+                flash("Erro ao processar os dados.", "danger")
+        return redirect(url_for('producao.pesagens_loja'))
+
     pesagens_by_loja = get_latest_pesagem_por_sabor_all_lojas()
     known = set(pesagens_by_loja.keys())
     lojas = [l for l in _PESAGENS_LOJA_ORDER if l in known or l in ('Bolhão', 'Matosinhos')] + [
@@ -364,6 +380,7 @@ def pesagens_loja():
             entry = pesagens_by_loja.get(loja, {}).get(sabor)
             if entry:
                 row['lojas'][loja] = {
+                    'id': entry['id'],
                     'kg': entry['kg'],
                     'data': _format_date(entry['data']) if entry['data'] else '-',
                 }
@@ -379,9 +396,11 @@ def pesagens_loja():
 @producao_bp.route('/registo-producao', methods=['GET'])
 @perm_required('acesso_producao')
 def registo_producao():
+    historico_dias = get_producao_history_by_day(30)
     return render_template('producao/registo_producao.html',
                            active_tab='registo_producao', tabs=_tabs_with_urls(),
-                           today=str(date.today()))
+                           today=str(date.today()),
+                           historico_dias=historico_dias)
 
 
 @producao_bp.route('/registo-producao/ocr', methods=['POST'])
