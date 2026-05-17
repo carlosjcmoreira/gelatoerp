@@ -37,7 +37,7 @@
                 <td class="px-1">
                     {% if entry and entry.id %}
                     <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
-                            onclick="abrirEditPesagem({{ entry.id }}, '{{ r.sabor|e }}', '{{ loja|e }}', {{ entry.kg }})"
+                            onclick="abrirEditPesagem({{ entry.id }}, '{{ r.sabor|e }}', '{{ loja|e }}', {{ entry.kg }}, '{{ entry.data|e }}')"
                             title="Editar pesagem">
                         ✏️
                     </button>
@@ -65,13 +65,20 @@
                 <div class="modal-body">
                     <input type="hidden" name="action" value="edit">
                     <input type="hidden" name="stock_id" id="editStockId">
-                    <div class="mb-3">
-                        <label class="form-label text-muted small">Sabor</label>
-                        <div id="editSaborLabel" class="fw-semibold"></div>
+                    <input type="hidden" name="loja" id="editLojaInput">
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label text-muted small mb-0">Sabor</label>
+                            <div id="editSaborLabel" class="fw-semibold"></div>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label text-muted small mb-0">Loja</label>
+                            <div id="editLojaLabel" class="fw-semibold"></div>
+                        </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label text-muted small">Loja</label>
-                        <div id="editLojaLabel" class="fw-semibold"></div>
+                        <label class="form-label text-muted small mb-0">Data da pesagem</label>
+                        <div id="editDataLabel" class="fw-semibold"></div>
                     </div>
                     <div class="mb-3">
                         <label for="editKg" class="form-label fw-semibold">Quantidade (kg)</label>
@@ -90,10 +97,12 @@
 </div>
 
 <script>
-function abrirEditPesagem(stockId, sabor, loja, kg) {
+function abrirEditPesagem(stockId, sabor, loja, kg, data) {
     document.getElementById('editStockId').value = stockId;
+    document.getElementById('editLojaInput').value = loja;
     document.getElementById('editSaborLabel').textContent = sabor;
     document.getElementById('editLojaLabel').textContent = loja;
+    document.getElementById('editDataLabel').textContent = data || '-';
     var input = document.getElementById('editKg');
     input.value = kg.toFixed(3);
     var modal = new bootstrap.Modal(document.getElementById('modalEditPesagem'));

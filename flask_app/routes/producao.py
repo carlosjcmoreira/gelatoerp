@@ -354,8 +354,9 @@ def pesagens_loja():
             try:
                 stock_id = int(request.form.get('stock_id', 0))
                 kg = float(request.form.get('kg', 0))
+                loja = request.form.get('loja', '').strip() or None
                 if stock_id and kg >= 0:
-                    update_stock_gelado(stock_id, kg)
+                    update_stock_gelado(stock_id, kg, loja)
                     flash("Pesagem atualizada com sucesso.", "success")
                 else:
                     flash("Dados inválidos.", "danger")
