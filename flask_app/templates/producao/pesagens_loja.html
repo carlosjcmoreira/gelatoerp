@@ -55,7 +55,7 @@
                     <td class="px-1">
                         {% if entry and entry.id %}
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
-                                onclick="abrirEditPesagem({{ entry.id }}, '{{ r.sabor|e }}', '{{ loja|e }}', {{ entry.kg }}, '{{ entry.data|e }}')"
+                                onclick="abrirEditPesagem({{ entry.id }}, '{{ r.sabor|e }}', '{{ loja|e }}', {{ entry.kg }}, '{{ entry.data_iso|e }}')"
                                 title="Editar pesagem">
                             ✏️
                         </button>
@@ -116,7 +116,7 @@
                     <td class="text-end px-2 text-primary fw-semibold">{{ '%.2f'|format(r.kg) }}</td>
                     <td class="px-2">
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
-                                onclick="abrirEditPesagem({{ r.id }}, '{{ r.sabor|e }}', '{{ r.loja|e }}', {{ r.kg }}, '{{ r.data|e }}')"
+                                onclick="abrirEditPesagem({{ r.id }}, '{{ r.sabor|e }}', '{{ r.loja|e }}', {{ r.kg }}, '{{ r.data_iso|e }}')"
                                 title="Editar pesagem">
                             ✏️
                         </button>
@@ -156,8 +156,8 @@
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label text-muted small mb-0">Data da pesagem</label>
-                        <div id="editDataLabel" class="fw-semibold"></div>
+                        <label for="editData" class="form-label fw-semibold">Data da pesagem</label>
+                        <input type="date" id="editData" name="data" class="form-control" required>
                     </div>
                     <div class="mb-3">
                         <label for="editKg" class="form-label fw-semibold">Quantidade (kg)</label>
@@ -181,7 +181,8 @@ function abrirEditPesagem(stockId, sabor, loja, kg, data) {
     document.getElementById('editLojaInput').value = loja;
     document.getElementById('editSaborLabel').textContent = sabor;
     document.getElementById('editLojaLabel').textContent = loja;
-    document.getElementById('editDataLabel').textContent = data || '-';
+    document.getElementById('editData').value = data || '';
+    document.getElementById('editData').max = new Date().toISOString().split('T')[0];
     var input = document.getElementById('editKg');
     input.value = kg.toFixed(3);
     var modal = new bootstrap.Modal(document.getElementById('modalEditPesagem'));

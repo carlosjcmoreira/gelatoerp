@@ -89,6 +89,20 @@ def _format_date(val):
         return str(val)
 
 
+def _iso_date(val):
+    if val is None or val == '':
+        return ''
+    try:
+        if pd.isna(val):
+            return ''
+    except Exception:
+        pass
+    try:
+        return pd.to_datetime(val).strftime('%Y-%m-%d')
+    except:
+        return ''
+
+
 @producao_bp.route('/')
 @perm_required('acesso_producao')
 def index():
@@ -363,11 +377,19 @@ def pesagens_loja():
         action = request.form.get('action')
         if action == 'edit':
             try:
+                from datetime import date as _date, datetime as _datetime
                 stock_id = int(request.form.get('stock_id', 0))
                 kg = float(request.form.get('kg', 0))
                 loja = request.form.get('loja', '').strip() or None
+                data_str = request.form.get('data', '').strip()
+                nova_data = None
+                if data_str:
+                    nova_data = _datetime.strptime(data_str, '%Y-%m-%d').date()
+                    if nova_data > _date.today():
+                        flash("A data não pode ser no futuro.", "danger")
+                        return redirect(url_for('producao.pesagens_loja', days=days))
                 if stock_id and kg >= 0:
-                    update_stock_gelado(stock_id, kg, loja)
+                    update_stock_gelado(stock_id, kg, loja, nova_data=nova_data)
                     flash("Pesagem atualizada com sucesso.", "success")
                 else:
                     flash("Dados inválidos.", "danger")
@@ -396,6 +418,7 @@ def pesagens_loja():
                         'id': entry['id'],
                         'kg': entry['kg'],
                         'data': _format_date(entry['data']) if entry['data'] else '-',
+                        'data_iso': _iso_date(entry['data']),
                     }
                 else:
                     row['lojas'][loja] = None
@@ -415,6 +438,7 @@ def pesagens_loja():
                 'sabor': r['sabor'],
                 'kg': r['kg'],
                 'data': _format_date(r['data']) if r['data'] else '-',
+                'data_iso': _iso_date(r['data']),
             }
             for r in raw
         ]
