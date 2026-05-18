@@ -457,75 +457,39 @@
 {% else %}
     <!-- ── Por Documento view (default) ─────────────────────────────────── -->
 
-    <!-- Filters (preserves current sort via hidden fields) -->
-    <form method="get" class="mb-3" data-no-loading>
+    <!-- Filter form (GET) — column-level controls use form="filter-form" to connect here -->
+    <form id="filter-form" method="get" action="{{ url_for('faturas.index') }}" data-no-loading>
         <input type="hidden" name="order_by" value="{{ order_by }}">
         <input type="hidden" name="order_dir" value="{{ order_dir }}">
-        <div class="d-flex flex-wrap align-items-center gap-2">
-            {% if all_supplier_names %}
-            <select name="supplier_name" class="form-select form-select-sm" style="flex: 2 1 180px; min-width: 0">
-                <option value="">Todos os fornecedores</option>
-                {% for sn in all_supplier_names %}
-                <option value="{{ sn }}" {% if supplier_name_filter == sn %}selected{% endif %}>{{ sn }}</option>
-                {% endfor %}
-            </select>
-            {% endif %}
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
             <input type="text" name="q" class="form-control form-control-sm"
-                   style="flex: 1 1 150px; min-width: 0"
-                   placeholder="Pesquisar nº documento" value="{{ search }}">
-            <select name="status" class="form-select form-select-sm" style="flex: 1 1 130px; min-width: 0">
-                <option value="">Todos estados</option>
-                {% for k, v in status_labels.items() %}
-                <option value="{{ k }}" {% if status_filter == k %}selected{% endif %}>{{ v }}</option>
-                {% endfor %}
-            </select>
-            <select name="document_type" class="form-select form-select-sm" style="flex: 1 1 140px; min-width: 0">
+                   style="flex:2 1 180px;min-width:0"
+                   placeholder="Pesquisar fornecedor, nº documento…" value="{{ search }}">
+            <select name="document_type" class="form-select form-select-sm" style="flex:1 1 130px;min-width:0"
+                    onchange="this.form.submit()">
                 <option value="">Todos os tipos</option>
                 {% for dt, label in document_type_labels.items() %}
                 <option value="{{ dt }}" {% if document_type_filter == dt %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
-            <select name="store_id" class="form-select form-select-sm" style="flex: 1 1 110px; min-width: 0">
-                <option value="">Todas as lojas</option>
-                {% for s in stores %}
-                <option value="{{ s.id }}" {% if store_id|string == s.id|string %}selected{% endif %}>{{ s.name }}</option>
-                {% endfor %}
-            </select>
-            {% if cost_centers %}
-            <select name="centro_custo_id" class="form-select form-select-sm" style="flex: 1 1 130px; min-width: 0">
-                <option value="">Todos os centros</option>
-                {% for cc in cost_centers %}
-                <option value="{{ cc.id }}" {% if centro_custo_filter == cc.id %}selected{% endif %}>{{ cc.code }} — {{ cc.name }}</option>
-                {% endfor %}
-            </select>
-            {% endif %}
-            {% if cost_categories_tree %}
-            <select name="categoria_custo_id" class="form-select form-select-sm" style="flex: 1 1 130px; min-width: 0">
-                <option value="">Todas as categorias</option>
-                {% for top in cost_categories_tree %}
-                <optgroup label="{{ top.name }}">
-                    {% for sub in top.children %}
-                    <option value="{{ sub.id }}" {% if categoria_custo_filter == sub.id %}selected{% endif %}>{{ sub.name }}</option>
-                    {% endfor %}
-                    {% if not top.children %}
-                    <option value="{{ top.id }}" {% if categoria_custo_filter == top.id %}selected{% endif %}>({{ top.name }})</option>
-                    {% endif %}
-                </optgroup>
-                {% endfor %}
-            </select>
-            {% endif %}
-            <div class="d-flex gap-1 flex-shrink-0">
+            <div class="d-flex align-items-center gap-1 flex-shrink-0">
                 <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
-                <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm">✕</a>
+                {% if default_filter_active %}
+                <a href="?all=1" class="btn btn-outline-secondary btn-sm" data-no-loading>Ver todas</a>
+                {% else %}
+                <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm" data-no-loading>✕</a>
+                {% endif %}
             </div>
+            {% if default_filter_active %}
+            <span class="badge bg-warning text-dark" data-bs-toggle="tooltip"
+                  title="A mostrar apenas documentos em aberto (excluindo pagas e rascunhos)">Em aberto</span>
+            {% elif show_all %}
+            <span class="badge bg-secondary">Todas</span>
+            {% elif statuses_filter %}
+            <span class="badge bg-primary">{{ statuses_filter|length }} estado(s)</span>
+            {% endif %}
         </div>
     </form>
-    {% if document_type_filter %}
-    <div class="alert alert-info py-1 px-3 mb-3 d-flex align-items-center justify-content-between" style="font-size:0.85rem;">
-        <span>A filtrar por tipo: <strong>{{ document_type_labels.get(document_type_filter, document_type_filter) }}</strong> — {{ invoices|length }} documento(s)</span>
-        <a href="{{ url_for('faturas.index') }}" class="btn btn-sm btn-outline-secondary py-0 px-2 ms-2">✕ Limpar</a>
-    </div>
-    {% endif %}
 
     {% if invoices %}
     <!-- Summary badges -->
@@ -574,12 +538,12 @@
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="submitBulkDelete()">Eliminar selecionadas</button>
         </div>
 
-        <!-- Sortable table -->
+        <!-- Sortable table with inline column filters -->
         {% macro sort_th(col, label, ob, od, fqs, classes='') %}
         {% set nd = 'desc' if (ob == col and od == 'asc') else 'asc' %}
-        <th class="{{ classes }}">
+        <th class="{{ classes }}" style="vertical-align:top">
             <a href="{{ fqs }}&order_by={{ col }}&order_dir={{ nd }}"
-               class="text-decoration-none text-dark d-flex align-items-center gap-1 user-select-none">
+               class="text-decoration-none text-dark d-flex align-items-center gap-1 user-select-none text-nowrap">
                 {{ label }}
                 {% if ob == col %}
                 <span class="text-primary small">{{ '▼' if od == 'desc' else '▲' }}</span>
@@ -593,8 +557,9 @@
         <div class="table-responsive">
         <table class="table table-sm table-hover align-middle mb-0">
             <thead class="table-light">
+                <!-- Row 1: Sort headers -->
                 <tr>
-                    <th style="width:36px">
+                    <th rowspan="2" style="width:36px;vertical-align:middle">
                         <input type="checkbox" id="cb-all" class="form-check-input">
                     </th>
                     {{ sort_th('supplier_name', 'Fornecedor', order_by, order_dir, filter_qs) }}
@@ -605,7 +570,74 @@
                     {{ sort_th('due_date', 'Vencimento', order_by, order_dir, filter_qs) }}
                     {{ sort_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
                     {{ sort_th('status', 'Estado', order_by, order_dir, filter_qs) }}
-                    <th class="d-none d-lg-table-cell text-nowrap small">Data pag.</th>
+                    <th class="d-none d-lg-table-cell text-nowrap small" style="vertical-align:top">Data pag.</th>
+                </tr>
+                <!-- Row 2: Inline column filters (form="filter-form" connects them to the GET form) -->
+                <tr class="border-top-0">
+                    <th class="p-1">
+                        <select name="supplier_name" form="filter-form"
+                                class="form-select form-select-sm" style="min-width:100px"
+                                onchange="document.getElementById('filter-form').submit()">
+                            <option value="">Todos</option>
+                            {% for sn in all_supplier_names %}
+                            <option value="{{ sn }}" {% if supplier_name_filter == sn %}selected{% endif %}>{{ sn }}</option>
+                            {% endfor %}
+                        </select>
+                    </th>
+                    <th class="p-1"></th>
+                    <th class="p-1 d-none d-md-table-cell"></th>
+                    <th class="p-1 d-none d-md-table-cell">
+                        <select name="store_id" form="filter-form"
+                                class="form-select form-select-sm"
+                                onchange="document.getElementById('filter-form').submit()">
+                            <option value="">Todas</option>
+                            {% for s in stores %}
+                            <option value="{{ s.id }}" {% if store_id|string == s.id|string %}selected{% endif %}>{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </th>
+                    <th class="p-1 d-none d-lg-table-cell"></th>
+                    <th class="p-1"></th>
+                    <th class="p-1"></th>
+                    <th class="p-1">
+                        <div class="dropdown">
+                            <button class="btn btn-sm {% if statuses_filter %}btn-primary{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
+                                    type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                                    style="font-size:0.75rem;padding:2px 8px;white-space:nowrap">
+                                {% if statuses_filter %}{{ statuses_filter|length }}✓{% else %}Todos{% endif %}
+                            </button>
+                            <ul class="dropdown-menu shadow p-2" style="min-width:170px">
+                                {% for k, v in status_labels.items() %}
+                                {% if k not in ('draft', 'overdue') %}
+                                <li>
+                                    <label class="dropdown-item py-1 px-2 d-flex align-items-center gap-2"
+                                           style="cursor:pointer;font-size:0.875rem">
+                                        <input type="checkbox" name="status" value="{{ k }}"
+                                               form="filter-form"
+                                               {% if k in statuses_filter %}checked{% endif %}
+                                               class="form-check-input m-0">
+                                        {{ v }}
+                                    </label>
+                                </li>
+                                {% endif %}
+                                {% endfor %}
+                                <li><hr class="dropdown-divider my-1"></li>
+                                <li>
+                                    <button type="submit" form="filter-form"
+                                            class="btn btn-primary btn-sm w-100">Aplicar</button>
+                                </li>
+                                {% if statuses_filter %}
+                                <li class="mt-1">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm w-100"
+                                            onclick="document.querySelectorAll('[name=status][form=filter-form]').forEach(function(cb){cb.checked=false});document.getElementById('filter-form').submit()">
+                                        Limpar estados
+                                    </button>
+                                </li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </th>
+                    <th class="p-1 d-none d-lg-table-cell"></th>
                 </tr>
             </thead>
             <tbody>
@@ -613,7 +645,7 @@
                 {% set overdue = inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}
                 <tr class="{{ 'table-danger' if overdue else '' }}"
                     style="cursor:pointer"
-                    onclick="window.location='{{ url_for('faturas.detail', invoice_id=inv.id) }}'">
+                    onclick="openInvPanel({{ inv.id }})">
                     <td onclick="event.stopPropagation()">
                         <input type="checkbox" name="ids" value="{{ inv.id }}" class="inv-cb form-check-input"
                                data-amount="{{ inv.amount_eur if inv.amount_eur is not none else '' }}"
@@ -670,6 +702,21 @@
         </table>
         </div>
     </form>
+
+    <!-- Invoice detail offcanvas panel (slides from right) -->
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="inv-panel" style="width:min(480px,100vw)">
+        <div class="offcanvas-header py-2 border-bottom">
+            <h6 class="offcanvas-title mb-0 fw-semibold small">Detalhe do documento</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body p-0" id="inv-panel-body">
+            <div class="text-center text-muted py-5" id="inv-panel-loading">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <p class="mt-2 small">A carregar…</p>
+            </div>
+        </div>
+    </div>
+
     {% else %}
     <div class="text-center text-muted py-5">
         <div style="font-size:2rem;">📄</div>
@@ -873,6 +920,26 @@
         submitBulk('delete');
     };
 })();
+</script>
+{% endif %}
+
+{% if view == 'documento' %}
+<script>
+function openInvPanel(id) {
+    var panelEl = document.getElementById('inv-panel');
+    var panelBody = document.getElementById('inv-panel-body');
+    var loading = document.getElementById('inv-panel-loading');
+    if (!panelEl || !panelBody) return;
+    var offcanvas = bootstrap.Offcanvas.getOrCreateInstance(panelEl);
+    panelBody.innerHTML = '';
+    if (loading) { panelBody.appendChild(loading); loading.style.display = ''; }
+    offcanvas.show();
+    var url = {{ url_for('faturas.invoice_panel', invoice_id=0)|tojson }}.replace('/0/panel', '/' + id + '/panel');
+    fetch(url, { credentials: 'same-origin' })
+        .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
+        .then(function(html) { panelBody.innerHTML = html; })
+        .catch(function() { panelBody.innerHTML = '<p class="text-danger p-3">Erro ao carregar o documento.</p>'; });
+}
 </script>
 {% endif %}
 

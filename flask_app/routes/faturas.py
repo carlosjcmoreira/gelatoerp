@@ -199,7 +199,8 @@ def index():
             document_type_labels=DOCUMENT_TYPE_LABELS,
         )
 
-    status_filter = request.args.get('status', '')
+    statuses_filter = [s for s in request.args.getlist('status') if s]
+    show_all = request.args.get('all', '') == '1'
     order_by = request.args.get('order_by', 'due_date')
     order_dir = request.args.get('order_dir', 'asc')
     search = request.args.get('q', '').strip()
@@ -213,8 +214,17 @@ def index():
         document_type_filter = ''
     supplier_name_filter = request.args.get('supplier_name', '').strip()
 
+    # Default filter: active when no status/all param set — exclude paid and draft
+    default_filter_active = not statuses_filter and not show_all
+    if default_filter_active:
+        effective_statuses = ['pending_review', 'scheduled', 'cancelled']
+    elif show_all:
+        effective_statuses = None
+    else:
+        effective_statuses = statuses_filter
+
     invoices = get_invoices(
-        status=status_filter or None,
+        statuses=effective_statuses,
         store_id=int(store_id) if store_id else None,
         search=search or None,
         order_by=order_by,
@@ -232,12 +242,18 @@ def index():
         else:
             inv['display_status'] = inv['status']
 
-    filter_qs = '?' + urlencode({k: v for k, v in {
-        'q': search, 'status': status_filter, 'store_id': store_id,
-        'centro_custo_id': centro_custo_raw, 'categoria_custo_id': categoria_custo_raw,
-        'document_type': document_type_filter,
-        'supplier_name': supplier_name_filter,
-    }.items()})
+    # Build filter_qs preserving multi-select status for sort links
+    _filter_params = []
+    for s in (statuses_filter if not default_filter_active else []):
+        _filter_params.append(('status', s))
+    if show_all:
+        _filter_params.append(('all', '1'))
+    for k, v in [('q', search), ('store_id', store_id),
+                 ('centro_custo_id', centro_custo_raw), ('categoria_custo_id', categoria_custo_raw),
+                 ('document_type', document_type_filter), ('supplier_name', supplier_name_filter)]:
+        if v:
+            _filter_params.append((k, v))
+    filter_qs = ('?' + urlencode(_filter_params)) if _filter_params else '?'
 
     stores = get_stores_list()
     cost_centers = get_cost_centers(ativo_only=True)
@@ -260,17 +276,25 @@ def index():
     totals_by_type = get_invoices_type_totals()
 
     # Base query string without document_type so badge links preserve other filters
-    type_badge_base_qs = urlencode({k: v for k, v in {
-        'q': search, 'status': status_filter, 'store_id': store_id,
-        'centro_custo_id': centro_custo_raw, 'categoria_custo_id': categoria_custo_raw,
-        'supplier_name': supplier_name_filter,
-    }.items() if v})
+    _type_badge_params = []
+    for s in (statuses_filter if not default_filter_active else []):
+        _type_badge_params.append(('status', s))
+    if show_all:
+        _type_badge_params.append(('all', '1'))
+    for k, v in [('q', search), ('store_id', store_id),
+                 ('centro_custo_id', centro_custo_raw), ('categoria_custo_id', categoria_custo_raw),
+                 ('supplier_name', supplier_name_filter)]:
+        if v:
+            _type_badge_params.append((k, v))
+    type_badge_base_qs = urlencode(_type_badge_params)
 
     return render_template(
         'financeiro/faturas/index.html',
         view='documento',
         invoices=invoices,
-        status_filter=status_filter,
+        statuses_filter=statuses_filter,
+        show_all=show_all,
+        default_filter_active=default_filter_active,
         order_by=order_by,
         order_dir=order_dir,
         search=search,
@@ -825,6 +849,27 @@ def detail(invoice_id: int):
         locais_stock=LOCAIS_STOCK,
         unidades_materiais=UNIDADES_MATERIAIS,
         stock_local_derivado=stock_local_derivado,
+    )
+
+
+# ── Invoice panel (offcanvas fragment) ──────────────────────────────────────────
+
+@faturas_bp.route('/<int:invoice_id>/panel')
+@perm_required('acesso_gestor')
+def invoice_panel(invoice_id: int):
+    inv = get_invoice(invoice_id)
+    if not inv:
+        return '<p class="text-danger p-3">Fatura não encontrada.</p>', 404
+    today = date.today()
+    if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+        inv['display_status'] = 'overdue'
+        inv['status_label'] = 'Vencida'
+    return render_template(
+        'financeiro/faturas/_panel.html',
+        inv=inv,
+        today=today,
+        status_labels=INVOICE_STATUS_LABELS,
+        document_type_labels=DOCUMENT_TYPE_LABELS,
     )
 
 

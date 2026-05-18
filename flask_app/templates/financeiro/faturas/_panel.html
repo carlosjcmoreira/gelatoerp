@@ -1,0 +1,131 @@
+{% set overdue = inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}
+<div class="p-3">
+
+    <!-- Header: supplier + doc number + type + status badges -->
+    <div class="d-flex justify-content-between align-items-start mb-3 gap-2">
+        <div style="min-width:0">
+            <div class="fw-semibold fs-6 text-truncate">{{ inv.supplier_name or '(sem fornecedor)' }}</div>
+            {% if inv.invoice_number %}<div class="text-muted small">Nº {{ inv.invoice_number }}</div>{% endif %}
+        </div>
+        <div class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+            {% set _dtdoc = inv.document_type or 'fatura' %}
+            {% if _dtdoc == 'nota_credito' %}
+            <span class="badge bg-success-subtle text-success-emphasis">Nota de Crédito</span>
+            {% elif _dtdoc != 'fatura' %}
+            <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ document_type_labels.get(_dtdoc, _dtdoc) }}</span>
+            {% else %}
+            <span class="badge bg-light text-dark border">Fatura</span>
+            {% endif %}
+            <span class="badge
+                {% if overdue %}bg-danger
+                {% elif inv.status == 'pending_review' %}bg-warning text-dark
+                {% elif inv.status == 'scheduled' %}bg-info text-dark
+                {% elif inv.status == 'paid' %}bg-success
+                {% elif inv.status == 'cancelled' %}bg-secondary
+                {% else %}bg-secondary{% endif %}">
+                {{ 'Vencida' if overdue else inv.status_label }}
+            </span>
+        </div>
+    </div>
+
+    <!-- Key numbers -->
+    <div class="row g-2 mb-3">
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-body py-2 px-3">
+                    <div class="small text-muted">Total</div>
+                    <div class="fw-bold fs-5 {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}">
+                        {% if inv.amount_eur is not none %}
+                            {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f €'|format(inv.amount_eur) }}
+                        {% else %}—{% endif %}
+                    </div>
+                    {% if inv.vat_amount_eur is not none %}
+                    <div class="small text-muted">IVA: {{ '%.2f €'|format(inv.vat_amount_eur) }}</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-body py-2 px-3">
+                    <div class="small text-muted">Vencimento</div>
+                    <div class="fw-bold {{ 'text-danger' if overdue else '' }}">
+                        {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                    </div>
+                    <div class="small text-muted">Emissão: {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details list -->
+    <dl class="row small mb-3">
+        {% if inv.supplier_nif %}
+        <dt class="col-5 text-muted">NIF</dt>
+        <dd class="col-7">{{ inv.supplier_nif }}</dd>
+        {% endif %}
+        {% if inv.category %}
+        <dt class="col-5 text-muted">Categoria</dt>
+        <dd class="col-7">{{ inv.category }}</dd>
+        {% endif %}
+        {% if inv.store_name %}
+        <dt class="col-5 text-muted">Loja</dt>
+        <dd class="col-7">{{ inv.store_name }}</dd>
+        {% endif %}
+        {% if inv.paid_date %}
+        <dt class="col-5 text-muted">Data pagamento</dt>
+        <dd class="col-7">{{ inv.paid_date.strftime('%d/%m/%Y') }}</dd>
+        {% endif %}
+        {% set confirm_dt = inv.payment_confirmed_date or inv.cfo_confirmed_date %}
+        {% if confirm_dt %}
+        <dt class="col-5 text-muted">Data confirmação</dt>
+        <dd class="col-7">{{ confirm_dt.strftime('%d/%m/%Y') }}</dd>
+        {% endif %}
+        {% if inv.ocr_confidence is not none %}
+        <dt class="col-5 text-muted">Confiança OCR</dt>
+        <dd class="col-7">
+            <div class="progress" style="height:6px;width:80px;display:inline-block;vertical-align:middle;">
+                <div class="progress-bar {% if inv.ocr_confidence > 0.8 %}bg-success{% elif inv.ocr_confidence > 0.5 %}bg-warning{% else %}bg-danger{% endif %}"
+                     style="width:{{ (inv.ocr_confidence * 100)|int }}%"></div>
+            </div>
+            <span class="ms-1">{{ (inv.ocr_confidence * 100)|int }}%</span>
+        </dd>
+        {% endif %}
+        {% if inv.notes %}
+        <dt class="col-5 text-muted">Notas</dt>
+        <dd class="col-7 text-break">{{ inv.notes }}</dd>
+        {% endif %}
+        {% if inv.onedrive_path %}
+        <dt class="col-5 text-muted">OneDrive</dt>
+        <dd class="col-7 text-break">
+            {% if inv.onedrive_web_url %}
+            <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener" class="text-decoration-none">☁️ Abrir</a>
+            {% else %}
+            {{ inv.onedrive_path }}
+            {% endif %}
+        </dd>
+        {% endif %}
+    </dl>
+
+    <!-- Quick links -->
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        {% if inv.pdf_filename %}
+        <a href="{{ url_for('faturas.download_pdf', invoice_id=inv.id) }}"
+           class="btn btn-outline-secondary btn-sm" target="_blank">
+            📄 Ver PDF
+        </a>
+        {% endif %}
+        {% if inv.onedrive_web_url and not inv.pdf_filename %}
+        <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener"
+           class="btn btn-outline-secondary btn-sm">
+            ☁️ OneDrive
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Full detail link -->
+    <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}"
+       class="btn btn-primary btn-sm w-100">
+        Ver detalhe completo →
+    </a>
+</div>

@@ -246,7 +246,8 @@ def get_distinct_supplier_names() -> list:
         return [row[0] for row in cursor.fetchall()]
 
 
-def get_invoices(status: str = None, store_id: int = None,
+def get_invoices(status: str = None, statuses: list = None,
+                 store_id: int = None,
                  search: str = None, order_by: str = 'due_date',
                  order_dir: str = 'asc',
                  centro_custo_id: int = None,
@@ -262,7 +263,10 @@ def get_invoices(status: str = None, store_id: int = None,
         where = []
         params = []
         # 'overdue' is a virtual status: scheduled invoices with due_date in the past
-        if status == 'overdue':
+        if statuses:
+            where.append("i.status = ANY(%s)")
+            params.append(statuses)
+        elif status == 'overdue':
             where.append("i.status = 'scheduled' AND i.due_date < CURRENT_DATE")
         elif status:
             where.append("i.status = %s")
