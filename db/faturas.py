@@ -227,12 +227,32 @@ def get_invoice_suppliers() -> list:
         return [{'id': row[0], 'name': row[1]} for row in cursor.fetchall()]
 
 
+def get_distinct_supplier_names() -> list:
+    """Return all distinct non-null supplier_name values from non-draft invoices, sorted.
+
+    Covers ALL invoices regardless of whether they have a supplier_id, so the
+    returned list is the correct source of truth for filter dropdowns.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT supplier_name
+            FROM invoices
+            WHERE status != 'draft'
+              AND supplier_name IS NOT NULL
+              AND supplier_name != ''
+            ORDER BY supplier_name
+        """)
+        return [row[0] for row in cursor.fetchall()]
+
+
 def get_invoices(status: str = None, store_id: int = None,
                  search: str = None, order_by: str = 'due_date',
                  order_dir: str = 'asc',
                  centro_custo_id: int = None,
                  categoria_custo_id: int = None,
                  supplier_name: str = None,
+                 supplier_names: list = None,
                  supplier_id: int = None,
                  date_from=None, date_to=None,
                  date_field: str = 'issue_date',
@@ -262,7 +282,10 @@ def get_invoices(status: str = None, store_id: int = None,
         if supplier_id:
             where.append("i.supplier_id = %s")
             params.append(supplier_id)
-        if supplier_name:
+        if supplier_names:
+            where.append("i.supplier_name = ANY(%s)")
+            params.append(supplier_names)
+        elif supplier_name:
             where.append("LOWER(i.supplier_name) = LOWER(%s)")
             params.append(supplier_name)
         if document_type and document_type in DOCUMENT_TYPE_LABELS:
@@ -560,20 +583,32 @@ def suggest_onedrive_subfolder(supplier_nif: str = None, store_id: int = None,
     return 'Geral (G)'
 
 
-def get_contas_por_fornecedor() -> list:
+def get_contas_por_fornecedor(status_filter: str = None) -> list:
     """
-    Returns a list of suppliers with pending/scheduled invoices and credit notes,
-    grouped by supplier. Each entry contains:
+    Returns a list of all non-draft invoices and credit notes, grouped by supplier.
+    Each entry contains:
       - supplier_name, supplier_nif
       - n_docs: total number of documents
       - total_faturas: sum of invoice amounts (positive)
       - total_nc: sum of credit note amounts (positive)
       - saldo_liquido: total_nc - total_faturas (negative means owed)
       - invoices: list of individual invoice dicts
+
+    status_filter: optional single status to restrict results
+                   (e.g. 'pending_review', 'scheduled', 'paid', 'overdue').
+                   Defaults to all non-draft invoices.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
+        params = []
+        if status_filter == 'overdue':
+            extra_where = "AND i.status = 'scheduled' AND i.due_date < CURRENT_DATE"
+        elif status_filter:
+            extra_where = "AND i.status = %s"
+            params.append(status_filter)
+        else:
+            extra_where = ""
+        cursor.execute(f"""
             SELECT i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
                    i.invoice_number, i.amount_eur, i.vat_amount_eur,
                    i.issue_date, i.due_date, i.store_id, i.category,
@@ -587,9 +622,9 @@ def get_contas_por_fornecedor() -> list:
                    i.categoria_custo_id
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
-            WHERE i.status IN ('pending_review', 'scheduled')
+            WHERE i.status != 'draft' {extra_where}
             ORDER BY LOWER(i.supplier_name), i.due_date ASC NULLS LAST
-        """)
+        """, params)
         rows = cursor.fetchall()
 
     invoices = [_row_to_invoice(r) for r in rows]

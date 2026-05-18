@@ -158,7 +158,27 @@
 
 {% if view == 'fornecedor' %}
     <!-- ── Por Fornecedor view ────────────────────────────────────────────── -->
-    <p class="text-muted small mb-3">Documentos pendentes/agendados agrupados por fornecedor.</p>
+    <p class="text-muted small mb-2">Todos os documentos agrupados por fornecedor.</p>
+
+    <!-- Status filter bar -->
+    <form method="get" class="mb-3" data-no-loading>
+        <input type="hidden" name="view" value="fornecedor">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select name="forn_status" class="form-select form-select-sm" style="width:auto; min-width:160px">
+                <option value="" {% if not forn_status %}selected{% endif %}>Todos os estados</option>
+                <option value="pending_review" {% if forn_status == 'pending_review' %}selected{% endif %}>Por confirmar</option>
+                <option value="scheduled" {% if forn_status == 'scheduled' %}selected{% endif %}>Agendado</option>
+                <option value="overdue" {% if forn_status == 'overdue' %}selected{% endif %}>Vencido</option>
+                <option value="paid" {% if forn_status == 'paid' %}selected{% endif %}>Pago</option>
+                <option value="cancelled" {% if forn_status == 'cancelled' %}selected{% endif %}>Cancelado</option>
+            </select>
+            <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+            {% if forn_status %}
+            <a href="{{ url_for('faturas.index', view='fornecedor') }}" class="btn btn-outline-secondary btn-sm">✕ Limpar</a>
+            {% endif %}
+            <span class="text-muted small ms-1">{{ grupos|length }} fornecedor{{ 'es' if grupos|length != 1 }}</span>
+        </div>
+    </form>
 
     {% if grupos %}
     <form id="bulk-form-forn" action="{{ url_for('faturas.bulk_action') }}" method="post">
@@ -297,8 +317,12 @@
     {% else %}
     <div class="text-center text-muted py-5">
         <div style="font-size:2rem;">🏦</div>
-        <p class="mt-2">Nenhum documento pendente ou agendado.</p>
+        <p class="mt-2">{% if forn_status %}Nenhum documento com o estado selecionado.{% else %}Nenhum documento registado.{% endif %}</p>
+        {% if forn_status %}
+        <a href="{{ url_for('faturas.index', view='fornecedor') }}" class="btn btn-outline-secondary btn-sm">✕ Limpar filtro</a>
+        {% else %}
         <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm">Ver todos os documentos</a>
+        {% endif %}
     </div>
     {% endif %}
 
@@ -438,9 +462,17 @@
         <input type="hidden" name="order_by" value="{{ order_by }}">
         <input type="hidden" name="order_dir" value="{{ order_dir }}">
         <div class="d-flex flex-wrap align-items-center gap-2">
+            {% if all_supplier_names %}
+            <select name="supplier_name" class="form-select form-select-sm" style="flex: 2 1 180px; min-width: 0">
+                <option value="">Todos os fornecedores</option>
+                {% for sn in all_supplier_names %}
+                <option value="{{ sn }}" {% if supplier_name_filter == sn %}selected{% endif %}>{{ sn }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
             <input type="text" name="q" class="form-control form-control-sm"
-                   style="flex: 2 1 180px; min-width: 0"
-                   placeholder="Pesquisar fornecedor ou nº documento" value="{{ search }}">
+                   style="flex: 1 1 150px; min-width: 0"
+                   placeholder="Pesquisar nº documento" value="{{ search }}">
             <select name="status" class="form-select form-select-sm" style="flex: 1 1 130px; min-width: 0">
                 <option value="">Todos estados</option>
                 {% for k, v in status_labels.items() %}

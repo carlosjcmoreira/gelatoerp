@@ -17,7 +17,7 @@ from database import (
     delete_invoice, confirm_invoice_payment, mark_payment_executed,
     get_suppliers, get_supplier_by_nif, upsert_supplier, delete_supplier,
     get_stores_list, update_invoice_onedrive, suggest_onedrive_subfolder,
-    get_contas_por_fornecedor,
+    get_contas_por_fornecedor, get_distinct_supplier_names,
     INVOICE_STATUS_LABELS, ONEDRIVE_SUBFOLDERS, INVOICE_CATEGORIES,
     DOCUMENT_TYPE_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_TERMS_LABELS,
     calculate_due_date,
@@ -80,7 +80,10 @@ def index():
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
 
     if view == 'fornecedor':
-        grupos = get_contas_por_fornecedor()
+        forn_status = request.args.get('forn_status', '').strip()
+        if forn_status not in ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', ''):
+            forn_status = ''
+        grupos = get_contas_por_fornecedor(status_filter=forn_status or None)
         for grupo in grupos:
             for inv in grupo.get('invoices', []):
                 if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
@@ -104,6 +107,7 @@ def index():
             centro_custo_filter=None,
             categoria_custo_filter=None,
             document_type_labels=DOCUMENT_TYPE_LABELS,
+            forn_status=forn_status,
         )
 
     if view == 'centro_custo':
@@ -207,6 +211,7 @@ def index():
     document_type_filter = request.args.get('document_type', '').strip()
     if document_type_filter not in DOCUMENT_TYPE_LABELS:
         document_type_filter = ''
+    supplier_name_filter = request.args.get('supplier_name', '').strip()
 
     invoices = get_invoices(
         status=status_filter or None,
@@ -217,6 +222,7 @@ def index():
         centro_custo_id=centro_custo_filter,
         categoria_custo_id=categoria_custo_filter,
         document_type=document_type_filter or None,
+        supplier_name=supplier_name_filter or None,
     )
 
     for inv in invoices:
@@ -230,11 +236,13 @@ def index():
         'q': search, 'status': status_filter, 'store_id': store_id,
         'centro_custo_id': centro_custo_raw, 'categoria_custo_id': categoria_custo_raw,
         'document_type': document_type_filter,
+        'supplier_name': supplier_name_filter,
     }.items()})
 
     stores = get_stores_list()
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
+    all_supplier_names = get_distinct_supplier_names()
 
     # KPI dashboard — pending / scheduled / next VAT
     pending_docs = [dict(r) for r in get_invoices_with_payments(status='pending_review')]
@@ -255,6 +263,7 @@ def index():
     type_badge_base_qs = urlencode({k: v for k, v in {
         'q': search, 'status': status_filter, 'store_id': store_id,
         'centro_custo_id': centro_custo_raw, 'categoria_custo_id': categoria_custo_raw,
+        'supplier_name': supplier_name_filter,
     }.items() if v})
 
     return render_template(
@@ -285,6 +294,8 @@ def index():
         next_vat=next_vat,
         totals_by_type=totals_by_type,
         type_badge_base_qs=type_badge_base_qs,
+        all_supplier_names=all_supplier_names,
+        supplier_name_filter=supplier_name_filter,
     )
 
 
