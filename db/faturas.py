@@ -247,6 +247,7 @@ def get_distinct_supplier_names() -> list:
 
 
 def get_invoices(status: str = None, statuses: list = None,
+                 no_status_filter: bool = False,
                  store_id: int = None,
                  search: str = None, order_by: str = 'due_date',
                  order_dir: str = 'asc',
@@ -263,7 +264,9 @@ def get_invoices(status: str = None, statuses: list = None,
         where = []
         params = []
         # 'overdue' is a virtual status: scheduled invoices with due_date in the past
-        if statuses:
+        if no_status_filter:
+            pass  # no status constraint — include all statuses including drafts
+        elif statuses:
             where.append("i.status = ANY(%s)")
             params.append(statuses)
         elif status == 'overdue':
@@ -305,12 +308,12 @@ def get_invoices(status: str = None, statuses: list = None,
         if search:
             s = f'%{search.lower()}%'
             if supplier_name or supplier_names:
-                # Supplier already pinned via filter — search invoice number only
-                where.append("LOWER(i.invoice_number) LIKE %s")
-                params.append(s)
-            else:
-                where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s)")
+                # Supplier already pinned via filter — search invoice number and notes
+                where.append("(LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
                 params.extend([s, s])
+            else:
+                where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
+                params.extend([s, s, s])
         where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
         direction = 'DESC' if order_dir == 'desc' else 'ASC'

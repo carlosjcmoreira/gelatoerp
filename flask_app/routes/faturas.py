@@ -225,6 +225,7 @@ def index():
 
     invoices = get_invoices(
         statuses=effective_statuses,
+        no_status_filter=show_all,
         store_id=int(store_id) if store_id else None,
         search=search or None,
         order_by=order_by,

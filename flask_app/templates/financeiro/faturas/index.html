@@ -584,7 +584,16 @@
                             {% endfor %}
                         </select>
                     </th>
-                    <th class="p-1"></th>
+                    <th class="p-1">
+                        <select name="document_type" form="filter-form"
+                                class="form-select form-select-sm"
+                                onchange="document.getElementById('filter-form').submit()">
+                            <option value="">Tipo</option>
+                            {% for dt, label in document_type_labels.items() %}
+                            <option value="{{ dt }}" {% if document_type_filter == dt %}selected{% endif %}>{{ label|truncate(14, True, '…') }}</option>
+                            {% endfor %}
+                        </select>
+                    </th>
                     <th class="p-1 d-none d-md-table-cell"></th>
                     <th class="p-1 d-none d-md-table-cell">
                         <select name="store_id" form="filter-form"

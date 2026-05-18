@@ -58,6 +58,21 @@
         </div>
     </div>
 
+    <!-- Embedded PDF preview (when available) -->
+    {% if inv.pdf_filename %}
+    <div class="border rounded mb-3 overflow-hidden" style="height:260px">
+        <iframe src="{{ url_for('faturas.download_pdf', invoice_id=inv.id) }}"
+                class="w-100 h-100" style="border:0" title="Pré-visualização PDF"
+                loading="lazy"></iframe>
+    </div>
+    {% elif inv.onedrive_web_url %}
+    <div class="mb-3 p-2 border rounded bg-light-subtle small text-center text-muted">
+        <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener" class="text-decoration-none">
+            ☁️ Documento arquivado no OneDrive — clique para abrir
+        </a>
+    </div>
+    {% endif %}
+
     <!-- Details list -->
     <dl class="row small mb-3">
         {% if inv.supplier_nif %}
