@@ -299,9 +299,14 @@ def get_invoices(status: str = None, store_id: int = None,
             where.append(f"{_date_col} <= %s")
             params.append(date_to)
         if search:
-            where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s)")
             s = f'%{search.lower()}%'
-            params.extend([s, s])
+            if supplier_name or supplier_names:
+                # Supplier already pinned via filter — search invoice number only
+                where.append("LOWER(i.invoice_number) LIKE %s")
+                params.append(s)
+            else:
+                where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s)")
+                params.extend([s, s])
         where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
         direction = 'DESC' if order_dir == 'desc' else 'ASC'
