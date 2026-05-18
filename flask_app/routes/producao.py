@@ -26,6 +26,7 @@ from database import (
     get_stock_producao_by_loja, upsert_pesagem_matosinhos_inicio,
     get_active_venda_stores, get_or_create_pending_batch,
     update_stock_gelado, get_producao_history_by_day,
+    delete_producao_record,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -432,6 +433,22 @@ def registo_producao():
                            active_tab='registo_producao', tabs=_tabs_with_urls(),
                            today=str(date.today()),
                            historico_dias=historico_dias)
+
+
+@producao_bp.route('/registo-producao/eliminar', methods=['POST'])
+@perm_required('acesso_producao')
+def registo_producao_eliminar():
+    try:
+        record_id = int(request.form['id'])
+    except (KeyError, ValueError):
+        flash("ID inválido.", "danger")
+        return redirect(url_for('producao.registo_producao'))
+    deleted = delete_producao_record(record_id)
+    if deleted:
+        flash("Registo eliminado com sucesso.", "success")
+    else:
+        flash("Registo não encontrado.", "warning")
+    return redirect(url_for('producao.registo_producao'))
 
 
 @producao_bp.route('/registo-producao/ocr', methods=['POST'])

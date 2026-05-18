@@ -1282,20 +1282,19 @@ def get_producao_history_by_day(n_days: int = 30) -> list:
     """Return production records grouped by day for the last n_days.
 
     Returns a list of dicts ordered by data DESC:
-      [{'data': date, 'total_kg': float, 'linhas': [{'sabor': str, 'quantidade_kg': float}, ...]}, ...]
+      [{'data': date, 'total_kg': float, 'linhas': [{'id': int, 'sabor': str, 'quantidade_kg': float}, ...]}, ...]
     """
     from db.connection import db_connection
     from psycopg2.extras import RealDictCursor
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
-            SELECT data, sabor, ROUND(SUM(quantidade_kg)::numeric, 3) AS quantidade_kg
+            SELECT id, data, sabor, ROUND(quantidade_kg::numeric, 3) AS quantidade_kg
             FROM producao
             WHERE data >= CURRENT_DATE - %s::interval
               AND sabor IS NOT NULL
               AND sabor != ''
-            GROUP BY data, sabor
-            ORDER BY data DESC, sabor
+            ORDER BY data DESC, sabor, id
         """, (f'{n_days} days',))
         rows = [dict(r) for r in cursor.fetchall()]
 
@@ -1312,7 +1311,7 @@ def get_producao_history_by_day(n_days: int = 30) -> list:
                 })
             current_date = row['data']
             current_linhas = []
-        current_linhas.append({'sabor': row['sabor'], 'quantidade_kg': float(row['quantidade_kg'])})
+        current_linhas.append({'id': row['id'], 'sabor': row['sabor'], 'quantidade_kg': float(row['quantidade_kg'])})
     if current_date is not None:
         days.append({
             'data': current_date,
@@ -1320,6 +1319,16 @@ def get_producao_history_by_day(n_days: int = 30) -> list:
             'linhas': current_linhas,
         })
     return days
+
+
+def delete_producao_record(record_id: int) -> bool:
+    """Delete a single production record by its ID. Returns True if a row was deleted."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM producao WHERE id = %s", (record_id,))
+        deleted = cursor.rowcount
+        conn.commit()
+    return deleted > 0
 
 
 from db.plano import *  # noqa: F401,F403

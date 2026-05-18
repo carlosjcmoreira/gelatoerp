@@ -39,6 +39,28 @@
     <strong>Fluxo:</strong> Carregar foto → Rever valores extraídos → Confirmar → Stock e plano atualizados
 </div>
 
+<div class="modal fade" id="modalEliminarProducao" tabindex="-1" aria-labelledby="modalEliminarProducaoLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title" id="modalEliminarProducaoLabel">Eliminar registo de produção</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-1">Tem a certeza que pretende eliminar este registo?</p>
+                <p class="small text-muted mb-0" id="modalEliminarProducaoDesc"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <form method="post" action="{{ url_for('producao.registo_producao_eliminar') }}" id="formEliminarProducao">
+                    <input type="hidden" name="id" id="inputEliminarProducaoId">
+                    <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% if historico_dias is defined %}
 <hr class="my-4">
 <h6 class="mb-3">Histórico de Produção <small class="text-muted fw-normal">(últimos 30 dias)</small></h6>
@@ -68,14 +90,24 @@
                         {% for linha in dia.linhas %}
                         <tr>
                             <td class="small ps-0">{{ linha.sabor }}</td>
-                            <td class="text-end small text-muted pe-0">{{ '%.3f'|format(linha.quantidade_kg) }} kg</td>
+                            <td class="text-end small text-muted">{{ '%.3f'|format(linha.quantidade_kg) }} kg</td>
+                            <td class="text-end pe-0" style="width:32px;">
+                                <button type="button"
+                                        class="btn btn-link btn-sm p-0 text-danger btn-eliminar-producao"
+                                        title="Eliminar registo"
+                                        data-id="{{ linha.id }}"
+                                        data-sabor="{{ linha.sabor | e }}"
+                                        data-kg="{{ '%.3f'|format(linha.quantidade_kg) }}">
+                                    🗑️
+                                </button>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
                     <tfoot>
                         <tr class="border-top">
                             <td class="small fw-semibold ps-0">Total</td>
-                            <td class="text-end small fw-semibold pe-0">{{ '%.3f'|format(dia.total_kg) }} kg</td>
+                            <td class="text-end small fw-semibold pe-0" colspan="2">{{ '%.3f'|format(dia.total_kg) }} kg</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -86,4 +118,20 @@
 </div>
 {% endif %}
 {% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.btn-eliminar-producao');
+        if (!btn) return;
+        var id = btn.getAttribute('data-id');
+        var sabor = btn.getAttribute('data-sabor');
+        var kg = btn.getAttribute('data-kg');
+        document.getElementById('inputEliminarProducaoId').value = id;
+        document.getElementById('modalEliminarProducaoDesc').textContent = sabor + ' — ' + kg + ' kg';
+        var modal = new bootstrap.Modal(document.getElementById('modalEliminarProducao'));
+        modal.show();
+    });
+});
+</script>
 {% endblock %}
