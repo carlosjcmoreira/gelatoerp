@@ -15,7 +15,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_invoices, get_invoice, get_invoice_pdf, create_invoice, update_invoice,
     delete_invoice, confirm_invoice_payment, mark_payment_executed,
-    get_suppliers, get_supplier_by_nif, upsert_supplier, delete_supplier,
+    get_suppliers, get_supplier_by_nif, get_supplier_by_name,
+    upsert_supplier, delete_supplier,
+    link_invoices_to_supplier_by_name, bulk_link_invoices_by_name,
+    get_unlinked_supplier_names, get_suppliers_with_invoice_count,
+    backfill_supplier_ids,
     get_stores_list, update_invoice_onedrive, suggest_onedrive_subfolder,
     get_contas_por_fornecedor, get_distinct_supplier_names,
     INVOICE_STATUS_LABELS, ONEDRIVE_SUBFOLDERS, INVOICE_CATEGORIES,
@@ -476,6 +480,8 @@ def bulk_action():
 def registar():
     """Unified document registration: manual entry, PDF upload, or photo channel."""
     if request.method == 'POST':
+        supplier_id_str = request.form.get('supplier_id', '').strip()
+        supplier_id = int(supplier_id_str) if supplier_id_str else None
         supplier_name = request.form.get('supplier_name', '').strip()
         supplier_nif = request.form.get('supplier_nif', '').strip() or None
         invoice_number = request.form.get('invoice_number', '').strip() or None
@@ -531,10 +537,19 @@ def registar():
             notes_parts.append(notes_raw)
         notes = ' | '.join(notes_parts) or None
 
+        # Auto-lookup supplier by name if not selected from dropdown
+        if not supplier_id and supplier_name:
+            try:
+                _matched = get_supplier_by_name(supplier_name)
+                if _matched:
+                    supplier_id = _matched['id']
+            except Exception:
+                pass
+
         store_id_int = int(store_id) if store_id else None
         current_user = session.get('user', {}).get('username', 'sistema')
         invoice_id = create_invoice({
-            'supplier_id': None,
+            'supplier_id': supplier_id,
             'supplier_name': supplier_name,
             'supplier_nif': supplier_nif,
             'invoice_number': invoice_number,
@@ -609,6 +624,8 @@ def registar():
         subfolders=ONEDRIVE_SUBFOLDERS,
         today=str(date.today()),
         document_type_labels=DOCUMENT_TYPE_LABELS,
+        payment_method_labels=PAYMENT_METHOD_LABELS,
+        payment_terms_labels=PAYMENT_TERMS_LABELS,
     )
 
 
@@ -1208,10 +1225,10 @@ def fornecedores():
             payment_method = request.form.get('payment_method', '').strip() or None
             payment_terms = request.form.get('payment_terms', '').strip() or None
             iban = request.form.get('iban', '').strip() or None
-            if not name or not nif:
-                flash('Nome e NIF são obrigatórios.', 'warning')
+            if not name:
+                flash('Nome do fornecedor é obrigatório.', 'warning')
             else:
-                upsert_supplier(name=name, nif=nif, category=category or None,
+                upsert_supplier(name=name, nif=nif or None, category=category or None,
                                 store_id=store_id, notes=notes or None,
                                 payment_method=payment_method,
                                 payment_terms=payment_terms, iban=iban)
@@ -1227,8 +1244,29 @@ def fornecedores():
                 flash('Não é possível eliminar: fornecedor tem faturas associadas.', 'warning')
             return redirect(url_for('faturas.fornecedores'))
 
-    suppliers = get_suppliers()
+        elif action == 'associate':
+            supplier_name_raw = request.form.get('unlinked_name', '').strip()
+            assoc_supplier_id_str = request.form.get('associate_supplier_id', '').strip()
+            if supplier_name_raw and assoc_supplier_id_str:
+                assoc_supplier_id = int(assoc_supplier_id_str)
+                count = bulk_link_invoices_by_name(supplier_name_raw, assoc_supplier_id)
+                flash(f'"{supplier_name_raw}" associado: {count} fatura(s) ligada(s).', 'success')
+            else:
+                flash('Selecciona um fornecedor para associar.', 'warning')
+            return redirect(url_for('faturas.fornecedores'))
+
+        elif action == 'backfill':
+            result = backfill_supplier_ids()
+            flash(
+                f'Sincronização concluída: {result["suppliers_created"]} fornecedor(es) criado(s), '
+                f'{result["invoices_linked"]} fatura(s) ligada(s).',
+                'success'
+            )
+            return redirect(url_for('faturas.fornecedores'))
+
+    suppliers = get_suppliers_with_invoice_count()
     categories = INVOICE_CATEGORIES
+    unlinked_names = get_unlinked_supplier_names()
     return render_template(
         'financeiro/faturas/fornecedores.html',
         suppliers=suppliers,
@@ -1236,7 +1274,38 @@ def fornecedores():
         stores=stores,
         payment_method_labels=PAYMENT_METHOD_LABELS,
         payment_terms_labels=PAYMENT_TERMS_LABELS,
+        unlinked_names=unlinked_names,
     )
+
+
+@faturas_bp.route('/fornecedores/quick', methods=['POST'])
+@perm_required('acesso_gestor')
+def fornecedores_quick():
+    """AJAX endpoint: quick supplier creation from the registar form modal."""
+    name = request.form.get('name', '').strip()
+    nif = ''.join(c for c in request.form.get('nif', '') if c.isdigit())
+    if not name or not nif:
+        return jsonify({'error': 'Nome e NIF são obrigatórios.'}), 400
+    payment_method = request.form.get('payment_method', '').strip() or None
+    payment_terms = request.form.get('payment_terms', '').strip() or None
+    iban = request.form.get('iban', '').strip() or None
+    try:
+        supplier_id = upsert_supplier(
+            name=name, nif=nif,
+            payment_method=payment_method,
+            payment_terms=payment_terms,
+            iban=iban,
+        )
+        return jsonify({
+            'id': supplier_id,
+            'name': name,
+            'nif': nif,
+            'payment_method': payment_method or '',
+            'payment_terms': payment_terms or '',
+        })
+    except Exception as exc:
+        logger.warning('fornecedores_quick error: %s', exc)
+        return jsonify({'error': str(exc)}), 500
 
 
 # ── Excel import ───────────────────────────────────────────────────────────────

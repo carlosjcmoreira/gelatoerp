@@ -3067,3 +3067,45 @@ def run_migrations_cost_center_allocation():
                 conn.rollback()
             except Exception:
                 pass
+
+
+def run_migrations_suppliers_nullable_nif():
+    """Allow suppliers.nif to be NULL (needed for suppliers that have no NIF).
+
+    * Drops the NOT NULL constraint on suppliers.nif.
+    * Replaces the column-level UNIQUE constraint with a partial unique index
+      (WHERE nif IS NOT NULL) so that multiple null-NIF suppliers can coexist.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            # Drop NOT NULL
+            cursor.execute("""
+                ALTER TABLE suppliers ALTER COLUMN nif DROP NOT NULL
+            """)
+            # Replace the UNIQUE constraint with a partial index that ignores NULLs
+            cursor.execute("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'suppliers_nif_key'
+                          AND conrelid = 'suppliers'::regclass
+                    ) THEN
+                        ALTER TABLE suppliers DROP CONSTRAINT suppliers_nif_key;
+                    END IF;
+                END $$;
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS suppliers_nif_unique
+                    ON suppliers (nif)
+                    WHERE nif IS NOT NULL
+            """)
+            conn.commit()
+            logger.info("run_migrations_suppliers_nullable_nif: nif column made nullable")
+        except Exception as exc:
+            logger.error("run_migrations_suppliers_nullable_nif failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass

@@ -364,6 +364,16 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
             logger.warning('OneDrive upload failed for invoice %s: %s', invoice_id, exc)
             onedrive_warning = str(exc)
 
+    # If no supplier_id yet but we have a name, try auto-lookup by name
+    if not supplier_id and supplier_name:
+        try:
+            from database import get_supplier_by_name as _gsbn
+            matched = _gsbn(supplier_name)
+            if matched:
+                supplier_id = matched['id']
+        except Exception:
+            pass
+
     try:
         update_invoice(invoice_id, {
             'supplier_id': supplier_id,
@@ -386,6 +396,14 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
         })
     except Exception as exc:
         raise ServiceError(f'Erro ao actualizar fatura: {exc}') from exc
+
+    # Auto-link other invoices with the same supplier name
+    if supplier_id:
+        try:
+            from database import link_invoices_to_supplier_by_name as _link
+            _link(supplier_id)
+        except Exception as exc:
+            logger.warning('link_invoices_to_supplier_by_name failed after save for supplier %s: %s', supplier_id, exc)
 
     if onedrive_web_url and onedrive_web_url != inv.get('onedrive_web_url'):
         try:

@@ -37,6 +37,7 @@ from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2, run_mig
 from db.schema import run_migrations_fecho_caixa_audit
 from db.schema import run_migrations_user_audit_log
 from db.schema import run_migrations_cost_center_allocation
+from db.schema import run_migrations_suppliers_nullable_nif
 
 
 def _start_sheets_sync_scheduler():
@@ -154,6 +155,12 @@ def create_app():
         _seed_all_tiles()
         sync_produtos_vendas_config()
         seed_artigos_administrativos()
+        run_migrations_suppliers_nullable_nif()
+        try:
+            from db.faturas import backfill_supplier_ids as _backfill_suppliers
+            _backfill_suppliers()
+        except Exception as _bk_exc:
+            logger.warning('backfill_supplier_ids startup failed: %s', _bk_exc)
 
     from flask_app.routes.auth import auth_bp
     from flask_app.routes.home import home_bp

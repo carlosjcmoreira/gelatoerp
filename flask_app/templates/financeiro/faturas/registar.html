@@ -47,15 +47,31 @@
             <h6 class="card-title mb-1">✏️ Entrada Manual</h6>
             <p class="text-muted small mb-3">Introduzir dados do documento manualmente</p>
             <form method="post" enctype="multipart/form-data">
+                <!-- Hidden fields populated by JS when supplier is selected -->
+                <input type="hidden" name="supplier_id" id="reg-supplier-id">
+                <input type="hidden" name="supplier_name" id="reg-supplier-name">
+
                 <div class="mb-3">
-                    <label class="form-label small" id="reg-supplier-label">Fornecedor / Entidade <span id="reg-supplier-req" class="text-danger">*</span></label>
-                    <input type="text" name="supplier_name" id="reg-supplier-name" class="form-control form-control-sm"
-                           list="reg-suppliers-list" placeholder="Nome do fornecedor ou entidade">
-                    <datalist id="reg-suppliers-list">
-                        {% for s in suppliers %}
-                        <option value="{{ s.name }}">{{ s.name }} {% if s.nif %}(NIF: {{ s.nif }}){% endif %}</option>
-                        {% endfor %}
-                    </datalist>
+                    <label class="form-label small" id="reg-supplier-label">
+                        Fornecedor / Entidade <span id="reg-supplier-req" class="text-danger">*</span>
+                    </label>
+                    <div class="d-flex gap-2 align-items-center">
+                        <select id="reg-supplier-select" class="form-select form-select-sm flex-grow-1">
+                            <option value="">— Seleccionar fornecedor —</option>
+                            {% for s in suppliers %}
+                            <option value="{{ s.id }}"
+                                    data-name="{{ s.name | e }}"
+                                    data-nif="{{ s.nif or '' }}"
+                                    data-payment-method="{{ s.payment_method or '' }}"
+                                    data-payment-terms="{{ s.payment_terms or '' }}">
+                                {{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <button type="button" class="btn btn-outline-primary btn-sm flex-shrink-0"
+                                title="Novo fornecedor"
+                                data-bs-toggle="modal" data-bs-target="#modalQuickSupplier">＋</button>
+                    </div>
                 </div>
 
                 <div class="mb-3">
@@ -71,11 +87,12 @@
                     <div class="row g-2 mb-3">
                         <div class="col-12 col-sm-6">
                             <label class="form-label small">NIF do Fornecedor</label>
-                            <input type="text" name="supplier_nif" class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
+                            <input type="text" name="supplier_nif" id="reg-supplier-nif"
+                                   class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
                         </div>
                         <div class="col-12 col-sm-6">
                             <label class="form-label small">Método de Pagamento</label>
-                            <select name="payment_method" class="form-select form-select-sm">
+                            <select name="payment_method" id="reg-payment-method" class="form-select form-select-sm">
                                 <option value="">— Não especificado —</option>
                                 {% for m in payment_methods %}
                                 <option value="{{ m.metodo }}">{{ m.label }}</option>
@@ -171,27 +188,158 @@
         </div>
     </div>
 </div>
+
+<!-- Modal: Quick add supplier -->
+<div class="modal fade" id="modalQuickSupplier" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Novo Fornecedor</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="quickSupplierForm">
+                <div class="modal-body">
+                    <div id="quickSupplierFeedback" class="mb-2"></div>
+                    <div class="row g-2">
+                        <div class="col-12">
+                            <label class="form-label small">Nome <span class="text-danger">*</span></label>
+                            <input type="text" name="name" id="qsName" class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">NIF <span class="text-danger">*</span></label>
+                            <input type="text" name="nif" id="qsNif" class="form-control form-control-sm"
+                                   inputmode="numeric" required>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Método de Pagamento</label>
+                            <select name="payment_method" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for val, label in payment_method_labels.items() %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Prazo de Pagamento</label>
+                            <select name="payment_terms" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for val, label in payment_terms_labels.items() %}
+                                <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">IBAN</label>
+                            <input type="text" name="iban" class="form-control form-control-sm" placeholder="PT50...">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" id="qsSubmitBtn" class="btn btn-primary btn-sm">Guardar fornecedor</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
-    var docType = document.getElementById('reg-doc-type');
+    var docType       = document.getElementById('reg-doc-type');
     var supplierExtra = document.getElementById('reg-supplier-extra');
-    var vatField = document.getElementById('reg-vat-field');
-    var reqMark = document.getElementById('reg-supplier-req');
-    var supplierInput = document.getElementById('reg-supplier-name');
+    var vatField      = document.getElementById('reg-vat-field');
+    var reqMark       = document.getElementById('reg-supplier-req');
+    var supplierSel   = document.getElementById('reg-supplier-select');
+    var supplierIdIn  = document.getElementById('reg-supplier-id');
+    var supplierNmIn  = document.getElementById('reg-supplier-name');
+    var nifIn         = document.getElementById('reg-supplier-nif');
+    var pmSel         = document.getElementById('reg-payment-method');
 
     function toggleFields() {
         var isFatura = (docType.value === 'fatura');
         supplierExtra.style.display = isFatura ? '' : 'none';
-        vatField.style.display = isFatura ? '' : 'none';
-        reqMark.style.display = isFatura ? '' : 'none';
-        supplierInput.required = isFatura;
+        vatField.style.display      = isFatura ? '' : 'none';
+        reqMark.style.display       = isFatura ? '' : 'none';
+        supplierSel.required        = isFatura;
     }
+
+    function fillFromOption(opt) {
+        if (!opt || !opt.value) {
+            supplierIdIn.value  = '';
+            supplierNmIn.value  = '';
+            if (nifIn) { nifIn.value = ''; nifIn.readOnly = false; }
+            return;
+        }
+        supplierIdIn.value = opt.value;
+        supplierNmIn.value = opt.dataset.name || '';
+        if (nifIn) {
+            nifIn.value    = opt.dataset.nif || '';
+            nifIn.readOnly = !!(opt.dataset.nif);
+        }
+        if (pmSel && opt.dataset.paymentMethod) {
+            pmSel.value = opt.dataset.paymentMethod;
+        }
+    }
+
+    supplierSel.addEventListener('change', function () {
+        fillFromOption(this.selectedOptions[0]);
+    });
 
     docType.addEventListener('change', toggleFields);
     toggleFields();
+
+    // Quick supplier modal — AJAX submit
+    var quickForm    = document.getElementById('quickSupplierForm');
+    var quickFb      = document.getElementById('quickSupplierFeedback');
+    var quickSubmit  = document.getElementById('qsSubmitBtn');
+
+    if (quickForm) {
+        quickForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            quickFb.innerHTML = '';
+            quickSubmit.disabled = true;
+            quickSubmit.textContent = 'A guardar…';
+
+            var data = new FormData(quickForm);
+            fetch('{{ url_for("faturas.fornecedores_quick") }}', {
+                method: 'POST',
+                body: data,
+            })
+            .then(function (r) { return r.json(); })
+            .then(function (json) {
+                quickSubmit.disabled = false;
+                quickSubmit.textContent = 'Guardar fornecedor';
+                if (json.error) {
+                    quickFb.innerHTML = '<div class="alert alert-warning py-1 px-2 small mb-0">' + json.error + '</div>';
+                    return;
+                }
+                // Add option to select and select it
+                var displayText = json.name + ' · ' + json.nif;
+                var opt = new Option(displayText, json.id, true, true);
+                opt.dataset.name          = json.name;
+                opt.dataset.nif           = json.nif;
+                opt.dataset.paymentMethod = json.payment_method || '';
+                opt.dataset.paymentTerms  = json.payment_terms  || '';
+                supplierSel.add(opt);
+                supplierSel.value = String(json.id);
+                fillFromOption(opt);
+                bootstrap.Modal.getInstance(document.getElementById('modalQuickSupplier')).hide();
+                quickForm.reset();
+            })
+            .catch(function () {
+                quickSubmit.disabled = false;
+                quickSubmit.textContent = 'Guardar fornecedor';
+                quickFb.innerHTML = '<div class="alert alert-danger py-1 px-2 small mb-0">Erro de comunicação.</div>';
+            });
+        });
+
+        // Clear feedback when modal is reopened
+        document.getElementById('modalQuickSupplier').addEventListener('show.bs.modal', function () {
+            quickFb.innerHTML = '';
+        });
+    }
 })();
 </script>
 {% endblock %}

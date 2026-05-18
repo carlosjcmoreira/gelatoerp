@@ -3,22 +3,78 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <div class="d-flex align-items-center justify-content-between mb-3">
+    <div class="d-flex align-items-center justify-content-between mb-3 gap-2 flex-wrap">
         <h5 class="mb-0">🏢 Fornecedores</h5>
-        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalAdd">
-            + Adicionar
-        </button>
+        <div class="d-flex gap-2 flex-wrap">
+            <form method="post" class="d-inline">
+                <input type="hidden" name="action" value="backfill">
+                <button type="submit" class="btn btn-outline-secondary btn-sm"
+                        title="Cria fornecedores para todos os nomes em faturas e liga as faturas automaticamente">
+                    🔄 Sincronizar
+                </button>
+            </form>
+            <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalAdd">
+                + Adicionar
+            </button>
+        </div>
     </div>
+
+    {% if unlinked_names %}
+    <div class="card border-warning mb-4">
+        <div class="card-header bg-warning bg-opacity-10 py-2 d-flex justify-content-between align-items-center">
+            <span class="fw-semibold small">⚠️ Nomes sem correspondência ({{ unlinked_names | length }})</span>
+            <span class="text-muted small">Faturas sem fornecedor ligado</span>
+        </div>
+        <div class="list-group list-group-flush">
+            {% for u in unlinked_names %}
+            <div class="list-group-item py-2 px-3">
+                <div class="fw-semibold small">{{ u.name }}</div>
+                <div class="small text-muted mb-2">
+                    {% if u.nif %}NIF: {{ u.nif }} · {% endif %}
+                    {{ u.invoice_count }} fatura(s)
+                </div>
+                <form method="post" class="d-flex gap-2 flex-wrap align-items-center">
+                    <input type="hidden" name="action" value="associate">
+                    <input type="hidden" name="unlinked_name" value="{{ u.name | e }}">
+                    <select name="associate_supplier_id" class="form-select form-select-sm" style="max-width:260px" required>
+                        <option value="">— Associar a fornecedor —</option>
+                        {% for s in suppliers %}
+                        <option value="{{ s.id }}">{{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-warning btn-sm">Associar</button>
+                    <button type="button" class="btn btn-outline-primary btn-sm"
+                            onclick="prefillNew('{{ u.name | e }}', '{{ u.nif or '' }}')"
+                            data-bs-toggle="modal" data-bs-target="#modalAdd">
+                        Criar fornecedor
+                    </button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     {% if suppliers %}
     <div class="list-group">
         {% for s in suppliers %}
         <div class="list-group-item py-2 px-3">
             <div class="d-flex align-items-center justify-content-between gap-2">
-                <div class="flex-grow-1">
-                    <div class="fw-semibold">{{ s.name }}</div>
+                <div class="flex-grow-1 min-width-0">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="fw-semibold">{{ s.name }}</span>
+                        {% if s.invoice_count > 0 %}
+                        <a href="{{ url_for('faturas.index') }}?supplier_id={{ s.id }}"
+                           class="badge bg-primary text-decoration-none"
+                           title="Ver faturas deste fornecedor">
+                            {{ s.invoice_count }} fatura{{ 's' if s.invoice_count != 1 else '' }}
+                        </a>
+                        {% else %}
+                        <span class="badge bg-secondary bg-opacity-50 text-secondary">sem faturas</span>
+                        {% endif %}
+                    </div>
                     <div class="small text-muted">
-                        NIF: {{ s.nif }}
+                        {% if s.nif %}NIF: {{ s.nif }}{% else %}<em class="text-warning">sem NIF</em>{% endif %}
                         {% if s.category %} · {{ s.category }}{% endif %}
                         {% if s.store_name %} · {{ s.store_name }}{% endif %}
                         {% if s.payment_method %} · {{ payment_method_labels.get(s.payment_method, s.payment_method) }}{% endif %}
@@ -66,9 +122,9 @@
                             <input type="text" name="name" id="sName" class="form-control form-control-sm" required>
                         </div>
                         <div class="col-12 col-sm-6">
-                            <label class="form-label small">NIF <span class="text-danger">*</span></label>
+                            <label class="form-label small">NIF</label>
                             <input type="text" name="nif" id="sNif" class="form-control form-control-sm"
-                                   inputmode="numeric" required>
+                                   inputmode="numeric">
                         </div>
                         <div class="col-12 col-sm-6">
                             <label class="form-label small">Categoria</label>
@@ -132,16 +188,28 @@
 <script>
 function editSupplier(s) {
     document.getElementById('modalAddTitle').textContent = 'Editar Fornecedor';
-    document.getElementById('sName').value = s.name || '';
-    document.getElementById('sNif').value = s.nif || '';
-    document.getElementById('sCategory').value = s.category || '';
-    document.getElementById('sStore').value = s.store_id || '';
+    document.getElementById('sName').value          = s.name          || '';
+    document.getElementById('sNif').value           = s.nif           || '';
+    document.getElementById('sCategory').value      = s.category      || '';
+    document.getElementById('sStore').value         = s.store_id      || '';
     document.getElementById('sPaymentMethod').value = s.payment_method || '';
-    document.getElementById('sPaymentTerms').value = s.payment_terms || '';
-    document.getElementById('sIban').value = s.iban || '';
-    document.getElementById('sNotes').value = s.notes || '';
+    document.getElementById('sPaymentTerms').value  = s.payment_terms  || '';
+    document.getElementById('sIban').value          = s.iban          || '';
+    document.getElementById('sNotes').value         = s.notes         || '';
     var modal = new bootstrap.Modal(document.getElementById('modalAdd'));
     modal.show();
+}
+
+function prefillNew(name, nif) {
+    document.getElementById('modalAddTitle').textContent = 'Novo Fornecedor';
+    document.getElementById('sName').value = name || '';
+    document.getElementById('sNif').value  = nif  || '';
+    document.getElementById('sCategory').value      = '';
+    document.getElementById('sStore').value         = '';
+    document.getElementById('sPaymentMethod').value = '';
+    document.getElementById('sPaymentTerms').value  = '';
+    document.getElementById('sIban').value          = '';
+    document.getElementById('sNotes').value         = '';
 }
 </script>
 {% endblock %}

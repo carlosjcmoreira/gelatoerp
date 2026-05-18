@@ -87,29 +87,56 @@ def get_supplier_by_nif(nif: str) -> dict:
     return None
 
 
-def upsert_supplier(name: str, nif: str, category: str = None,
+def upsert_supplier(name: str, nif: str = None, category: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
                     iban: str = None) -> int:
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO suppliers (name, nif, category, store_id, notes,
-                                   payment_method, payment_terms, iban, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-            ON CONFLICT (nif) DO UPDATE SET
-                name = EXCLUDED.name,
-                category = EXCLUDED.category,
-                store_id = EXCLUDED.store_id,
-                notes = EXCLUDED.notes,
-                payment_method = COALESCE(EXCLUDED.payment_method, suppliers.payment_method),
-                payment_terms = COALESCE(EXCLUDED.payment_terms, suppliers.payment_terms),
-                iban = COALESCE(EXCLUDED.iban, suppliers.iban),
-                updated_at = NOW()
-            RETURNING id
-        """, (name, nif, category, store_id, notes, payment_method, payment_terms, iban))
+        if nif:
+            cursor.execute("""
+                INSERT INTO suppliers (name, nif, category, store_id, notes,
+                                       payment_method, payment_terms, iban, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (nif) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    category = EXCLUDED.category,
+                    store_id = EXCLUDED.store_id,
+                    notes = EXCLUDED.notes,
+                    payment_method = COALESCE(EXCLUDED.payment_method, suppliers.payment_method),
+                    payment_terms = COALESCE(EXCLUDED.payment_terms, suppliers.payment_terms),
+                    iban = COALESCE(EXCLUDED.iban, suppliers.iban),
+                    updated_at = NOW()
+                RETURNING id
+            """, (name, nif, category, store_id, notes, payment_method, payment_terms, iban))
+        else:
+            # No NIF — look up by name first to avoid duplicates
+            cursor.execute(
+                "SELECT id FROM suppliers WHERE LOWER(name) = LOWER(%s) LIMIT 1", (name,))
+            row = cursor.fetchone()
+            if row:
+                supplier_id = row[0]
+            else:
+                cursor.execute("""
+                    INSERT INTO suppliers (name, category, store_id, notes,
+                                           payment_method, payment_terms, iban, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    RETURNING id
+                """, (name, category, store_id, notes, payment_method, payment_terms, iban))
+                supplier_id = cursor.fetchone()[0]
+            conn.commit()
+            try:
+                link_invoices_to_supplier_by_name(supplier_id)
+            except Exception as _exc:
+                logger.warning('link_invoices_to_supplier_by_name failed (no-nif path) for supplier %s: %s', supplier_id, _exc)
+            return supplier_id
         supplier_id = cursor.fetchone()[0]
         conn.commit()
+    # Auto-link invoices whose supplier_name matches this supplier
+    try:
+        link_invoices_to_supplier_by_name(supplier_id)
+    except Exception as exc:
+        logger.warning('link_invoices_to_supplier_by_name failed for supplier %s: %s', supplier_id, exc)
     return supplier_id
 
 
@@ -123,6 +150,199 @@ def delete_supplier(supplier_id: int) -> bool:
         cursor.execute("DELETE FROM suppliers WHERE id = %s", (supplier_id,))
         conn.commit()
     return True
+
+
+def get_supplier_by_name(name: str) -> dict:
+    """Look up a supplier by name (case-insensitive). Returns the first match or None."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+                   st.name AS store_name, s.payment_method, s.payment_terms, s.iban
+            FROM suppliers s
+            LEFT JOIN stores st ON s.store_id = st.id
+            WHERE LOWER(s.name) = LOWER(%s)
+            LIMIT 1
+        """, (name,))
+        row = cursor.fetchone()
+    if row:
+        return {'id': row[0], 'name': row[1], 'nif': row[2], 'category': row[3],
+                'store_id': row[4], 'notes': row[5], 'store_name': row[6],
+                'payment_method': row[7], 'payment_terms': row[8], 'iban': row[9]}
+    return None
+
+
+def link_invoices_to_supplier_by_name(supplier_id: int) -> int:
+    """Link all non-draft invoices whose supplier_name matches this supplier's name.
+
+    Matching is case-insensitive.  Only invoices that currently have no
+    supplier_id (or already point to this supplier) are updated.
+    Returns the number of rows updated.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM suppliers WHERE id = %s", (supplier_id,))
+        row = cursor.fetchone()
+        if not row:
+            return 0
+        name = row[0]
+        cursor.execute("""
+            UPDATE invoices
+            SET supplier_id = %s
+            WHERE LOWER(supplier_name) = LOWER(%s)
+              AND status != 'draft'
+              AND (supplier_id IS NULL OR supplier_id = %s)
+        """, (supplier_id, name, supplier_id))
+        count = cursor.rowcount
+        conn.commit()
+    return count
+
+
+def bulk_link_invoices_by_name(supplier_name: str, supplier_id: int) -> int:
+    """Bulk-update invoices with the given supplier_name (exact text) to point to supplier_id.
+
+    Also back-fills supplier_nif from the supplier record.
+    Returns the number of rows updated.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT nif FROM suppliers WHERE id = %s", (supplier_id,))
+        row = cursor.fetchone()
+        nif = row[0] if row else None
+        cursor.execute("""
+            UPDATE invoices
+            SET supplier_id = %s,
+                supplier_nif = COALESCE(%s, supplier_nif)
+            WHERE supplier_name = %s
+              AND status != 'draft'
+        """, (supplier_id, nif, supplier_name))
+        count = cursor.rowcount
+        conn.commit()
+    return count
+
+
+def get_unlinked_supplier_names() -> list:
+    """Return distinct supplier_names from non-draft invoices with no supplier_id.
+
+    Each entry: {'name': str, 'nif': str|None, 'invoice_count': int}
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT supplier_name,
+                   MAX(supplier_nif) AS nif,
+                   COUNT(*) AS invoice_count
+            FROM invoices
+            WHERE supplier_id IS NULL
+              AND status != 'draft'
+              AND supplier_name IS NOT NULL
+              AND supplier_name != ''
+            GROUP BY supplier_name
+            ORDER BY supplier_name
+        """)
+        rows = cursor.fetchall()
+    return [{'name': r[0], 'nif': r[1], 'invoice_count': int(r[2])} for r in rows]
+
+
+def get_suppliers_with_invoice_count() -> list:
+    """Return all suppliers with count of linked non-draft invoices."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+                   st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
+                   COUNT(i.id) AS invoice_count
+            FROM suppliers s
+            LEFT JOIN stores st ON s.store_id = st.id
+            LEFT JOIN invoices i ON i.supplier_id = s.id AND i.status != 'draft'
+            GROUP BY s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+                     st.name, s.payment_method, s.payment_terms, s.iban
+            ORDER BY s.name
+        """)
+        rows = cursor.fetchall()
+    return [{'id': r[0], 'name': r[1], 'nif': r[2], 'category': r[3],
+             'store_id': r[4], 'notes': r[5], 'store_name': r[6],
+             'payment_method': r[7], 'payment_terms': r[8], 'iban': r[9],
+             'invoice_count': int(r[10])} for r in rows]
+
+
+def backfill_supplier_ids() -> dict:
+    """One-time migration: create supplier records for distinct supplier names in invoices
+    and back-fill supplier_id on all matching non-draft invoices.
+
+    For each distinct supplier_name without a supplier_id:
+    1. Check if a supplier with that name (case-insensitive) already exists.
+    2. If not and there is a NIF on the invoice, try matching by NIF, then create.
+    3. Update all invoices with that name to point to the supplier.
+
+    Returns {'suppliers_created': int, 'invoices_linked': int}.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT supplier_name,
+                   COALESCE(MAX(supplier_nif), '') AS nif
+            FROM invoices
+            WHERE supplier_id IS NULL
+              AND status != 'draft'
+              AND supplier_name IS NOT NULL
+              AND supplier_name != ''
+            GROUP BY supplier_name
+            ORDER BY supplier_name
+        """)
+        unlinked = cursor.fetchall()
+
+        suppliers_created = 0
+        invoices_linked = 0
+
+        for supplier_name, nif in unlinked:
+            # 1. Match by name (case-insensitive)
+            cursor.execute(
+                "SELECT id FROM suppliers WHERE LOWER(name) = LOWER(%s)", (supplier_name,))
+            row = cursor.fetchone()
+
+            if row:
+                supplier_id = row[0]
+            elif nif:
+                # 2a. Match by NIF
+                cursor.execute("SELECT id FROM suppliers WHERE nif = %s", (nif,))
+                row = cursor.fetchone()
+                if row:
+                    supplier_id = row[0]
+                else:
+                    # 2b. Create with NIF
+                    cursor.execute("""
+                        INSERT INTO suppliers (name, nif, updated_at)
+                        VALUES (%s, %s, NOW())
+                        ON CONFLICT (nif) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            updated_at = NOW()
+                        RETURNING id
+                    """, (supplier_name, nif))
+                    supplier_id = cursor.fetchone()[0]
+                    suppliers_created += 1
+            else:
+                # 3. Create without NIF
+                cursor.execute("""
+                    INSERT INTO suppliers (name, updated_at)
+                    VALUES (%s, NOW())
+                    RETURNING id
+                """, (supplier_name,))
+                supplier_id = cursor.fetchone()[0]
+                suppliers_created += 1
+
+            cursor.execute("""
+                UPDATE invoices
+                SET supplier_id = %s
+                WHERE LOWER(supplier_name) = LOWER(%s)
+                  AND supplier_id IS NULL
+                  AND status != 'draft'
+            """, (supplier_id, supplier_name))
+            invoices_linked += cursor.rowcount
+
+        conn.commit()
+    logger.info('backfill_supplier_ids: created=%d linked=%d', suppliers_created, invoices_linked)
+    return {'suppliers_created': suppliers_created, 'invoices_linked': invoices_linked}
 
 
 # ── Invoices ───────────────────────────────────────────────────────────────────
