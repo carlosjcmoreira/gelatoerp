@@ -74,8 +74,30 @@
 {% else %}
     {# ── Flat history view for days>1 ── #}
     {% if history_rows %}
+    <div class="card card-body bg-body-tertiary border mb-3 py-2 px-3" id="filterBar">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-sm-5">
+                <label for="filterLoja" class="form-label small text-muted mb-1">Loja</label>
+                <select id="filterLoja" class="form-select form-select-sm">
+                    <option value="">Todas as lojas</option>
+                </select>
+            </div>
+            <div class="col-12 col-sm-5">
+                <label for="filterSabor" class="form-label small text-muted mb-1">Sabor</label>
+                <select id="filterSabor" class="form-select form-select-sm">
+                    <option value="">Todos os sabores</option>
+                </select>
+            </div>
+            <div class="col-12 col-sm-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="btnClearFilters" title="Limpar filtros">Limpar</button>
+            </div>
+        </div>
+        <div class="mt-1">
+            <small class="text-muted" id="filterCount"></small>
+        </div>
+    </div>
     <div class="table-responsive">
-        <table class="table table-sm table-striped align-middle">
+        <table class="table table-sm table-striped align-middle" id="historyTable">
             <thead class="table-dark">
                 <tr>
                     <th class="px-2">Data</th>
@@ -87,7 +109,7 @@
             </thead>
             <tbody>
                 {% for r in history_rows %}
-                <tr>
+                <tr data-loja="{{ r.loja|e }}" data-sabor="{{ r.sabor|e }}">
                     <td class="px-2 small text-muted">{{ r.data }}</td>
                     <td class="px-2 small">{{ r.loja }}</td>
                     <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
@@ -104,6 +126,7 @@
             </tbody>
         </table>
     </div>
+    <div class="alert alert-info d-none" id="noResultsMsg">Nenhuma pesagem corresponde aos filtros selecionados.</div>
     {% else %}
     <div class="alert alert-info">Sem pesagens registadas nos últimos {{ days }} dias.</div>
     {% endif %}
@@ -173,5 +196,88 @@ function autoFormatKgEdit(input) {
         input.value = parseFloat(raw).toFixed(3);
     }
 }
+
+(function () {
+    var table = document.getElementById('historyTable');
+    if (!table) return;
+
+    var STORAGE_KEY = 'pesagens_filter_days_{{ days }}';
+    var selLoja = document.getElementById('filterLoja');
+    var selSabor = document.getElementById('filterSabor');
+    var btnClear = document.getElementById('btnClearFilters');
+    var countEl = document.getElementById('filterCount');
+    var noResults = document.getElementById('noResultsMsg');
+
+    var rows = Array.from(table.querySelectorAll('tbody tr'));
+
+    var lojas = [], sabores = [];
+    rows.forEach(function (tr) {
+        var l = tr.dataset.loja, s = tr.dataset.sabor;
+        if (l && lojas.indexOf(l) === -1) lojas.push(l);
+        if (s && sabores.indexOf(s) === -1) sabores.push(s);
+    });
+    lojas.sort().forEach(function (l) {
+        var opt = document.createElement('option');
+        opt.value = l; opt.textContent = l;
+        selLoja.appendChild(opt);
+    });
+    sabores.sort().forEach(function (s) {
+        var opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        selSabor.appendChild(opt);
+    });
+
+    function saveState() {
+        try {
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+                loja: selLoja.value,
+                sabor: selSabor.value
+            }));
+        } catch (e) {}
+    }
+
+    function restoreState() {
+        try {
+            var saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
+            if (saved) {
+                if (saved.loja) selLoja.value = saved.loja;
+                if (saved.sabor) selSabor.value = saved.sabor;
+            }
+        } catch (e) {}
+    }
+
+    function applyFilters() {
+        var loja = selLoja.value;
+        var sabor = selSabor.value;
+        var visible = 0;
+        rows.forEach(function (tr) {
+            var match = (!loja || tr.dataset.loja === loja) &&
+                        (!sabor || tr.dataset.sabor === sabor);
+            tr.style.display = match ? '' : 'none';
+            if (match) visible++;
+        });
+        if (countEl) {
+            countEl.textContent = (loja || sabor)
+                ? visible + ' de ' + rows.length + ' pesagens'
+                : '';
+        }
+        if (noResults) {
+            noResults.classList.toggle('d-none', visible > 0 || (!loja && !sabor));
+            table.closest('.table-responsive').classList.toggle('d-none', visible === 0);
+        }
+        saveState();
+    }
+
+    selLoja.addEventListener('change', applyFilters);
+    selSabor.addEventListener('change', applyFilters);
+    btnClear.addEventListener('click', function () {
+        selLoja.value = '';
+        selSabor.value = '';
+        applyFilters();
+    });
+
+    restoreState();
+    applyFilters();
+}());
 </script>
 {% endblock %}
