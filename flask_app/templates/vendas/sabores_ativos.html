@@ -17,7 +17,7 @@
                     <tr>
                         <th style="width:44px;" class="text-center">Ativo</th>
                         <th>Nome Corrente</th>
-                        <th class="d-none d-md-table-cell text-muted small">Nome (Sistema)</th>
+                        <th class="text-muted small">Nome (Sistema)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -36,7 +36,7 @@
                                    value="{{ r.nome_corrente or '' }}"
                                    placeholder="Nome usado pela equipa">
                         </td>
-                        <td class="d-none d-md-table-cell small text-muted align-middle">{{ r.nome }}</td>
+                        <td class="small text-muted align-middle">{{ r.nome }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
