@@ -464,14 +464,7 @@
         <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
             <input type="text" name="q" class="form-control form-control-sm"
                    style="flex:2 1 180px;min-width:0"
-                   placeholder="Pesquisar fornecedor, nº documento…" value="{{ search }}">
-            <select name="document_type" class="form-select form-select-sm" style="flex:1 1 130px;min-width:0"
-                    onchange="this.form.submit()">
-                <option value="">Todos os tipos</option>
-                {% for dt, label in document_type_labels.items() %}
-                <option value="{{ dt }}" {% if document_type_filter == dt %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
+                   placeholder="Pesquisar fornecedor, nº documento, notas…" value="{{ search }}">
             <div class="d-flex align-items-center gap-1 flex-shrink-0">
                 <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
                 {% if default_filter_active %}
@@ -481,10 +474,9 @@
                 {% endif %}
             </div>
             {% if default_filter_active %}
-            <span class="badge bg-warning text-dark" data-bs-toggle="tooltip"
-                  title="A mostrar apenas documentos em aberto (excluindo pagas e rascunhos)">Em aberto</span>
+            <span class="badge bg-warning text-dark">A mostrar: em aberto</span>
             {% elif show_all %}
-            <span class="badge bg-secondary">Todas</span>
+            <span class="badge bg-secondary">A mostrar: todas</span>
             {% elif statuses_filter %}
             <span class="badge bg-primary">{{ statuses_filter|length }} estado(s)</span>
             {% endif %}
