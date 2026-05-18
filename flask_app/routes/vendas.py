@@ -11,6 +11,7 @@ from database import (
     get_vendas_bolhao_dashboard_data,
     add_quebra, get_quebras_df, delete_quebra,
     add_stock_gelado, get_stock_gelado_df, delete_stock_gelado, update_stock_gelado,
+    add_stock_gelado_carapinas, get_carapinas_for_stock_ids,
     get_ordens_transferencia, confirmar_ordem_transferencia, rejeitar_ordem_transferencia,
     get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
@@ -301,10 +302,14 @@ def pesagem():
                 except (ValueError, TypeError):
                     return 0.0
             qtds = request.form.getlist('quantidade[]')
-            pesagem_kg = round(sum(_parse_kg_str(q) for q in qtds), 3)
+            qtds_parsed = [_parse_kg_str(q) for q in qtds]
+            pesagem_kg = round(sum(qtds_parsed), 3)
 
             if pesagem_kg >= 0 and sabor:
-                add_stock_gelado(data_reg, loja_nome, sabor, pesagem_kg, 'fim')
+                stock_id = add_stock_gelado(data_reg, loja_nome, sabor, pesagem_kg, 'fim')
+                individual = [v for v in qtds_parsed if v > 0]
+                if len(individual) > 1:
+                    add_stock_gelado_carapinas(stock_id, individual)
                 flash(f'Pesagem de {pesagem_kg:.3f} kg de {sabor} registada!', 'success')
             else:
                 flash('Insira um valor válido.', 'error')
@@ -501,6 +506,10 @@ def pesagem():
         }
         for r in stock_rows
     ]
+    if pesagens_hoje:
+        carap_map = get_carapinas_for_stock_ids([p['id'] for p in pesagens_hoje])
+        for p in pesagens_hoje:
+            p['carapinas'] = carap_map.get(p['id'], [])
 
     return render_template('vendas/pesagem.html',
                            active_tab='pesagem',
@@ -534,21 +543,26 @@ def pesagem_historico():
         data_inicio=data_inicio_hist, data_fim=date.today()
     )
     _by_day = defaultdict(list)
+    all_row_ids = []
     for r in hist_rows:
+        row_id = r['id']
+        all_row_ids.append(row_id)
         _by_day[r['data']].append({
-            'id': r['id'],
+            'id': row_id,
             'sabor': reverse_mapping.get(r.get('sabor', ''), r.get('sabor', '')),
             'quantidade_kg': float(r['quantidade_kg']),
         })
-    dias = [
-        {
+    carap_map = get_carapinas_for_stock_ids(all_row_ids) if all_row_ids else {}
+    dias = []
+    for d, linhas in sorted(_by_day.items(), reverse=True):
+        for l in linhas:
+            l['carapinas'] = carap_map.get(l['id'], [])
+        dias.append({
             'data_str': d.strftime('%d/%m/%Y'),
             'data_iso': d.isoformat(),
             'total_kg': round(sum(l['quantidade_kg'] for l in linhas), 3),
             'linhas': sorted(linhas, key=lambda x: x['sabor']),
-        }
-        for d, linhas in sorted(_by_day.items(), reverse=True)
-    ]
+        })
     return jsonify({'ok': True, 'dias': dias})
 
 

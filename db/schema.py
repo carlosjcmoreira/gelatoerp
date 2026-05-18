@@ -2990,6 +2990,45 @@ def run_migrations_conta_vendas_diarias():
                 pass
 
 
+def run_migrations_stock_gelado_carapinas():
+    """Idempotent: create stock_gelado_carapinas table for per-carapina weighing breakdown.
+
+    Advisory lock 202615.
+    Each stock_gelado record with multiple carapinas will have N rows here (one per carapina).
+    Records with a single carapina are NOT stored — the total in stock_gelado is sufficient.
+    ON DELETE CASCADE ensures cleanup when a stock_gelado row is removed.
+    """
+    from db.connection import db_connection, logger
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(202615)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_stock_gelado_carapinas: lock held, skipping")
+                return
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS stock_gelado_carapinas (
+                    id              SERIAL PRIMARY KEY,
+                    stock_gelado_id INTEGER NOT NULL REFERENCES stock_gelado(id) ON DELETE CASCADE,
+                    carapina_numero SMALLINT NOT NULL,
+                    quantidade_kg   REAL NOT NULL,
+                    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sgc_stock_id
+                ON stock_gelado_carapinas(stock_gelado_id)
+            """)
+            conn.commit()
+            logger.info("run_migrations_stock_gelado_carapinas: table ready")
+        except Exception as exc:
+            logger.error("run_migrations_stock_gelado_carapinas failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_cost_center_allocation():
     """Idempotent: create cost_center_allocation table for P&L store distribution config.
 

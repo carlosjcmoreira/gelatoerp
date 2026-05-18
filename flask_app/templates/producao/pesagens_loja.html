@@ -47,7 +47,15 @@
                     {% for loja in lojas %}
                     {% set entry = r.lojas.get(loja) %}
                     <td class="text-center px-1 border-start {% if entry %}text-primary fw-semibold{% else %}text-muted{% endif %}">
-                        {{ '%.2f'|format(entry.kg) if entry else '-' }}
+                        {% if entry %}
+                        {{ '%.2f'|format(entry.kg) }}
+                        {% if entry.carapinas and entry.carapinas|length > 1 %}
+                        <br><button type="button" class="btn btn-link p-0 text-muted fw-normal"
+                                style="font-size:0.62rem; line-height:1;"
+                                data-carapinas="{{ entry.carapinas|tojson|e }}"
+                                onclick="verCarapinas(this)">{{ entry.carapinas|length }}c ▾</button>
+                        {% endif %}
+                        {% else %}-{% endif %}
                     </td>
                     <td class="text-center px-1 small text-muted">
                         {{ entry.data if entry else '-' }}
@@ -112,7 +120,15 @@
                 <tr data-loja="{{ r.loja|e }}" data-sabor="{{ r.sabor|e }}">
                     <td class="px-2 small text-muted">{{ r.data }}</td>
                     <td class="px-2 small">{{ r.loja }}</td>
-                    <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
+                    <td class="fw-semibold px-2 small">
+                        {{ r.sabor }}
+                        {% if r.carapinas and r.carapinas|length > 1 %}
+                        <button type="button" class="btn btn-link p-0 ms-1 text-muted fw-normal"
+                                style="font-size:0.65rem; line-height:1; vertical-align:middle;"
+                                data-bs-toggle="collapse" data-bs-target="#fc-{{ r.id }}"
+                                aria-expanded="false" title="Ver detalhe por carapina">{{ r.carapinas|length }}c ▾</button>
+                        {% endif %}
+                    </td>
                     <td class="text-end px-2 text-primary fw-semibold">{{ '%.2f'|format(r.kg) }}</td>
                     <td class="px-2">
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
@@ -122,6 +138,15 @@
                         </button>
                     </td>
                 </tr>
+                {% if r.carapinas and r.carapinas|length > 1 %}
+                <tr class="collapse" id="fc-{{ r.id }}" data-carapinas-row="1">
+                    <td colspan="5" class="px-3 py-1 small text-muted bg-body-tertiary">
+                        {% for kg in r.carapinas %}
+                        <span class="me-3">Carapina {{ loop.index }}: <strong>{{ '%.3f'|format(kg) }} kg</strong></span>
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endif %}
                 {% endfor %}
             </tbody>
         </table>
@@ -131,6 +156,23 @@
     <div class="alert alert-info">Sem pesagens registadas nos últimos {{ days }} dias.</div>
     {% endif %}
 {% endif %}
+
+<!-- Modal de Detalhe por Carapina (cross-tab) -->
+<div class="modal fade" id="modalCarapinas" tabindex="-1" aria-labelledby="modalCarapinasLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title fw-semibold" id="modalCarapinasLabel">Detalhe por Carapina</h6>
+                <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body p-0">
+                <table class="table table-sm mb-0">
+                    <tbody id="carapinasBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Modal de Edição de Pesagem -->
 <div class="modal fade" id="modalEditPesagem" tabindex="-1" aria-labelledby="modalEditPesagemLabel" aria-hidden="true">
@@ -176,6 +218,17 @@
 </div>
 
 <script>
+function verCarapinas(btn) {
+    var carapinas = JSON.parse(btn.getAttribute('data-carapinas') || '[]');
+    var tbody = document.getElementById('carapinasBody');
+    tbody.innerHTML = carapinas.map(function(kg, i) {
+        return '<tr><td class="ps-3">Carapina ' + (i + 1) + '</td>' +
+               '<td class="text-end pe-3 fw-semibold">' + kg.toFixed(3) + ' kg</td></tr>';
+    }).join('');
+    var modal = new bootstrap.Modal(document.getElementById('modalCarapinas'));
+    modal.show();
+}
+
 function abrirEditPesagem(stockId, sabor, loja, kg, data) {
     document.getElementById('editStockId').value = stockId;
     document.getElementById('editLojaInput').value = loja;
@@ -209,7 +262,7 @@ function autoFormatKgEdit(input) {
     var countEl = document.getElementById('filterCount');
     var noResults = document.getElementById('noResultsMsg');
 
-    var rows = Array.from(table.querySelectorAll('tbody tr'));
+    var rows = Array.from(table.querySelectorAll('tbody tr:not([data-carapinas-row])'));
 
     var lojas = [], sabores = [];
     rows.forEach(function (tr) {

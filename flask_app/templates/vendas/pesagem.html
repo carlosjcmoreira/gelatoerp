@@ -166,7 +166,15 @@
             <tbody>
                 {% for p in pesagens_hoje %}
                 <tr{% if p.quantidade_kg == 0 %} class="table-warning"{% endif %}>
-                    <td>{{ p.sabor }}{% if p.quantidade_kg == 0 %} <span class="badge bg-danger ms-1" style="font-size:0.65rem;">sem stock</span>{% endif %}</td>
+                    <td>
+                        {{ p.sabor }}{% if p.quantidade_kg == 0 %} <span class="badge bg-danger ms-1" style="font-size:0.65rem;">sem stock</span>{% endif %}
+                        {% if p.carapinas and p.carapinas|length > 1 %}
+                        <button type="button" class="btn btn-link p-0 ms-1 text-muted"
+                                style="font-size:0.68rem; line-height:1; vertical-align:middle;"
+                                data-bs-toggle="collapse" data-bs-target="#carap-{{ p.id }}"
+                                aria-expanded="false" title="Ver detalhe por carapina">{{ p.carapinas|length }}c ▾</button>
+                        {% endif %}
+                    </td>
                     <td class="text-end" id="val-{{ p.id }}">{{ '%.3f'|format(p.quantidade_kg) }}</td>
                     <td class="text-center">
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 me-1"
@@ -182,6 +190,15 @@
                         </form>
                     </td>
                 </tr>
+                {% if p.carapinas and p.carapinas|length > 1 %}
+                <tr class="collapse" id="carap-{{ p.id }}">
+                    <td colspan="3" class="px-3 py-1 small text-muted bg-body-tertiary">
+                        {% for kg in p.carapinas %}
+                        <span class="me-3">Carapina {{ loop.index }}: <strong>{{ '%.3f'|format(kg) }} kg</strong></span>
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endif %}
                 {% endfor %}
             </tbody>
         </table>
@@ -329,10 +346,20 @@ function renderHistorico(dias) {
     dias.forEach(function(dia, i) {
         var idx = i + 1;
         var n = dia.linhas.length;
-        var linhasHtml = dia.linhas.map(function(linha) {
+        var linhasHtml = '';
+        dia.linhas.forEach(function(linha) {
             var warn = linha.quantidade_kg === 0;
-            return '<tr' + (warn ? ' class="table-warning"' : '') + '>' +
-                '<td class="ps-3">' + escHtml(linha.sabor) +
+            var hasCarap = linha.carapinas && linha.carapinas.length > 1;
+            var carapId = 'hcarap-' + linha.id;
+            var carapBtn = hasCarap
+                ? ' <button type="button" class="btn btn-link p-0 ms-1 text-muted"' +
+                  ' style="font-size:0.65rem;line-height:1;vertical-align:middle;"' +
+                  ' data-bs-toggle="collapse" data-bs-target="#' + carapId + '" aria-expanded="false">' +
+                  linha.carapinas.length + 'c \u25be</button>'
+                : '';
+            linhasHtml +=
+                '<tr' + (warn ? ' class="table-warning"' : '') + '>' +
+                '<td class="ps-3">' + escHtml(linha.sabor) + carapBtn +
                     (warn ? ' <span class="badge bg-danger ms-1" style="font-size:0.65rem;">sem stock</span>' : '') +
                 '</td>' +
                 '<td class="text-end" id="val-' + linha.id + '">' + linha.quantidade_kg.toFixed(3) + '</td>' +
@@ -349,7 +376,14 @@ function renderHistorico(dias) {
                     ' style="font-size:0.72rem;" title="Eliminar">\uD83D\uDDD1</button>' +
                     '</form>' +
                 '</td></tr>';
-        }).join('');
+            if (hasCarap) {
+                var carapCells = linha.carapinas.map(function(kg, ci) {
+                    return '<span class="me-3">Carapina ' + (ci + 1) + ': <strong>' + kg.toFixed(3) + ' kg</strong></span>';
+                }).join('');
+                linhasHtml += '<tr class="collapse" id="' + carapId + '">' +
+                    '<td colspan="3" class="ps-3 py-1 small text-muted bg-body-tertiary">' + carapCells + '</td></tr>';
+            }
+        });
         html +=
             '<div class="accordion-item" id="hist-day-' + idx + '">' +
             '<h2 class="accordion-header d-flex align-items-stretch" id="hist-hd-' + idx + '">' +

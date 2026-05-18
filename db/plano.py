@@ -811,6 +811,13 @@ def get_latest_pesagem_por_sabor_all_lojas() -> dict:
         if loja not in result:
             result[loja] = {}
         result[loja][sabor] = {'id': stock_id, 'kg': float(kg), 'data': dt}
+    if result:
+        all_ids = [entry['id'] for loja_data in result.values() for entry in loja_data.values()]
+        from db.pastelaria import get_carapinas_for_stock_ids
+        carapinas_map = get_carapinas_for_stock_ids(all_ids)
+        for loja_data in result.values():
+            for entry in loja_data.values():
+                entry['carapinas'] = carapinas_map.get(entry['id'], [])
     return result
 
 
@@ -832,10 +839,16 @@ def get_pesagens_loja_range(days: int = 7) -> list:
             ORDER BY data DESC, loja, sabor
         """, (days,))
         rows = cursor.fetchall()
-    return [
+    base = [
         {'id': row[0], 'loja': row[1], 'sabor': row[2], 'kg': float(row[3]), 'data': row[4]}
         for row in rows
     ]
+    if base:
+        from db.pastelaria import get_carapinas_for_stock_ids
+        carapinas_map = get_carapinas_for_stock_ids([r['id'] for r in base])
+        for r in base:
+            r['carapinas'] = carapinas_map.get(r['id'], [])
+    return base
 
 
 def set_stock_producao(sabor: str, loja: str, quantidade_kg: float):

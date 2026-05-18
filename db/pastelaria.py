@@ -577,15 +577,61 @@ def get_vendas_detalhe_df(loja: str = None, data_inicio: date = None, data_fim: 
         cursor.execute(query, params)
         return [dict(r) for r in cursor.fetchall()]
 
-def add_stock_gelado(data: date, loja: str, sabor: str, quantidade_kg: float, tipo: str, local: str = None):
+def add_stock_gelado(data: date, loja: str, sabor: str, quantidade_kg: float, tipo: str, local: str = None) -> int:
     store_id = get_store_id_by_name(loja)
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, local, store_id)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
         ''', (data, loja, sabor, quantidade_kg, tipo, local, store_id))
+        new_id = cursor.fetchone()[0]
         conn.commit()
+    return new_id
+
+
+def add_stock_gelado_carapinas(stock_gelado_id: int, carapinas: list) -> None:
+    """Save individual carapina weights for a stock_gelado record.
+
+    Only stores data when there are 2 or more carapinas — a single carapina
+    value adds no information beyond the total already stored in stock_gelado.
+    """
+    if not carapinas or len(carapinas) < 2:
+        return
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        execute_values(
+            cursor,
+            "INSERT INTO stock_gelado_carapinas (stock_gelado_id, carapina_numero, quantidade_kg) VALUES %s",
+            [(stock_gelado_id, i + 1, float(kg)) for i, kg in enumerate(carapinas)],
+        )
+        conn.commit()
+
+
+def get_carapinas_for_stock_ids(stock_ids: list) -> dict:
+    """Return carapina breakdown for a list of stock_gelado IDs.
+
+    Returns {stock_id: [kg1, kg2, ...]} ordered by carapina_numero.
+    Only IDs that have carapina records are included in the result.
+    """
+    if not stock_ids:
+        return {}
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT stock_gelado_id, quantidade_kg
+            FROM stock_gelado_carapinas
+            WHERE stock_gelado_id = ANY(%s)
+            ORDER BY stock_gelado_id, carapina_numero
+        """, (list(stock_ids),))
+        rows = cursor.fetchall()
+    result: dict = {}
+    for stock_id, kg in rows:
+        if stock_id not in result:
+            result[stock_id] = []
+        result[stock_id].append(float(kg))
+    return result
 
 
 def add_stock_gelado_bulk(entries: list, loja: str) -> int:
