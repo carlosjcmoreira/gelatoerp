@@ -340,11 +340,27 @@ function openComprasInvPanel(id) {
     fetch('/compras/faturas/' + id + '/panel', { credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
         .then(function(html) {
+            document.querySelectorAll('body > .panel-modal').forEach(function(m) {
+                var inst = bootstrap.Modal.getInstance(m);
+                if (inst) inst.hide();
+                m.remove();
+            });
             panelBody.innerHTML = html;
+            panelBody.querySelectorAll('.panel-modal').forEach(function(m) {
+                document.body.appendChild(m);
+            });
             _renderPanelPdf(panelBody);
         })
         .catch(function() { panelBody.innerHTML = '<p class="text-danger p-3">Erro ao carregar o documento.</p>'; });
 }
+
+panelEl && panelEl.addEventListener('hidden.bs.offcanvas', function() {
+    document.querySelectorAll('body > .panel-modal').forEach(function(m) {
+        var inst = bootstrap.Modal.getInstance(m);
+        if (inst) inst.hide();
+        m.remove();
+    });
+});
 
 /* ── PDF.js pré-visualização no painel ────────────────────────── */
 function _renderPanelPdf(container) {

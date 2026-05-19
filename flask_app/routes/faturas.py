@@ -1240,7 +1240,31 @@ def eliminar(invoice_id: int):
     return redirect(url_for('faturas.index'))
 
 
-# ── PDF download ───────────────────────────────────────────────────────────────
+# ── PDF download / attach ───────────────────────────────────────────────────────
+
+@faturas_bp.route('/<int:invoice_id>/attach-pdf', methods=['POST'])
+@perm_required('acesso_gestor')
+def attach_pdf(invoice_id: int):
+    from db.faturas import save_invoice_pdf as _save_pdf
+    inv = get_invoice(invoice_id)
+    if not inv:
+        flash('Fatura não encontrada.', 'warning')
+        return _panel_redirect(invoice_id)
+    pdf_file = request.files.get('pdf_file')
+    if not pdf_file or not pdf_file.filename:
+        flash('Nenhum ficheiro seleccionado.', 'warning')
+        return _panel_redirect(invoice_id)
+    if _ext(pdf_file.filename) != 'pdf':
+        flash('Apenas ficheiros PDF são aceites.', 'warning')
+        return _panel_redirect(invoice_id)
+    pdf_data = pdf_file.read()
+    if len(pdf_data) > 20 * 1024 * 1024:
+        flash('Ficheiro demasiado grande (máx. 20 MB).', 'warning')
+        return _panel_redirect(invoice_id)
+    _save_pdf(invoice_id, pdf_data, pdf_file.filename)
+    flash('PDF anexado com sucesso.', 'success')
+    return _panel_redirect(invoice_id)
+
 
 @faturas_bp.route('/<int:invoice_id>/pdf')
 @perm_required('acesso_gestor')

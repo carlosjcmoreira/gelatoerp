@@ -19,15 +19,24 @@ from database import (
     upsert_supplier,
     get_cost_centers,
     get_cost_categories_tree,
+    get_invoice_linhas,
+    list_materiais,
+    LOCAIS_STOCK,
+    UNIDADES_MATERIAIS,
+    derive_local_from_store,
+    get_confirming_contracts,
 )
 from db.faturas import (
     get_invoices,
     count_invoices,
     get_invoice,
     get_invoice_pdf,
+    save_invoice_pdf,
     get_stores_list,
     get_distinct_supplier_names,
     INVOICE_STATUS_LABELS,
+    INVOICE_CATEGORIES,
+    ONEDRIVE_SUBFOLDERS,
     DOCUMENT_TYPE_LABELS,
 )
 import flask_app.services.faturas as faturas_svc
@@ -264,12 +273,28 @@ def invoice_panel(invoice_id: int):
     if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
         inv['display_status'] = 'overdue'
         inv['status_label'] = 'Vencida'
+    stores = get_stores_list()
+    payment_methods = get_payment_methods_config()
+    linhas = get_invoice_linhas(invoice_id)
+    materiais = list_materiais(apenas_ativos=True)
+    stock_local_derivado = derive_local_from_store(
+        store_name=inv.get('store_name'), store_id=inv.get('store_id')
+    )
     return render_template(
         'compras/_panel.html',
         inv=inv,
         today=today,
         status_labels=INVOICE_STATUS_LABELS,
         document_type_labels=DOCUMENT_TYPE_LABELS,
+        stores=stores,
+        categories=INVOICE_CATEGORIES,
+        subfolders=ONEDRIVE_SUBFOLDERS,
+        payment_methods=payment_methods,
+        linhas=linhas,
+        materiais=materiais,
+        locais_stock=LOCAIS_STOCK,
+        unidades_materiais=UNIDADES_MATERIAIS,
+        stock_local_derivado=stock_local_derivado,
     )
 
 
@@ -478,7 +503,32 @@ def marcar_paga(invoice_id):
         'payment_method': payment_method,
     })
     flash('Pagamento registado com sucesso.', 'success')
-    return redirect(url_for('compras.faturas'))
+    back = request.form.get('_return_url', '').strip()
+    return redirect(back if back else url_for('compras.faturas'))
+
+
+@compras_bp.route('/faturas/<int:invoice_id>/attach-pdf', methods=['POST'])
+@perm_required('acesso_administrativo')
+def attach_pdf(invoice_id: int):
+    inv = get_invoice(invoice_id)
+    if not inv:
+        flash('Fatura não encontrada.', 'warning')
+        return redirect(url_for('compras.faturas'))
+    pdf_file = request.files.get('pdf_file')
+    if not pdf_file or not pdf_file.filename:
+        flash('Nenhum ficheiro seleccionado.', 'warning')
+        return redirect(url_for('compras.faturas'))
+    if _ext(pdf_file.filename) != 'pdf':
+        flash('Apenas ficheiros PDF são aceites.', 'warning')
+        return redirect(url_for('compras.faturas'))
+    pdf_data = pdf_file.read()
+    if len(pdf_data) > 20 * 1024 * 1024:
+        flash('Ficheiro demasiado grande (máx. 20 MB).', 'warning')
+        return redirect(url_for('compras.faturas'))
+    save_invoice_pdf(invoice_id, pdf_data, pdf_file.filename)
+    flash('PDF anexado com sucesso.', 'success')
+    back = request.form.get('_return_url', '').strip()
+    return redirect(back if back else url_for('compras.faturas'))
 
 
 @compras_bp.route('/artigos', methods=['GET', 'POST'])

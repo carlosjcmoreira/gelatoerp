@@ -807,6 +807,16 @@ def get_invoice_pdf(invoice_id: int):
     return None, None
 
 
+def save_invoice_pdf(invoice_id: int, pdf_data: bytes, pdf_filename: str):
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE invoices SET pdf_data = %s, pdf_filename = %s, updated_at = NOW() WHERE id = %s",
+            (psycopg2.Binary(pdf_data), pdf_filename, invoice_id),
+        )
+        conn.commit()
+
+
 def create_invoice(data: dict) -> int:
     doc_type = data.get('document_type', 'fatura')
     status = data.get('status', 'pending_review')

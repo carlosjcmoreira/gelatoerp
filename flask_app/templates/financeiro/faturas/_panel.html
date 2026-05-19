@@ -109,6 +109,17 @@
             ☁️ Documento arquivado no OneDrive — clique para abrir
         </a>
     </div>
+    {% else %}
+    <div class="mb-3 p-3 border rounded border-warning-subtle bg-warning-subtle">
+        <div class="small fw-semibold text-warning-emphasis mb-2">📎 Sem documento PDF associado</div>
+        <form method="post" action="{{ url_for('faturas.attach_pdf', invoice_id=inv.id) }}" enctype="multipart/form-data">
+            <input type="hidden" name="_return_url" value="{{ url_for('faturas.index') }}">
+            <div class="d-flex gap-2 align-items-center">
+                <input type="file" name="pdf_file" class="form-control form-control-sm" accept=".pdf" required>
+                <button type="submit" class="btn btn-warning btn-sm text-nowrap">⬆ Anexar</button>
+            </div>
+        </form>
+    </div>
     {% endif %}
 
     <!-- ── Detalhes completos ────────────────────────────────── -->

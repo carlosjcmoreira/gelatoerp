@@ -1,6 +1,7 @@
 {% set overdue = inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}
 <div class="p-3">
 
+    <!-- ── Header ─────────────────────────────────────────── -->
     <div class="d-flex justify-content-between align-items-start mb-3 gap-2">
         <div style="min-width:0">
             <div class="fw-semibold fs-6 text-truncate">{{ inv.supplier_name or '(sem fornecedor)' }}</div>
@@ -20,12 +21,37 @@
                 {% elif inv.status == 'pending_review' %}bg-warning text-dark
                 {% elif inv.status == 'scheduled' %}bg-info text-dark
                 {% elif inv.status == 'paid' %}bg-success
+                {% elif inv.status == 'cancelled' %}bg-secondary
                 {% else %}bg-secondary{% endif %}">
                 {{ 'Vencida' if overdue else inv.status_label }}
             </span>
         </div>
     </div>
 
+    <!-- ── Acções rápidas ──────────────────────────────────── -->
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        {% if inv.status in ('pending_review', 'scheduled') or overdue %}
+        <button class="btn btn-success btn-sm"
+                data-bs-toggle="modal" data-bs-target="#cpmPagarModal{{ inv.id }}">
+            💰 Marcar como paga
+        </button>
+        {% endif %}
+        {% if inv.pdf_filename %}
+        {% set _pdf_url = url_for('compras.download_pdf', invoice_id=inv.id) %}
+        {% set _viewer_url = url_for('static', filename='pdfjs-viewer.html') + '?file=' + (_pdf_url | urlencode) %}
+        <a href="{{ _viewer_url }}" target="_blank" class="btn btn-outline-secondary btn-sm" data-no-loading>
+            📄 Ver PDF
+        </a>
+        {% endif %}
+        {% if inv.pdf_filename and not inv.onedrive_path %}
+        <button class="btn btn-outline-secondary btn-sm"
+                data-bs-toggle="modal" data-bs-target="#cpmOneDriveModal{{ inv.id }}">
+            ☁️ Arquivar
+        </button>
+        {% endif %}
+    </div>
+
+    <!-- ── Key numbers ─────────────────────────────────────── -->
     <div class="row g-2 mb-3">
         <div class="col-6">
             <div class="card h-100">
@@ -55,6 +81,7 @@
         </div>
     </div>
 
+    <!-- ── PDF preview ─────────────────────────────────────── -->
     {% if inv.pdf_filename %}
     {% set _pdf_url = url_for('compras.download_pdf', invoice_id=inv.id) %}
     {% set _viewer_url = url_for('static', filename='pdfjs-viewer.html') + '?file=' + (_pdf_url | urlencode) %}
@@ -66,12 +93,8 @@
             <div class="spinner-border spinner-border-sm me-1" role="status"></div>A carregar pré-visualização…
         </div>
         <div class="d-flex gap-2 justify-content-center">
-            <a href="{{ _viewer_url }}" target="_blank" class="btn btn-primary btn-sm">
-                📄 Ver PDF
-            </a>
-            <a href="{{ _pdf_url }}?dl=1" class="btn btn-outline-secondary btn-sm" download>
-                ⬇ Descarregar
-            </a>
+            <a href="{{ _viewer_url }}" target="_blank" class="btn btn-primary btn-sm">📄 Ver PDF</a>
+            <a href="{{ _pdf_url }}?dl=1" class="btn btn-outline-secondary btn-sm" download>⬇ Descarregar</a>
         </div>
     </div>
     {% elif inv.onedrive_web_url %}
@@ -80,9 +103,23 @@
             ☁️ Documento arquivado no OneDrive — clique para abrir
         </a>
     </div>
+    {% else %}
+    <div class="mb-3 p-3 border rounded border-warning-subtle bg-warning-subtle">
+        <div class="small fw-semibold text-warning-emphasis mb-2">📎 Sem documento PDF associado</div>
+        <form method="post" action="{{ url_for('compras.attach_pdf', invoice_id=inv.id) }}" enctype="multipart/form-data">
+            <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+            <div class="d-flex gap-2 align-items-center">
+                <input type="file" name="pdf_file" class="form-control form-control-sm" accept=".pdf" required>
+                <button type="submit" class="btn btn-warning btn-sm text-nowrap">⬆ Anexar</button>
+            </div>
+        </form>
+    </div>
     {% endif %}
 
+    <!-- ── Detalhes completos ────────────────────────────────── -->
     <dl class="row small mb-3">
+        <dt class="col-5 text-muted">Tipo</dt>
+        <dd class="col-7">{{ document_type_labels.get(inv.document_type or 'fatura', 'Fatura') }}</dd>
         {% if inv.supplier_nif %}
         <dt class="col-5 text-muted">NIF</dt>
         <dd class="col-7">{{ inv.supplier_nif }}</dd>
@@ -95,6 +132,10 @@
         <dt class="col-5 text-muted">Loja</dt>
         <dd class="col-7">{{ inv.store_name }}</dd>
         {% endif %}
+        {% if inv.onedrive_subfolder %}
+        <dt class="col-5 text-muted">Subpasta</dt>
+        <dd class="col-7">{{ inv.onedrive_subfolder }}</dd>
+        {% endif %}
         {% if inv.paid_date %}
         <dt class="col-5 text-muted">Data pagamento</dt>
         <dd class="col-7">{{ inv.paid_date.strftime('%d/%m/%Y') }}</dd>
@@ -103,6 +144,14 @@
         {% if confirm_dt %}
         <dt class="col-5 text-muted">Data confirmação</dt>
         <dd class="col-7">{{ confirm_dt.strftime('%d/%m/%Y') }}</dd>
+        {% endif %}
+        {% if inv.payment_method %}
+        <dt class="col-5 text-muted">Método pagamento</dt>
+        <dd class="col-7">{{ inv.payment_method }}</dd>
+        {% endif %}
+        {% if inv.created_by %}
+        <dt class="col-5 text-muted">Criado por</dt>
+        <dd class="col-7">{{ inv.created_by }}</dd>
         {% endif %}
         {% if inv.ocr_confidence is not none %}
         <dt class="col-5 text-muted">Confiança OCR</dt>
@@ -114,27 +163,514 @@
             <span class="ms-1">{{ (inv.ocr_confidence * 100)|int }}%</span>
         </dd>
         {% endif %}
+        {% if inv.onedrive_path %}
+        <dt class="col-5 text-muted">OneDrive</dt>
+        <dd class="col-7 text-break">
+            {% if inv.onedrive_web_url %}
+            <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener" class="text-decoration-none">☁️ Abrir</a>
+            {% else %}{{ inv.onedrive_path }}{% endif %}
+        </dd>
+        {% endif %}
         {% if inv.notes %}
         <dt class="col-5 text-muted">Notas</dt>
         <dd class="col-7 text-break">{{ inv.notes }}</dd>
         {% endif %}
     </dl>
 
-    {% if inv.onedrive_web_url %}
-    <div class="d-flex flex-wrap gap-2 mb-3">
-        <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener"
-           class="btn btn-outline-secondary btn-sm">
-            ☁️ OneDrive
-        </a>
+    <!-- ── Editar fatura ────────────────────────────────────── -->
+    <div class="card mb-3">
+        <div class="card-header py-2 px-3">
+            <button class="btn btn-link p-0 text-decoration-none small fw-semibold" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#cpmEditForm{{ inv.id }}">
+                ✏️ Editar fatura
+            </button>
+        </div>
+        <div class="collapse" id="cpmEditForm{{ inv.id }}">
+            <div class="card-body">
+                <form method="post" action="{{ url_for('faturas.edit', invoice_id=inv.id) }}">
+                    <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                    <div class="row g-2">
+                        <div class="col-12">
+                            <label class="form-label small mb-1">Tipo de documento</label>
+                            <select name="document_type" class="form-select form-select-sm">
+                                {% for val, lbl in document_type_labels.items() %}
+                                <option value="{{ val }}" {% if inv.document_type == val %}selected{% endif %}>{{ lbl }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small mb-1">Fornecedor</label>
+                            <input type="text" name="supplier_name" class="form-control form-control-sm"
+                                   value="{{ inv.supplier_name or '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">NIF</label>
+                            <input type="text" name="supplier_nif" class="form-control form-control-sm"
+                                   value="{{ inv.supplier_nif or '' }}" inputmode="numeric">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Nº Fatura</label>
+                            <input type="text" name="invoice_number" class="form-control form-control-sm"
+                                   value="{{ inv.invoice_number or '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Total (€)</label>
+                            <input type="number" step="0.01" name="amount_eur" class="form-control form-control-sm"
+                                   value="{{ '%.2f'|format(inv.amount_eur) if inv.amount_eur is not none else '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">IVA (€)</label>
+                            <input type="number" step="0.01" name="vat_amount_eur" class="form-control form-control-sm"
+                                   value="{{ '%.2f'|format(inv.vat_amount_eur) if inv.vat_amount_eur is not none else '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Data emissão</label>
+                            <input type="date" name="issue_date" class="form-control form-control-sm"
+                                   value="{{ inv.issue_date.isoformat() if inv.issue_date else '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Data vencimento</label>
+                            <input type="date" name="due_date" class="form-control form-control-sm"
+                                   value="{{ inv.due_date.isoformat() if inv.due_date else '' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Categoria</label>
+                            <select name="category" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat }}" {% if inv.category == cat %}selected{% endif %}>{{ cat }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Loja</label>
+                            <select name="store_id" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for s in stores %}
+                                <option value="{{ s.id }}" {% if inv.store_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Subpasta OneDrive</label>
+                            <select name="onedrive_subfolder" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for sf in subfolders %}
+                                <option value="{{ sf }}" {% if inv.onedrive_subfolder == sf %}selected{% endif %}>{{ sf }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Estado</label>
+                            <select name="status" class="form-select form-select-sm">
+                                {% for k, v in status_labels.items() %}
+                                <option value="{{ k }}" {% if inv.status == k %}selected{% endif %}>{{ v }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small mb-1">Notas</label>
+                            <textarea name="notes" class="form-control form-control-sm" rows="2">{{ inv.notes or '' }}</textarea>
+                        </div>
+                        <div class="col-12">
+                            <button type="submit" class="btn btn-primary btn-sm w-100">Guardar alterações</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
-    {% endif %}
 
-    <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}"
-       class="btn btn-primary btn-sm w-100" target="_blank">
-        Ver detalhe completo →
-    </a>
-    <button type="button" class="btn btn-outline-secondary btn-sm w-100 mt-2"
+    <!-- ── Linhas da Fatura ──────────────────────────────────── -->
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center py-2 px-3">
+            <span class="fw-semibold small">Linhas da Fatura</span>
+            {% if inv.stock_registado_at %}
+            <span class="badge bg-success-subtle text-success-emphasis" style="font-size:.72rem">
+                Stock registado {{ inv.stock_registado_at.strftime('%d/%m/%Y') }}
+            </span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary-emphasis" style="font-size:.72rem">Stock pendente</span>
+            {% endif %}
+        </div>
+        <div class="card-body p-0">
+            {% if linhas %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Descrição</th>
+                            <th class="text-end">Qtd</th>
+                            <th>Un</th>
+                            <th class="text-end">Total</th>
+                            {% if not inv.stock_registado_at %}<th></th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for l in linhas %}
+                        <tr>
+                            <td>
+                                {{ l.descricao }}
+                                {% if l.material_nome %}
+                                <div class="text-muted" style="font-size:.75rem">{{ l.material_nome }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                {% if l.quantidade == l.quantidade|int %}{{ l.quantidade|int }}{% else %}{{ '%.3f'|format(l.quantidade) }}{% endif %}
+                            </td>
+                            <td>{{ l.unidade }}</td>
+                            <td class="text-end text-nowrap">
+                                {% if l.preco_unitario is not none %}{{ '%.2f €'|format(l.quantidade * l.preco_unitario) }}{% else %}—{% endif %}
+                            </td>
+                            {% if not inv.stock_registado_at %}
+                            <td class="text-end text-nowrap">
+                                <button class="btn btn-link btn-sm p-0 text-secondary"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#cpmEditLinhaModal{{ inv.id }}"
+                                        data-id="{{ l.id }}"
+                                        data-descricao="{{ l.descricao | e }}"
+                                        data-quantidade="{{ l.quantidade }}"
+                                        data-unidade="{{ l.unidade }}"
+                                        data-material="{{ l.material_id or '' }}"
+                                        data-preco="{{ l.preco_unitario if l.preco_unitario is not none else '' }}"
+                                        title="Editar">✏️</button>
+                                <form method="post"
+                                      action="{{ url_for('faturas.linha', invoice_id=inv.id) }}"
+                                      onsubmit="return confirm('Eliminar esta linha?')"
+                                      style="display:inline">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="linha_id" value="{{ l.id }}">
+                                    <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                                    <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar">🗑</button>
+                                </form>
+                            </td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% set total_linhas = namespace(val=0) %}
+            {% for l in linhas %}{% if l.preco_unitario is not none %}{% set total_linhas.val = total_linhas.val + l.quantidade * l.preco_unitario %}{% endif %}{% endfor %}
+            <div class="px-3 py-2 border-top small">
+                <span class="text-muted">Total linhas:</span> <strong>{{ '%.2f €'|format(total_linhas.val) }}</strong>
+                {% if inv.amount_eur is not none %}
+                {% set diff = (total_linhas.val - inv.amount_eur)|abs %}
+                {% if diff < 0.01 %}<span class="text-success ms-2">✓</span>
+                {% else %}<span class="text-warning ms-2">⚠ dif. {{ '%.2f €'|format(diff) }}</span>{% endif %}
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="text-muted small p-3">Nenhuma linha adicionada.</div>
+            {% endif %}
+        </div>
+        <div class="card-footer py-2 d-flex flex-wrap gap-2 align-items-center">
+            {% if not inv.stock_registado_at %}
+            <button class="btn btn-outline-secondary btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#cpmAdicionarLinhaModal{{ inv.id }}">
+                + Adicionar linha
+            </button>
+            {% endif %}
+            {% if not inv.stock_registado_at and linhas %}
+            <button class="btn btn-success btn-sm"
+                    data-bs-toggle="modal" data-bs-target="#cpmRegistarStockModal{{ inv.id }}">
+                📦 Registar stock
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ── Zona de perigo ───────────────────────────────────── -->
+    <div class="card border-danger mb-3">
+        <div class="card-body py-2 px-3">
+            <form method="post" action="{{ url_for('faturas.eliminar', invoice_id=inv.id) }}"
+                  onsubmit="return confirm('Eliminar esta fatura? Esta acção não pode ser revertida.')">
+                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <button type="submit" class="btn btn-outline-danger btn-sm w-100">🗑 Eliminar fatura</button>
+            </form>
+        </div>
+    </div>
+
+    <button type="button" class="btn btn-outline-secondary btn-sm w-100 mb-2"
             onclick="bootstrap.Offcanvas.getInstance(document.getElementById('inv-panel'))?.hide()">
         Fechar
     </button>
 </div>
+
+<!-- ── Modais (movidas para <body> via JS) ──────────────────── -->
+
+<!-- Modal: Marcar como paga -->
+<div class="modal fade panel-modal" id="cpmPagarModal{{ inv.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Marcar como paga</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('compras.marcar_paga', invoice_id=inv.id) }}">
+                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label small">Data efectiva de pagamento</label>
+                        <input type="date" name="paid_date" class="form-control form-control-sm"
+                               value="{{ today.isoformat() }}" required>
+                    </div>
+                    {% if payment_methods %}
+                    <div class="mb-2">
+                        <label class="form-label small">Método de pagamento <span class="text-muted">(opcional)</span></label>
+                        <select name="payment_method" class="form-select form-select-sm">
+                            <option value="">(não especificado)</option>
+                            {% for m in payment_methods %}
+                            <option value="{{ m.metodo }}">{{ m.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-success btn-sm">Marcar paga</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Arquivar no OneDrive -->
+<div class="modal fade panel-modal" id="cpmOneDriveModal{{ inv.id }}" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Arquivar no OneDrive</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.arquivar_onedrive', invoice_id=inv.id) }}">
+                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <div class="modal-body">
+                    <label class="form-label small">Subpasta</label>
+                    <select name="onedrive_subfolder" class="form-select form-select-sm">
+                        {% for sf in subfolders %}
+                        <option value="{{ sf }}" {% if inv.onedrive_subfolder == sf %}selected{% endif %}>{{ sf }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text mt-1">Estrutura: {{ today.year }}/{{ '%02d'|format(today.month) }}/Faturas/[Subpasta]/[ficheiro].pdf</div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm">Arquivar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Adicionar Linha -->
+<div class="modal fade panel-modal" id="cpmAdicionarLinhaModal{{ inv.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Adicionar linha</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.linha', invoice_id=inv.id) }}">
+                <input type="hidden" name="action" value="add">
+                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Material do catálogo <span class="text-muted">(opcional)</span></label>
+                        <select name="material_id" class="form-select form-select-sm" id="cpmAddMaterialSelect"
+                                onchange="cpmPreencherDescricao(this, 'cpmAddDescricao', 'cpmAddUnidade')">
+                            <option value="">(sem material associado)</option>
+                            {% for m in materiais %}
+                            <option value="{{ m.id }}" data-nome="{{ m.nome | e }}" data-unidade="{{ m.unidade }}">
+                                [{{ m.categoria }}] {{ m.nome }} ({{ m.unidade }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Descrição <span class="text-danger">*</span></label>
+                        <input type="text" name="descricao" id="cpmAddDescricao" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-5">
+                            <label class="form-label small">Quantidade <span class="text-danger">*</span></label>
+                            <input type="number" name="quantidade" step="0.001" min="0.001"
+                                   class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small">Unidade</label>
+                            <select name="unidade" id="cpmAddUnidade" class="form-select form-select-sm">
+                                {% for u in unidades_materiais %}
+                                <option value="{{ u }}">{{ u }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label small">P. Unit. €</label>
+                            <input type="number" name="preco_unitario" step="0.0001" min="0"
+                                   class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Editar Linha -->
+<div class="modal fade panel-modal" id="cpmEditLinhaModal{{ inv.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Editar linha</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.linha', invoice_id=inv.id) }}">
+                <input type="hidden" name="action" value="edit">
+                <input type="hidden" name="linha_id" id="cpmEditLinhaId">
+                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Material do catálogo <span class="text-muted">(opcional)</span></label>
+                        <select name="material_id" id="cpmEditMaterialSelect" class="form-select form-select-sm"
+                                onchange="cpmPreencherDescricao(this, 'cpmEditDescricao', 'cpmEditUnidade')">
+                            <option value="">(sem material associado)</option>
+                            {% for m in materiais %}
+                            <option value="{{ m.id }}" data-nome="{{ m.nome | e }}" data-unidade="{{ m.unidade }}">
+                                [{{ m.categoria }}] {{ m.nome }} ({{ m.unidade }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Descrição <span class="text-danger">*</span></label>
+                        <input type="text" name="descricao" id="cpmEditDescricao" class="form-control form-control-sm" required>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-5">
+                            <label class="form-label small">Quantidade <span class="text-danger">*</span></label>
+                            <input type="number" name="quantidade" id="cpmEditQuantidade" step="0.001" min="0.001"
+                                   class="form-control form-control-sm" required>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small">Unidade</label>
+                            <select name="unidade" id="cpmEditUnidade" class="form-select form-select-sm">
+                                {% for u in unidades_materiais %}
+                                <option value="{{ u }}">{{ u }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label small">P. Unit. €</label>
+                            <input type="number" name="preco_unitario" id="cpmEditPreco" step="0.0001" min="0"
+                                   class="form-control form-control-sm">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Registar entradas em stock -->
+<div class="modal fade panel-modal" id="cpmRegistarStockModal{{ inv.id }}" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Registar entradas em stock</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.registar_stock', invoice_id=inv.id) }}">
+                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label class="form-label small">Local de destino</label>
+                        {% if stock_local_derivado %}
+                        <input type="hidden" name="local" value="{{ stock_local_derivado }}">
+                        <div class="form-control form-control-sm bg-light text-muted">
+                            {{ stock_local_derivado }}
+                            <span class="ms-1 small">(da loja da fatura)</span>
+                        </div>
+                        {% else %}
+                        <select name="local" class="form-select form-select-sm" required>
+                            {% for loc in locais_stock %}
+                            <option value="{{ loc }}">{{ loc }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text small text-warning">Esta fatura não tem loja associada. Seleciona o destino manualmente.</div>
+                        {% endif %}
+                    </div>
+                    {% set linhas_com_material = linhas | selectattr('material_id') | list %}
+                    {% set linhas_sem_material = linhas | rejectattr('material_id') | list %}
+                    <p class="small text-muted mb-1">
+                        Serão criadas entradas de stock para as
+                        <strong>{{ linhas_com_material | length }}</strong> linha(s) com material associado.
+                        Esta operação não pode ser repetida.
+                    </p>
+                    {% if linhas_sem_material %}
+                    <div class="alert alert-warning py-1 px-2 small mb-0">
+                        {{ linhas_sem_material | length }} linha(s) sem material associado serão ignoradas.
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-success btn-sm">Registar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Scripts do painel -->
+<script>
+function cpmPreencherDescricao(sel, descId, unidadeId) {
+    var opt = sel.options[sel.selectedIndex];
+    if (opt && opt.value) {
+        var descEl = document.getElementById(descId);
+        if (descEl && !descEl.value) descEl.value = opt.getAttribute('data-nome') || '';
+        var unEl = document.getElementById(unidadeId);
+        if (unEl) {
+            var un = opt.getAttribute('data-unidade') || '';
+            for (var i = 0; i < unEl.options.length; i++) {
+                if (unEl.options[i].value === un) { unEl.selectedIndex = i; break; }
+            }
+        }
+    }
+}
+(function() {
+    function _attachCpmEditLinhaListener() {
+        var editModal = document.getElementById('cpmEditLinhaModal{{ inv.id }}');
+        if (!editModal) return;
+        editModal.addEventListener('show.bs.modal', function(ev) {
+            var btn = ev.relatedTarget;
+            if (!btn) return;
+            document.getElementById('cpmEditLinhaId').value = btn.getAttribute('data-id') || '';
+            document.getElementById('cpmEditDescricao').value = btn.getAttribute('data-descricao') || '';
+            document.getElementById('cpmEditQuantidade').value = btn.getAttribute('data-quantidade') || '';
+            document.getElementById('cpmEditPreco').value = btn.getAttribute('data-preco') || '';
+            var matSel = document.getElementById('cpmEditMaterialSelect');
+            var matId = btn.getAttribute('data-material') || '';
+            for (var i = 0; i < matSel.options.length; i++) {
+                if (matSel.options[i].value === matId) { matSel.selectedIndex = i; break; }
+            }
+            var unSel = document.getElementById('cpmEditUnidade');
+            var un = btn.getAttribute('data-unidade') || 'un';
+            for (var j = 0; j < unSel.options.length; j++) {
+                if (unSel.options[j].value === un) { unSel.selectedIndex = j; break; }
+            }
+        });
+    }
+    _attachCpmEditLinhaListener();
+    setTimeout(_attachCpmEditLinhaListener, 50);
+})();
+</script>
