@@ -295,11 +295,12 @@ def link_invoices_to_supplier_by_name(supplier_id: int) -> int:
         name = row[0]
         cursor.execute("""
             UPDATE invoices
-            SET supplier_id = %s
+            SET supplier_id = %s,
+                supplier_name = %s
             WHERE LOWER(supplier_name) = LOWER(%s)
               AND status != 'draft'
               AND (supplier_id IS NULL OR supplier_id = %s)
-        """, (supplier_id, name, supplier_id))
+        """, (supplier_id, name, name, supplier_id))
         count = cursor.rowcount
         conn.commit()
     return count
@@ -313,16 +314,18 @@ def bulk_link_invoices_by_name(supplier_name: str, supplier_id: int) -> int:
     """
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT nif FROM suppliers WHERE id = %s", (supplier_id,))
+        cursor.execute("SELECT name, nif FROM suppliers WHERE id = %s", (supplier_id,))
         row = cursor.fetchone()
-        nif = row[0] if row else None
+        canonical_name = row[0] if row else supplier_name
+        nif = row[1] if row else None
         cursor.execute("""
             UPDATE invoices
             SET supplier_id = %s,
+                supplier_name = %s,
                 supplier_nif = COALESCE(%s, supplier_nif)
             WHERE supplier_name = %s
               AND status != 'draft'
-        """, (supplier_id, nif, supplier_name))
+        """, (supplier_id, canonical_name, nif, supplier_name))
         count = cursor.rowcount
         conn.commit()
     return count
@@ -410,17 +413,17 @@ def backfill_supplier_ids() -> dict:
         for supplier_name, nif in unlinked:
             # 1. Match by name (case-insensitive)
             cursor.execute(
-                "SELECT id FROM suppliers WHERE LOWER(name) = LOWER(%s)", (supplier_name,))
+                "SELECT id, name FROM suppliers WHERE LOWER(name) = LOWER(%s)", (supplier_name,))
             row = cursor.fetchone()
 
             if row:
-                supplier_id = row[0]
+                supplier_id, canonical_name = row[0], row[1]
             elif nif:
                 # 2a. Match by NIF
-                cursor.execute("SELECT id FROM suppliers WHERE nif = %s", (nif,))
+                cursor.execute("SELECT id, name FROM suppliers WHERE nif = %s", (nif,))
                 row = cursor.fetchone()
                 if row:
-                    supplier_id = row[0]
+                    supplier_id, canonical_name = row[0], row[1]
                 else:
                     # 2b. Create with NIF
                     cursor.execute("""
@@ -429,27 +432,30 @@ def backfill_supplier_ids() -> dict:
                         ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
                             name = EXCLUDED.name,
                             updated_at = NOW()
-                        RETURNING id
+                        RETURNING id, name
                     """, (supplier_name, nif))
-                    supplier_id = cursor.fetchone()[0]
+                    result = cursor.fetchone()
+                    supplier_id, canonical_name = result[0], result[1]
                     suppliers_created += 1
             else:
                 # 3. Create without NIF
                 cursor.execute("""
                     INSERT INTO suppliers (name, updated_at)
                     VALUES (%s, NOW())
-                    RETURNING id
+                    RETURNING id, name
                 """, (supplier_name,))
-                supplier_id = cursor.fetchone()[0]
+                result = cursor.fetchone()
+                supplier_id, canonical_name = result[0], result[1]
                 suppliers_created += 1
 
             cursor.execute("""
                 UPDATE invoices
-                SET supplier_id = %s
+                SET supplier_id = %s,
+                    supplier_name = %s
                 WHERE LOWER(supplier_name) = LOWER(%s)
                   AND supplier_id IS NULL
                   AND status != 'draft'
-            """, (supplier_id, supplier_name))
+            """, (supplier_id, canonical_name, supplier_name))
             invoices_linked += cursor.rowcount
 
         conn.commit()
