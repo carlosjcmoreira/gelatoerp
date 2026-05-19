@@ -69,7 +69,27 @@ def get_suppliers(only_active: bool = False) -> list:
              'payment_method': r[7], 'payment_terms': r[8], 'iban': r[9]} for r in rows]
 
 
+def _normalize_nif(nif) -> str:
+    """Normalise a NIF/VAT string: strip surrounding whitespace, remove internal
+    spaces and dashes, then uppercase.  Returns None for falsy input.
+
+    Examples
+    --------
+    'PT 501234567' → 'PT501234567'
+    'pt-501-234-567' → 'PT501234567'
+    ' 501 234 567 ' → '501234567'
+    """
+    if not nif:
+        return None
+    cleaned = str(nif).strip()
+    cleaned = cleaned.replace(' ', '').replace('-', '')
+    return cleaned.upper() or None
+
+
 def get_supplier_by_nif(nif: str) -> dict:
+    nif = _normalize_nif(nif)
+    if not nif:
+        return None
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -109,6 +129,7 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
                     iban: str = None) -> int:
+    nif = _normalize_nif(nif)
     with db_connection() as conn:
         cursor = conn.cursor()
         if nif:

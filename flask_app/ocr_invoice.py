@@ -121,7 +121,7 @@ Regras para documentos GOVERNAMENTAIS (AT, Segurança Social, etc.):
 Regras para FATURAS de fornecedor privado:
 - document_type_hint = "fatura" (ou "nota_credito" se for nota de crédito, "nota_debito" se for nota de débito, "outro" nos restantes casos)
 - supplier_name = nome do fornecedor
-- supplier_nif = NIF/NIPC do fornecedor (apenas dígitos, sem pontos ou espaços)
+- supplier_nif = NIF/NIPC do fornecedor (dígitos e prefixo de país opcional, ex: "PT501234567" ou "501234567"; sem pontos, espaços ou traços)
 - invoice_number = número da fatura
 - amount_eur = total a pagar incluindo IVA
 - vat_amount_eur = valor do IVA
@@ -297,7 +297,7 @@ Regras para documentos GOVERNAMENTAIS:
 Regras para FATURAS/GUIAS de fornecedor privado:
 - document_type_hint = "fatura" (ou "nota_credito", "nota_debito", "outro" conforme o documento)
 - supplier_name = nome do fornecedor
-- supplier_nif = NIF do fornecedor (só dígitos)
+- supplier_nif = NIF do fornecedor (dígitos e prefixo de país opcional, ex: "PT501234567" ou "501234567"; sem pontos, espaços ou traços)
 - invoice_number = número da fatura ou guia
 - amount_eur = total a pagar incluindo IVA
 - vat_amount_eur = valor do IVA
@@ -368,7 +368,8 @@ Regras para FATURAS/GUIAS de fornecedor privado:
 def _clean_nif(val) -> str:
     if not val:
         return None
-    return ''.join(c for c in str(val) if c.isdigit())
+    cleaned = str(val).strip().replace(' ', '').replace('-', '')
+    return cleaned.upper() or None
 
 
 def _parse_float(val) -> float:
