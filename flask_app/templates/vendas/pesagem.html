@@ -560,6 +560,18 @@ function adicionarALista() {
         }
     }
 
+    // If user typed an exact match but didn't click the suggestion, auto-select it
+    if (!document.getElementById('manual-sabor').value.trim()) {
+        var typed = (document.getElementById('manual-sabor-search').value || '').trim();
+        if (typed) {
+            function _normQ(s) { return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+            var exact = SABORES_CONHECIDOS.find(function(s) { return _normQ(s) === _normQ(typed); });
+            if (exact) {
+                document.getElementById('manual-sabor').value = exact;
+                document.getElementById('manual-sabor-search').value = exact;
+            }
+        }
+    }
     const sabor     = document.getElementById('manual-sabor').value.trim();
     if (!sabor) {
         alert('Seleciona um sabor antes de adicionar à lista.');
@@ -1118,9 +1130,10 @@ function escHtml(str) {
             focusIdx = Math.max(focusIdx - 1, 0);
             highlightItem(focusIdx);
         } else if (e.key === 'Enter') {
-            if (focusIdx >= 0 && items[focusIdx]) {
+            if (list.style.display !== 'none') {
                 e.preventDefault();
-                selectItem(items[focusIdx].dataset.value);
+                var target = focusIdx >= 0 ? items[focusIdx] : items[0];
+                if (target) selectItem(target.dataset.value);
             }
         } else if (e.key === 'Escape') {
             list.style.display = 'none';
