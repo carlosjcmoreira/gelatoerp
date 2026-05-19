@@ -249,6 +249,11 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
     if not inv:
         raise ServiceError('Fatura não encontrada.')
 
+    # Capture the OCR-extracted supplier name before any updates so we can use it
+    # to bulk-link other invoices that share the same OCR text when an existing
+    # supplier is selected from the dropdown.
+    _ocr_supplier_name = (inv.get('supplier_name') or '').strip() or None
+
     supplier_name = form.get('supplier_name', '').strip()
     supplier_nif = ''.join(c for c in form.get('supplier_nif', '') if c.isdigit())
     invoice_number = form.get('invoice_number', '').strip()
@@ -418,13 +423,31 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
     except Exception as exc:
         raise ServiceError(f'Erro ao actualizar fatura: {exc}') from exc
 
-    # Auto-link other invoices with the same supplier name
+    # Auto-link other invoices with the same supplier name (matches by registered name)
     if supplier_id:
         try:
             from database import link_invoices_to_supplier_by_name as _link
             _link(supplier_id)
         except Exception as exc:
             logger.warning('link_invoices_to_supplier_by_name failed after save for supplier %s: %s', supplier_id, exc)
+
+    # When the user selected an existing supplier from the dropdown, also bulk-link
+    # all invoices that share the original OCR-detected name text — these may differ
+    # from the registered supplier name (e.g. "Foo Bar Ltd" vs "Foo Bar, Lda.").
+    if existing_supplier_id_str and supplier_id and _ocr_supplier_name:
+        try:
+            from database import bulk_link_invoices_by_name as _bulk_link
+            linked = _bulk_link(_ocr_supplier_name, supplier_id)
+            if linked:
+                logger.info(
+                    'bulk_link_invoices_by_name: linked %d invoice(s) for name=%r supplier_id=%s',
+                    linked, _ocr_supplier_name, supplier_id,
+                )
+        except Exception as exc:
+            logger.warning(
+                'bulk_link_invoices_by_name failed for name=%r supplier_id=%s: %s',
+                _ocr_supplier_name, supplier_id, exc,
+            )
 
     if onedrive_web_url and onedrive_web_url != inv.get('onedrive_web_url'):
         try:
