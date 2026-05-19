@@ -7,6 +7,13 @@
         <h5 class="mb-0">🏢 Fornecedores</h5>
         <div class="d-flex gap-2 flex-wrap">
             <form method="post" class="d-inline">
+                <input type="hidden" name="action" value="normalise">
+                <button type="submit" class="btn btn-outline-success btn-sm"
+                        title="Copia o nome canónico do fornecedor para todas as faturas já ligadas, eliminando variantes OCR">
+                    ✅ Normalizar nomes
+                </button>
+            </form>
+            <form method="post" class="d-inline">
                 <input type="hidden" name="action" value="backfill">
                 <button type="submit" class="btn btn-outline-secondary btn-sm"
                         title="Cria fornecedores para todos os nomes em faturas e liga as faturas automaticamente">
@@ -33,22 +40,34 @@
                     {% if u.nif %}NIF: {{ u.nif }} · {% endif %}
                     {{ u.invoice_count }} fatura(s)
                 </div>
-                <form method="post" class="d-flex gap-2 flex-wrap align-items-center">
-                    <input type="hidden" name="action" value="associate">
-                    <input type="hidden" name="unlinked_name" value="{{ u.name | e }}">
-                    <select name="associate_supplier_id" class="form-select form-select-sm" style="max-width:260px" required>
-                        <option value="">— Associar a fornecedor —</option>
-                        {% for s in suppliers %}
-                        <option value="{{ s.id }}">{{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %}</option>
-                        {% endfor %}
-                    </select>
-                    <button type="submit" class="btn btn-warning btn-sm">Associar</button>
-                    <button type="button" class="btn btn-outline-primary btn-sm"
-                            onclick="prefillNew('{{ u.name | e }}', '{{ u.nif or '' }}')"
-                            data-bs-toggle="modal" data-bs-target="#modalAdd">
-                        Criar fornecedor
-                    </button>
-                </form>
+                <div class="d-flex flex-column gap-2">
+                    <form method="post" class="d-flex gap-2 flex-wrap align-items-center">
+                        <input type="hidden" name="action" value="associate">
+                        <input type="hidden" name="unlinked_name" value="{{ u.name | e }}">
+                        <select name="associate_supplier_id" class="form-select form-select-sm" style="max-width:260px" required>
+                            <option value="">— Associar a fornecedor —</option>
+                            {% for s in suppliers %}
+                            <option value="{{ s.id }}">{{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-warning btn-sm">Associar</button>
+                        <button type="button" class="btn btn-outline-primary btn-sm"
+                                onclick="prefillNew('{{ u.name | e }}', '{{ u.nif or '' }}')"
+                                data-bs-toggle="modal" data-bs-target="#modalAdd">
+                            Criar fornecedor
+                        </button>
+                    </form>
+                    <form method="post" class="d-flex gap-2 flex-wrap align-items-center">
+                        <input type="hidden" name="action" value="rename_variant">
+                        <input type="hidden" name="old_name" value="{{ u.name | e }}">
+                        <input type="text" name="new_name" class="form-control form-control-sm"
+                               style="max-width:260px" placeholder="Renomear para…" required>
+                        <button type="submit" class="btn btn-outline-secondary btn-sm"
+                                title="Renomeia este nome em todas as faturas sem fornecedor ligado">
+                            ✏️ Renomear
+                        </button>
+                    </form>
+                </div>
             </div>
             {% endfor %}
         </div>

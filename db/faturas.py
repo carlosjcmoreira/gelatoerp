@@ -560,22 +560,69 @@ def get_invoice_suppliers() -> list:
 
 
 def get_distinct_supplier_names() -> list:
-    """Return all distinct non-null supplier_name values from non-draft invoices, sorted.
+    """Return distinct supplier names from non-draft invoices, sorted.
 
-    Covers ALL invoices regardless of whether they have a supplier_id, so the
-    returned list is the correct source of truth for filter dropdowns.
+    For invoices linked to a supplier (supplier_id IS NOT NULL), the canonical
+    name from the suppliers table is used.  For unlinked invoices the raw
+    supplier_name is kept.  This eliminates OCR-variant duplicates from the
+    filter dropdown once invoices are linked to their supplier record.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT DISTINCT supplier_name
-            FROM invoices
-            WHERE status != 'draft'
-              AND supplier_name IS NOT NULL
-              AND supplier_name != ''
-            ORDER BY supplier_name
+            SELECT DISTINCT COALESCE(s.name, i.supplier_name) AS display_name
+            FROM invoices i
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
+            WHERE i.status != 'draft'
+              AND i.supplier_name IS NOT NULL
+              AND i.supplier_name != ''
+            ORDER BY display_name
         """)
         return [row[0] for row in cursor.fetchall()]
+
+
+def normalise_supplier_names() -> int:
+    """Copy suppliers.name → invoices.supplier_name for every linked invoice
+    where the stored text differs from the canonical name.
+
+    Returns the number of rows updated.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE invoices
+            SET supplier_name = s.name
+            FROM suppliers s
+            WHERE invoices.supplier_id = s.id
+              AND invoices.supplier_name IS DISTINCT FROM s.name
+        """)
+        count = cursor.rowcount
+        conn.commit()
+    logger.info('normalise_supplier_names: updated %d invoice(s)', count)
+    return count
+
+
+def rename_supplier_name_variant(old_name: str, new_name: str) -> int:
+    """Rename all occurrences of old_name → new_name on invoices that have no
+    supplier_id (unlinked), so OCR variants can be corrected without touching
+    already-linked records.
+
+    Returns the number of rows updated.
+    """
+    if not old_name or not new_name or old_name == new_name:
+        return 0
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE invoices
+            SET supplier_name = %s
+            WHERE supplier_name = %s
+              AND supplier_id IS NULL
+        """, (new_name, old_name))
+        count = cursor.rowcount
+        conn.commit()
+    logger.info('rename_supplier_name_variant: "%s" → "%s", %d row(s)', old_name, new_name, count)
+    return count
 
 
 def _build_invoice_where(status: str = None, statuses: list = None,

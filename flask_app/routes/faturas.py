@@ -19,7 +19,7 @@ from database import (
     upsert_supplier, delete_supplier, merge_supplier,
     link_invoices_to_supplier_by_name, bulk_link_invoices_by_name,
     get_unlinked_supplier_names, get_suppliers_with_invoice_count,
-    backfill_supplier_ids,
+    backfill_supplier_ids, normalise_supplier_names, rename_supplier_name_variant,
     get_stores_list, update_invoice_onedrive, suggest_onedrive_subfolder,
     get_contas_por_fornecedor, get_distinct_supplier_names,
     INVOICE_STATUS_LABELS, ONEDRIVE_SUBFOLDERS, INVOICE_CATEGORIES,
@@ -1358,6 +1358,29 @@ def fornecedores():
                 f'{result["invoices_linked"]} fatura(s) ligada(s).',
                 'success'
             )
+            return redirect(url_for('faturas.fornecedores'))
+
+        elif action == 'normalise':
+            count = normalise_supplier_names()
+            if count:
+                flash(f'Nomes normalizados: {count} fatura(s) actualizadas com o nome canónico do fornecedor.', 'success')
+            else:
+                flash('Todos os nomes já estão normalizados.', 'info')
+            return redirect(url_for('faturas.fornecedores'))
+
+        elif action == 'rename_variant':
+            old_name = request.form.get('old_name', '').strip()
+            new_name = request.form.get('new_name', '').strip()
+            if not old_name or not new_name:
+                flash('Nome original e novo nome são obrigatórios.', 'warning')
+            elif old_name == new_name:
+                flash('O nome novo é igual ao original.', 'warning')
+            else:
+                count = rename_supplier_name_variant(old_name, new_name)
+                if count:
+                    flash(f'"{old_name}" → "{new_name}": {count} fatura(s) renomeada(s).', 'success')
+                else:
+                    flash(f'Nenhuma fatura sem ligação encontrada com o nome "{old_name}".', 'info')
             return redirect(url_for('faturas.fornecedores'))
 
     suppliers = get_suppliers_with_invoice_count()
