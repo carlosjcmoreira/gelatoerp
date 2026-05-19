@@ -1,8 +1,9 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, send_file
 from flask_app.auth import perm_required
 from datetime import date, datetime
 import json
-import sys, os, logging
+import sys, os, logging, math
+from io import BytesIO
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_artigos_administrativos, add_artigo_administrativo,
@@ -21,7 +22,9 @@ from database import (
 )
 from db.faturas import (
     get_invoices,
+    count_invoices,
     get_invoice,
+    get_invoice_pdf,
     INVOICE_STATUS_LABELS,
     DOCUMENT_TYPE_LABELS,
 )
@@ -66,6 +69,8 @@ def faturas():
     from datetime import date as _date, datetime as _datetime
     from db.faturas import get_invoice_suppliers
     today = _date.today()
+    PAGE_SIZE = 50
+
     supplier_id_raw = request.args.get('supplier_id', '').strip()
     supplier_filter_id = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
     status_filter = request.args.get('status', '').strip()
@@ -74,6 +79,18 @@ def faturas():
     date_field = request.args.get('date_field', 'issue_date').strip()
     if date_field not in ('issue_date', 'due_date'):
         date_field = 'issue_date'
+    q_filter = request.args.get('q', '').strip()
+    order_by = request.args.get('order_by', 'issue_date').strip()
+    if order_by not in ('issue_date', 'due_date', 'amount_eur', 'supplier_name', 'invoice_number', 'status'):
+        order_by = 'issue_date'
+    order_dir = request.args.get('order_dir', 'desc').strip()
+    if order_dir not in ('asc', 'desc'):
+        order_dir = 'desc'
+    try:
+        page = max(1, int(request.args.get('page', '1') or '1'))
+    except ValueError:
+        page = 1
+
     def _parse_date(s):
         try:
             return _datetime.strptime(s, '%Y-%m-%d').date() if s else None
@@ -84,22 +101,37 @@ def faturas():
     document_type_filter = request.args.get('document_type', '').strip()
     if document_type_filter not in DOCUMENT_TYPE_LABELS:
         document_type_filter = ''
-    invoices = get_invoices(
+
+    filter_kwargs = dict(
         supplier_id=supplier_filter_id,
         status=status_filter or None,
         date_from=date_from,
         date_to=date_to,
         date_field=date_field,
         document_type=document_type_filter or None,
+        search=q_filter or None,
+    )
+    total_count = count_invoices(**filter_kwargs)
+    total_pages = max(1, math.ceil(total_count / PAGE_SIZE))
+    page = min(page, total_pages)
+    offset = (page - 1) * PAGE_SIZE
+
+    invoices = get_invoices(
+        **filter_kwargs,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=PAGE_SIZE,
+        offset=offset,
     )
     for inv in invoices:
         if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
             inv['display_status'] = 'overdue'
         else:
             inv['display_status'] = inv['status']
+
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     suppliers = get_invoice_suppliers()
-    has_filters = bool(supplier_filter_id or status_filter or date_from_raw or date_to_raw or document_type_filter)
+    has_filters = bool(supplier_filter_id or status_filter or date_from_raw or date_to_raw or document_type_filter or q_filter)
     return render_template('compras/faturas.html',
                            invoices=invoices,
                            suppliers=suppliers,
@@ -109,11 +141,55 @@ def faturas():
                            date_to_raw=date_to_raw,
                            date_field=date_field,
                            document_type_filter=document_type_filter,
+                           q_filter=q_filter,
+                           order_by=order_by,
+                           order_dir=order_dir,
+                           page=page,
+                           total_pages=total_pages,
+                           total_count=total_count,
+                           page_size=PAGE_SIZE,
                            has_filters=has_filters,
                            status_labels=INVOICE_STATUS_LABELS,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,
                            today=today)
+
+
+@compras_bp.route('/faturas/<int:invoice_id>/panel')
+@perm_required('acesso_administrativo')
+def invoice_panel(invoice_id: int):
+    from datetime import date as _date
+    inv = get_invoice(invoice_id)
+    if not inv:
+        return '<p class="text-danger p-3">Fatura não encontrada.</p>', 404
+    today = _date.today()
+    if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+        inv['display_status'] = 'overdue'
+        inv['status_label'] = 'Vencida'
+    return render_template(
+        'compras/_panel.html',
+        inv=inv,
+        today=today,
+        status_labels=INVOICE_STATUS_LABELS,
+        document_type_labels=DOCUMENT_TYPE_LABELS,
+    )
+
+
+@compras_bp.route('/faturas/<int:invoice_id>/pdf')
+@perm_required('acesso_administrativo')
+def download_pdf(invoice_id: int):
+    pdf_data, pdf_filename = get_invoice_pdf(invoice_id)
+    if not pdf_data:
+        return 'PDF não disponível', 404
+    filename = pdf_filename or 'fatura.pdf'
+    response = send_file(
+        BytesIO(pdf_data),
+        mimetype='application/pdf',
+        as_attachment=False,
+        download_name=filename,
+    )
+    response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response
 
 
 @compras_bp.route('/review-draft/<int:invoice_id>', methods=['GET', 'POST'])

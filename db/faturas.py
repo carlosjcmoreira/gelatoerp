@@ -590,7 +590,8 @@ def get_invoices(status: str = None, statuses: list = None,
                  supplier_id: int = None,
                  date_from=None, date_to=None,
                  date_field: str = 'issue_date',
-                 document_type: str = None) -> list:
+                 document_type: str = None,
+                 limit: int = None, offset: int = 0) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         where = []
@@ -649,6 +650,11 @@ def get_invoices(status: str = None, statuses: list = None,
         where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
         direction = 'DESC' if order_dir == 'desc' else 'ASC'
+        if limit is not None:
+            params.extend([int(limit), int(offset)])
+            limit_sql = 'LIMIT %s OFFSET %s'
+        else:
+            limit_sql = ''
         cursor.execute(f"""
             SELECT i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
                    i.invoice_number, i.amount_eur, i.vat_amount_eur,
@@ -668,6 +674,7 @@ def get_invoices(status: str = None, statuses: list = None,
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
             {where_clause}
             ORDER BY {order_col} {direction} NULLS LAST, i.created_at DESC
+            {limit_sql}
         """, params)
         rows = cursor.fetchall()
     result = []
@@ -677,6 +684,80 @@ def get_invoices(status: str = None, statuses: list = None,
         inv['payment_method'] = r[27] if len(r) > 27 else None
         result.append(inv)
     return result
+
+
+def count_invoices(status: str = None, statuses: list = None,
+                   no_status_filter: bool = False,
+                   store_id: int = None,
+                   search: str = None,
+                   centro_custo_id: int = None,
+                   categoria_custo_id: int = None,
+                   supplier_name: str = None,
+                   supplier_names: list = None,
+                   supplier_id: int = None,
+                   date_from=None, date_to=None,
+                   date_field: str = 'issue_date',
+                   document_type: str = None) -> int:
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        where = []
+        params = []
+        if no_status_filter:
+            pass
+        elif statuses:
+            where.append("i.status = ANY(%s)")
+            params.append(statuses)
+        elif status == 'overdue':
+            where.append("i.status = 'scheduled' AND i.due_date < CURRENT_DATE")
+        elif status:
+            where.append("i.status = %s")
+            params.append(status)
+        else:
+            where.append("i.status != 'draft'")
+        if store_id:
+            where.append("i.store_id = %s")
+            params.append(store_id)
+        if centro_custo_id:
+            where.append("i.centro_custo_id = %s")
+            params.append(centro_custo_id)
+        if categoria_custo_id:
+            where.append("i.categoria_custo_id = %s")
+            params.append(categoria_custo_id)
+        if supplier_id:
+            where.append("i.supplier_id = %s")
+            params.append(supplier_id)
+        if supplier_names:
+            where.append("i.supplier_name = ANY(%s)")
+            params.append(supplier_names)
+        elif supplier_name:
+            where.append("LOWER(i.supplier_name) = LOWER(%s)")
+            params.append(supplier_name)
+        if document_type and document_type in DOCUMENT_TYPE_LABELS:
+            where.append("i.document_type = %s")
+            params.append(document_type)
+        _date_col = 'i.due_date' if date_field == 'due_date' else 'i.issue_date'
+        if date_from:
+            where.append(f"{_date_col} >= %s")
+            params.append(date_from)
+        if date_to:
+            where.append(f"{_date_col} <= %s")
+            params.append(date_to)
+        if search:
+            s = f'%{search.lower()}%'
+            if supplier_name or supplier_names:
+                where.append("(LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
+                params.extend([s, s])
+            else:
+                where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
+                params.extend([s, s, s])
+        where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+        cursor.execute(f"""
+            SELECT COUNT(*)
+            FROM invoices i
+            LEFT JOIN stores st ON i.store_id = st.id
+            {where_clause}
+        """, params)
+        return int(cursor.fetchone()[0])
 
 
 def get_invoices_type_totals() -> dict:

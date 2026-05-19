@@ -1,7 +1,6 @@
 {% set overdue = inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}
 <div class="p-3">
 
-    <!-- Header: supplier + doc number + type + status badges -->
     <div class="d-flex justify-content-between align-items-start mb-3 gap-2">
         <div style="min-width:0">
             <div class="fw-semibold fs-6 text-truncate">{{ inv.supplier_name or '(sem fornecedor)' }}</div>
@@ -21,14 +20,12 @@
                 {% elif inv.status == 'pending_review' %}bg-warning text-dark
                 {% elif inv.status == 'scheduled' %}bg-info text-dark
                 {% elif inv.status == 'paid' %}bg-success
-                {% elif inv.status == 'cancelled' %}bg-secondary
                 {% else %}bg-secondary{% endif %}">
                 {{ 'Vencida' if overdue else inv.status_label }}
             </span>
         </div>
     </div>
 
-    <!-- Key numbers -->
     <div class="row g-2 mb-3">
         <div class="col-6">
             <div class="card h-100">
@@ -58,9 +55,8 @@
         </div>
     </div>
 
-    <!-- Embedded PDF preview (when available) -->
     {% if inv.pdf_filename %}
-    {% set _pdf_url = url_for('faturas.download_pdf', invoice_id=inv.id) %}
+    {% set _pdf_url = url_for('compras.download_pdf', invoice_id=inv.id) %}
     <div class="border rounded mb-3 overflow-hidden" style="height:260px">
         <object data="{{ _pdf_url }}" type="application/pdf"
                 class="w-100 h-100" style="border:0" title="Pré-visualização PDF">
@@ -78,7 +74,6 @@
     </div>
     {% endif %}
 
-    <!-- Details list -->
     <dl class="row small mb-3">
         {% if inv.supplier_nif %}
         <dt class="col-5 text-muted">NIF</dt>
@@ -115,27 +110,16 @@
         <dt class="col-5 text-muted">Notas</dt>
         <dd class="col-7 text-break">{{ inv.notes }}</dd>
         {% endif %}
-        {% if inv.onedrive_path %}
-        <dt class="col-5 text-muted">OneDrive</dt>
-        <dd class="col-7 text-break">
-            {% if inv.onedrive_web_url %}
-            <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener" class="text-decoration-none">☁️ Abrir</a>
-            {% else %}
-            {{ inv.onedrive_path }}
-            {% endif %}
-        </dd>
-        {% endif %}
     </dl>
 
-    <!-- Quick links -->
     <div class="d-flex flex-wrap gap-2 mb-3">
         {% if inv.pdf_filename %}
-        <a href="{{ url_for('faturas.download_pdf', invoice_id=inv.id) }}"
+        <a href="{{ url_for('compras.download_pdf', invoice_id=inv.id) }}"
            class="btn btn-outline-secondary btn-sm" target="_blank">
             📄 Ver PDF
         </a>
         {% endif %}
-        {% if inv.onedrive_web_url and not inv.pdf_filename %}
+        {% if inv.onedrive_web_url %}
         <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener"
            class="btn btn-outline-secondary btn-sm">
             ☁️ OneDrive
@@ -143,9 +127,8 @@
         {% endif %}
     </div>
 
-    <!-- Full detail link -->
     <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}"
-       class="btn btn-primary btn-sm w-100">
+       class="btn btn-primary btn-sm w-100" target="_blank">
         Ver detalhe completo →
     </a>
     <button type="button" class="btn btn-outline-secondary btn-sm w-100 mt-2"

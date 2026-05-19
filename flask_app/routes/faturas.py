@@ -1228,12 +1228,15 @@ def download_pdf(invoice_id: int):
     if not pdf_data:
         flash('PDF não disponível.', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id))
-    return send_file(
+    filename = pdf_filename or 'fatura.pdf'
+    response = send_file(
         BytesIO(pdf_data),
         mimetype='application/pdf',
         as_attachment=False,
-        download_name=pdf_filename or 'fatura.pdf',
+        download_name=filename,
     )
+    response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+    return response
 
 
 # ── Suppliers management ───────────────────────────────────────────────────────
