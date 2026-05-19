@@ -578,6 +578,75 @@ def get_distinct_supplier_names() -> list:
         return [row[0] for row in cursor.fetchall()]
 
 
+def _build_invoice_where(status: str = None, statuses: list = None,
+                         no_status_filter: bool = False,
+                         store_id: int = None,
+                         search: str = None,
+                         centro_custo_id: int = None,
+                         categoria_custo_id: int = None,
+                         supplier_name: str = None,
+                         supplier_names: list = None,
+                         supplier_id: int = None,
+                         date_from=None, date_to=None,
+                         date_field: str = 'issue_date',
+                         document_type: str = None):
+    where = []
+    params = []
+    # 'overdue' is a virtual status: scheduled invoices with due_date in the past
+    if no_status_filter:
+        pass  # no status constraint — include all statuses including drafts
+    elif statuses:
+        where.append("i.status = ANY(%s)")
+        params.append(statuses)
+    elif status == 'overdue':
+        where.append("i.status = 'scheduled' AND i.due_date < CURRENT_DATE")
+    elif status:
+        where.append("i.status = %s")
+        params.append(status)
+    else:
+        # Exclude in-progress drafts from the default listing
+        where.append("i.status != 'draft'")
+    if store_id:
+        where.append("i.store_id = %s")
+        params.append(store_id)
+    if centro_custo_id:
+        where.append("i.centro_custo_id = %s")
+        params.append(centro_custo_id)
+    if categoria_custo_id:
+        where.append("i.categoria_custo_id = %s")
+        params.append(categoria_custo_id)
+    if supplier_id:
+        where.append("i.supplier_id = %s")
+        params.append(supplier_id)
+    if supplier_names:
+        where.append("i.supplier_name = ANY(%s)")
+        params.append(supplier_names)
+    elif supplier_name:
+        where.append("LOWER(i.supplier_name) = LOWER(%s)")
+        params.append(supplier_name)
+    if document_type and document_type in DOCUMENT_TYPE_LABELS:
+        where.append("i.document_type = %s")
+        params.append(document_type)
+    _date_col = 'i.due_date' if date_field == 'due_date' else 'i.issue_date'
+    if date_from:
+        where.append(f"{_date_col} >= %s")
+        params.append(date_from)
+    if date_to:
+        where.append(f"{_date_col} <= %s")
+        params.append(date_to)
+    if search:
+        s = f'%{search.lower()}%'
+        if supplier_name or supplier_names:
+            # Supplier already pinned via filter — search invoice number and notes
+            where.append("(LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
+            params.extend([s, s])
+        else:
+            where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
+            params.extend([s, s, s])
+    where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+    return where_clause, params
+
+
 def get_invoices(status: str = None, statuses: list = None,
                  no_status_filter: bool = False,
                  store_id: int = None,
@@ -594,60 +663,14 @@ def get_invoices(status: str = None, statuses: list = None,
                  limit: int = None, offset: int = 0) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
-        where = []
-        params = []
-        # 'overdue' is a virtual status: scheduled invoices with due_date in the past
-        if no_status_filter:
-            pass  # no status constraint — include all statuses including drafts
-        elif statuses:
-            where.append("i.status = ANY(%s)")
-            params.append(statuses)
-        elif status == 'overdue':
-            where.append("i.status = 'scheduled' AND i.due_date < CURRENT_DATE")
-        elif status:
-            where.append("i.status = %s")
-            params.append(status)
-        else:
-            # Exclude in-progress drafts from the default listing
-            where.append("i.status != 'draft'")
-        if store_id:
-            where.append("i.store_id = %s")
-            params.append(store_id)
-        if centro_custo_id:
-            where.append("i.centro_custo_id = %s")
-            params.append(centro_custo_id)
-        if categoria_custo_id:
-            where.append("i.categoria_custo_id = %s")
-            params.append(categoria_custo_id)
-        if supplier_id:
-            where.append("i.supplier_id = %s")
-            params.append(supplier_id)
-        if supplier_names:
-            where.append("i.supplier_name = ANY(%s)")
-            params.append(supplier_names)
-        elif supplier_name:
-            where.append("LOWER(i.supplier_name) = LOWER(%s)")
-            params.append(supplier_name)
-        if document_type and document_type in DOCUMENT_TYPE_LABELS:
-            where.append("i.document_type = %s")
-            params.append(document_type)
-        _date_col = 'i.due_date' if date_field == 'due_date' else 'i.issue_date'
-        if date_from:
-            where.append(f"{_date_col} >= %s")
-            params.append(date_from)
-        if date_to:
-            where.append(f"{_date_col} <= %s")
-            params.append(date_to)
-        if search:
-            s = f'%{search.lower()}%'
-            if supplier_name or supplier_names:
-                # Supplier already pinned via filter — search invoice number and notes
-                where.append("(LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
-                params.extend([s, s])
-            else:
-                where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
-                params.extend([s, s, s])
-        where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+        where_clause, params = _build_invoice_where(
+            status=status, statuses=statuses, no_status_filter=no_status_filter,
+            store_id=store_id, search=search,
+            centro_custo_id=centro_custo_id, categoria_custo_id=categoria_custo_id,
+            supplier_name=supplier_name, supplier_names=supplier_names,
+            supplier_id=supplier_id, date_from=date_from, date_to=date_to,
+            date_field=date_field, document_type=document_type,
+        )
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
         direction = 'DESC' if order_dir == 'desc' else 'ASC'
         if limit is not None:
@@ -698,59 +721,16 @@ def count_invoices(status: str = None, statuses: list = None,
                    date_from=None, date_to=None,
                    date_field: str = 'issue_date',
                    document_type: str = None) -> int:
+    where_clause, params = _build_invoice_where(
+        status=status, statuses=statuses, no_status_filter=no_status_filter,
+        store_id=store_id, search=search,
+        centro_custo_id=centro_custo_id, categoria_custo_id=categoria_custo_id,
+        supplier_name=supplier_name, supplier_names=supplier_names,
+        supplier_id=supplier_id, date_from=date_from, date_to=date_to,
+        date_field=date_field, document_type=document_type,
+    )
     with db_connection() as conn:
         cursor = conn.cursor()
-        where = []
-        params = []
-        if no_status_filter:
-            pass
-        elif statuses:
-            where.append("i.status = ANY(%s)")
-            params.append(statuses)
-        elif status == 'overdue':
-            where.append("i.status = 'scheduled' AND i.due_date < CURRENT_DATE")
-        elif status:
-            where.append("i.status = %s")
-            params.append(status)
-        else:
-            where.append("i.status != 'draft'")
-        if store_id:
-            where.append("i.store_id = %s")
-            params.append(store_id)
-        if centro_custo_id:
-            where.append("i.centro_custo_id = %s")
-            params.append(centro_custo_id)
-        if categoria_custo_id:
-            where.append("i.categoria_custo_id = %s")
-            params.append(categoria_custo_id)
-        if supplier_id:
-            where.append("i.supplier_id = %s")
-            params.append(supplier_id)
-        if supplier_names:
-            where.append("i.supplier_name = ANY(%s)")
-            params.append(supplier_names)
-        elif supplier_name:
-            where.append("LOWER(i.supplier_name) = LOWER(%s)")
-            params.append(supplier_name)
-        if document_type and document_type in DOCUMENT_TYPE_LABELS:
-            where.append("i.document_type = %s")
-            params.append(document_type)
-        _date_col = 'i.due_date' if date_field == 'due_date' else 'i.issue_date'
-        if date_from:
-            where.append(f"{_date_col} >= %s")
-            params.append(date_from)
-        if date_to:
-            where.append(f"{_date_col} <= %s")
-            params.append(date_to)
-        if search:
-            s = f'%{search.lower()}%'
-            if supplier_name or supplier_names:
-                where.append("(LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
-                params.extend([s, s])
-            else:
-                where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
-                params.extend([s, s, s])
-        where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
         cursor.execute(f"""
             SELECT COUNT(*)
             FROM invoices i
