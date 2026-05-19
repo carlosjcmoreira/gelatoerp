@@ -5,7 +5,10 @@
 <div class="container-fluid px-3 py-3 pb-5">
 
     {% set active_supplier_name = supplier_name_filter or (suppliers | selectattr('id', 'equalto', supplier_filter_id) | map(attribute='name') | first | default(None)) %}
-    <h5 class="mb-3">🧾 Faturas{% if active_supplier_name %} <span class="badge text-bg-primary fw-normal ms-1" style="font-size:0.75rem">{{ active_supplier_name }}</span>{% endif %}</h5>
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">🧾 Faturas{% if active_supplier_name %} <span class="badge text-bg-primary fw-normal ms-1" style="font-size:0.75rem">{{ active_supplier_name }}</span>{% endif %}</h5>
+        <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm" title="Gerir nomes e variantes de fornecedores">🏭 Fornecedores</a>
+    </div>
 
     {# ── Barra de filtro compacta (estilo financeiro) ───────────── #}
     <form id="filter-form" method="get" action="" data-no-loading>
