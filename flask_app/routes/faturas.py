@@ -501,8 +501,9 @@ def registar():
         categoria_custo_raw = request.form.get('categoria_custo_id', '').strip()
         categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
 
-        if not supplier_name and document_type == 'fatura':
-            flash('Nome do fornecedor é obrigatório para faturas.', 'warning')
+        _INVOICE_DOC_TYPES = {'fatura', 'nota_credito', 'nota_debito'}
+        if not supplier_name and document_type in _INVOICE_DOC_TYPES:
+            flash('Nome do fornecedor é obrigatório para este tipo de documento.', 'warning')
             return redirect(url_for('faturas.registar'))
         try:
             amount_eur = float(amount_str)
@@ -545,6 +546,12 @@ def registar():
                     supplier_id = _matched['id']
             except Exception:
                 pass
+
+        # Enforce: invoice-type documents must resolve to a known supplier
+        _INVOICE_DOC_TYPES = {'fatura', 'nota_credito', 'nota_debito'}
+        if document_type in _INVOICE_DOC_TYPES and not supplier_id:
+            flash('Seleciona um fornecedor existente ou cria um novo antes de registar este tipo de documento.', 'warning')
+            return redirect(url_for('faturas.registar'))
 
         store_id_int = int(store_id) if store_id else None
         current_user = session.get('user', {}).get('username', 'sistema')

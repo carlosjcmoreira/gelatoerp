@@ -50,6 +50,7 @@
                 <!-- Hidden fields populated by JS when supplier is selected -->
                 <input type="hidden" name="supplier_id" id="reg-supplier-id">
                 <input type="hidden" name="supplier_name" id="reg-supplier-name">
+                <input type="hidden" name="payment_terms" id="reg-payment-terms">
 
                 <div class="mb-3">
                     <label class="form-label small" id="reg-supplier-label">
@@ -256,6 +257,22 @@
     var supplierNmIn  = document.getElementById('reg-supplier-name');
     var nifIn         = document.getElementById('reg-supplier-nif');
     var pmSel         = document.getElementById('reg-payment-method');
+    var ptIn          = document.getElementById('reg-payment-terms');
+    var issueDateIn   = document.querySelector('input[name="issue_date"]');
+    var dueDateIn     = document.querySelector('input[name="due_date"]');
+
+    function calcDueDate(issueDate, terms) {
+        if (!issueDate || !terms) return '';
+        var d = new Date(issueDate);
+        if (isNaN(d.getTime())) return '';
+        if (terms === 'a_pronto') return issueDate;
+        if (terms === '15_dias') { d.setDate(d.getDate() + 15); }
+        else if (terms === '30_dias') { d.setDate(d.getDate() + 30); }
+        else if (terms === '60_dias') { d.setDate(d.getDate() + 60); }
+        else if (terms === 'final_mes') { d = new Date(d.getFullYear(), d.getMonth() + 1, 0); }
+        else return '';
+        return d.toISOString().split('T')[0];
+    }
 
     function toggleFields() {
         var isFatura = (docType.value === 'fatura');
@@ -270,6 +287,7 @@
             supplierIdIn.value  = '';
             supplierNmIn.value  = '';
             if (nifIn) { nifIn.value = ''; nifIn.readOnly = false; }
+            if (ptIn) ptIn.value = '';
             return;
         }
         supplierIdIn.value = opt.value;
@@ -281,6 +299,24 @@
         if (pmSel && opt.dataset.paymentMethod) {
             pmSel.value = opt.dataset.paymentMethod;
         }
+        var pt = opt.dataset.paymentTerms || '';
+        if (ptIn) ptIn.value = pt;
+        // Auto-fill due_date from payment_terms + current issue_date
+        if (dueDateIn && issueDateIn && pt && !dueDateIn.value) {
+            var calc = calcDueDate(issueDateIn.value, pt);
+            if (calc) dueDateIn.value = calc;
+        }
+    }
+
+    // Recalculate due_date when issue_date changes, if payment_terms is set
+    if (issueDateIn && dueDateIn) {
+        issueDateIn.addEventListener('change', function () {
+            var pt = ptIn ? ptIn.value : '';
+            if (pt) {
+                var calc = calcDueDate(this.value, pt);
+                if (calc) dueDateIn.value = calc;
+            }
+        });
     }
 
     supplierSel.addEventListener('change', function () {
