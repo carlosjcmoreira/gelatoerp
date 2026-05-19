@@ -1529,6 +1529,13 @@ def _handle_excel_import(file, ext='xlsx'):
             supplier_id = None
             if supplier_nif and supplier_name:
                 supplier_id = upsert_supplier(name=supplier_name, nif=supplier_nif)
+            elif supplier_name and not supplier_nif:
+                # NIF absent — try name-based lookup then upsert without NIF
+                try:
+                    _sup = get_supplier_by_name(supplier_name)
+                    supplier_id = _sup['id'] if _sup else upsert_supplier(name=supplier_name)
+                except Exception:
+                    pass
 
             invoice_number = invoice_number_raw or None
 

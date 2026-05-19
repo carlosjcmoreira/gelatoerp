@@ -116,6 +116,20 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
             row = cursor.fetchone()
             if row:
                 supplier_id = row[0]
+                # True upsert: update editable fields for existing null-NIF supplier
+                cursor.execute("""
+                    UPDATE suppliers SET
+                        name = %s,
+                        category = COALESCE(%s, category),
+                        store_id = COALESCE(%s, store_id),
+                        notes = COALESCE(%s, notes),
+                        payment_method = COALESCE(%s, payment_method),
+                        payment_terms = COALESCE(%s, payment_terms),
+                        iban = COALESCE(%s, iban),
+                        updated_at = NOW()
+                    WHERE id = %s
+                """, (name, category, store_id, notes,
+                      payment_method, payment_terms, iban, supplier_id))
             else:
                 cursor.execute("""
                     INSERT INTO suppliers (name, category, store_id, notes,
@@ -667,6 +681,15 @@ def get_invoice_pdf(invoice_id: int):
 
 
 def create_invoice(data: dict) -> int:
+    doc_type = data.get('document_type', 'fatura')
+    status = data.get('status', 'pending_review')
+    if (doc_type in _DOCUMENT_TYPES_INVOICE
+            and status in _STATUSES_REQUIRING_SUPPLIER
+            and not data.get('supplier_id')):
+        raise ValueError(
+            f'Não é possível criar documento tipo "{doc_type}" com estado "{status}" '
+            f'sem fornecedor ligado.'
+        )
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
