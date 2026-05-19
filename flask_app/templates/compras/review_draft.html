@@ -18,6 +18,15 @@
     </div>
     {% endif %}
 
+    {% if inv.pdf_filename %}
+    <div class="mb-3">
+        <a href="{{ url_for('static', filename='pdfjs-viewer.html') }}?file={{ url_for('compras.download_pdf', invoice_id=inv.id) | urlencode }}"
+           class="btn btn-outline-secondary btn-sm" target="_blank" data-no-loading>
+            📄 Ver PDF
+        </a>
+    </div>
+    {% endif %}
+
     <form method="post" action="{{ url_for('compras.review_draft', invoice_id=inv.id) }}">
 
         <div class="card mb-3">
