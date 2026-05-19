@@ -3101,8 +3101,35 @@ def run_migrations_suppliers_nullable_nif():
                     ON suppliers (nif)
                     WHERE nif IS NOT NULL
             """)
+            # Before creating the name-uniqueness index, remove any duplicate
+            # null-NIF suppliers (keeping the one with the most invoices, or the
+            # lowest id as a tiebreaker).
+            cursor.execute("""
+                DELETE FROM suppliers
+                WHERE nif IS NULL
+                  AND id NOT IN (
+                      SELECT DISTINCT ON (LOWER(name)) id
+                      FROM suppliers
+                      WHERE nif IS NULL
+                      ORDER BY LOWER(name),
+                               (SELECT COUNT(*) FROM invoices WHERE supplier_id = suppliers.id) DESC,
+                               id ASC
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM invoices WHERE supplier_id = suppliers.id
+                  )
+            """)
+            deduped = cursor.rowcount
+            if deduped:
+                logger.info(
+                    "run_migrations_suppliers_nullable_nif: removed %d duplicate null-NIF supplier(s)", deduped)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS suppliers_name_no_nif_unique
+                    ON suppliers (LOWER(name))
+                    WHERE nif IS NULL
+            """)
             conn.commit()
-            logger.info("run_migrations_suppliers_nullable_nif: nif column made nullable")
+            logger.info("run_migrations_suppliers_nullable_nif: nif column made nullable, name uniqueness index created")
         except Exception as exc:
             logger.error("run_migrations_suppliers_nullable_nif failed: %s", exc)
             try:

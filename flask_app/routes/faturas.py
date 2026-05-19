@@ -16,7 +16,7 @@ from database import (
     get_invoices, get_invoice, get_invoice_pdf, create_invoice, update_invoice,
     delete_invoice, confirm_invoice_payment, mark_payment_executed,
     get_suppliers, get_supplier_by_nif, get_supplier_by_name,
-    upsert_supplier, delete_supplier,
+    upsert_supplier, delete_supplier, merge_supplier,
     link_invoices_to_supplier_by_name, bulk_link_invoices_by_name,
     get_unlinked_supplier_names, get_suppliers_with_invoice_count,
     backfill_supplier_ids,
@@ -1242,6 +1242,21 @@ def fornecedores():
                 flash('Fornecedor eliminado.', 'success')
             else:
                 flash('Não é possível eliminar: fornecedor tem faturas associadas.', 'warning')
+            return redirect(url_for('faturas.fornecedores'))
+
+        elif action == 'merge':
+            source_id_str = request.form.get('merge_source_id', '').strip()
+            target_id_str = request.form.get('merge_target_id', '').strip()
+            if not source_id_str or not target_id_str:
+                flash('Seleciona fornecedor de origem e destino.', 'warning')
+            else:
+                try:
+                    count = merge_supplier(int(source_id_str), int(target_id_str))
+                    flash(f'Fusão concluída: {count} fatura(s) re-ligada(s).', 'success')
+                except ValueError as exc:
+                    flash(str(exc), 'warning')
+                except Exception as exc:
+                    flash(f'Erro ao fundir fornecedores: {exc}', 'danger')
             return redirect(url_for('faturas.fornecedores'))
 
         elif action == 'associate':

@@ -274,6 +274,7 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
     supplier_payment_terms = form.get('supplier_payment_terms', '').strip() or None
     supplier_iban = form.get('supplier_iban', '').strip() or None
     is_new_supplier = form.get('is_new_supplier', '') == '1'
+    existing_supplier_id_str = form.get('existing_supplier_id', '').strip()
 
     # For existing suppliers: extract OCR-detected IBAN from stored OCR payload
     # so it can be persisted to the supplier record (COALESCE ensures existing value is kept if OCR has none)
@@ -298,8 +299,20 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
         if not supplier_payment_terms:
             raise ServiceError('Prazo de pagamento é obrigatório para novo fornecedor.')
 
+    DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
+
     supplier_id = inv.get('supplier_id')
-    if supplier_nif and supplier_name:
+
+    # If an existing supplier was selected from the dropdown, use it directly
+    if existing_supplier_id_str:
+        try:
+            supplier_id = int(existing_supplier_id_str)
+        except ValueError:
+            raise ServiceError('ID de fornecedor inválido.')
+    elif document_type in DOCUMENT_TYPES_INVOICE and not supplier_id and not supplier_name:
+        raise ServiceError('Seleciona ou cria um fornecedor antes de guardar este tipo de documento.')
+
+    if not existing_supplier_id_str and supplier_nif and supplier_name:
         try:
             if is_new_supplier:
                 supplier_id = upsert_supplier(

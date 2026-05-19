@@ -88,6 +88,11 @@
                             onclick="editSupplier({{ s|tojson }})">
                         ✏️
                     </button>
+                    <button class="btn btn-outline-primary btn-sm"
+                            onclick="openMerge({{ s.id }}, '{{ s.name | e }}')"
+                            title="Fundir com outro fornecedor">
+                        🔀
+                    </button>
                     <form method="post" onsubmit="return confirm('Eliminar fornecedor?')">
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="supplier_id" value="{{ s.id }}">
@@ -182,10 +187,65 @@
     </div>
 </div>
 
+<!-- Modal: Merge suppliers -->
+<div class="modal fade" id="modalMerge" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">🔀 Fundir Fornecedores</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post">
+                <input type="hidden" name="action" value="merge">
+                <div class="modal-body">
+                    <div class="alert alert-warning py-2 small">
+                        Todas as faturas do fornecedor de <strong>origem</strong> serão re-ligadas ao fornecedor de <strong>destino</strong>. O fornecedor de origem será eliminado.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Origem (será eliminado)</label>
+                        <select name="merge_source_id" id="mergeSourceId" class="form-select form-select-sm" required>
+                            <option value="">— Selecionar —</option>
+                            {% for s in suppliers %}
+                            <option value="{{ s.id }}">{{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %} ({{ s.invoice_count }} fat.)</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-semibold">Destino (mantém-se)</label>
+                        <select name="merge_target_id" id="mergeTargetId" class="form-select form-select-sm" required>
+                            <option value="">— Selecionar —</option>
+                            {% for s in suppliers %}
+                            <option value="{{ s.id }}">{{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %} ({{ s.invoice_count }} fat.)</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-primary btn-sm"
+                            onclick="return confirm('Fundir fornecedores? Esta ação não pode ser desfeita.')">
+                        Fundir
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
+function openMerge(sourceId, sourceName) {
+    var srcSelect = document.getElementById('mergeSourceId');
+    var tgtSelect = document.getElementById('mergeTargetId');
+    if (srcSelect) srcSelect.value = sourceId;
+    // Pre-clear target so user picks intentionally
+    if (tgtSelect) tgtSelect.value = '';
+    var modal = new bootstrap.Modal(document.getElementById('modalMerge'));
+    modal.show();
+}
+
 function editSupplier(s) {
     document.getElementById('modalAddTitle').textContent = 'Editar Fornecedor';
     document.getElementById('sName').value          = s.name          || '';

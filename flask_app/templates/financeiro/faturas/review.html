@@ -70,61 +70,92 @@
                     {% endif %}
                 </div>
                 {% else %}
-                {# New supplier — show editable fields with OCR hints #}
+                {# Supplier not found — allow picking existing or creating new #}
                 {% set pm_hint = ocr.confidence.get('payment_method_hint') if ocr.confidence else '' %}
                 {% set pt_hint = ocr.confidence.get('payment_terms_hint') if ocr.confidence else '' %}
                 {% set iban_hint = ocr.confidence.get('supplier_iban') if ocr.confidence else '' %}
-                <h6 class="card-title d-flex align-items-center gap-2">
+
+                {# Hidden fields that are actually submitted #}
+                <input type="hidden" name="existing_supplier_id" id="rev-existing-supplier-id" value="">
+                <input type="hidden" name="supplier_name" id="rev-supplier-name-hidden" value="{{ ocr.supplier_name or '' }}">
+                <input type="hidden" name="supplier_nif" id="rev-supplier-nif-hidden" value="{{ ocr.supplier_nif or '' }}">
+                <input type="hidden" name="supplier_payment_method" id="rev-supplier-pm-hidden" value="">
+                <input type="hidden" name="supplier_payment_terms" id="rev-supplier-pt-hidden" value="">
+                <input type="hidden" name="supplier_iban" id="rev-supplier-iban-hidden" value="{{ iban_hint or '' }}">
+
+                <h6 class="card-title d-flex align-items-center gap-2 flex-wrap">
                     Fornecedor
-                    <span class="badge bg-warning-subtle text-warning-emphasis small">Novo — confirme os dados</span>
+                    <span class="badge bg-warning-subtle text-warning-emphasis small">Não encontrado</span>
                 </h6>
-                <div class="alert alert-warning py-2 small mb-2">
-                    Fornecedor não encontrado na base de dados. Preenche e confirma os dados antes de guardar.
+
+                {# Toggle: select existing OR create new #}
+                <div class="btn-group btn-group-sm mb-3" role="group">
+                    <input type="radio" class="btn-check" name="rev-supplier-mode" id="rev-mode-existing" value="existing" checked>
+                    <label class="btn btn-outline-secondary" for="rev-mode-existing">Selecionar existente</label>
+                    <input type="radio" class="btn-check" name="rev-supplier-mode" id="rev-mode-new" value="new">
+                    <label class="btn btn-outline-warning" for="rev-mode-new">Criar novo</label>
                 </div>
-                <div class="row g-2">
-                    <div class="col-12 col-md-8">
-                        <label class="form-label small">Nome do fornecedor <span class="text-danger">*</span></label>
-                        <input type="text" name="supplier_name" id="rev-supplier-name" class="form-control form-control-sm
-                            {% if ocr.confidence.get('supplier_name', 1) < 0.7 %}border-warning{% endif %}"
-                            value="{{ ocr.supplier_name or '' }}" required>
-                        {% if ocr.confidence.get('supplier_name', 1) < 0.7 %}
-                        <div class="form-text text-warning">Confiança baixa – verifica</div>
-                        {% endif %}
+
+                {# Panel: select existing #}
+                <div id="rev-panel-existing">
+                    <select id="rev-existing-select" class="form-select form-select-sm">
+                        <option value="">— Selecionar fornecedor existente —</option>
+                        {% for s in suppliers %}
+                        <option value="{{ s.id }}" data-name="{{ s.name }}" data-nif="{{ s.nif or '' }}">
+                            {{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                {# Panel: create new #}
+                <div id="rev-panel-new" class="d-none">
+                    <div class="alert alert-warning py-2 small mb-2">
+                        Preenche e confirma os dados antes de guardar.
                     </div>
-                    <div class="col-12 col-md-4">
-                        <label class="form-label small">NIF <span class="text-danger">*</span></label>
-                        <input type="text" name="supplier_nif" id="rev-supplier-nif" class="form-control form-control-sm
-                            {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}border-warning{% endif %}"
-                            value="{{ ocr.supplier_nif or '' }}"
-                            pattern="[0-9]*" inputmode="numeric" required>
-                        {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}
-                        <div class="form-text text-warning">Confiança baixa – verifica</div>
-                        {% endif %}
-                    </div>
-                    <div id="review-new-supplier-extra" class="col-12 row g-2 m-0 p-0">
-                    <div class="col-12 col-sm-6">
-                        <label class="form-label small">Método de Pagamento <span class="text-danger review-supplier-req-mark">*</span></label>
-                        <select name="supplier_payment_method" id="rev-supplier-pm" class="form-select form-select-sm" required>
-                            <option value="">— Seleccionar —</option>
-                            {% for val, label in payment_method_labels.items() %}
-                            <option value="{{ val }}" {% if pm_hint == val %}selected{% endif %}>{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-12 col-sm-6">
-                        <label class="form-label small">Prazo de Pagamento <span class="text-danger review-supplier-req-mark">*</span></label>
-                        <select name="supplier_payment_terms" id="rev-supplier-pt" class="form-select form-select-sm" required>
-                            <option value="">— Seleccionar —</option>
-                            {% for val, label in payment_terms_labels.items() %}
-                            <option value="{{ val }}" {% if pt_hint == val %}selected{% endif %}>{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label small">IBAN</label>
-                        <input type="text" name="supplier_iban" class="form-control form-control-sm"
-                               placeholder="PT50..." value="{{ iban_hint or '' }}">
-                    </div>
+                    <div class="row g-2">
+                        <div class="col-12 col-md-8">
+                            <label class="form-label small">Nome <span class="text-danger">*</span></label>
+                            <input type="text" id="rev-supplier-name-vis" class="form-control form-control-sm
+                                {% if ocr.confidence.get('supplier_name', 1) < 0.7 %}border-warning{% endif %}"
+                                value="{{ ocr.supplier_name or '' }}">
+                            {% if ocr.confidence.get('supplier_name', 1) < 0.7 %}
+                            <div class="form-text text-warning">Confiança baixa – verifica</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label small">NIF <span class="text-danger">*</span></label>
+                            <input type="text" id="rev-supplier-nif-vis" class="form-control form-control-sm
+                                {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}border-warning{% endif %}"
+                                value="{{ ocr.supplier_nif or '' }}"
+                                pattern="[0-9]*" inputmode="numeric">
+                            {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}
+                            <div class="form-text text-warning">Confiança baixa – verifica</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Método de Pagamento <span class="text-danger">*</span></label>
+                            <select id="rev-supplier-pm-vis" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for val, label in payment_method_labels.items() %}
+                                <option value="{{ val }}" {% if pm_hint == val %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label small">Prazo de Pagamento <span class="text-danger">*</span></label>
+                            <select id="rev-supplier-pt-vis" class="form-select form-select-sm">
+                                <option value="">— Seleccionar —</option>
+                                {% for val, label in payment_terms_labels.items() %}
+                                <option value="{{ val }}" {% if pt_hint == val %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">IBAN</label>
+                            <input type="text" id="rev-supplier-iban-vis" class="form-control form-control-sm"
+                                   placeholder="PT50..." value="{{ iban_hint or '' }}">
+                        </div>
                     </div>
                 </div>
                 {% endif %}
@@ -282,28 +313,80 @@
 {% block scripts %}
 <script>
 (function() {
-    // Show/hide supplier-specific fields and VAT based on document_type
+    // ── New-supplier toggle (only rendered when supplier is null) ──────────────
+    var modeExisting = document.getElementById('rev-mode-existing');
+    var modeNew      = document.getElementById('rev-mode-new');
+    var panelExisting = document.getElementById('rev-panel-existing');
+    var panelNew      = document.getElementById('rev-panel-new');
+
+    var hidExistingId = document.getElementById('rev-existing-supplier-id');
+    var hidName  = document.getElementById('rev-supplier-name-hidden');
+    var hidNif   = document.getElementById('rev-supplier-nif-hidden');
+    var hidPm    = document.getElementById('rev-supplier-pm-hidden');
+    var hidPt    = document.getElementById('rev-supplier-pt-hidden');
+    var hidIban  = document.getElementById('rev-supplier-iban-hidden');
+
+    var selExisting = document.getElementById('rev-existing-select');
+    var visName  = document.getElementById('rev-supplier-name-vis');
+    var visNif   = document.getElementById('rev-supplier-nif-vis');
+    var visPm    = document.getElementById('rev-supplier-pm-vis');
+    var visPt    = document.getElementById('rev-supplier-pt-vis');
+    var visIban  = document.getElementById('rev-supplier-iban-vis');
+
+    function syncHidden() {
+        if (!modeExisting) return;
+        if (modeExisting.checked) {
+            // Existing mode: use selected supplier id; clear new-supplier fields
+            var opt = selExisting ? selExisting.options[selExisting.selectedIndex] : null;
+            hidExistingId.value = (selExisting && selExisting.value) ? selExisting.value : '';
+            hidName.value = opt ? (opt.dataset.name || '') : '';
+            hidNif.value  = opt ? (opt.dataset.nif  || '') : '';
+            hidPm.value  = '';
+            hidPt.value  = '';
+        } else {
+            // New mode: clear existing id; copy visible inputs
+            hidExistingId.value = '';
+            hidName.value = visName ? visName.value : '';
+            hidNif.value  = visNif  ? visNif.value  : '';
+            hidPm.value   = visPm   ? visPm.value   : '';
+            hidPt.value   = visPt   ? visPt.value   : '';
+            if (visIban && hidIban) hidIban.value = visIban.value;
+        }
+    }
+
+    function applyMode() {
+        if (!modeExisting) return;
+        var isExisting = modeExisting.checked;
+        if (panelExisting) panelExisting.classList.toggle('d-none', !isExisting);
+        if (panelNew)      panelNew.classList.toggle('d-none',  isExisting);
+        syncHidden();
+    }
+
+    if (modeExisting) {
+        modeExisting.addEventListener('change', applyMode);
+        modeNew.addEventListener('change', applyMode);
+        if (selExisting) selExisting.addEventListener('change', syncHidden);
+        [visName, visNif, visPm, visPt, visIban].forEach(function(el) {
+            if (el) el.addEventListener('input', syncHidden);
+            if (el && el.tagName === 'SELECT') el.addEventListener('change', syncHidden);
+        });
+        applyMode();
+
+        // Sync once more on submit to capture last-second changes
+        var reviewForm = document.querySelector('form[action]');
+        if (reviewForm) reviewForm.addEventListener('submit', syncHidden);
+    }
+
+    // ── Show/hide VAT and new-supplier extra fields by document_type ───────────
     var docTypeSelect = document.querySelector('select[name="document_type"]');
-    var reviewNewSupplierExtra = document.getElementById('review-new-supplier-extra');
     var reviewVatField = document.getElementById('review-vat-field');
-    var revSupplierName = document.getElementById('rev-supplier-name');
-    var revSupplierNif = document.getElementById('rev-supplier-nif');
-    var revSupplierPm = document.getElementById('rev-supplier-pm');
-    var revSupplierPt = document.getElementById('rev-supplier-pt');
 
     if (docTypeSelect) {
         function toggleReviewFields() {
             var isFatura = (docTypeSelect.value === 'fatura');
-            if (reviewNewSupplierExtra) {
-                reviewNewSupplierExtra.style.display = isFatura ? '' : 'none';
-            }
             if (reviewVatField) {
                 reviewVatField.style.display = isFatura ? '' : 'none';
             }
-            if (revSupplierName) { revSupplierName.required = isFatura; }
-            if (revSupplierNif) { revSupplierNif.required = isFatura; }
-            if (revSupplierPm) { revSupplierPm.required = isFatura; }
-            if (revSupplierPt) { revSupplierPt.required = isFatura; }
         }
         docTypeSelect.addEventListener('change', toggleReviewFields);
         toggleReviewFields();

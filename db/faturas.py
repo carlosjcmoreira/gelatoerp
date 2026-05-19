@@ -98,7 +98,7 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                 INSERT INTO suppliers (name, nif, category, store_id, notes,
                                        payment_method, payment_terms, iban, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (nif) DO UPDATE SET
+                ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
                     name = EXCLUDED.name,
                     category = EXCLUDED.category,
                     store_id = EXCLUDED.store_id,
@@ -150,6 +150,33 @@ def delete_supplier(supplier_id: int) -> bool:
         cursor.execute("DELETE FROM suppliers WHERE id = %s", (supplier_id,))
         conn.commit()
     return True
+
+
+def merge_supplier(source_id: int, target_id: int) -> int:
+    """Re-link all invoices from source supplier to target, then delete source.
+
+    Returns the number of invoices re-linked, or raises ValueError if the
+    source or target does not exist or they are the same.
+    """
+    if source_id == target_id:
+        raise ValueError('source_id e target_id devem ser diferentes.')
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM suppliers WHERE id = %s", (source_id,))
+        if not cursor.fetchone():
+            raise ValueError(f'Fornecedor de origem {source_id} não encontrado.')
+        cursor.execute("SELECT id FROM suppliers WHERE id = %s", (target_id,))
+        if not cursor.fetchone():
+            raise ValueError(f'Fornecedor de destino {target_id} não encontrado.')
+        cursor.execute("""
+            UPDATE invoices SET supplier_id = %s
+            WHERE supplier_id = %s
+        """, (target_id, source_id))
+        count = cursor.rowcount
+        cursor.execute("DELETE FROM suppliers WHERE id = %s", (source_id,))
+        conn.commit()
+    logger.info('merge_supplier: %d→%d, %d invoice(s) re-linked', source_id, target_id, count)
+    return count
 
 
 def get_supplier_by_name(name: str) -> dict:
@@ -279,6 +306,11 @@ def backfill_supplier_ids() -> dict:
     """
     with db_connection() as conn:
         cursor = conn.cursor()
+        # Advisory lock prevents concurrent backfill runs from creating duplicate suppliers
+        cursor.execute("SELECT pg_try_advisory_xact_lock(hashtext('backfill_supplier_ids'))")
+        if not cursor.fetchone()[0]:
+            logger.warning('backfill_supplier_ids: another run is in progress, skipping')
+            return {'suppliers_created': 0, 'invoices_linked': 0}
         cursor.execute("""
             SELECT supplier_name,
                    COALESCE(MAX(supplier_nif), '') AS nif
@@ -314,7 +346,7 @@ def backfill_supplier_ids() -> dict:
                     cursor.execute("""
                         INSERT INTO suppliers (name, nif, updated_at)
                         VALUES (%s, %s, NOW())
-                        ON CONFLICT (nif) DO UPDATE SET
+                        ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
                             name = EXCLUDED.name,
                             updated_at = NOW()
                         RETURNING id
