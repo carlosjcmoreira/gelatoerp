@@ -510,25 +510,25 @@ def marcar_paga(invoice_id):
 @compras_bp.route('/faturas/<int:invoice_id>/attach-pdf', methods=['POST'])
 @perm_required('acesso_administrativo')
 def attach_pdf(invoice_id: int):
+    back = request.form.get('_return_url', '').strip() or url_for('compras.faturas')
     inv = get_invoice(invoice_id)
     if not inv:
         flash('Fatura não encontrada.', 'warning')
-        return redirect(url_for('compras.faturas'))
+        return redirect(back)
     pdf_file = request.files.get('pdf_file')
     if not pdf_file or not pdf_file.filename:
         flash('Nenhum ficheiro seleccionado.', 'warning')
-        return redirect(url_for('compras.faturas'))
+        return redirect(back)
     if _ext(pdf_file.filename) != 'pdf':
         flash('Apenas ficheiros PDF são aceites.', 'warning')
-        return redirect(url_for('compras.faturas'))
+        return redirect(back)
     pdf_data = pdf_file.read()
     if len(pdf_data) > 20 * 1024 * 1024:
         flash('Ficheiro demasiado grande (máx. 20 MB).', 'warning')
-        return redirect(url_for('compras.faturas'))
+        return redirect(back)
     save_invoice_pdf(invoice_id, pdf_data, pdf_file.filename)
     flash('PDF anexado com sucesso.', 'success')
-    back = request.form.get('_return_url', '').strip()
-    return redirect(back if back else url_for('compras.faturas'))
+    return redirect(back)
 
 
 @compras_bp.route('/artigos', methods=['GET', 'POST'])
