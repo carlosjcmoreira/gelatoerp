@@ -328,8 +328,8 @@
 
 <script>
 /* ── Abrir painel lateral ──────────────────────────────────────── */
+var panelEl = document.getElementById('inv-panel');
 function openComprasInvPanel(id) {
-    var panelEl = document.getElementById('inv-panel');
     var panelBody = document.getElementById('inv-panel-body');
     var loading = document.getElementById('inv-panel-loading');
     if (!panelEl || !panelBody) return;
