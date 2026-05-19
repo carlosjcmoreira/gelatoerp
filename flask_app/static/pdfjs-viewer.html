@@ -1,26 +1,73 @@
 <!DOCTYPE html>
-<html lang="pt">
+<html lang="pt" data-theme="auto">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Visualizador PDF — Scoopy</title>
 <style>
+:root {
+  --bg: #525659;
+  --toolbar-bg: #323639;
+  --toolbar-color: #fff;
+  --toolbar-sep: rgba(255,255,255,0.2);
+  --btn-bg: rgba(255,255,255,0.1);
+  --btn-hover: rgba(255,255,255,0.25);
+  --btn-color: #fff;
+  --page-info-color: rgba(255,255,255,0.8);
+  --state-color: #fff;
+  --err-color: #ff7b7b;
+  --err-link: #ffb3b3;
+  --page-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+[data-theme="light"] {
+  --bg: #e8e8e8;
+  --toolbar-bg: #f2f2f2;
+  --toolbar-color: #222;
+  --toolbar-sep: rgba(0,0,0,0.15);
+  --btn-bg: rgba(0,0,0,0.07);
+  --btn-hover: rgba(0,0,0,0.15);
+  --btn-color: #222;
+  --page-info-color: rgba(0,0,0,0.65);
+  --state-color: #333;
+  --err-color: #c0392b;
+  --err-link: #922b21;
+  --page-shadow: 0 2px 8px rgba(0,0,0,0.18);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme="auto"] {
+    --bg: #e8e8e8;
+    --toolbar-bg: #f2f2f2;
+    --toolbar-color: #222;
+    --toolbar-sep: rgba(0,0,0,0.15);
+    --btn-bg: rgba(0,0,0,0.07);
+    --btn-hover: rgba(0,0,0,0.15);
+    --btn-color: #222;
+    --page-info-color: rgba(0,0,0,0.65);
+    --state-color: #333;
+    --err-color: #c0392b;
+    --err-link: #922b21;
+    --page-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  }
+}
+
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#525659;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden}
-#toolbar{background:#323639;color:#fff;display:flex;align-items:center;gap:6px;padding:8px 12px;flex-shrink:0;flex-wrap:wrap;min-height:48px}
+body{background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden;transition:background 0.2s}
+#toolbar{background:var(--toolbar-bg);color:var(--toolbar-color);display:flex;align-items:center;gap:6px;padding:8px 12px;flex-shrink:0;flex-wrap:wrap;min-height:48px;transition:background 0.2s,color 0.2s}
 #toolbar .brand{font-size:0.75rem;opacity:0.6;font-weight:600;letter-spacing:.03em;white-space:nowrap}
-#toolbar .sep{width:1px;height:20px;background:rgba(255,255,255,0.2);flex-shrink:0}
+#toolbar .sep{width:1px;height:20px;background:var(--toolbar-sep);flex-shrink:0}
 #toolbar .spacer{flex:1}
-.tbtn{background:rgba(255,255,255,0.1);border:none;color:#fff;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:0.8rem;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
-.tbtn:hover{background:rgba(255,255,255,0.25)}
+.tbtn{background:var(--btn-bg);border:none;color:var(--btn-color);border-radius:4px;padding:4px 10px;cursor:pointer;font-size:0.8rem;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:4px;transition:background 0.15s,color 0.15s}
+.tbtn:hover{background:var(--btn-hover)}
 .tbtn:disabled{opacity:0.4;cursor:default}
-.page-info{font-size:0.8rem;color:rgba(255,255,255,0.8);white-space:nowrap;min-width:80px;text-align:center}
+.page-info{font-size:0.8rem;color:var(--page-info-color);white-space:nowrap;min-width:80px;text-align:center;transition:color 0.2s}
 #viewer{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;align-items:center;gap:12px}
-.pdf-page-wrap{background:#fff;box-shadow:0 2px 8px rgba(0,0,0,0.5)}
+.pdf-page-wrap{background:#fff;box-shadow:var(--page-shadow)}
 .pdf-page-wrap canvas{display:block;max-width:100%}
-#state-msg{color:#fff;text-align:center;padding:60px 20px;font-size:1rem;opacity:0.85;width:100%}
-#err-msg{color:#ff7b7b;text-align:center;padding:60px 20px;width:100%}
-#err-msg a{color:#ffb3b3}
+#state-msg{color:var(--state-color);text-align:center;padding:60px 20px;font-size:1rem;opacity:0.85;width:100%}
+#err-msg{color:var(--err-color);text-align:center;padding:60px 20px;width:100%}
+#err-msg a{color:var(--err-link)}
 </style>
 </head>
 <body>
@@ -35,6 +82,7 @@ body{background:#525659;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",
   <div class="page-info" id="zoom-info">150%</div>
   <button class="tbtn" onclick="changeZoom(+0.25)">+</button>
   <div class="spacer"></div>
+  <button class="tbtn" id="btn-theme" onclick="toggleTheme()" title="Alternar tema claro/escuro">🌙</button>
   <a class="tbtn" id="dl-link" href="#" download>⬇ Descarregar</a>
 </div>
 <div id="viewer"><div id="state-msg">A carregar PDF…</div></div>
@@ -44,6 +92,51 @@ body{background:#525659;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script>
 (function() {
+  /* ── Theme toggle ── */
+  var html = document.documentElement;
+  var btnTheme = document.getElementById('btn-theme');
+
+  function resolveEffectiveTheme() {
+    var t = html.getAttribute('data-theme');
+    if (t === 'dark') return 'dark';
+    if (t === 'light') return 'light';
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+
+  function updateThemeButton() {
+    btnTheme.textContent = resolveEffectiveTheme() === 'dark' ? '☀️' : '🌙';
+    btnTheme.title = resolveEffectiveTheme() === 'dark' ? 'Mudar para tema claro' : 'Mudar para tema escuro';
+  }
+
+  window.toggleTheme = function() {
+    var current = resolveEffectiveTheme();
+    html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+    try { localStorage.setItem('pdfviewer-theme', html.getAttribute('data-theme')); } catch(e) {}
+    updateThemeButton();
+  };
+
+  /* Restore saved preference */
+  try {
+    var saved = localStorage.getItem('pdfviewer-theme');
+    if (saved === 'light' || saved === 'dark') {
+      html.setAttribute('data-theme', saved);
+    }
+  } catch(e) {}
+
+  /* Keep button in sync if system preference changes while auto */
+  var mql = window.matchMedia('(prefers-color-scheme: light)');
+  var themeChangeHandler = function() {
+    if (html.getAttribute('data-theme') === 'auto') updateThemeButton();
+  };
+  if (mql.addEventListener) {
+    mql.addEventListener('change', themeChangeHandler);
+  } else if (mql.addListener) {
+    mql.addListener(themeChangeHandler);
+  }
+
+  updateThemeButton();
+
+  /* ── PDF viewer ── */
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
