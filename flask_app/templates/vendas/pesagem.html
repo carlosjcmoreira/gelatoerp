@@ -24,13 +24,20 @@
                 <input type="date" id="manual-data" class="form-control" value="{{ data_sel.isoformat() }}" required>
             </div>
 
-            <div class="mb-3">
-                <label class="form-label fw-semibold">Sabor</label>
-                <select id="manual-sabor" class="form-select" required>
-                    {% for s in sabores %}
-                    <option value="{{ s }}">{{ s }}</option>
-                    {% endfor %}
-                </select>
+            <div class="mb-3" style="position:relative;">
+                <label class="form-label fw-semibold" for="manual-sabor-search">Sabor</label>
+                <input type="text" id="manual-sabor-search" class="form-control"
+                       placeholder="Escreve para filtrar…" autocomplete="off"
+                       aria-label="Pesquisar sabor" aria-autocomplete="list"
+                       aria-controls="manual-sabor-list" aria-expanded="false">
+                <input type="hidden" id="manual-sabor">
+                <ul id="manual-sabor-list" role="listbox"
+                    style="display:none;position:absolute;z-index:1050;width:100%;
+                           max-height:220px;overflow-y:auto;list-style:none;
+                           padding:0;margin:0;border:1px solid #dee2e6;
+                           border-top:none;border-radius:0 0 .375rem .375rem;
+                           background:#fff;box-shadow:0 4px 8px rgba(0,0,0,.12);">
+                </ul>
             </div>
 
             <div id="carapinas-container">
@@ -554,6 +561,11 @@ function adicionarALista() {
     }
 
     const sabor     = document.getElementById('manual-sabor').value.trim();
+    if (!sabor) {
+        alert('Seleciona um sabor antes de adicionar à lista.');
+        document.getElementById('manual-sabor-search').focus();
+        return;
+    }
     const dataVal   = document.getElementById('manual-data').value.trim();
     const carapinas = preenchidas.map(inp => parseKg(inp.value));
     const totalKg   = carapinas.reduce((a, b) => a + b, 0);
@@ -647,8 +659,7 @@ function resetFormManual() {
     });
     renumerarCarapinas();
     atualizarTotal();
-    const saborSel = document.getElementById('manual-sabor');
-    if (saborSel) saborSel.selectedIndex = 0;
+    resetSaborSearch();
 }
 
 /* ── Modal de confirmação ───────────────────────────────── */
@@ -1029,6 +1040,129 @@ function submeterOCR() {
 function escHtml(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
               .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* ── Sabor searchable dropdown ──────────────────────────── */
+(function () {
+    var searchInp  = document.getElementById('manual-sabor-search');
+    var hiddenInp  = document.getElementById('manual-sabor');
+    var list       = document.getElementById('manual-sabor-list');
+    var focusIdx   = -1;
+
+    function normalizeQ(s) { return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+
+    function buildItems(query) {
+        var q = normalizeQ(query || '');
+        return q
+            ? SABORES_CONHECIDOS.filter(function (s) { return normalizeQ(s).indexOf(q) !== -1; })
+            : SABORES_CONHECIDOS.slice();
+    }
+
+    function renderList(items) {
+        focusIdx = -1;
+        if (items.length === 0) {
+            list.style.display = 'none';
+            searchInp.setAttribute('aria-expanded', 'false');
+            return;
+        }
+        list.innerHTML = items.map(function (s, i) {
+            return '<li role="option" data-value="' + escHtml(s) + '" tabindex="-1" ' +
+                   'style="padding:0.45rem 0.75rem;cursor:pointer;font-size:0.95rem;' +
+                   'border-bottom:1px solid #f0f0f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"' +
+                   '>' + escHtml(s) + '</li>';
+        }).join('');
+        list.style.display = '';
+        searchInp.setAttribute('aria-expanded', 'true');
+    }
+
+    function selectItem(val) {
+        hiddenInp.value  = val;
+        searchInp.value  = val;
+        list.style.display = 'none';
+        searchInp.setAttribute('aria-expanded', 'false');
+        focusIdx = -1;
+    }
+
+    function highlightItem(idx) {
+        var items = list.querySelectorAll('li');
+        items.forEach(function (li, i) {
+            if (i === idx) {
+                li.style.background = '#e9f0ff';
+                li.scrollIntoView({ block: 'nearest' });
+            } else {
+                li.style.background = '';
+            }
+        });
+    }
+
+    searchInp.addEventListener('input', function () {
+        hiddenInp.value = '';
+        renderList(buildItems(this.value));
+    });
+
+    searchInp.addEventListener('focus', function () {
+        var items = buildItems(this.value);
+        if (items.length > 0 && list.style.display === 'none') {
+            renderList(items);
+        }
+    });
+
+    searchInp.addEventListener('keydown', function (e) {
+        var items = list.querySelectorAll('li');
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            focusIdx = Math.min(focusIdx + 1, items.length - 1);
+            highlightItem(focusIdx);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            focusIdx = Math.max(focusIdx - 1, 0);
+            highlightItem(focusIdx);
+        } else if (e.key === 'Enter') {
+            if (focusIdx >= 0 && items[focusIdx]) {
+                e.preventDefault();
+                selectItem(items[focusIdx].dataset.value);
+            }
+        } else if (e.key === 'Escape') {
+            list.style.display = 'none';
+            searchInp.setAttribute('aria-expanded', 'false');
+            focusIdx = -1;
+        }
+    });
+
+    list.addEventListener('mousedown', function (e) {
+        var li = e.target.closest('li');
+        if (li) {
+            e.preventDefault();
+            selectItem(li.dataset.value);
+        }
+    });
+
+    list.addEventListener('mouseover', function (e) {
+        var li = e.target.closest('li');
+        if (!li) return;
+        var items = list.querySelectorAll('li');
+        items.forEach(function (el, i) {
+            el.style.background = el === li ? '#e9f0ff' : '';
+            if (el === li) focusIdx = i;
+        });
+    });
+
+    document.addEventListener('click', function (e) {
+        if (!searchInp.contains(e.target) && !list.contains(e.target)) {
+            list.style.display = 'none';
+            searchInp.setAttribute('aria-expanded', 'false');
+            focusIdx = -1;
+        }
+    });
+})();
+
+function resetSaborSearch() {
+    var s = document.getElementById('manual-sabor-search');
+    var h = document.getElementById('manual-sabor');
+    var l = document.getElementById('manual-sabor-list');
+    if (s) s.value = '';
+    if (h) h.value = '';
+    if (l) { l.style.display = 'none'; l.innerHTML = ''; }
 }
 </script>
 {% endblock %}
