@@ -7,6 +7,26 @@ from db.connection import db_connection
 _MESES_PT = ['', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
              'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
 
+_INVOICE_DOC_TYPES = frozenset({'fatura', 'nota_credito', 'nota_debito'})
+
+
+def _require_supplier_for_invoice(cursor, invoice_id):
+    """Shared guard: raise ValueError if an invoice-type document lacks a supplier_id.
+
+    Must be called inside an open transaction before any status transition to
+    scheduled/paid so that no payment path can bypass the supplier requirement.
+    """
+    cursor.execute(
+        "SELECT supplier_id, document_type FROM invoices WHERE id = %s",
+        (invoice_id,)
+    )
+    row = cursor.fetchone()
+    if row and row[1] in _INVOICE_DOC_TYPES and not row[0]:
+        raise ValueError(
+            f'Não é possível processar pagamento: documento #{invoice_id} '
+            f'(tipo {row[1]}) não tem fornecedor ligado.'
+        )
+
 
 def _credit_debit_date_in_week(dia_debito: int, week_start: _date, week_end: _date):
     """Return the concrete debit date if the contract falls in this week, else None.
@@ -186,6 +206,7 @@ def propose_invoice_payment(invoice_id, proposed_date, amount_eur):
     """Create or update the payment proposal for an invoice."""
     with db_connection() as conn:
         cursor = conn.cursor()
+        _require_supplier_for_invoice(cursor, invoice_id)
         cursor.execute("""
             INSERT INTO invoice_payments (invoice_id, proposed_date, amount_eur, status)
             VALUES (%s, %s, %s, 'proposed')
@@ -208,6 +229,7 @@ def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by
     """Confirm payment date for an invoice."""
     with db_connection() as conn:
         cursor = conn.cursor()
+        _require_supplier_for_invoice(cursor, invoice_id)
         cursor.execute("""
             INSERT INTO invoice_payments (invoice_id, confirmed_date, amount_eur, status,
                                           confirmed_by, confirmed_at, notes, payment_method, confirming_contract_id)
@@ -236,6 +258,7 @@ def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None,
     """Mark invoice payment as executed/paid (upserts invoice_payments, updates invoices)."""
     with db_connection() as conn:
         cursor = conn.cursor()
+        _require_supplier_for_invoice(cursor, invoice_id)
         cursor.execute(
             """INSERT INTO invoice_payments
                    (invoice_id, paid_date, status, confirmed_by, notes, payment_method, confirming_contract_id, updated_at)
