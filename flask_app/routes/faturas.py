@@ -51,6 +51,13 @@ def _ext(filename: str) -> str:
     return filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
 
 
+def _panel_redirect(invoice_id: int):
+    back = request.form.get('_return_url', '').strip()
+    if back:
+        return redirect(back)
+    return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+
+
 def _parse_date(val: str):
     if not val:
         return None
@@ -827,7 +834,7 @@ def save():
     if return_to == 'pagamentos':
         return redirect(url_for('faturas.index'))
 
-    return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+    return _panel_redirect(invoice_id)
 
 
 # ── Cancel draft ───────────────────────────────────────────────────────────────
@@ -895,12 +902,26 @@ def invoice_panel(invoice_id: int):
     if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
         inv['display_status'] = 'overdue'
         inv['status_label'] = 'Vencida'
+    linhas = get_invoice_linhas(invoice_id)
+    materiais = list_materiais(apenas_ativos=True)
+    stock_local_derivado = derive_local_from_store(
+        store_name=inv.get('store_name'), store_id=inv.get('store_id'))
     return render_template(
         'financeiro/faturas/_panel.html',
         inv=inv,
         today=today,
         status_labels=INVOICE_STATUS_LABELS,
         document_type_labels=DOCUMENT_TYPE_LABELS,
+        stores=get_stores_list(),
+        categories=INVOICE_CATEGORIES,
+        subfolders=ONEDRIVE_SUBFOLDERS,
+        payment_methods=[m for m in get_payment_methods_config() if m.get('ativo')],
+        confirming_contracts=get_confirming_contracts(),
+        linhas=linhas,
+        materiais=materiais,
+        locais_stock=LOCAIS_STOCK,
+        unidades_materiais=UNIDADES_MATERIAIS,
+        stock_local_derivado=stock_local_derivado,
     )
 
 
@@ -916,7 +937,7 @@ def linha(invoice_id: int):
 
     if inv.get('stock_registado_at'):
         flash('As linhas desta fatura não podem ser alteradas após o stock ter sido registado.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
 
     action = request.form.get('action', '')
     if action == 'delete':
@@ -924,18 +945,18 @@ def linha(invoice_id: int):
         if linha_id:
             delete_invoice_linha(linha_id, invoice_id)
             flash('Linha eliminada.', 'success')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
 
     descricao = request.form.get('descricao', '').strip()
     if not descricao:
         flash('A descrição é obrigatória.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
 
     try:
         quantidade = float(request.form.get('quantidade', '').replace(',', '.'))
     except (ValueError, AttributeError):
         flash('Quantidade inválida.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
 
     unidade = request.form.get('unidade', 'un').strip()
     material_id_raw = request.form.get('material_id', '').strip()
@@ -951,7 +972,7 @@ def linha(invoice_id: int):
             preco_unitario = float(preco_raw)
         except ValueError:
             flash('Preço unitário inválido — deve ser um número (ex: 1.50).', 'warning')
-            return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+            return _panel_redirect(invoice_id)
 
     linha_id = request.form.get('linha_id', type=int)
 
@@ -967,16 +988,16 @@ def linha(invoice_id: int):
         )
     except ValueError as e:
         flash(f'Erro ao guardar linha: {e}', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
     except psycopg2.IntegrityError as e:
         logging.warning('IntegrityError saving invoice linha: %s', e)
         flash('Não foi possível guardar a linha (material inválido ou dados inconsistentes).', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
     if saved_id is None:
         flash('Linha não encontrada ou sem permissão para editar.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
     flash('Linha guardada.', 'success')
-    return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+    return _panel_redirect(invoice_id)
 
 
 @faturas_bp.route('/<int:invoice_id>/registar-stock', methods=['POST'])
@@ -989,7 +1010,7 @@ def registar_stock(invoice_id: int):
 
     if inv.get('stock_registado_at'):
         flash('O stock desta fatura já foi registado e não pode ser executado novamente.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
 
     # Derive local from invoice store_id (primary) then store_name; only fall back to submitted value if unmapped
     local = derive_local_from_store(store_name=inv.get('store_name'), store_id=inv.get('store_id'))
@@ -997,25 +1018,25 @@ def registar_stock(invoice_id: int):
         local = request.form.get('local', '').strip()
     if local not in LOCAIS_STOCK:
         flash('Não foi possível determinar o local de stock. Seleciona um local e tenta de novo.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
 
     utilizador = session.get('user', {}).get('username', 'system')
     try:
         resultado = registar_entradas_stock_fatura(invoice_id, utilizador, local)
     except ValueError as e:
         flash(str(e), 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
     except Exception as e:
         logging.error('Erro ao registar stock para fatura %s: %s', invoice_id, e)
         flash('Ocorreu um erro inesperado ao registar o stock. Tenta novamente.', 'danger')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+        return _panel_redirect(invoice_id)
 
     n = resultado['registadas']
     if n == 0:
         flash('Nenhuma linha com material associado por registar.', 'info')
     else:
         flash(f'{n} entrada(s) de stock registada(s) em {local}.', 'success')
-    return redirect(url_for('faturas.detail', invoice_id=invoice_id) + '#linhas')
+    return _panel_redirect(invoice_id)
 
 
 # ── Edit ───────────────────────────────────────────────────────────────────────
@@ -1075,7 +1096,7 @@ def edit(invoice_id: int):
             and status in _NON_DRAFT_STATUSES
             and not supplier_id):
         flash('Seleciona um fornecedor antes de guardar este tipo de documento em estado não rascunho.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+        return _panel_redirect(invoice_id)
 
     update_invoice(invoice_id, {
         'supplier_id': supplier_id,
@@ -1095,7 +1116,7 @@ def edit(invoice_id: int):
     })
 
     flash('Documento actualizado.', 'success')
-    return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+    return _panel_redirect(invoice_id)
 
 
 # ── Quick actions ──────────────────────────────────────────────────────────────
@@ -1106,14 +1127,14 @@ def confirmar(invoice_id: int):
     confirmed_date = _parse_date(request.form.get('confirmed_date', ''))
     if not confirmed_date:
         flash('É obrigatório indicar a data de confirmação.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+        return _panel_redirect(invoice_id)
     inv = get_invoice(invoice_id)
     if not inv:
         flash('Fatura não encontrada.', 'warning')
         return redirect(url_for('faturas.index'))
     if inv.get('status') not in ('pending_review', 'scheduled', 'overdue'):
         flash('Estado da fatura não permite confirmação de data.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+        return _panel_redirect(invoice_id)
     amount_eur = inv.get('amount_eur')
     current_user = session.get('user', {}).get('username', 'system')
     payment_method = request.form.get('payment_method', '').strip() or None
@@ -1125,14 +1146,14 @@ def confirmar(invoice_id: int):
     if payment_method == 'confirming':
         if not confirming_id:
             flash('Selecione um contrato de confirming.', 'warning')
-            return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+            return _panel_redirect(invoice_id)
         try:
             parcelas = _parse_confirming_parcelas()
             if parcelas:
                 total = sum(p['montante'] for p in parcelas)
                 if amount_eur and abs(total - float(amount_eur)) > 0.02:
                     flash(f'Total das parcelas ({total:.2f} €) difere do valor da fatura ({float(amount_eur):.2f} €).', 'warning')
-                    return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+                    return _panel_redirect(invoice_id)
                 create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas, estado='scheduled')
             else:
                 create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), confirmed_date,
@@ -1140,7 +1161,7 @@ def confirmar(invoice_id: int):
         except Exception as e:
             logger.warning('create_confirming_parcela invoice=%s: %s', invoice_id, e)
     flash('Data confirmada. Fatura agendada.', 'success')
-    return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+    return _panel_redirect(invoice_id)
 
 
 @faturas_bp.route('/<int:invoice_id>/pagar', methods=['POST'])
@@ -1149,7 +1170,7 @@ def pagar(invoice_id: int):
     paid_date = _parse_date(request.form.get('paid_date', ''))
     if not paid_date:
         flash('É obrigatório indicar a data de pagamento.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+        return _panel_redirect(invoice_id)
     current_user = session.get('user', {}).get('username', 'system')
     payment_method = request.form.get('payment_method', '').strip() or None
     confirming_id_raw = request.form.get('confirming_contract_id', '').strip()
@@ -1160,7 +1181,7 @@ def pagar(invoice_id: int):
     if payment_method == 'confirming':
         if not confirming_id:
             flash('Selecione um contrato de confirming.', 'warning')
-            return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+            return _panel_redirect(invoice_id)
         inv = get_invoice(invoice_id)
         if inv:
             amount_eur = inv.get('amount_eur')
@@ -1170,7 +1191,7 @@ def pagar(invoice_id: int):
                     total = sum(p['montante'] for p in parcelas)
                     if amount_eur and abs(total - float(amount_eur)) > 0.02:
                         flash(f'Total das parcelas ({total:.2f} €) difere do valor da fatura ({float(amount_eur):.2f} €).', 'warning')
-                        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+                        return _panel_redirect(invoice_id)
                     create_confirming_parcelas_batch(invoice_id, confirming_id, parcelas, estado='paid')
                 else:
                     create_confirming_parcela(invoice_id, confirming_id, float(amount_eur or 0), paid_date,
@@ -1178,7 +1199,7 @@ def pagar(invoice_id: int):
             except Exception as e:
                 logger.warning('create_confirming_parcela pagar invoice=%s: %s', invoice_id, e)
     flash('Fatura marcada como paga.', 'success')
-    return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+    return _panel_redirect(invoice_id)
 
 
 @faturas_bp.route('/<int:invoice_id>/arquivar-onedrive', methods=['POST'])
@@ -1192,7 +1213,7 @@ def arquivar_onedrive(invoice_id: int):
     pdf_data, pdf_filename = get_invoice_pdf(invoice_id)
     if not pdf_data:
         flash('PDF não disponível para arquivo.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+        return _panel_redirect(invoice_id)
 
     subfolder = request.form.get('onedrive_subfolder') or inv.get('onedrive_subfolder') or 'Gestão'
     try:
@@ -1208,7 +1229,7 @@ def arquivar_onedrive(invoice_id: int):
         logger.warning('arquivar_onedrive failed for invoice %s: %s', invoice_id, _od_exc)
         flash('Não foi possível arquivar no OneDrive. Tenta novamente ou contacta o administrador.', 'warning')
 
-    return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+    return _panel_redirect(invoice_id)
 
 
 @faturas_bp.route('/<int:invoice_id>/eliminar', methods=['POST'])
@@ -1227,7 +1248,7 @@ def download_pdf(invoice_id: int):
     pdf_data, pdf_filename = get_invoice_pdf(invoice_id)
     if not pdf_data:
         flash('PDF não disponível.', 'warning')
-        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+        return _panel_redirect(invoice_id)
     filename = pdf_filename or 'fatura.pdf'
     as_attachment = request.args.get('dl') == '1'
     response = send_file(

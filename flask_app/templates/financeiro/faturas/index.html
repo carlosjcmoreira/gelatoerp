@@ -249,7 +249,7 @@
                             <tr>
                                 <th style="width:36px"></th>
                                 <th>Nº Documento</th>
-                                <th>Tipo</th>
+                                <th style="width:52px">Tipo</th>
                                 <th class="text-end">Valor</th>
                                 <th>Vencimento</th>
                                 <th>Estado</th>
@@ -974,6 +974,7 @@ function openInvPanel(id) {
     var panelBody = document.getElementById('inv-panel-body');
     var loading = document.getElementById('inv-panel-loading');
     if (!panelEl || !panelBody) return;
+    document.querySelectorAll('.panel-modal').forEach(function(m) { m.remove(); });
     var offcanvas = bootstrap.Offcanvas.getOrCreateInstance(panelEl);
     panelBody.innerHTML = '';
     if (loading) { panelBody.appendChild(loading); loading.style.display = ''; }
@@ -981,9 +982,23 @@ function openInvPanel(id) {
     var url = {{ url_for('faturas.invoice_panel', invoice_id=0)|tojson }}.replace('/0/panel', '/' + id + '/panel');
     fetch(url, { credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
-        .then(function(html) { panelBody.innerHTML = html; _renderPanelPdf(panelBody); })
+        .then(function(html) {
+            panelBody.innerHTML = html;
+            panelBody.querySelectorAll('.panel-modal').forEach(function(m) {
+                document.body.appendChild(m);
+            });
+            _renderPanelPdf(panelBody);
+        })
         .catch(function() { panelBody.innerHTML = '<p class="text-danger p-3">Erro ao carregar o documento.</p>'; });
 }
+(function() {
+    var panelEl = document.getElementById('inv-panel');
+    if (panelEl) {
+        panelEl.addEventListener('hidden.bs.offcanvas', function() {
+            document.querySelectorAll('.panel-modal').forEach(function(m) { m.remove(); });
+        });
+    }
+})();
 </script>
 {% endif %}
 
