@@ -130,7 +130,7 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
         else:
             # No NIF — look up by name first to avoid duplicates
             cursor.execute(
-                "SELECT id FROM suppliers WHERE LOWER(name) = LOWER(%s) LIMIT 1", (name,))
+                "SELECT id FROM suppliers WHERE LOWER(name) = LOWER(%s) AND nif IS NULL LIMIT 1", (name,))
             row = cursor.fetchone()
             if row:
                 supplier_id = row[0]
@@ -149,13 +149,40 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                 """, (name, category, store_id, notes,
                       payment_method, payment_terms, iban, supplier_id))
             else:
-                cursor.execute("""
-                    INSERT INTO suppliers (name, category, store_id, notes,
-                                           payment_method, payment_terms, iban, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-                    RETURNING id
-                """, (name, category, store_id, notes, payment_method, payment_terms, iban))
-                supplier_id = cursor.fetchone()[0]
+                try:
+                    cursor.execute("""
+                        INSERT INTO suppliers (name, category, store_id, notes,
+                                               payment_method, payment_terms, iban, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                        RETURNING id
+                    """, (name, category, store_id, notes, payment_method, payment_terms, iban))
+                    supplier_id = cursor.fetchone()[0]
+                except psycopg2.errors.UniqueViolation:
+                    # Race condition: another worker inserted the same name concurrently.
+                    # Roll back the failed statement, then fetch the existing row and update it.
+                    conn.rollback()
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT id FROM suppliers WHERE LOWER(name) = LOWER(%s) AND nif IS NULL LIMIT 1",
+                        (name,))
+                    row = cursor.fetchone()
+                    if row is None:
+                        raise
+                    supplier_id = row[0]
+                    cursor.execute("""
+                        UPDATE suppliers SET
+                            name = %s,
+                            category = COALESCE(%s, category),
+                            store_id = COALESCE(%s, store_id),
+                            notes = COALESCE(%s, notes),
+                            payment_method = COALESCE(%s, payment_method),
+                            payment_terms = COALESCE(%s, payment_terms),
+                            iban = COALESCE(%s, iban),
+                            updated_at = NOW()
+                        WHERE id = %s
+                    """, (name, category, store_id, notes,
+                          payment_method, payment_terms, iban, supplier_id))
+                    logger.info("upsert_supplier: resolved race condition for null-NIF supplier '%s' (id=%s)", name, supplier_id)
             conn.commit()
             try:
                 link_invoices_to_supplier_by_name(supplier_id)
