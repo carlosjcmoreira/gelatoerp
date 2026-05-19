@@ -28,10 +28,13 @@
 
     {% if unlinked_names %}
     <div class="card border-warning mb-4">
-        <div class="card-header bg-warning bg-opacity-10 py-2 d-flex justify-content-between align-items-center">
+        <div class="card-header bg-warning bg-opacity-10 py-2 d-flex justify-content-between align-items-center"
+             style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#unlinkedCollapse"
+             aria-expanded="true" aria-controls="unlinkedCollapse">
             <span class="fw-semibold small">⚠️ Nomes sem correspondência ({{ unlinked_names | length }})</span>
-            <span class="text-muted small">Faturas sem fornecedor ligado</span>
+            <span class="text-muted small">▾ Faturas sem fornecedor ligado</span>
         </div>
+        <div class="collapse show" id="unlinkedCollapse">
         <div class="list-group list-group-flush">
             {% for u in unlinked_names %}
             <div class="list-group-item py-2 px-3">
@@ -70,6 +73,7 @@
                 </div>
             </div>
             {% endfor %}
+        </div>
         </div>
     </div>
     {% endif %}

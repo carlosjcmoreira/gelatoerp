@@ -574,8 +574,8 @@ def get_distinct_supplier_names() -> list:
             FROM invoices i
             LEFT JOIN suppliers s ON s.id = i.supplier_id
             WHERE i.status != 'draft'
-              AND i.supplier_name IS NOT NULL
-              AND i.supplier_name != ''
+              AND COALESCE(s.name, i.supplier_name) IS NOT NULL
+              AND COALESCE(s.name, i.supplier_name) != ''
             ORDER BY display_name
         """)
         return [row[0] for row in cursor.fetchall()]
