@@ -794,6 +794,7 @@ def save():
         'supplier_payment_terms': request.form.get('supplier_payment_terms', ''),
         'supplier_iban': request.form.get('supplier_iban', ''),
         'is_new_supplier': request.form.get('is_new_supplier', ''),
+        'existing_supplier_id': request.form.get('existing_supplier_id', ''),
         'centro_custo_id': request.form.get('centro_custo_id', ''),
         'categoria_custo_id': request.form.get('categoria_custo_id', ''),
     }
@@ -1045,6 +1046,14 @@ def edit(invoice_id: int):
         except Exception as _sup_exc:
             logger.warning('upsert_supplier failed during edit for invoice %s: %s', invoice_id, _sup_exc)
             flash('Dados do fornecedor não puderam ser actualizados, mas os restantes campos foram guardados.', 'warning')
+    elif supplier_name and not supplier_id:
+        # Fallback: try name-based lookup when no NIF is provided
+        try:
+            _matched = get_supplier_by_name(supplier_name)
+            if _matched:
+                supplier_id = _matched['id']
+        except Exception:
+            pass
 
     update_invoice(invoice_id, {
         'supplier_id': supplier_id,

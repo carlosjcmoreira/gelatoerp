@@ -387,6 +387,13 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
         except Exception:
             pass
 
+    # Enforce: invoice-type documents must have a resolved supplier before leaving draft
+    DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
+    if document_type in DOCUMENT_TYPES_INVOICE and not supplier_id:
+        raise ServiceError(
+            'Seleciona ou cria um fornecedor antes de guardar este tipo de documento.'
+        )
+
     try:
         update_invoice(invoice_id, {
             'supplier_id': supplier_id,
