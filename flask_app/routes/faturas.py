@@ -1062,6 +1062,12 @@ def edit(invoice_id: int):
         except Exception:
             pass
 
+    # Enforce: invoice-type docs that are being moved to a non-draft status must have supplier_id
+    _INVOICE_EDIT_DOC_TYPES = {'fatura', 'nota_credito', 'nota_debito'}
+    if document_type in _INVOICE_EDIT_DOC_TYPES and not supplier_id:
+        flash('Seleciona um fornecedor antes de guardar este tipo de documento.', 'warning')
+        return redirect(url_for('faturas.detail', invoice_id=invoice_id))
+
     update_invoice(invoice_id, {
         'supplier_id': supplier_id,
         'supplier_name': supplier_name or None,
@@ -1314,9 +1320,9 @@ def fornecedores():
 def fornecedores_quick():
     """AJAX endpoint: quick supplier creation from the registar form modal."""
     name = request.form.get('name', '').strip()
-    nif = ''.join(c for c in request.form.get('nif', '') if c.isdigit())
-    if not name or not nif:
-        return jsonify({'error': 'Nome e NIF são obrigatórios.'}), 400
+    nif = ''.join(c for c in request.form.get('nif', '') if c.isdigit()) or None
+    if not name:
+        return jsonify({'error': 'Nome do fornecedor é obrigatório.'}), 400
     payment_method = request.form.get('payment_method', '').strip() or None
     payment_terms = request.form.get('payment_terms', '').strip() or None
     iban = request.form.get('iban', '').strip() or None
@@ -1330,7 +1336,7 @@ def fornecedores_quick():
         return jsonify({
             'id': supplier_id,
             'name': name,
-            'nif': nif,
+            'nif': nif or '',
             'payment_method': payment_method or '',
             'payment_terms': payment_terms or '',
         })

@@ -695,6 +695,10 @@ def create_invoice(data: dict) -> int:
     return invoice_id
 
 
+_STATUSES_REQUIRING_SUPPLIER = frozenset({'pending_review', 'scheduled', 'paid', 'overdue'})
+_DOCUMENT_TYPES_INVOICE = frozenset({'fatura', 'nota_credito', 'nota_debito'})
+
+
 def update_invoice(invoice_id: int, data: dict):
     fields = []
     params = []
@@ -714,6 +718,22 @@ def update_invoice(invoice_id: int, data: dict):
     params.append(invoice_id)
     with db_connection() as conn:
         cursor = conn.cursor()
+        # Central guard: invoice-type documents cannot enter post-draft states without supplier_id
+        new_status = data.get('status')
+        if new_status in _STATUSES_REQUIRING_SUPPLIER:
+            cursor.execute(
+                "SELECT supplier_id, document_type FROM invoices WHERE id = %s", (invoice_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                existing_supplier_id, existing_doc_type = row
+                effective_supplier_id = data.get('supplier_id') if 'supplier_id' in data else existing_supplier_id
+                effective_doc_type = data.get('document_type', existing_doc_type)
+                if effective_doc_type in _DOCUMENT_TYPES_INVOICE and not effective_supplier_id:
+                    raise ValueError(
+                        f'Não é possível mover para estado "{new_status}" sem fornecedor ligado '
+                        f'(documento tipo {effective_doc_type}).'
+                    )
         cursor.execute(
             f"UPDATE invoices SET {', '.join(fields)} WHERE id = %s",
             params
