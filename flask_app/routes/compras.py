@@ -166,6 +166,17 @@ def faturas():
         _fqs_d['date_field'] = date_field
     filter_qs = '?' + urlencode(_fqs_d) if _fqs_d else '?'
 
+    # Build base query (no status) for badge strip counts
+    _bfqs_d = {k: v for k, v in _fqs_d.items() if k != 'status'}
+    base_filter_qs = '?' + urlencode(_bfqs_d) if _bfqs_d else '?'
+    _count_base = {k: v for k, v in filter_kwargs.items() if k != 'status'}
+    status_counts = {
+        'overdue': count_invoices(**_count_base, status='overdue'),
+        'pending_review': count_invoices(**_count_base, status='pending_review'),
+        'scheduled': count_invoices(**_count_base, status='scheduled'),
+        'paid': count_invoices(**_count_base, status='paid'),
+    }
+
     return render_template('compras/faturas.html',
                            invoices=invoices,
                            suppliers=suppliers,
@@ -183,6 +194,8 @@ def faturas():
                            order_by=order_by,
                            order_dir=order_dir,
                            filter_qs=filter_qs,
+                           base_filter_qs=base_filter_qs,
+                           status_counts=status_counts,
                            page=page,
                            total_pages=total_pages,
                            total_count=total_count,
@@ -198,16 +211,22 @@ def faturas():
 @perm_required('acesso_administrativo')
 def set_invoice_status(invoice_id: int):
     from flask import jsonify
+    from datetime import date as _date
     data = request.get_json(silent=True) or {}
     new_status = data.get('status', '').strip()
     valid_statuses = {'pending_review', 'scheduled', 'paid', 'cancelled'}
     if new_status not in valid_statuses:
         return jsonify({'ok': False, 'error': 'Estado inválido'}), 400
+    updates = {'status': new_status}
+    if new_status == 'paid':
+        updates['paid_date'] = _date.today()
+    else:
+        updates['paid_date'] = None
     try:
-        update_invoice(invoice_id, {'status': new_status})
+        update_invoice(invoice_id, updates)
     except Exception as e:
         logger.error('set_invoice_status error: %s', e)
-        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
+        return jsonify({'ok': False, 'error': str(e) or 'Erro interno'}), 500
     status_label = INVOICE_STATUS_LABELS.get(new_status, new_status)
     return jsonify({'ok': True, 'status': new_status, 'status_label': status_label})
 
@@ -260,13 +279,15 @@ def download_pdf(invoice_id: int):
     if not pdf_data:
         return 'PDF não disponível', 404
     filename = pdf_filename or 'fatura.pdf'
+    as_attachment = request.args.get('dl') == '1'
     response = send_file(
         BytesIO(pdf_data),
         mimetype='application/pdf',
-        as_attachment=False,
+        as_attachment=as_attachment,
         download_name=filename,
     )
-    response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+    if not as_attachment:
+        response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
     return response
 
 

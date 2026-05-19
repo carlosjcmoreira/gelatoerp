@@ -35,6 +35,34 @@
         </details>
     </form>
 
+    {# ── Badges de estado ─────────────────────────────────────── #}
+    <div class="d-flex flex-wrap gap-2 mb-2">
+        {% if status_counts.overdue > 0 %}
+        <a href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}status=overdue"
+           class="badge text-decoration-none fs-badge {{ 'bg-danger text-white' if status_filter == 'overdue' else 'bg-danger-subtle text-danger-emphasis' }}">
+            🔴 Vencidas: {{ status_counts.overdue }}
+        </a>
+        {% endif %}
+        {% if status_counts.pending_review > 0 %}
+        <a href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}status=pending_review"
+           class="badge text-decoration-none fs-badge {{ 'bg-warning text-dark' if status_filter == 'pending_review' else 'bg-warning-subtle text-warning-emphasis' }}">
+            ⚠ A rever: {{ status_counts.pending_review }}
+        </a>
+        {% endif %}
+        {% if status_counts.scheduled > 0 %}
+        <a href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}status=scheduled"
+           class="badge text-decoration-none fs-badge {{ 'bg-info text-dark' if status_filter == 'scheduled' else 'bg-info-subtle text-info-emphasis' }}">
+            🕐 Agendadas: {{ status_counts.scheduled }}
+        </a>
+        {% endif %}
+        {% if status_counts.paid > 0 %}
+        <a href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}status=paid"
+           class="badge text-decoration-none fs-badge {{ 'bg-success text-white' if status_filter == 'paid' else 'bg-success-subtle text-success-emphasis' }}">
+            ✅ Pagas: {{ status_counts.paid }}
+        </a>
+        {% endif %}
+    </div>
+
     {# ── Contagem ─────────────────────────────────────────────── #}
     {% if total_count > 0 %}
     <div class="text-muted small mb-2">
