@@ -37,7 +37,7 @@ from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2, run_mig
 from db.schema import run_migrations_fecho_caixa_audit
 from db.schema import run_migrations_user_audit_log
 from db.schema import run_migrations_cost_center_allocation
-from db.schema import run_migrations_suppliers_nullable_nif
+from db.schema import run_migrations_suppliers_nullable_nif, run_migrations_normalise_supplier_nifs
 
 
 def _start_sheets_sync_scheduler():
@@ -156,6 +156,7 @@ def create_app():
         sync_produtos_vendas_config()
         seed_artigos_administrativos()
         run_migrations_suppliers_nullable_nif()
+        run_migrations_normalise_supplier_nifs()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()

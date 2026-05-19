@@ -3069,6 +3069,119 @@ def run_migrations_cost_center_allocation():
                 pass
 
 
+_LOCK_NORMALISE_SUPPLIER_NIFS = 202720
+
+
+def run_migrations_normalise_supplier_nifs():
+    """Normalise all existing non-null NIF values in suppliers: strip spaces/dashes, uppercase.
+
+    Execution order:
+    1. Detect groups of suppliers whose NIFs would collide after normalisation.
+       For each collision group keep the row with the most invoices (lowest id as
+       tiebreaker), re-link all invoices from the losers to the survivor, then
+       delete the loser rows.
+    2. UPDATE every remaining non-null NIF that is not already in normal form.
+    3. Verify: count any non-normalised NIFs still present and log a warning if
+       any remain (indicates a constraint or trigger blocked the update).
+
+    Idempotent: once data is already clean both steps above match zero rows and
+    complete as no-ops.  An advisory lock (202720) ensures concurrent Gunicorn
+    workers skip rather than race on the first startup.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_NORMALISE_SUPPLIER_NIFS,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_normalise_supplier_nifs: lock held by another worker, skipping")
+                return
+
+            # Step 1 — resolve collisions before touching the unique index
+            cursor.execute("""
+                SELECT normalized_nif,
+                       array_agg(id ORDER BY invoice_count DESC, id ASC) AS ids
+                FROM (
+                    SELECT s.id,
+                           UPPER(REPLACE(REPLACE(s.nif, ' ', ''), '-', '')) AS normalized_nif,
+                           COUNT(i.id) AS invoice_count
+                    FROM suppliers s
+                    LEFT JOIN invoices i ON i.supplier_id = s.id
+                    WHERE s.nif IS NOT NULL
+                    GROUP BY s.id
+                ) sub
+                GROUP BY normalized_nif
+                HAVING COUNT(*) > 1
+            """)
+            collision_groups = cursor.fetchall()
+
+            merged_suppliers = 0
+            relinked_invoices = 0
+            for _norm_nif, ids in collision_groups:
+                survivor_id = ids[0]
+                for dup_id in ids[1:]:
+                    cursor.execute(
+                        "UPDATE invoices SET supplier_id = %s WHERE supplier_id = %s",
+                        (survivor_id, dup_id),
+                    )
+                    relinked_invoices += cursor.rowcount
+                    cursor.execute("DELETE FROM suppliers WHERE id = %s", (dup_id,))
+                    merged_suppliers += 1
+
+            if merged_suppliers:
+                logger.info(
+                    "run_migrations_normalise_supplier_nifs: merged %d duplicate supplier(s), "
+                    "%d invoice(s) re-linked",
+                    merged_suppliers,
+                    relinked_invoices,
+                )
+
+            # Step 2 — normalise every NIF not already in normal form
+            cursor.execute("""
+                UPDATE suppliers
+                SET nif = UPPER(REPLACE(REPLACE(nif, ' ', ''), '-', ''))
+                WHERE nif IS NOT NULL
+                  AND nif IS DISTINCT FROM UPPER(REPLACE(REPLACE(nif, ' ', ''), '-', ''))
+            """)
+            updated = cursor.rowcount
+            conn.commit()
+            logger.info(
+                "run_migrations_normalise_supplier_nifs: normalised %d NIF(s)", updated
+            )
+
+            # Step 3 — verify no non-normalised NIFs remain
+            cursor.execute("""
+                SELECT COUNT(*) FROM suppliers
+                WHERE nif IS NOT NULL
+                  AND nif IS DISTINCT FROM UPPER(REPLACE(REPLACE(nif, ' ', ''), '-', ''))
+            """)
+            remaining = cursor.fetchone()[0]
+            if remaining:
+                logger.warning(
+                    "run_migrations_normalise_supplier_nifs: %d NIF(s) still not in normal form "
+                    "after migration — manual inspection required",
+                    remaining,
+                )
+            else:
+                logger.info("run_migrations_normalise_supplier_nifs: verification passed — all NIFs normalised")
+
+        except Exception as exc:
+            logger.error(
+                "run_migrations_normalise_supplier_nifs FAILED — supplier NIFs may remain "
+                "inconsistent, manual cleanup required: %s",
+                exc,
+            )
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_NORMALISE_SUPPLIER_NIFS,))
+                conn.commit()
+            except Exception:
+                pass
+
+
 def run_migrations_suppliers_nullable_nif():
     """Allow suppliers.nif to be NULL (needed for suppliers that have no NIF).
 
