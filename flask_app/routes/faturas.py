@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_invoices, get_invoice, get_invoice_pdf, create_invoice, update_invoice,
     delete_invoice, confirm_invoice_payment, mark_payment_executed,
-    get_suppliers, get_supplier_by_nif, get_supplier_by_name,
+    get_suppliers, get_supplier_by_id, get_supplier_by_nif, get_supplier_by_name,
     upsert_supplier, delete_supplier, merge_supplier,
     link_invoices_to_supplier_by_name, bulk_link_invoices_by_name,
     get_unlinked_supplier_names, get_suppliers_with_invoice_count,
@@ -740,9 +740,14 @@ def review(invoice_id):
         'error': None,
     }
 
+    # Resolve supplier: FK first (works even without NIF), then NIF, then name
     supplier = None
-    if inv.get('supplier_nif'):
+    if inv.get('supplier_id'):
+        supplier = get_supplier_by_id(inv['supplier_id'])
+    if not supplier and inv.get('supplier_nif'):
         supplier = get_supplier_by_nif(inv['supplier_nif'])
+    if not supplier and inv.get('supplier_name'):
+        supplier = get_supplier_by_name(inv['supplier_name'])
 
     return_to = session.get('faturas_return_to', '')
 
@@ -1062,10 +1067,14 @@ def edit(invoice_id: int):
         except Exception:
             pass
 
-    # Enforce: invoice-type docs that are being moved to a non-draft status must have supplier_id
+    # Enforce: invoice-type docs in non-draft statuses must have supplier_id.
+    # Draft edits are allowed so users can fill in supplier progressively.
     _INVOICE_EDIT_DOC_TYPES = {'fatura', 'nota_credito', 'nota_debito'}
-    if document_type in _INVOICE_EDIT_DOC_TYPES and not supplier_id:
-        flash('Seleciona um fornecedor antes de guardar este tipo de documento.', 'warning')
+    _NON_DRAFT_STATUSES = {'pending_review', 'scheduled', 'paid', 'overdue'}
+    if (document_type in _INVOICE_EDIT_DOC_TYPES
+            and status in _NON_DRAFT_STATUSES
+            and not supplier_id):
+        flash('Seleciona um fornecedor antes de guardar este tipo de documento em estado não rascunho.', 'warning')
         return redirect(url_for('faturas.detail', invoice_id=invoice_id))
 
     update_invoice(invoice_id, {

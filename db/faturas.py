@@ -87,6 +87,24 @@ def get_supplier_by_nif(nif: str) -> dict:
     return None
 
 
+def get_supplier_by_id(supplier_id: int) -> dict:
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+                   st.name AS store_name, s.payment_method, s.payment_terms, s.iban
+            FROM suppliers s
+            LEFT JOIN stores st ON s.store_id = st.id
+            WHERE s.id = %s
+        """, (supplier_id,))
+        row = cursor.fetchone()
+    if row:
+        return {'id': row[0], 'name': row[1], 'nif': row[2], 'category': row[3],
+                'store_id': row[4], 'notes': row[5], 'store_name': row[6],
+                'payment_method': row[7], 'payment_terms': row[8], 'iban': row[9]}
+    return None
+
+
 def upsert_supplier(name: str, nif: str = None, category: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
