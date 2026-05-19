@@ -42,7 +42,7 @@
         </button>
         {% endif %}
         {% if inv.pdf_filename %}
-        <a href="{{ url_for('faturas.download_pdf', invoice_id=inv.id) }}"
+        <a href="{{ url_for('static', filename='pdfjs-viewer.html') }}?file={{ url_for('faturas.download_pdf', invoice_id=inv.id) | urlencode }}"
            class="btn btn-outline-secondary btn-sm" target="_blank" data-no-loading>
             📄 Ver PDF
         </a>

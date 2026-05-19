@@ -3,79 +3,37 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    {% set active_supplier = suppliers | selectattr('id', 'equalto', supplier_filter_id) | first | default(None) %}
-    <h5 class="mb-3">🧾 Faturas{% if active_supplier %} <span class="badge text-bg-primary fw-normal ms-1" style="font-size:0.75rem">{{ active_supplier.name }}</span>{% endif %}</h5>
 
-    {# ── Filtros ──────────────────────────────────────────────── #}
-    <form method="get" action="" class="mb-3">
+    {% set active_supplier_name = supplier_name_filter or (suppliers | selectattr('id', 'equalto', supplier_filter_id) | map(attribute='name') | first | default(None)) %}
+    <h5 class="mb-3">🧾 Faturas{% if active_supplier_name %} <span class="badge text-bg-primary fw-normal ms-1" style="font-size:0.75rem">{{ active_supplier_name }}</span>{% endif %}</h5>
+
+    {# ── Barra de filtro compacta (estilo financeiro) ───────────── #}
+    <form id="filter-form" method="get" action="" data-no-loading>
         <input type="hidden" name="order_by" value="{{ order_by }}">
         <input type="hidden" name="order_dir" value="{{ order_dir }}">
-        <div class="row g-2 align-items-end">
-            <div class="col-12 col-sm">
-                <label class="form-label small fw-semibold mb-1" for="q-filter">Pesquisar</label>
-                <input type="text" id="q-filter" name="q" class="form-control form-control-sm"
-                       value="{{ q_filter }}" placeholder="Fornecedor, Nº doc, notas…" autocomplete="off">
-            </div>
-            {% if suppliers %}
-            <div class="col-12 col-sm-auto">
-                <label class="form-label small fw-semibold mb-1" for="supplier-filter">Fornecedor</label>
-                <select id="supplier-filter" name="supplier_id" class="form-select form-select-sm">
-                    <option value=""{% if not supplier_filter_id %} selected{% endif %}>(Todos)</option>
-                    {% for s in suppliers %}
-                    <option value="{{ s.id }}"{% if supplier_filter_id == s.id %} selected{% endif %}>{{ s.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            {% endif %}
-            <div class="col-12 col-sm-auto">
-                <label class="form-label small fw-semibold mb-1" for="status-filter">Estado</label>
-                <select id="status-filter" name="status" class="form-select form-select-sm">
-                    <option value=""{% if not status_filter %} selected{% endif %}>(Todos)</option>
-                    <option value="pending_review"{% if status_filter == 'pending_review' %} selected{% endif %}>A rever</option>
-                    <option value="scheduled"{% if status_filter == 'scheduled' %} selected{% endif %}>Agendado</option>
-                    <option value="paid"{% if status_filter == 'paid' %} selected{% endif %}>Pago</option>
-                    <option value="overdue"{% if status_filter == 'overdue' %} selected{% endif %}>Vencido</option>
-                </select>
-            </div>
-            <div class="col-12 col-sm-auto">
-                <label class="form-label small fw-semibold mb-1" for="doc-type-filter">Tipo</label>
-                <select id="doc-type-filter" name="document_type" class="form-select form-select-sm">
-                    <option value=""{% if not document_type_filter %} selected{% endif %}>(Todos)</option>
-                    {% for dt, label in document_type_labels.items() %}
-                    <option value="{{ dt }}"{% if document_type_filter == dt %} selected{% endif %}>{{ label }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-12 col-sm-auto">
-                <label class="form-label small fw-semibold mb-1" for="date-field">Data por</label>
-                <select id="date-field" name="date_field" class="form-select form-select-sm">
-                    <option value="issue_date"{% if date_field == 'issue_date' %} selected{% endif %}>Emissão</option>
-                    <option value="due_date"{% if date_field == 'due_date' %} selected{% endif %}>Vencimento</option>
-                </select>
-            </div>
-            <div class="col-6 col-sm-auto">
-                <label class="form-label small fw-semibold mb-1" for="date-from">De</label>
-                <input type="date" id="date-from" name="date_from" class="form-control form-control-sm"
-                       value="{{ date_from_raw }}">
-            </div>
-            <div class="col-6 col-sm-auto">
-                <label class="form-label small fw-semibold mb-1" for="date-to">Até</label>
-                <input type="date" id="date-to" name="date_to" class="form-control form-control-sm"
-                       value="{{ date_to_raw }}">
-            </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
-            </div>
-            {% if has_filters %}
-            <div class="col-auto">
-                <a href="{{ url_for('compras.faturas') }}" class="btn btn-outline-secondary btn-sm">Limpar</a>
-            </div>
-            {% endif %}
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <input type="text" name="q"
+                   class="form-control form-control-sm"
+                   style="flex:2 1 180px;min-width:0"
+                   placeholder="Fornecedor, Nº documento, notas…"
+                   value="{{ q_filter }}" autocomplete="off">
+            <button type="submit" class="btn btn-primary btn-sm flex-shrink-0">Filtrar</button>
+            <a href="{{ url_for('compras.faturas') }}" class="btn btn-outline-secondary btn-sm flex-shrink-0" title="Limpar filtros">✕</a>
+            {% if has_filters %}<span class="badge bg-secondary">Com filtros</span>{% endif %}
         </div>
+        <details {% if date_from_raw or date_to_raw %}open{% endif %} class="mb-2">
+            <summary class="small text-muted" style="cursor:pointer;user-select:none">Filtros de data ▾</summary>
+            <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                <select name="date_field" class="form-select form-select-sm" style="width:auto">
+                    <option value="issue_date" {% if date_field == 'issue_date' %}selected{% endif %}>Por emissão</option>
+                    <option value="due_date" {% if date_field == 'due_date' %}selected{% endif %}>Por vencimento</option>
+                </select>
+                <input type="date" name="date_from" class="form-control form-control-sm" style="width:auto" value="{{ date_from_raw }}">
+                <span class="small text-muted">–</span>
+                <input type="date" name="date_to" class="form-control form-control-sm" style="width:auto" value="{{ date_to_raw }}">
+            </div>
+        </details>
     </form>
-
-    {# base querystring para sort e paginação #}
-    {% set _fqs = 'supplier_id=' ~ (supplier_filter_id or '') ~ '&status=' ~ status_filter ~ '&document_type=' ~ document_type_filter ~ '&date_field=' ~ date_field ~ '&date_from=' ~ date_from_raw ~ '&date_to=' ~ date_to_raw ~ '&q=' ~ (q_filter | urlencode) %}
 
     {# ── Contagem ─────────────────────────────────────────────── #}
     {% if total_count > 0 %}
@@ -88,46 +46,86 @@
     <div class="table-responsive">
         <table class="table table-sm table-hover align-middle" style="font-size:0.85rem;">
             <thead class="table-light">
+                {# Linha 1: títulos com ordenação #}
                 <tr>
-                    <th>
-                        {% set _d = 'asc' if (order_by != 'issue_date' or order_dir == 'desc') else 'desc' %}
-                        <a href="?{{ _fqs }}&order_by=issue_date&order_dir={{ _d }}&page=1" class="text-decoration-none text-reset">Data{% if order_by == 'issue_date' %} {{ '▲' if order_dir == 'asc' else '▼' }}{% endif %}</a>
-                    </th>
-                    <th>
-                        {% set _d = 'asc' if (order_by != 'supplier_name' or order_dir == 'desc') else 'desc' %}
-                        <a href="?{{ _fqs }}&order_by=supplier_name&order_dir={{ _d }}&page=1" class="text-decoration-none text-reset">Fornecedor{% if order_by == 'supplier_name' %} {{ '▲' if order_dir == 'asc' else '▼' }}{% endif %}</a>
-                    </th>
-                    <th>
-                        {% set _d = 'asc' if (order_by != 'invoice_number' or order_dir == 'desc') else 'desc' %}
-                        <a href="?{{ _fqs }}&order_by=invoice_number&order_dir={{ _d }}&page=1" class="text-decoration-none text-reset">Nº Doc.{% if order_by == 'invoice_number' %} {{ '▲' if order_dir == 'asc' else '▼' }}{% endif %}</a>
-                    </th>
+                    {# helper macro para links de ordenação — usa filter_qs do contexto #}
+                    {% macro sort_a(col, label) %}
+                    {% set _nd = 'asc' if (order_by != col or order_dir == 'desc') else 'desc' %}
+                    <a href="{{ filter_qs }}&order_by={{ col }}&order_dir={{ _nd }}&page=1"
+                       class="text-decoration-none text-reset">{{ label }}{% if order_by == col %} {{ '▲' if order_dir == 'asc' else '▼' }}{% else %} <span class="text-muted opacity-50">⇅</span>{% endif %}</a>
+                    {% endmacro %}
+                    <th>{{ sort_a('issue_date', 'Data') }}</th>
+                    <th>{{ sort_a('supplier_name', 'Fornecedor') }}</th>
+                    <th>{{ sort_a('invoice_number', 'Nº Doc.') }}</th>
                     <th>Tipo</th>
-                    <th class="text-end">
-                        {% set _d = 'asc' if (order_by != 'amount_eur' or order_dir == 'desc') else 'desc' %}
-                        <a href="?{{ _fqs }}&order_by=amount_eur&order_dir={{ _d }}&page=1" class="text-decoration-none text-reset">Valor (€){% if order_by == 'amount_eur' %} {{ '▲' if order_dir == 'asc' else '▼' }}{% endif %}</a>
-                    </th>
-                    <th>
-                        {% set _d = 'asc' if (order_by != 'status' or order_dir == 'desc') else 'desc' %}
-                        <a href="?{{ _fqs }}&order_by=status&order_dir={{ _d }}&page=1" class="text-decoration-none text-reset">Estado{% if order_by == 'status' %} {{ '▲' if order_dir == 'asc' else '▼' }}{% endif %}</a>
-                    </th>
-                    <th>Método Pgto</th>
-                    <th>
-                        {% set _d = 'asc' if (order_by != 'due_date' or order_dir == 'desc') else 'desc' %}
-                        <a href="?{{ _fqs }}&order_by=due_date&order_dir={{ _d }}&page=1" class="text-decoration-none text-reset">Vencimento{% if order_by == 'due_date' %} {{ '▲' if order_dir == 'asc' else '▼' }}{% endif %}</a>
-                    </th>
+                    <th class="text-end">{{ sort_a('amount_eur', 'Valor (€)') }}</th>
+                    <th>{{ sort_a('status', 'Estado') }}</th>
+                    <th>{{ sort_a('due_date', 'Vencimento') }}</th>
+                    <th>Loja</th>
                     <th></th>
+                </tr>
+                {# Linha 2: filtros de coluna inline #}
+                <tr style="font-size:0.78rem">
+                    <td></td>
+                    <td>
+                        <select class="form-select form-select-sm py-0 px-1"
+                                style="min-width:110px;font-size:0.78rem"
+                                onchange="applyColFilter('supplier_name', this.value)">
+                            <option value="">Todos</option>
+                            {% for sn in all_supplier_names %}
+                            <option value="{{ sn }}" {% if supplier_name_filter == sn %}selected{% endif %}>{{ sn }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td></td>
+                    <td>
+                        <select class="form-select form-select-sm py-0 px-1"
+                                style="font-size:0.78rem"
+                                onchange="applyColFilter('document_type', this.value)">
+                            <option value="">Todos</option>
+                            {% for dt, lbl in document_type_labels.items() %}
+                            <option value="{{ dt }}" {% if document_type_filter == dt %}selected{% endif %}>{{ lbl }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td></td>
+                    <td>
+                        <select class="form-select form-select-sm py-0 px-1"
+                                style="font-size:0.78rem"
+                                onchange="applyColFilter('status', this.value)">
+                            <option value="">Todos</option>
+                            <option value="pending_review" {% if status_filter == 'pending_review' %}selected{% endif %}>A rever</option>
+                            <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>Agendado</option>
+                            <option value="paid" {% if status_filter == 'paid' %}selected{% endif %}>Pago</option>
+                            <option value="overdue" {% if status_filter == 'overdue' %}selected{% endif %}>Vencido</option>
+                            <option value="cancelled" {% if status_filter == 'cancelled' %}selected{% endif %}>Cancelado</option>
+                        </select>
+                    </td>
+                    <td></td>
+                    <td>
+                        <select class="form-select form-select-sm py-0 px-1"
+                                style="font-size:0.78rem"
+                                onchange="applyColFilter('store_id', this.value)">
+                            <option value="">Todas</option>
+                            {% for st in stores %}
+                            <option value="{{ st.id }}" {% if store_id_filter == st.id %}selected{% endif %}>{{ st.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td></td>
                 </tr>
             </thead>
             <tbody>
             {% for inv in invoices %}
             {% set ds = inv.display_status %}
+            {% set _row_store_id = inv.store_id if inv.store_id is not none else 0 %}
             <tr class="{% if ds == 'overdue' %}table-danger{% elif inv.status == 'pending_review' %}table-warning{% endif %}"
                 onclick="openComprasInvPanel({{ inv.id }})" style="cursor:pointer">
                 <td class="text-nowrap text-muted small">
                     {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
                 </td>
                 <td class="fw-semibold" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ inv.supplier_name or '—' }}</td>
-                <td class="text-muted small">{{ inv.invoice_number or '(sem nº)' }}</td>
+                <td class="text-muted small">{{ inv.invoice_number or '—' }}</td>
                 <td>
                     {% set _dt = inv.document_type or 'fatura' %}
                     {% if _dt == 'nota_credito' %}
@@ -146,28 +144,36 @@
                         {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f €'|format(inv.amount_eur) }}
                     {% else %}—{% endif %}
                 </td>
-                <td>
-                    <span class="badge
-                        {% if ds == 'overdue' %}bg-danger
-                        {% elif inv.status == 'pending_review' %}bg-warning text-dark
-                        {% elif inv.status == 'scheduled' %}bg-info text-dark
-                        {% elif inv.status == 'paid' %}bg-success
-                        {% else %}bg-secondary{% endif %}">
-                        {% if ds == 'overdue' %}Vencida{% else %}{{ status_labels.get(inv.status, inv.status) }}{% endif %}
-                    </span>
-                </td>
-                <td class="text-muted small">
-                    {% if inv.status == 'paid' and inv.get('payment_method') %}
-                        {% set pm_label = namespace(val=inv.payment_method) %}
-                        {% for m in payment_methods %}{% if m.metodo == inv.payment_method %}{% set pm_label.val = m.label %}{% endif %}{% endfor %}
-                        {{ pm_label.val }}
-                    {% else %}—{% endif %}
+                <td onclick="event.stopPropagation()">
+                    <select class="form-select form-select-sm border-0 py-0 px-1 fw-semibold"
+                            style="min-width:96px;background:transparent;cursor:pointer;font-size:0.8rem"
+                            data-inv-id="{{ inv.id }}"
+                            onchange="setInvStatus(this)">
+                        <option value="pending_review" {% if inv.status == 'pending_review' %}selected{% endif %}>⚠ A rever</option>
+                        <option value="scheduled" {% if inv.status == 'scheduled' %}selected{% endif %}>🕐 Agendado</option>
+                        <option value="paid" {% if inv.status == 'paid' %}selected{% endif %}>✅ Pago</option>
+                        <option value="cancelled" {% if inv.status == 'cancelled' %}selected{% endif %}>✗ Cancelado</option>
+                        {% if ds == 'overdue' %}
+                        <option value="_overdue" disabled selected>🔴 Vencido</option>
+                        {% endif %}
+                    </select>
                 </td>
                 <td class="text-nowrap small {% if ds == 'overdue' %}text-danger fw-bold{% endif %}">
                     {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
                 </td>
+                <td onclick="event.stopPropagation()">
+                    <select class="form-select form-select-sm border-0 py-0 px-1"
+                            style="min-width:80px;background:transparent;cursor:pointer;font-size:0.8rem"
+                            data-inv-id="{{ inv.id }}"
+                            onchange="setInvStore(this)">
+                        <option value="">—</option>
+                        {% for st in stores %}
+                        <option value="{{ st.id }}" {% if inv.store_id == st.id %}selected{% endif %}>{{ st.name }}</option>
+                        {% endfor %}
+                    </select>
+                </td>
                 <td>
-                    {% if inv.status in ('pending_review', 'scheduled') %}
+                    {% if inv.status in ('pending_review', 'scheduled') or ds == 'overdue' %}
                     <button type="button" class="btn btn-outline-success btn-sm py-0 px-2"
                             data-bs-toggle="modal"
                             data-bs-target="#modalPagar{{ inv.id }}"
@@ -186,33 +192,33 @@
     <nav class="mt-2" aria-label="Paginação de faturas">
         <ul class="pagination pagination-sm justify-content-center mb-1">
             <li class="page-item {% if page == 1 %}disabled{% endif %}">
-                <a class="page-link" href="?{{ _fqs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ [1, page-1]|max }}">‹</a>
+                <a class="page-link" href="{{ filter_qs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ [1, page-1]|max }}">‹</a>
             </li>
             {% if total_pages <= 10 %}
                 {% for p in range(1, total_pages + 1) %}
                 <li class="page-item {% if p == page %}active{% endif %}">
-                    <a class="page-link" href="?{{ _fqs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ p }}">{{ p }}</a>
+                    <a class="page-link" href="{{ filter_qs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ p }}">{{ p }}</a>
                 </li>
                 {% endfor %}
             {% else %}
                 {% set win_start = [1, page - 2]|max %}
                 {% set win_end = [total_pages, page + 2]|min %}
                 {% if win_start > 1 %}
-                <li class="page-item"><a class="page-link" href="?{{ _fqs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page=1">1</a></li>
+                <li class="page-item"><a class="page-link" href="{{ filter_qs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page=1">1</a></li>
                 {% if win_start > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
                 {% endif %}
                 {% for p in range(win_start, win_end + 1) %}
                 <li class="page-item {% if p == page %}active{% endif %}">
-                    <a class="page-link" href="?{{ _fqs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ p }}">{{ p }}</a>
+                    <a class="page-link" href="{{ filter_qs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ p }}">{{ p }}</a>
                 </li>
                 {% endfor %}
                 {% if win_end < total_pages %}
                 {% if win_end < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
-                <li class="page-item"><a class="page-link" href="?{{ _fqs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ total_pages }}">{{ total_pages }}</a></li>
+                <li class="page-item"><a class="page-link" href="{{ filter_qs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ total_pages }}">{{ total_pages }}</a></li>
                 {% endif %}
             {% endif %}
             <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-                <a class="page-link" href="?{{ _fqs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ [total_pages, page+1]|min }}">›</a>
+                <a class="page-link" href="{{ filter_qs }}&order_by={{ order_by }}&order_dir={{ order_dir }}&page={{ [total_pages, page+1]|min }}">›</a>
             </li>
         </ul>
     </nav>
@@ -220,7 +226,7 @@
 
     <!-- Modais de pagamento -->
     {% for inv in invoices %}
-    {% if inv.status in ('pending_review', 'scheduled') %}
+    {% if inv.status in ('pending_review', 'scheduled') or inv.display_status == 'overdue' %}
     <div class="modal fade" id="modalPagar{{ inv.id }}" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-sm">
             <div class="modal-content">
@@ -258,12 +264,12 @@
     {% endfor %}
 
     <!-- Legenda de estados -->
-    <div class="d-flex flex-wrap gap-2 mt-2">
+    <div class="d-flex flex-wrap gap-2 mt-3">
         <span class="badge bg-warning text-dark">A rever</span>
         <span class="badge bg-info text-dark">Agendado</span>
         <span class="badge bg-success">Pago</span>
         <span class="badge bg-danger">Vencido</span>
-        <span class="badge bg-secondary">Outro</span>
+        <span class="badge bg-secondary">Cancelado</span>
         <span class="text-muted small align-self-center ms-1">— estados dos documentos</span>
     </div>
 
@@ -291,6 +297,7 @@
 </div>
 
 <script>
+/* ── Abrir painel lateral ──────────────────────────────────────── */
 function openComprasInvPanel(id) {
     var panelEl = document.getElementById('inv-panel');
     var panelBody = document.getElementById('inv-panel-body');
@@ -302,8 +309,124 @@ function openComprasInvPanel(id) {
     offcanvas.show();
     fetch('/compras/faturas/' + id + '/panel', { credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
-        .then(function(html) { panelBody.innerHTML = html; })
+        .then(function(html) {
+            panelBody.innerHTML = html;
+            _renderPanelPdf(panelBody);
+        })
         .catch(function() { panelBody.innerHTML = '<p class="text-danger p-3">Erro ao carregar o documento.</p>'; });
+}
+
+/* ── PDF.js pré-visualização no painel ────────────────────────── */
+function _renderPanelPdf(container) {
+    var canvas = container.querySelector('.pdf-preview-canvas');
+    if (!canvas) return;
+    var url = canvas.dataset.pdfUrl;
+    if (!url) return;
+    function _doRender() {
+        pdfjsLib.getDocument({url: url, withCredentials: true}).promise
+            .then(function(pdf) {
+                return pdf.getPage(1);
+            })
+            .then(function(page) {
+                var maxW = canvas.parentElement ? canvas.parentElement.clientWidth - 32 : 360;
+                var vp0 = page.getViewport({scale: 1});
+                var scale = Math.min(1.5, maxW / vp0.width);
+                var vp = page.getViewport({scale: scale});
+                canvas.width = vp.width;
+                canvas.height = vp.height;
+                canvas.style.cssText = 'max-width:100%;display:block!important';
+                var spinner = canvas.parentElement.querySelector('.pdf-preview-spinner');
+                if (spinner) spinner.style.display = 'none';
+                return page.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
+            })
+            .catch(function() {
+                var spinner = canvas.parentElement ? canvas.parentElement.querySelector('.pdf-preview-spinner') : null;
+                if (spinner) spinner.innerHTML = '<small class="text-muted">Pré-visualização indisponível</small>';
+            });
+    }
+    if (window.pdfjsLib) {
+        _doRender();
+    } else {
+        var s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+        s.onload = function() {
+            pdfjsLib.GlobalWorkerOptions.workerSrc =
+                'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            _doRender();
+        };
+        s.onerror = function() {
+            var spinner = canvas.parentElement ? canvas.parentElement.querySelector('.pdf-preview-spinner') : null;
+            if (spinner) spinner.innerHTML = '<small class="text-muted">Pré-visualização indisponível</small>';
+        };
+        document.head.appendChild(s);
+    }
+}
+
+/* ── Filtros de coluna inline ─────────────────────────────────── */
+function applyColFilter(name, value) {
+    var url = new URL(window.location.href);
+    if (value) {
+        url.searchParams.set(name, value);
+    } else {
+        url.searchParams.delete(name);
+    }
+    url.searchParams.delete('page');
+    window.location = url.toString();
+}
+
+/* ── Edição inline: estado ────────────────────────────────────── */
+function setInvStatus(sel) {
+    var id = sel.dataset.invId;
+    var status = sel.value;
+    if (!id || status === '_overdue') return;
+    var origValue = sel.dataset.original || '';
+    sel.disabled = true;
+    fetch('/compras/faturas/' + id + '/set_status', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status: status})
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        sel.disabled = false;
+        if (data.ok) {
+            sel.dataset.original = status;
+            var row = sel.closest('tr');
+            if (row) {
+                row.classList.remove('table-danger', 'table-warning');
+                if (status === 'pending_review') row.classList.add('table-warning');
+            }
+        } else {
+            sel.value = origValue || sel.options[0].value;
+            alert('Erro: ' + (data.error || 'Não foi possível alterar o estado.'));
+        }
+    }).catch(function() {
+        sel.disabled = false;
+        sel.value = origValue || sel.options[0].value;
+        alert('Erro de ligação ao alterar estado.');
+    });
+}
+
+/* ── Edição inline: loja ──────────────────────────────────────── */
+function setInvStore(sel) {
+    var id = sel.dataset.invId;
+    var storeId = sel.value || null;
+    sel.disabled = true;
+    fetch('/compras/faturas/' + id + '/set_store', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({store_id: storeId ? parseInt(storeId, 10) : null})
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        sel.disabled = false;
+        if (!data.ok) {
+            alert('Erro: ' + (data.error || 'Não foi possível alterar a loja.'));
+        }
+    }).catch(function() {
+        sel.disabled = false;
+        alert('Erro de ligação ao alterar loja.');
+    });
 }
 </script>
 {% endblock %}

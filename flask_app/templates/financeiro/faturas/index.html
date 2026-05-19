@@ -926,6 +926,49 @@
 
 {% if view == 'documento' %}
 <script>
+function _renderPanelPdf(container) {
+    var canvas = container.querySelector('.pdf-preview-canvas');
+    if (!canvas) return;
+    var url = canvas.dataset.pdfUrl;
+    if (!url) return;
+    function _doRender() {
+        pdfjsLib.getDocument({url: url, withCredentials: true}).promise
+            .then(function(pdf) { return pdf.getPage(1); })
+            .then(function(page) {
+                var maxW = canvas.parentElement ? canvas.parentElement.clientWidth - 32 : 360;
+                var vp0 = page.getViewport({scale: 1});
+                var scale = Math.min(1.5, maxW / vp0.width);
+                var vp = page.getViewport({scale: scale});
+                canvas.width = vp.width;
+                canvas.height = vp.height;
+                canvas.style.cssText = 'max-width:100%;display:block!important';
+                var spinner = canvas.parentElement.querySelector('.pdf-preview-spinner');
+                if (spinner) spinner.style.display = 'none';
+                return page.render({canvasContext: canvas.getContext('2d'), viewport: vp}).promise;
+            })
+            .catch(function() {
+                var spinner = canvas.parentElement ? canvas.parentElement.querySelector('.pdf-preview-spinner') : null;
+                if (spinner) spinner.innerHTML = '<small class="text-muted">Pré-visualização indisponível</small>';
+            });
+    }
+    if (window.pdfjsLib) {
+        _doRender();
+    } else {
+        var s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+        s.onload = function() {
+            pdfjsLib.GlobalWorkerOptions.workerSrc =
+                'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            _doRender();
+        };
+        s.onerror = function() {
+            var spinner = canvas.parentElement ? canvas.parentElement.querySelector('.pdf-preview-spinner') : null;
+            if (spinner) spinner.innerHTML = '<small class="text-muted">Pré-visualização indisponível</small>';
+        };
+        document.head.appendChild(s);
+    }
+}
+
 function openInvPanel(id) {
     var panelEl = document.getElementById('inv-panel');
     var panelBody = document.getElementById('inv-panel-body');
@@ -938,7 +981,7 @@ function openInvPanel(id) {
     var url = {{ url_for('faturas.invoice_panel', invoice_id=0)|tojson }}.replace('/0/panel', '/' + id + '/panel');
     fetch(url, { credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
-        .then(function(html) { panelBody.innerHTML = html; })
+        .then(function(html) { panelBody.innerHTML = html; _renderPanelPdf(panelBody); })
         .catch(function() { panelBody.innerHTML = '<p class="text-danger p-3">Erro ao carregar o documento.</p>'; });
 }
 </script>

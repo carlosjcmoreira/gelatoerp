@@ -25,6 +25,7 @@ from db.faturas import (
     count_invoices,
     get_invoice,
     get_invoice_pdf,
+    get_stores_list,
     INVOICE_STATUS_LABELS,
     DOCUMENT_TYPE_LABELS,
 )
@@ -68,11 +69,15 @@ def index():
 def faturas():
     from datetime import date as _date, datetime as _datetime
     from db.faturas import get_invoice_suppliers
+    from urllib.parse import urlencode
     today = _date.today()
     PAGE_SIZE = 50
 
     supplier_id_raw = request.args.get('supplier_id', '').strip()
     supplier_filter_id = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
+    supplier_name_filter = request.args.get('supplier_name', '').strip()
+    store_id_raw = request.args.get('store_id', '').strip()
+    store_id_filter = int(store_id_raw) if store_id_raw.isdigit() else None
     status_filter = request.args.get('status', '').strip()
     date_from_raw = request.args.get('date_from', '').strip()
     date_to_raw = request.args.get('date_to', '').strip()
@@ -104,6 +109,8 @@ def faturas():
 
     filter_kwargs = dict(
         supplier_id=supplier_filter_id,
+        supplier_name=supplier_name_filter or None,
+        store_id=store_id_filter,
         status=status_filter or None,
         date_from=date_from,
         date_to=date_to,
@@ -131,11 +138,42 @@ def faturas():
 
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     suppliers = get_invoice_suppliers()
-    has_filters = bool(supplier_filter_id or status_filter or date_from_raw or date_to_raw or document_type_filter or q_filter)
+    all_supplier_names = sorted(set(s['name'] for s in suppliers if s.get('name')))
+    stores = get_stores_list()
+    has_filters = bool(
+        supplier_filter_id or supplier_name_filter or store_id_filter
+        or status_filter or date_from_raw or date_to_raw
+        or document_type_filter or q_filter
+    )
+    _fqs_d = {}
+    if q_filter:
+        _fqs_d['q'] = q_filter
+    if supplier_name_filter:
+        _fqs_d['supplier_name'] = supplier_name_filter
+    elif supplier_filter_id:
+        _fqs_d['supplier_id'] = supplier_filter_id
+    if store_id_filter:
+        _fqs_d['store_id'] = store_id_filter
+    if status_filter:
+        _fqs_d['status'] = status_filter
+    if document_type_filter:
+        _fqs_d['document_type'] = document_type_filter
+    if date_from_raw:
+        _fqs_d['date_from'] = date_from_raw
+    if date_to_raw:
+        _fqs_d['date_to'] = date_to_raw
+    if date_field != 'issue_date':
+        _fqs_d['date_field'] = date_field
+    filter_qs = '?' + urlencode(_fqs_d) if _fqs_d else '?'
+
     return render_template('compras/faturas.html',
                            invoices=invoices,
                            suppliers=suppliers,
+                           all_supplier_names=all_supplier_names,
+                           stores=stores,
                            supplier_filter_id=supplier_filter_id,
+                           supplier_name_filter=supplier_name_filter,
+                           store_id_filter=store_id_filter,
                            status_filter=status_filter,
                            date_from_raw=date_from_raw,
                            date_to_raw=date_to_raw,
@@ -144,6 +182,7 @@ def faturas():
                            q_filter=q_filter,
                            order_by=order_by,
                            order_dir=order_dir,
+                           filter_qs=filter_qs,
                            page=page,
                            total_pages=total_pages,
                            total_count=total_count,
@@ -153,6 +192,45 @@ def faturas():
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,
                            today=today)
+
+
+@compras_bp.route('/faturas/<int:invoice_id>/set_status', methods=['POST'])
+@perm_required('acesso_administrativo')
+def set_invoice_status(invoice_id: int):
+    from flask import jsonify
+    data = request.get_json(silent=True) or {}
+    new_status = data.get('status', '').strip()
+    valid_statuses = {'pending_review', 'scheduled', 'paid', 'cancelled'}
+    if new_status not in valid_statuses:
+        return jsonify({'ok': False, 'error': 'Estado inválido'}), 400
+    try:
+        update_invoice(invoice_id, {'status': new_status})
+    except Exception as e:
+        logger.error('set_invoice_status error: %s', e)
+        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
+    status_label = INVOICE_STATUS_LABELS.get(new_status, new_status)
+    return jsonify({'ok': True, 'status': new_status, 'status_label': status_label})
+
+
+@compras_bp.route('/faturas/<int:invoice_id>/set_store', methods=['POST'])
+@perm_required('acesso_administrativo')
+def set_invoice_store(invoice_id: int):
+    from flask import jsonify
+    data = request.get_json(silent=True) or {}
+    store_id_raw = data.get('store_id')
+    store_id = int(store_id_raw) if store_id_raw else None
+    store_name = None
+    if store_id:
+        for s in get_stores_list():
+            if s['id'] == store_id:
+                store_name = s['name']
+                break
+    try:
+        update_invoice(invoice_id, {'store_id': store_id})
+    except Exception as e:
+        logger.error('set_invoice_store error: %s', e)
+        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
+    return jsonify({'ok': True, 'store_id': store_id, 'store_name': store_name})
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/panel')
