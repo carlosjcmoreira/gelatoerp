@@ -176,6 +176,7 @@
                     <select class="form-select form-select-sm border-0 py-0 px-1 fw-semibold"
                             style="min-width:96px;background:transparent;cursor:pointer;font-size:0.8rem"
                             data-inv-id="{{ inv.id }}"
+                            data-original="{{ '_overdue' if ds == 'overdue' else inv.status }}"
                             onchange="setInvStatus(this)">
                         <option value="pending_review" {% if inv.status == 'pending_review' %}selected{% endif %}>⚠ A rever</option>
                         <option value="scheduled" {% if inv.status == 'scheduled' %}selected{% endif %}>🕐 Agendado</option>
@@ -193,6 +194,7 @@
                     <select class="form-select form-select-sm border-0 py-0 px-1"
                             style="min-width:80px;background:transparent;cursor:pointer;font-size:0.8rem"
                             data-inv-id="{{ inv.id }}"
+                            data-original="{{ inv.store_id or '' }}"
                             onchange="setInvStore(this)">
                         <option value="">—</option>
                         {% for st in stores %}
@@ -439,6 +441,7 @@ function setInvStatus(sel) {
 function setInvStore(sel) {
     var id = sel.dataset.invId;
     var storeId = sel.value || null;
+    var origValue = sel.dataset.original || '';
     sel.disabled = true;
     fetch('/compras/faturas/' + id + '/set_store', {
         method: 'POST',
@@ -448,11 +451,15 @@ function setInvStore(sel) {
     }).then(function(r) { return r.json(); })
       .then(function(data) {
         sel.disabled = false;
-        if (!data.ok) {
+        if (data.ok) {
+            sel.dataset.original = sel.value;
+        } else {
+            sel.value = origValue;
             alert('Erro: ' + (data.error || 'Não foi possível alterar a loja.'));
         }
     }).catch(function() {
         sel.disabled = false;
+        sel.value = origValue;
         alert('Erro de ligação ao alterar loja.');
     });
 }

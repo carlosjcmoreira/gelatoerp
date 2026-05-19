@@ -26,6 +26,7 @@ from db.faturas import (
     get_invoice,
     get_invoice_pdf,
     get_stores_list,
+    get_distinct_supplier_names,
     INVOICE_STATUS_LABELS,
     DOCUMENT_TYPE_LABELS,
 )
@@ -68,7 +69,7 @@ def index():
 @perm_required('acesso_administrativo')
 def faturas():
     from datetime import date as _date, datetime as _datetime
-    from db.faturas import get_invoice_suppliers
+
     from urllib.parse import urlencode
     today = _date.today()
     PAGE_SIZE = 50
@@ -137,8 +138,8 @@ def faturas():
             inv['display_status'] = inv['status']
 
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
-    suppliers = get_invoice_suppliers()
-    all_supplier_names = sorted(set(s['name'] for s in suppliers if s.get('name')))
+    suppliers = []
+    all_supplier_names = get_distinct_supplier_names()
     stores = get_stores_list()
     has_filters = bool(
         supplier_filter_id or supplier_name_filter or store_id_filter
