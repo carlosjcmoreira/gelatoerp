@@ -355,13 +355,14 @@ def get_unlinked_supplier_names() -> list:
 
 
 def get_suppliers_with_invoice_count() -> list:
-    """Return all suppliers with count of linked non-draft invoices."""
+    """Return all suppliers with count and total spend of linked non-draft invoices."""
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
-                   COUNT(i.id) AS invoice_count
+                   COUNT(i.id) AS invoice_count,
+                   COALESCE(SUM(i.amount_eur), 0) AS total_spend
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN invoices i ON i.supplier_id = s.id AND i.status != 'draft'
@@ -373,7 +374,8 @@ def get_suppliers_with_invoice_count() -> list:
     return [{'id': r[0], 'name': r[1], 'nif': r[2], 'category': r[3],
              'store_id': r[4], 'notes': r[5], 'store_name': r[6],
              'payment_method': r[7], 'payment_terms': r[8], 'iban': r[9],
-             'invoice_count': int(r[10])} for r in rows]
+             'invoice_count': int(r[10]),
+             'total_spend': float(r[11])} for r in rows]
 
 
 def backfill_supplier_ids() -> dict:

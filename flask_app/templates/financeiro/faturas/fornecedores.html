@@ -92,6 +92,10 @@
                            title="Ver faturas deste fornecedor">
                             {{ s.invoice_count }} fatura{{ 's' if s.invoice_count != 1 else '' }}
                         </a>
+                        <span class="badge bg-success bg-opacity-75"
+                              title="Total gasto (faturas não rascunho)">
+                            {{ '%.2f'|format(s.total_spend) }} €
+                        </span>
                         {% else %}
                         <span class="badge bg-secondary bg-opacity-50 text-secondary">sem faturas</span>
                         {% endif %}
