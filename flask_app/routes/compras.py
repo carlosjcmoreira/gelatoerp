@@ -17,6 +17,8 @@ from database import (
     suggest_payment_date,
     get_payment_methods_config,
     upsert_supplier,
+    get_supplier_by_nif,
+    get_supplier_by_name,
     get_cost_centers,
     get_cost_categories_tree,
     get_invoice_linhas,
@@ -436,9 +438,23 @@ def review_draft(invoice_id):
                                    categoria_auto_detected=bool(_ocr_raw.get('auto_categoria_custo')))
 
         new_status = 'paid' if ja_paga else 'pending_review'
+        supplier_nif_clean = request.form.get('supplier_nif', '').strip() or None
+
+        # Resolve supplier_id for invoice-type documents leaving draft state.
+        # update_invoice guards against moving to post-draft states without a linked supplier.
+        supplier_id = inv.get('supplier_id')
+        if doc_type in {'fatura', 'nota_credito', 'nota_debito'} and not supplier_id:
+            if supplier_nif_clean:
+                s = get_supplier_by_nif(supplier_nif_clean)
+                supplier_id = s['id'] if s else upsert_supplier(name=supplier_name, nif=supplier_nif_clean)
+            elif supplier_name:
+                s = get_supplier_by_name(supplier_name)
+                supplier_id = s['id'] if s else upsert_supplier(name=supplier_name)
+
         update_invoice(invoice_id, {
+            'supplier_id': supplier_id,
             'supplier_name': supplier_name,
-            'supplier_nif': request.form.get('supplier_nif', '').strip() or None,
+            'supplier_nif': supplier_nif_clean,
             'invoice_number': request.form.get('invoice_number', '').strip() or None,
             'amount_eur': amount_eur,
             'vat_amount_eur': vat_amount_eur,
