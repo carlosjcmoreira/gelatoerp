@@ -443,13 +443,22 @@ def review_draft(invoice_id):
         # Resolve supplier_id for invoice-type documents leaving draft state.
         # update_invoice guards against moving to post-draft states without a linked supplier.
         supplier_id = inv.get('supplier_id')
+        _supplier_created = False
         if doc_type in {'fatura', 'nota_credito', 'nota_debito'} and not supplier_id:
             if supplier_nif_clean:
                 s = get_supplier_by_nif(supplier_nif_clean)
-                supplier_id = s['id'] if s else upsert_supplier(name=supplier_name, nif=supplier_nif_clean)
+                if s:
+                    supplier_id = s['id']
+                else:
+                    supplier_id = upsert_supplier(name=supplier_name, nif=supplier_nif_clean)
+                    _supplier_created = True
             elif supplier_name:
                 s = get_supplier_by_name(supplier_name)
-                supplier_id = s['id'] if s else upsert_supplier(name=supplier_name)
+                if s:
+                    supplier_id = s['id']
+                else:
+                    supplier_id = upsert_supplier(name=supplier_name)
+                    _supplier_created = True
 
         update_invoice(invoice_id, {
             'supplier_id': supplier_id,
@@ -468,6 +477,8 @@ def review_draft(invoice_id):
             'categoria_custo_id': categoria_custo_id,
             'notes': notes,
         })
+        if _supplier_created:
+            flash(f"Fornecedor '{supplier_name}' criado automaticamente. Verifica em Fornecedores se é duplicado.", 'warning')
         if ja_paga:
             flash('Fatura registada e marcada como paga.', 'success')
         else:
