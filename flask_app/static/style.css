@@ -788,7 +788,8 @@ body.sidebar-collapsed .sidebar-toggle {
     bottom: 0;
     left: 0;
     right: 0;
-    height: var(--bottom-nav-height);
+    height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
     background: var(--scoopy-bg-secondary);
     border-top: 1px solid var(--scoopy-border);
     z-index: 1030;
@@ -861,7 +862,7 @@ body.sidebar-collapsed .sidebar-toggle {
     inset: 0;
     background: rgba(0,0,0,0.4);
     z-index: 1040;
-    bottom: var(--bottom-nav-height);
+    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
 }
 
 .more-drawer-backdrop.active {
@@ -870,7 +871,7 @@ body.sidebar-collapsed .sidebar-toggle {
 
 .more-drawer {
     position: fixed;
-    bottom: var(--bottom-nav-height);
+    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
     left: 0;
     right: 0;
     background: var(--scoopy-bg-secondary);
@@ -946,27 +947,27 @@ body.sidebar-collapsed .sidebar-toggle {
     }
 
     main.with-nav {
-        padding-bottom: var(--bottom-nav-height);
+        padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
     }
 
     .has-back-bar-content {
-        padding-bottom: calc(var(--bottom-nav-height) + 56px);
+        padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 56px);
     }
 
     .fullpage-container {
-        height: calc(100dvh - 56px - var(--bottom-nav-height));
+        height: calc(100dvh - 56px - var(--bottom-nav-height) - env(safe-area-inset-bottom));
     }
 
     .fullpage-container.has-back-bar {
-        height: calc(100dvh - 56px - var(--bottom-nav-height) - 48px);
+        height: calc(100dvh - 56px - var(--bottom-nav-height) - env(safe-area-inset-bottom) - 48px);
     }
 
     .back-bar {
-        bottom: var(--bottom-nav-height);
+        bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
     }
 
     .save-bar {
-        bottom: calc(var(--bottom-nav-height) + 48px);
+        bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 48px);
     }
 }
 
