@@ -613,6 +613,22 @@ function calcularDuplicadosPendentes() {
     return counts;
 }
 
+function _ensureBtnConfirmVisible() {
+    const btnConf = document.getElementById('btn-confirmar');
+    if (!btnConf) return;
+    setTimeout(function() {
+        const rect = btnConf.getBoundingClientRect();
+        const isMobile = window.innerWidth < 768;
+        // Fixed bars at the bottom: mobile = bottom-nav (64px) + back-bar (48px) + safe-area (~40px) + gap (8px)
+        // desktop = back-bar (48px) + gap (8px)
+        const fixedBottom = isMobile ? 160 : 56;
+        const visibleBottom = window.innerHeight - fixedBottom;
+        if (rect.bottom > visibleBottom) {
+            window.scrollBy({ top: rect.bottom - visibleBottom, behavior: 'smooth' });
+        }
+    }, 80);
+}
+
 function renderPendentes() {
     const n       = pendingList.length;
     const secao   = document.getElementById('secao-pendentes');
@@ -624,6 +640,8 @@ function renderPendentes() {
     secao.style.display = n === 0 ? 'none' : '';
     badge.textContent   = n + (n === 1 ? ' entrada' : ' entradas');
     btnConf.textContent = 'Confirmar e registar (' + n + ')';
+
+    if (n > 0) { _ensureBtnConfirmVisible(); }
 
     const hasSuspeito = pendingList.some(e => e.suspeito);
     aviso.style.display = hasSuspeito ? '' : 'none';
