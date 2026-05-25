@@ -149,7 +149,7 @@
             </p>
             <form method="POST" action="{{ url_for('forecast.wind_config_calibrar') }}" data-no-loading>
                 <input type="hidden" name="loja" value="{{ selected_loja }}">
-                <div class="d-flex align-items-center gap-2 flex-wrap">
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-4">
                     <label class="small fw-semibold mb-0">Janela de análise:</label>
                     <select name="days" class="form-select form-select-sm" style="max-width:130px;">
                         <option value="90">90 dias</option>
