@@ -12,6 +12,9 @@
     </div>
 
     <form method="POST" action="{{ url_for('confeitaria.produzir') }}" id="prodForm">
+        <div class="mb-3">
+            <button type="submit" class="btn btn-primary w-100">Registar Produção Real</button>
+        </div>
         <div class="table-responsive">
             <table class="table table-sm">
                 <thead>
@@ -53,10 +56,6 @@
         </div>
     </form>
 
-    <div class="save-bar-spacer"></div>
-    <div class="save-bar">
-        <button type="submit" form="prodForm" class="btn btn-primary w-100">Registar Produção Real</button>
-    </div>
     {% else %}
     <div class="alert alert-info">Sem plano de produção para hoje. Defina o plano na página "Planear Produção" primeiro.</div>
     {% endif %}

@@ -21,6 +21,10 @@
         <input type="hidden" name="action" value="add">
         <input type="hidden" name="tipo_produto" id="tipo_produto_hidden" value="Gelado">
 
+        <div class="mb-3">
+            <button type="submit" id="btnQuebraVendas" class="btn btn-primary w-100">Registar Quebra</button>
+        </div>
+
         <div class="mb-3" id="produto_gelado_group">
             <label class="form-label fw-semibold">Sabor</label>
             <select name="produto" id="produto_gelado" class="form-select">
@@ -74,9 +78,6 @@
             </div>
         </div>
 
-        <div class="mb-4">
-            <button type="submit" id="btnQuebraVendas" class="btn btn-primary w-100">Registar Quebra</button>
-        </div>
     </form>
     <script>
     document.querySelector('form[method="POST"]').addEventListener('submit', function() {

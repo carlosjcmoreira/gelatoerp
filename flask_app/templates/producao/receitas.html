@@ -7,6 +7,9 @@
 {% if receitas %}
 <form method="post" id="receitasForm">
     <input type="hidden" name="action" value="save">
+    <div class="mb-3">
+        <button type="submit" form="receitasForm" class="btn btn-primary w-100">Guardar Alterações</button>
+    </div>
     <div class="table-responsive mb-3">
         <table class="table table-sm">
             <thead>
@@ -50,8 +53,4 @@
     </div>
 </form>
 
-<div class="save-bar-spacer"></div>
-<div class="save-bar">
-    <button type="submit" form="receitasForm" class="btn btn-primary w-100">Guardar Alterações</button>
-</div>
 {% endblock %}

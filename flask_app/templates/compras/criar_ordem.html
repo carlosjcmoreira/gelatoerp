@@ -9,6 +9,9 @@
 {% if artigos %}
 <form method="post" id="ordemForm">
     <input type="hidden" name="loja_destino" value="Bolhão">
+    <div class="mb-3">
+        <button type="submit" class="btn btn-primary w-100">Criar ordem de transferência</button>
+    </div>
     <div class="card mb-3">
         <div class="card-body p-2">
             <label class="form-label small mb-1">Data prevista de entrega</label>
@@ -64,10 +67,6 @@
     {% endfor %}
 </form>
 
-<div class="save-bar-spacer"></div>
-<div class="save-bar">
-    <button type="submit" form="ordemForm" class="btn btn-primary w-100">Criar ordem de transferência</button>
-</div>
 {% else %}
 <div class="alert alert-info">Sem artigos ativos. Ative artigos no botão "Artigos" primeiro.</div>
 {% endif %}

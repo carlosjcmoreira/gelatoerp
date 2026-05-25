@@ -25,6 +25,9 @@
 
     <form method="post" id="produzirForm">
         <input type="hidden" name="data" value="{{ data_plano }}">
+        <div class="mb-3">
+            <button type="submit" class="btn btn-primary w-100">Registar produção</button>
+        </div>
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0" style="font-size:0.85rem;">
                 <thead>
@@ -90,10 +93,6 @@
         </div>
     </form>
 
-    <div class="save-bar-spacer"></div>
-    <div class="save-bar">
-        <button type="submit" form="produzirForm" class="btn btn-primary w-100">Registar produção</button>
-    </div>
     {% else %}
     <div class="alert alert-info">Nenhum produto no plano para este dia. Vá a "Planear Produção" primeiro.</div>
     {% endif %}

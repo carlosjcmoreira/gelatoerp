@@ -5,6 +5,9 @@
 
 <form method="post" id="eventoForm">
     <div class="mb-3">
+        <button type="submit" class="btn btn-primary w-100">Guardar</button>
+    </div>
+    <div class="mb-3">
         <label class="form-label fw-bold">Cliente *</label>
         <input type="text" name="cliente" class="form-control" required value="{{ evento.cliente if evento else '' }}">
     </div>
@@ -89,13 +92,6 @@
 
     <button type="button" id="addItemBtn" class="btn btn-outline-secondary btn-sm w-100 mb-3">+ Adicionar artigo</button>
 
-    <div class="save-bar-spacer"></div>
-    <div class="save-bar">
-        <div class="d-flex gap-2">
-            <a href="{{ url_for('eventos.index') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
-            <button type="submit" class="btn btn-primary flex-fill">Guardar</button>
-        </div>
-    </div>
 </form>
 
 <script>

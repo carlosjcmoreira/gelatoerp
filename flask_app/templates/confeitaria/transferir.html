@@ -7,6 +7,9 @@
     <p class="text-muted small mb-3">Adicione os artigos a enviar e confirme a ordem.</p>
 
     <form method="POST" id="transferForm">
+    <div class="mb-3">
+        <button type="submit" class="btn btn-primary w-100">Criar ordem de transferência</button>
+    </div>
     <div class="card mb-3">
         <div class="card-body p-2">
             <div class="mb-2 d-flex gap-2 align-items-center">
@@ -75,10 +78,6 @@
     {% endif %}
     </form>
 
-    <div class="save-bar-spacer"></div>
-    <div class="save-bar">
-        <button type="submit" form="transferForm" class="btn btn-primary w-100">Criar ordem de transferência</button>
-    </div>
 </div>
 
 <script>

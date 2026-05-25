@@ -13,12 +13,14 @@
             <form method="post" enctype="multipart/form-data" action="{{ url_for('faturas.upload') }}">
                 <input type="hidden" name="channel" value="email_upload">
                 <div class="mb-3">
+                    <button type="submit" class="btn btn-primary w-100">Processar ficheiro</button>
+                </div>
+                <div class="mb-3">
                     <label class="form-label fw-semibold">Ficheiro PDF / Excel <span class="text-danger">*</span></label>
                     <input type="file" name="pdf_file" class="form-control"
                            accept=".pdf,.xlsx,.xls" required>
                     <div class="form-text">PDF de fatura (extracção OCR automática) ou Excel de histórico para importação em batch.</div>
                 </div>
-                <button type="submit" class="btn btn-primary w-100">Processar ficheiro</button>
             </form>
         </div>
     </div>
@@ -31,12 +33,14 @@
             <form method="post" enctype="multipart/form-data" action="{{ url_for('faturas.upload') }}">
                 <input type="hidden" name="channel" value="photo">
                 <div class="mb-3">
+                    <button type="submit" class="btn btn-success w-100">Processar fotografia</button>
+                </div>
+                <div class="mb-3">
                     <label class="form-label fw-semibold">Fotografia <span class="text-danger">*</span></label>
                     <input type="file" name="photo_file" class="form-control"
                            accept="image/*" capture="environment" required>
                     <div class="form-text">Imagem JPG, PNG ou HEIC. O OCR extrai os dados automaticamente.</div>
                 </div>
-                <button type="submit" class="btn btn-success w-100">Processar fotografia</button>
             </form>
         </div>
     </div>
@@ -51,6 +55,10 @@
                 <input type="hidden" name="supplier_id" id="reg-supplier-id">
                 <input type="hidden" name="supplier_name" id="reg-supplier-name">
                 <input type="hidden" name="payment_terms" id="reg-payment-terms">
+
+                <div class="d-grid mb-3">
+                    <button type="submit" class="btn btn-primary">Registar Documento</button>
+                </div>
 
                 <div class="mb-3">
                     <label class="form-label small" id="reg-supplier-label">
@@ -182,9 +190,6 @@
                     </div>
                 </div>
 
-                <div class="d-grid mt-3 mb-4">
-                    <button type="submit" class="btn btn-primary">Registar Documento</button>
-                </div>
             </form>
         </div>
     </div>

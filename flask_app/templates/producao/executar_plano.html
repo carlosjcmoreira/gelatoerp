@@ -65,6 +65,9 @@
 
 <form method="post" id="planoRealForm">
     <input type="hidden" name="data" value="{{ data_plano }}">
+    <div class="mb-3">
+        <button type="submit" id="btnRegistarProducao" class="btn btn-primary w-100">Registar produção</button>
+    </div>
     <div class="table-responsive">
         <table class="table table-sm align-middle mb-0" style="font-size:0.85rem;">
             <thead>
@@ -141,10 +144,6 @@
     </div>
 </form>
 
-<div class="save-bar-spacer"></div>
-<div class="save-bar">
-    <button type="submit" form="planoRealForm" id="btnRegistarProducao" class="btn btn-primary w-100">Registar produção</button>
-</div>
 <script>
 document.getElementById('planoRealForm').addEventListener('submit', function() {
     var btn = document.getElementById('btnRegistarProducao');
