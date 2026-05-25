@@ -194,6 +194,16 @@
             }
         }
 
+        document.addEventListener('focus', function(e) {
+            var tag = (e.target || {}).tagName;
+            if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
+            /* iOS keyboard takes ~200 ms to animate up; wait 200 ms so the
+               viewport has shrunk before we scroll the input into view. */
+            setTimeout(function() {
+                e.target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }, 200);
+        }, true);
+
         document.addEventListener('focusout', function(e) {
             var tag = (e.target || {}).tagName;
             if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
