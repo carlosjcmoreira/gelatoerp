@@ -851,6 +851,89 @@ def get_pesagens_loja_range(days: int = 7) -> list:
     return base
 
 
+def get_pesagens_loja_3dias(loja_nome: str) -> dict:
+    """Return the 3 most recent distinct dates with weighings for loja_nome.
+
+    Returns:
+      {
+        'dates': [date_n2, date_n1, date_n],   # sorted ascending (oldest first)
+        'rows': [
+          {
+            'sabor': str,
+            'dias': [
+              {'id': int, 'kg': float, 'data_iso': str, 'data_fmt': str} or None,
+              ...  # one per date in dates (same order)
+            ]
+          },
+          ...
+        ]
+      }
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT data
+            FROM stock_gelado
+            WHERE loja = %s
+            ORDER BY data DESC
+            LIMIT 3
+        """, (loja_nome,))
+        date_rows = cursor.fetchall()
+
+    if not date_rows:
+        return {'dates': [], 'rows': []}
+
+    dates = sorted([r[0] for r in date_rows])
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT ON (sabor, data) id, sabor, quantidade_kg, data
+            FROM stock_gelado
+            WHERE loja = %s AND data = ANY(%s)
+            ORDER BY sabor, data, id DESC
+        """, (loja_nome, dates))
+        entries = cursor.fetchall()
+
+    from collections import defaultdict
+    sabor_date_map = defaultdict(dict)
+    all_sabores = set()
+    for stock_id, sabor, kg, dt in entries:
+        all_sabores.add(sabor)
+        sabor_date_map[sabor][dt] = {'id': stock_id, 'kg': float(kg), 'data': dt}
+
+    result_rows = []
+    for sabor in sorted(all_sabores):
+        dia_entries = []
+        for d in dates:
+            entry = sabor_date_map[sabor].get(d)
+            if entry:
+                try:
+                    data_fmt = d.strftime('%d/%m') if d else '-'
+                    data_iso = d.strftime('%Y-%m-%d') if d else ''
+                except Exception:
+                    data_fmt = str(d)
+                    data_iso = str(d)
+                dia_entries.append({
+                    'id': entry['id'],
+                    'kg': entry['kg'],
+                    'data_fmt': data_fmt,
+                    'data_iso': data_iso,
+                })
+            else:
+                dia_entries.append(None)
+        result_rows.append({'sabor': sabor, 'dias': dia_entries})
+
+    date_labels = []
+    for d in dates:
+        try:
+            date_labels.append(d.strftime('%d/%m'))
+        except Exception:
+            date_labels.append(str(d))
+
+    return {'dates': dates, 'date_labels': date_labels, 'rows': result_rows}
+
+
 def set_stock_producao(sabor: str, loja: str, quantidade_kg: float):
     """Overwrite the total production stock for a sabor+loja combination.
 

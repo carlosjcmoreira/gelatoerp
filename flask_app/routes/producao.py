@@ -26,7 +26,7 @@ from database import (
     get_stock_producao_by_loja, upsert_pesagem_matosinhos_inicio,
     get_active_venda_stores, get_or_create_pending_batch,
     update_stock_gelado, get_producao_history_by_day,
-    delete_producao_record,
+    delete_producao_record, get_pesagens_loja_3dias,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -360,7 +360,7 @@ def eliminar_quebras_bulk():
 _PESAGENS_LOJA_ORDER = ['Bolhão', 'Matosinhos', 'Mouzinho']
 
 
-_PESAGENS_DAYS_OPTIONS = [1, 7, 14, 30]
+_PESAGENS_DAYS_OPTIONS = [1, 3, 7, 14, 30]
 
 
 @producao_bp.route('/pesagens-loja', methods=['GET', 'POST'])
@@ -393,6 +393,25 @@ def pesagens_loja():
                     flash("Pesagem atualizada com sucesso.", "success")
                 else:
                     flash("Dados inválidos.", "danger")
+            except (ValueError, TypeError):
+                flash("Erro ao processar os dados.", "danger")
+        elif action == 'edit_3d':
+            try:
+                updated = 0
+                for i in range(3):
+                    sid_str = request.form.get(f'stock_id_{i}', '').strip()
+                    kg_str = request.form.get(f'kg_{i}', '').strip()
+                    if not sid_str or not kg_str:
+                        continue
+                    stock_id = int(sid_str)
+                    kg = float(kg_str.replace(',', '.'))
+                    if stock_id > 0 and kg >= 0:
+                        update_stock_gelado(stock_id, kg, loja=None, nova_data=None)
+                        updated += 1
+                if updated:
+                    flash(f"{updated} pesagem(ns) atualizada(s) com sucesso.", "success")
+                else:
+                    flash("Nenhuma pesagem para atualizar.", "info")
             except (ValueError, TypeError):
                 flash("Erro ao processar os dados.", "danger")
         return redirect(url_for('producao.pesagens_loja', days=days))
@@ -429,6 +448,22 @@ def pesagens_loja():
                                lojas=lojas, rows=rows,
                                days=days, days_options=_PESAGENS_DAYS_OPTIONS,
                                history_rows=None)
+    elif days == 3:
+        user = session.get('user', {})
+        loja_id = user.get('loja_id')
+        user_loja = 'Bolhão'
+        if loja_id:
+            from db.auth import get_store_by_id
+            store = get_store_by_id(loja_id)
+            if store and store.get('name'):
+                user_loja = store['name']
+        three_day = get_pesagens_loja_3dias(user_loja)
+        return render_template('producao/pesagens_loja.html',
+                               active_tab='pesagens_loja', tabs=_tabs_with_urls(),
+                               lojas=[], rows=[],
+                               days=days, days_options=_PESAGENS_DAYS_OPTIONS,
+                               history_rows=None,
+                               three_day=three_day, user_loja=user_loja)
     else:
         raw = get_pesagens_loja_range(days)
         history_rows = [

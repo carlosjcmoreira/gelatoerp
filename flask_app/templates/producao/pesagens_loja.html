@@ -5,6 +5,8 @@
     <h5 class="mb-0">Pesagens de Loja
         {% if days == 1 %}
         <small class="text-muted fs-6">(última pesagem por sabor)</small>
+        {% elif days == 3 %}
+        <small class="text-muted fs-6">(3 dias — {{ user_loja }})</small>
         {% else %}
         <small class="text-muted fs-6">(últimos {{ days }} dias)</small>
         {% endif %}
@@ -20,6 +22,55 @@
 </div>
 
 {% if history_rows is none %}
+
+{% if days == 3 and three_day is defined %}
+    {# ── 3-day comparison view ── #}
+    {% if three_day.rows %}
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th class="px-2">Sabor</th>
+                    {% for lbl in three_day.date_labels %}
+                    <th class="text-center border-start" colspan="2">{{ lbl }}</th>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <th class="px-2"></th>
+                    {% for lbl in three_day.date_labels %}
+                    <th class="text-center px-1 border-start small">kg</th>
+                    <th class="px-1 small"></th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in three_day.rows %}
+                {% set dias_json = r.dias|tojson %}
+                <tr>
+                    <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
+                    {% for entry in r.dias %}
+                    {% if entry %}
+                    <td class="text-center px-1 border-start text-primary fw-semibold">{{ '%.2f'|format(entry.kg) }}</td>
+                    <td class="px-1">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                                onclick="abrirEdit3Dias('{{ r.sabor|e }}', '{{ user_loja|e }}', {{ dias_json|e }})"
+                                title="Editar pesagens (3 dias)">✏️</button>
+                    </td>
+                    {% else %}
+                    <td class="text-center px-1 border-start text-muted">-</td>
+                    <td class="px-1"></td>
+                    {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info">Sem pesagens registadas para <strong>{{ user_loja }}</strong> nos últimos dias.</div>
+    {% endif %}
+
+{% elif days == 1 %}
     {# ── Compact cross-tab view for days=1 ── #}
     {% if rows %}
     <div class="table-responsive">
@@ -78,6 +129,8 @@
     {% else %}
     <div class="alert alert-info">Sem pesagens de loja registadas hoje ou ontem.</div>
     {% endif %}
+
+{% endif %}{# end if days==3 / elif days==1 #}
 
 {% else %}
     {# ── Flat history view for days>1 ── #}
@@ -217,7 +270,55 @@
     </div>
 </div>
 
+<!-- Modal de Edição de 3 Dias em Simultâneo -->
+<div class="modal fade" id="modalEdit3Dias" tabindex="-1" aria-labelledby="modalEdit3DiasLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalEdit3DiasLabel">Editar Pesagens — 3 Dias</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <form method="post" id="formEdit3Dias">
+                <div class="modal-body">
+                    <input type="hidden" name="action" value="edit_3d">
+                    <div class="mb-2">
+                        <span class="text-muted small">Sabor: </span>
+                        <span id="edit3SaborLabel" class="fw-semibold"></span>
+                    </div>
+                    <div id="edit3DiasContainer"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
+function abrirEdit3Dias(sabor, loja, dias) {
+    document.getElementById('edit3SaborLabel').textContent = sabor + ' — ' + loja;
+    var container = document.getElementById('edit3DiasContainer');
+    container.innerHTML = '';
+    for (var i = 0; i < 3; i++) {
+        var entry = dias[i];
+        var idVal = entry ? entry.id : '';
+        var kgVal = entry ? entry.kg.toFixed(3) : '';
+        var dataLbl = entry ? (entry.data_fmt || '') : (i === 0 ? 'Dia n-2' : i === 1 ? 'Dia n-1' : 'Dia n');
+        var disabled = !entry ? ' disabled' : '';
+        container.innerHTML +=
+            '<div class="row g-2 align-items-center mb-2">' +
+            '<input type="hidden" name="stock_id_' + i + '" value="' + idVal + '">' +
+            '<div class="col-4"><span class="form-label fw-semibold mb-0">' + dataLbl + '</span></div>' +
+            '<div class="col-8"><input type="number" name="kg_' + i + '" class="form-control form-control-sm"' +
+            ' step="0.001" min="0" max="9999" value="' + kgVal + '"' + disabled + '>' +
+            '</div></div>';
+    }
+    var modal = new bootstrap.Modal(document.getElementById('modalEdit3Dias'));
+    modal.show();
+}
+
 function verCarapinas(btn) {
     var carapinas = JSON.parse(btn.getAttribute('data-carapinas') || '[]');
     var tbody = document.getElementById('carapinasBody');
