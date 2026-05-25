@@ -14,8 +14,9 @@
   {% endwith %}
 
   <form method="post" action="{{ action }}">
-    <div class="mb-3">
-      <button type="submit" class="btn btn-sm btn-primary w-100">Guardar</button>
+    <div class="d-flex gap-2 mb-3">
+      <a href="{{ url_for('avencas.index') }}" class="btn btn-sm btn-secondary flex-fill">Cancelar</a>
+      <button type="submit" class="btn btn-sm btn-primary flex-fill">Guardar</button>
     </div>
     <div class="card mb-3">
       <div class="card-header small fw-semibold">Identificação</div>
@@ -143,9 +144,6 @@
     </div>
     {% endif %}
 
-    <div class="d-flex gap-2 mb-4">
-      <a href="{{ url_for('avencas.index') }}" class="btn btn-sm btn-secondary">Cancelar</a>
-    </div>
   </form>
 </div>
 {% endblock %}

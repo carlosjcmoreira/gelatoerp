@@ -4,8 +4,9 @@
 <h5 class="mb-3">{{ title }}</h5>
 
 <form method="post" id="eventoForm">
-    <div class="mb-3">
-        <button type="submit" class="btn btn-primary w-100">Guardar</button>
+    <div class="d-flex gap-2 mb-3">
+        <a href="{{ url_for('eventos.index') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
+        <button type="submit" class="btn btn-primary flex-fill">Guardar</button>
     </div>
     <div class="mb-3">
         <label class="form-label fw-bold">Cliente *</label>

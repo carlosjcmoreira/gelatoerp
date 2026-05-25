@@ -29,8 +29,9 @@
 
     <form method="post" action="{{ url_for('compras.review_draft', invoice_id=inv.id) }}">
 
-        <div class="d-grid gap-2 mb-3">
-            <button type="submit" class="btn btn-success btn-lg">✅ Confirmar e Registar</button>
+        <div class="d-flex gap-2 mb-3">
+            <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
+            <button type="submit" class="btn btn-success flex-fill">✅ Confirmar e Registar</button>
         </div>
 
         <div class="card mb-3">
@@ -207,9 +208,6 @@
         </div>
         {% endif %}
 
-        <div class="d-grid gap-2 mb-4">
-            <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-outline-secondary">Cancelar</a>
-        </div>
 
     </form>
 

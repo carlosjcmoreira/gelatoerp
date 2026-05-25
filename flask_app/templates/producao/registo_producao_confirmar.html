@@ -26,8 +26,9 @@
 {% endif %}
 
 <form method="post" action="{{ url_for('producao.registo_producao_guardar') }}">
-    <div class="mb-3">
-        <button type="submit" class="btn btn-success w-100">Guardar produção</button>
+    <div class="d-flex gap-2 mb-3">
+        <a href="{{ url_for('producao.registo_producao') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
+        <button type="submit" class="btn btn-success flex-fill">Guardar produção</button>
     </div>
     <div class="row mb-3 align-items-center">
         <div class="col-auto">
@@ -89,8 +90,5 @@
         </table>
     </div>
 
-    <div class="d-flex gap-2 mt-3 mb-4">
-        <a href="{{ url_for('producao.registo_producao') }}" class="btn btn-outline-secondary">Cancelar</a>
-    </div>
 </form>
 {% endblock %}
