@@ -529,6 +529,26 @@ def get_previsao_30dias() -> dict:
         """)
         cutoff_row = cur.fetchone()
 
+        # ── 6. Calibrated rain factors per store from forecast_meteo_config ─────
+        try:
+            cur.execute("SAVEPOINT sp_meteo_rain")
+            cur.execute("""
+                SELECT COALESCE(fmc.store_id, s.id) AS sid,
+                       fmc.score_min, fmc.multiplicador
+                FROM forecast_meteo_config fmc
+                LEFT JOIN stores s ON s.name = fmc.loja AND s.is_active = TRUE
+                WHERE fmc.score_min IN (0, 30)
+                  AND fmc.loja IN ('Matosinhos', 'Bolhão')
+            """)
+            _meteo_cfg_rows = cur.fetchall()
+            cur.execute("RELEASE SAVEPOINT sp_meteo_rain")
+        except Exception:
+            try:
+                cur.execute("ROLLBACK TO SAVEPOINT sp_meteo_rain")
+            except Exception:
+                pass
+            _meteo_cfg_rows = []
+
     # ── Build historical DOW lookup ─────────────────────────────────────────────
     hist_by_dow: dict = {}
     for r in hist_rows:
@@ -558,7 +578,7 @@ def get_previsao_30dias() -> dict:
         if act_bol is not None and h.get('avg_bol') and h['avg_bol'] > 0:
             ratios_bol.append(act_bol / h['avg_bol'])
 
-    def _avg_capped(ratios, lo=0.7, hi=1.3):
+    def _avg_capped(ratios, lo=0.4, hi=2.5):
         if not ratios:
             return None
         avg = sum(ratios) / len(ratios)
@@ -596,18 +616,36 @@ def get_previsao_30dias() -> dict:
 
     cutoff = cutoff_row[0] if cutoff_row and cutoff_row[0] else None
 
+    # ── Calibrated rain factors per store ────────────────────────────────────────
+    # Band (0–29) = heavy rain proxy; band (30–59) = light rain proxy.
+    # Multipliers are normalised so band (60–84) = 1.0 (good weather = baseline).
+    _calibrated_rain: dict = {}
+    for _r in _meteo_cfg_rows:
+        _sid = int(_r[0]) if _r[0] is not None else None
+        if _sid is None:
+            continue
+        if _sid not in _calibrated_rain:
+            _calibrated_rain[_sid] = {'heavy': 0.85, 'light': 0.93}
+        if int(_r[1]) == 0:
+            _calibrated_rain[_sid]['heavy'] = float(_r[2])
+        elif int(_r[1]) == 30:
+            _calibrated_rain[_sid]['light'] = float(_r[2])
+
     def _tmax_ratio(forecast_tmax, hist_tmax):
         if forecast_tmax is None or hist_tmax is None or hist_tmax == 0:
             return 1.0
         return max(0.6, min(1.4, forecast_tmax / hist_tmax))
 
-    def _rain_factor(precip):
+    def _rain_factor(precip, store_id=None):
+        cfg = _calibrated_rain.get(store_id) or {}
+        heavy = cfg.get('heavy', 0.85)
+        light = cfg.get('light', 0.93)
         if precip is None:
             return 1.0
         if precip > 3.0:
-            return 0.85
+            return heavy
         if precip > 0.5:
-            return 0.93
+            return light
         return 1.0
 
     def _est(avg, tmax_r, rain_f, perf_f):
@@ -638,10 +676,11 @@ def get_previsao_30dias() -> dict:
 
         ratio_mat = _tmax_ratio(tmax_mat, h.get('avg_tmax_mat'))
         ratio_bol = _tmax_ratio(tmax_bol, h.get('avg_tmax_bol'))
-        rain = _rain_factor(precip)
+        rain_mat = _rain_factor(precip_mat, store_id=1)
+        rain_bol = _rain_factor(precip_bol, store_id=2)
 
-        est_mat   = _est(h.get('avg_mat'), ratio_mat, rain, perf_factor_mat)
-        est_bol   = _est(h.get('avg_bol'), ratio_bol, rain, perf_factor_bol)
+        est_mat   = _est(h.get('avg_mat'), ratio_mat, rain_mat, perf_factor_mat)
+        est_bol   = _est(h.get('avg_bol'), ratio_bol, rain_bol, perf_factor_bol)
         est_total = round((est_mat or 0) + (est_bol or 0), 2) if (est_mat is not None or est_bol is not None) else None
 
         actual = actual_by_date.get(cur_date, {})
@@ -703,10 +742,11 @@ def get_previsao_30dias() -> dict:
 
         r_mat = _tmax_ratio(tmax_mat_p, h.get('avg_tmax_mat'))
         r_bol = _tmax_ratio(tmax_bol_p, h.get('avg_tmax_bol'))
-        rain_p = _rain_factor(precip_p)
+        rain_mat_p = _rain_factor(precip_mat_p, store_id=1)
+        rain_bol_p = _rain_factor(precip_bol_p, store_id=2)
 
-        est_mat_p = _est(h.get('avg_mat'), r_mat, rain_p, None)
-        est_bol_p = _est(h.get('avg_bol'), r_bol, rain_p, None)
+        est_mat_p = _est(h.get('avg_mat'), r_mat, rain_mat_p, None)
+        est_bol_p = _est(h.get('avg_bol'), r_bol, rain_bol_p, None)
 
         _record_err('mat', est_mat_p, act_mat)
         _record_err('bol', est_bol_p, act_bol)
@@ -740,26 +780,39 @@ def get_previsao_30dias() -> dict:
     }
 
 
-def get_backtesting_marco_abril() -> dict:
-    """Backtest the forecast model against March–April 2026.
+def get_backtesting_rolling() -> dict:
+    """Backtest the forecast model against the most recent complete calendar month.
 
-    Training DOW averages: January + February 2026 (only).
-    Test period: 2026-03-01 to 2026-04-30.
+    Training DOW averages: 90 days ending the day before the test period.
+    Test period: last complete calendar month with data.
     Formula (no perf_factor to avoid circularity):
         est = avg_dow_sales × tmax_ratio × rain_factor
 
     Returns:
-        metrics — {total, mat, bol} each with {mae, mape, n_days} or None
-        weeks   — list of {week_label, iso_week,
-                            est_total, real_total,
-                            est_mat, real_mat,
-                            est_bol, real_bol, n_days}
+        metrics      — {total, mat, bol} each with {mae, mape, n_days} or None
+        weeks        — list of {week_label, iso_week,
+                                est_total, real_total,
+                                est_mat, real_mat,
+                                est_bol, real_bol, n_days}
         n_train_days — int: distinct training days used
+        train_start, train_end, test_start, test_end — ISO date strings
+        train_label, test_label — human-readable period labels (pt-PT)
     """
-    TRAIN_START = date(2026, 1, 1)
-    TRAIN_END   = date(2026, 2, 28)
-    TEST_START  = date(2026, 3, 1)
-    TEST_END    = date(2026, 4, 30)
+    today = date.today()
+    _MONTH_PT = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+                 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+    first_of_month = today.replace(day=1)
+    TEST_END   = first_of_month - timedelta(days=1)
+    TEST_START = TEST_END.replace(day=1)
+    TRAIN_END   = TEST_START - timedelta(days=1)
+    TRAIN_START = TRAIN_END - timedelta(days=89)
+
+    if TRAIN_START.month == TRAIN_END.month:
+        train_label = _MONTH_PT[TRAIN_START.month]
+    else:
+        train_label = f"{_MONTH_PT[TRAIN_START.month]}–{_MONTH_PT[TRAIN_END.month]}"
+    test_label = f"{_MONTH_PT[TEST_START.month]} {TEST_END.year}"
 
     with db_connection() as conn:
         cur = conn.cursor()
@@ -999,6 +1052,10 @@ def get_backtesting_marco_abril() -> dict:
         'n_train_days': n_train_days,
         'test_start':   TEST_START.isoformat(),
         'test_end':     TEST_END.isoformat(),
+        'train_start':  TRAIN_START.isoformat(),
+        'train_end':    TRAIN_END.isoformat(),
+        'train_label':  train_label,
+        'test_label':   test_label,
     }
 
 

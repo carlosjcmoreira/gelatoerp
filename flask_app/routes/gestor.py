@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import threading
 import pandas as pd
 from datetime import datetime, date
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
@@ -539,6 +540,23 @@ def _handle_upload_vendas(loja_map_vendas):
         invalidate_prefix('kpi_annual')
         invalidate_prefix('kpi_monthly')
         invalidate_prefix('kpi_by_day')
+
+        def _run_forecast_calibration():
+            try:
+                from db.forecast import calibrate_meteo_multipliers, calibrate_wind_multipliers
+                for _loja in ['Matosinhos', 'Bolhão']:
+                    try:
+                        calibrate_meteo_multipliers(_loja, days=90)
+                    except Exception:
+                        pass
+                    try:
+                        calibrate_wind_multipliers(_loja, days=90)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_run_forecast_calibration, daemon=True).start()
 
     except ServiceError as e:
         flash(str(e), 'error')

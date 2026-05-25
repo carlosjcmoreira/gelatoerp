@@ -155,7 +155,7 @@
 
     <div class="card mt-3" id="backtestCard">
         <div class="card-header d-flex align-items-center justify-content-between py-2 px-3">
-            <span style="font-size:0.82rem;font-weight:700;">📊 Backtesting — Março &amp; Abril 2026</span>
+            <span style="font-size:0.82rem;font-weight:700;" id="backtestTitle">📊 Backtesting</span>
             <span class="badge bg-secondary-subtle text-secondary-emphasis" id="backtestBadge" style="font-size:0.7rem;"></span>
         </div>
         <div class="card-body p-3">
@@ -452,7 +452,9 @@ function renderBacktest() {
     // Badge
     const badge = document.getElementById('backtestBadge');
     const testDays = m ? m.n_days : '?';
-    badge.textContent = `Treino: ${bt.n_train_days ?? '?'} dias (Jan+Fev) · Teste: ${testDays} dias (Mar+Abr)`;
+    badge.textContent = `Treino: ${bt.n_train_days ?? '?'} dias (${bt.train_label ?? ''}) · Teste: ${testDays} dias (${bt.test_label ?? ''})`;
+    const titleEl = document.getElementById('backtestTitle');
+    if (titleEl && bt.test_label) titleEl.textContent = `📊 Backtesting — ${bt.test_label}`;
     const metricEl = document.getElementById('backtestMetric');
     if (!m) {
         metricEl.innerHTML = `<span class="acc-muted">Sem dados suficientes (${lojaLabel})</span>`;
