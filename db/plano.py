@@ -925,13 +925,16 @@ def get_pesagens_loja_3dias(loja_nome: str) -> dict:
         result_rows.append({'sabor': sabor, 'dias': dia_entries})
 
     date_labels = []
+    dates_iso = []
     for d in dates:
         try:
             date_labels.append(d.strftime('%d/%m'))
+            dates_iso.append(d.strftime('%Y-%m-%d'))
         except Exception:
             date_labels.append(str(d))
+            dates_iso.append(str(d))
 
-    return {'dates': dates, 'date_labels': date_labels, 'rows': result_rows}
+    return {'dates': dates, 'date_labels': date_labels, 'dates_iso': dates_iso, 'rows': result_rows}
 
 
 def set_stock_producao(sabor: str, loja: str, quantidade_kg: float):

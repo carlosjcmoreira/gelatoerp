@@ -57,6 +57,7 @@
             <tbody>
                 {% for r in three_day.rows %}
                 {% set dias_json = r.dias|tojson %}
+                {% set dates_iso_json = three_day.dates_iso|tojson %}
                 <tr>
                     <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
                     {% for entry in r.dias %}
@@ -64,12 +65,16 @@
                     <td class="text-center px-1 border-start text-primary fw-semibold">{{ '%.2f'|format(entry.kg) }}</td>
                     <td class="px-1">
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
-                                onclick="abrirEdit3Dias('{{ r.sabor|e }}', '{{ user_loja|e }}', {{ dias_json|e }})"
+                                onclick="abrirEdit3Dias('{{ r.sabor|e }}', '{{ user_loja|e }}', {{ dias_json|e }}, {{ dates_iso_json|e }})"
                                 title="Editar pesagens (3 dias)">✏️</button>
                     </td>
                     {% else %}
                     <td class="text-center px-1 border-start text-muted">-</td>
-                    <td class="px-1"></td>
+                    <td class="px-1">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                                onclick="abrirEdit3Dias('{{ r.sabor|e }}', '{{ user_loja|e }}', {{ dias_json|e }}, {{ dates_iso_json|e }})"
+                                title="Registar pesagem em falta">+</button>
+                    </td>
                     {% endif %}
                     {% endfor %}
                 </tr>
@@ -308,7 +313,7 @@
 </div>
 
 <script>
-function abrirEdit3Dias(sabor, loja, dias) {
+function abrirEdit3Dias(sabor, loja, dias, datesIso) {
     document.getElementById('edit3SaborLabel').textContent = sabor + ' — ' + loja;
     var container = document.getElementById('edit3DiasContainer');
     container.innerHTML = '';
@@ -316,14 +321,21 @@ function abrirEdit3Dias(sabor, loja, dias) {
         var entry = dias[i];
         var idVal = entry ? entry.id : '';
         var kgVal = entry ? entry.kg.toFixed(3) : '';
-        var dataLbl = entry ? (entry.data_fmt || '') : (i === 0 ? 'Dia n-2' : i === 1 ? 'Dia n-1' : 'Dia n');
-        var disabled = !entry ? ' disabled' : '';
+        var dateIso = entry ? (entry.data_iso || '') : (datesIso ? (datesIso[i] || '') : '');
+        var dataLbl = entry ? (entry.data_fmt || '') : (datesIso && datesIso[i] ? datesIso[i].slice(5).split('-').reverse().join('/') : (i === 0 ? 'Dia n-2' : i === 1 ? 'Dia n-1' : 'Dia n'));
+        var isNew = !entry;
+        var newBadge = isNew ? ' <span class="badge bg-warning text-dark ms-1" style="font-size:0.7em">novo</span>' : '';
+        var safeSabor = sabor.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+        var safeLoja = loja.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
         container.innerHTML +=
             '<div class="row g-2 align-items-center mb-2">' +
             '<input type="hidden" name="stock_id_' + i + '" value="' + idVal + '">' +
-            '<div class="col-4"><span class="form-label fw-semibold mb-0">' + dataLbl + '</span></div>' +
+            '<input type="hidden" name="sabor_' + i + '" value="' + safeSabor + '">' +
+            '<input type="hidden" name="loja_' + i + '" value="' + safeLoja + '">' +
+            '<input type="hidden" name="date_iso_' + i + '" value="' + dateIso + '">' +
+            '<div class="col-4"><span class="form-label fw-semibold mb-0">' + dataLbl + newBadge + '</span></div>' +
             '<div class="col-8"><input type="number" name="kg_' + i + '" class="form-control form-control-sm"' +
-            ' step="0.001" min="0" max="9999" value="' + kgVal + '"' + disabled + '>' +
+            ' step="0.001" min="0" max="9999" value="' + kgVal + '">' +
             '</div></div>';
     }
     var modal = new bootstrap.Modal(document.getElementById('modalEdit3Dias'));

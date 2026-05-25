@@ -27,6 +27,7 @@ from database import (
     get_active_venda_stores, get_or_create_pending_batch,
     update_stock_gelado, get_producao_history_by_day,
     delete_producao_record, get_pesagens_loja_3dias,
+    add_stock_gelado,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -397,21 +398,40 @@ def pesagens_loja():
                 flash("Erro ao processar os dados.", "danger")
         elif action == 'edit_3d':
             try:
+                from datetime import date as _date, datetime as _datetime
                 updated = 0
+                created = 0
                 for i in range(3):
                     sid_str = request.form.get(f'stock_id_{i}', '').strip()
                     kg_str = request.form.get(f'kg_{i}', '').strip()
-                    if not sid_str or not kg_str:
+                    if not kg_str:
                         continue
-                    stock_id = int(sid_str)
                     kg = float(kg_str.replace(',', '.'))
-                    if stock_id > 0 and kg >= 0:
-                        update_stock_gelado(stock_id, kg, loja=None, nova_data=None)
+                    if kg < 0:
+                        continue
+                    if sid_str and int(sid_str) > 0:
+                        update_stock_gelado(int(sid_str), kg, loja=None, nova_data=None)
                         updated += 1
+                    else:
+                        sabor_i = request.form.get(f'sabor_{i}', '').strip()
+                        loja_i = request.form.get(f'loja_{i}', '').strip()
+                        date_iso_i = request.form.get(f'date_iso_{i}', '').strip()
+                        if sabor_i and loja_i and date_iso_i:
+                            record_date = _datetime.strptime(date_iso_i, '%Y-%m-%d').date()
+                            if record_date > _date.today():
+                                flash(f"Data inválida para nova pesagem (slot {i+1}).", "danger")
+                                continue
+                            add_stock_gelado(record_date, loja_i, sabor_i, kg, 'fim')
+                            created += 1
+                parts = []
                 if updated:
-                    flash(f"{updated} pesagem(ns) atualizada(s) com sucesso.", "success")
+                    parts.append(f"{updated} pesagem(ns) atualizada(s)")
+                if created:
+                    parts.append(f"{created} pesagem(ns) criada(s)")
+                if parts:
+                    flash(', '.join(parts) + ' com sucesso.', 'success')
                 else:
-                    flash("Nenhuma pesagem para atualizar.", "info")
+                    flash("Nenhuma pesagem para processar.", "info")
             except (ValueError, TypeError):
                 flash("Erro ao processar os dados.", "danger")
         return redirect(url_for('producao.pesagens_loja', days=days))
