@@ -139,18 +139,7 @@
         <div class="card-body p-0">
             <div class="table-responsive">
                 <table class="table table-sm table-hover mb-0" id="forecastTable">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="min-width:110px;">Data</th>
-                            <th>Dia</th>
-                            <th class="text-end">T°C Mat.</th>
-                            <th class="text-end">T°C Bol.</th>
-                            <th class="text-end">Chuva</th>
-                            <th class="text-end">Previsão €</th>
-                            <th class="text-end">Real €</th>
-                            <th class="text-end">Δ</th>
-                        </tr>
-                    </thead>
+                    <thead class="table-light" id="forecastThead"></thead>
                     <tbody id="tableBody">
                         <tr><td colspan="8" class="text-center text-muted py-4">A calcular…</td></tr>
                     </tbody>
@@ -289,17 +278,6 @@ function renderPerfBadges() {
     el.innerHTML = html;
 }
 
-function getEstKey() {
-    if (activeLoja === 'mat') return 'est_mat';
-    if (activeLoja === 'bol') return 'est_bol';
-    return 'est_total';
-}
-function getRealKey() {
-    if (activeLoja === 'mat') return 'real_mat';
-    if (activeLoja === 'bol') return 'real_bol';
-    return 'real_total';
-}
-
 function getISOWeek(d) {
     const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
@@ -307,21 +285,81 @@ function getISOWeek(d) {
     return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
 }
 
+function buildWeekTotals(rows) {
+    const map = new Map();
+    (rows || []).forEach(r => {
+        const d = new Date(r.date + 'T00:00:00');
+        const wk = getISOWeek(d);
+        if (!map.has(wk)) map.set(wk, {est_mat:0, est_bol:0, est_total:0, real_mat:0, real_bol:0, real_total:0});
+        const wt = map.get(wk);
+        if (r.est_mat   != null) wt.est_mat   += r.est_mat;
+        if (r.est_bol   != null) wt.est_bol   += r.est_bol;
+        if (r.est_total != null) wt.est_total += r.est_total;
+        if (r.real_mat   != null) wt.real_mat   += r.real_mat;
+        if (r.real_bol   != null) wt.real_bol   += r.real_bol;
+        if (r.real_total != null) wt.real_total += r.real_total;
+    });
+    return map;
+}
+
+function fmtWkEst(v) {
+    if (!v) return '<span class="text-muted">—</span>';
+    return `<span class="est-val">${fmt(v)}</span>`;
+}
+function fmtWkReal(v) {
+    if (!v) return '<span class="text-muted">—</span>';
+    return `<span class="real-val">${fmt(v)}</span>`;
+}
+
 function render() {
     const rows = RAW.forecast;
+    const isTotal = activeLoja === 'total';
+    const NCOLS = isTotal ? 10 : 8;
+
     const hasAnyEst = rows && rows.some(r => r.est_total != null || r.est_mat != null || r.est_bol != null);
     if (!rows || rows.length === 0) {
         document.getElementById('noDataMsg').classList.remove('d-none');
+        document.getElementById('forecastThead').innerHTML =
+            `<tr><th colspan="${NCOLS}" style="min-width:110px;">Data</th></tr>`;
         document.getElementById('tableBody').innerHTML =
-            '<tr><td colspan="8" class="text-center text-muted py-4">Sem dados</td></tr>';
+            `<tr><td colspan="${NCOLS}" class="text-center text-muted py-4">Sem dados</td></tr>`;
         return;
     }
     if (!hasAnyEst) {
         document.getElementById('noDataMsg').classList.remove('d-none');
     }
 
-    const estKey  = getEstKey();
-    const realKey = getRealKey();
+    const weekTotals = buildWeekTotals(rows);
+
+    const estKey  = isTotal ? 'est_total' : (activeLoja === 'mat' ? 'est_mat' : 'est_bol');
+    const realKey = isTotal ? 'real_total' : (activeLoja === 'mat' ? 'real_mat' : 'real_bol');
+
+    if (isTotal) {
+        document.getElementById('forecastThead').innerHTML = `<tr>
+            <th style="min-width:110px;">Data</th>
+            <th>Dia</th>
+            <th class="text-end">T°C Mat.</th>
+            <th class="text-end">T°C Bol.</th>
+            <th class="text-end">Chuva</th>
+            <th class="text-end">Mat. €</th>
+            <th class="text-end">Bol. €</th>
+            <th class="text-end">Total €</th>
+            <th class="text-end">Real €</th>
+            <th class="text-end">Δ</th>
+        </tr>`;
+    } else {
+        const lojaLabel = activeLoja === 'mat' ? 'Mat. €' : 'Bol. €';
+        document.getElementById('forecastThead').innerHTML = `<tr>
+            <th style="min-width:110px;">Data</th>
+            <th>Dia</th>
+            <th class="text-end">T°C Mat.</th>
+            <th class="text-end">T°C Bol.</th>
+            <th class="text-end">Chuva</th>
+            <th class="text-end">${lojaLabel}</th>
+            <th class="text-end">Real €</th>
+            <th class="text-end">Δ</th>
+        </tr>`;
+    }
 
     let html = '';
     let lastWeek = null;
@@ -332,7 +370,24 @@ function render() {
         const isoWeek = getISOWeek(d);
 
         if (isoWeek !== lastWeek) {
-            html += `<tr class="pv-week-hdr"><td colspan="8">Semana ${isoWeek}</td></tr>`;
+            const wt = weekTotals.get(isoWeek) || {};
+            if (isTotal) {
+                html += `<tr class="pv-week-hdr">
+                    <td colspan="5">Semana ${isoWeek}</td>
+                    <td class="text-end">${fmtWkEst(wt.est_mat)}</td>
+                    <td class="text-end">${fmtWkEst(wt.est_bol)}</td>
+                    <td class="text-end">${fmtWkEst(wt.est_total)}</td>
+                    <td class="text-end">${fmtWkReal(wt.real_total)}</td>
+                    <td></td>
+                </tr>`;
+            } else {
+                html += `<tr class="pv-week-hdr">
+                    <td colspan="5">Semana ${isoWeek}</td>
+                    <td class="text-end">${fmtWkEst(wt[estKey])}</td>
+                    <td class="text-end">${fmtWkReal(wt[realKey])}</td>
+                    <td></td>
+                </tr>`;
+            }
             lastWeek = isoWeek;
         }
 
@@ -340,28 +395,45 @@ function render() {
         const isPast  = r.date < today;
         const rowCls  = isToday ? 'pv-today-row' : (isPast ? 'pv-past-row' : '');
 
-        const est  = r[estKey];
-        const real = r[realKey];
-        const hasReal = real != null;
-
-        const estCell  = est  != null ? `<span class="est-val">${fmt(est)}</span>` : '—';
-        const realCell = hasReal ? `<span class="real-val">${fmt(real)}</span>` : (isPast ? '<span class="text-muted">—</span>' : '');
-        const deltaCellHtml = hasReal && est != null ? deltaCell(real, est) : '';
-
         const todayBadge = isToday
             ? ' <span class="badge bg-primary" style="font-size:0.6rem;vertical-align:middle;">Hoje</span>'
             : '';
 
-        html += `<tr class="${rowCls}">
+        const fixedCells = `
             <td>${fmtDate(r.date)}${todayBadge}</td>
             <td class="text-muted" style="font-size:0.75rem;">${WEEKDAYS_PT[r.dow]}</td>
             <td class="text-end">${fmtT(r.tmax_mat)}</td>
             <td class="text-end">${fmtT(r.tmax_bol)}</td>
-            <td class="text-end">${rainCell(r.precip)}</td>
-            <td class="text-end">${estCell}</td>
-            <td class="text-end">${realCell}</td>
-            <td class="text-end">${deltaCellHtml}</td>
-        </tr>`;
+            <td class="text-end">${rainCell(r.precip)}</td>`;
+
+        if (isTotal) {
+            const estMat   = r.est_mat   != null ? `<span class="est-val">${fmt(r.est_mat)}</span>` : '—';
+            const estBol   = r.est_bol   != null ? `<span class="est-val">${fmt(r.est_bol)}</span>` : '—';
+            const estTotal = r.est_total != null ? `<span class="est-val">${fmt(r.est_total)}</span>` : '—';
+            const realTotal = r.real_total != null
+                ? `<span class="real-val">${fmt(r.real_total)}</span>`
+                : (isPast ? '<span class="text-muted">—</span>' : '');
+            const dlt = deltaCell(r.real_total, r.est_total);
+            html += `<tr class="${rowCls}">${fixedCells}
+                <td class="text-end">${estMat}</td>
+                <td class="text-end">${estBol}</td>
+                <td class="text-end">${estTotal}</td>
+                <td class="text-end">${realTotal}</td>
+                <td class="text-end">${dlt}</td>
+            </tr>`;
+        } else {
+            const est  = r[estKey];
+            const real = r[realKey];
+            const hasReal = real != null;
+            const estCell  = est != null ? `<span class="est-val">${fmt(est)}</span>` : '—';
+            const realCell = hasReal ? `<span class="real-val">${fmt(real)}</span>` : (isPast ? '<span class="text-muted">—</span>' : '');
+            const dlt = hasReal && est != null ? deltaCell(real, est) : '';
+            html += `<tr class="${rowCls}">${fixedCells}
+                <td class="text-end">${estCell}</td>
+                <td class="text-end">${realCell}</td>
+                <td class="text-end">${dlt}</td>
+            </tr>`;
+        }
     });
 
     document.getElementById('tableBody').innerHTML = html;
