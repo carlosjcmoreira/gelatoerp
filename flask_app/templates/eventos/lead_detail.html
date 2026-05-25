@@ -20,6 +20,9 @@
         <div class="card-body">
             <form method="post">
                 <input type="hidden" name="action" value="save">
+                <div class="mb-3">
+                    <button type="submit" class="btn btn-sm btn-primary">💾 Guardar</button>
+                </div>
                 <div class="row g-3">
                     <div class="col-12 col-sm-4">
                         <label class="form-label small">Nome do cliente</label>
@@ -80,9 +83,6 @@
                         <label class="form-label small">Notas internas</label>
                         <textarea name="internal_notes" class="form-control form-control-sm" rows="2">{{ lead.internal_notes or '' }}</textarea>
                     </div>
-                </div>
-                <div class="mt-3 d-flex gap-2">
-                    <button type="submit" class="btn btn-sm btn-primary">💾 Guardar</button>
                 </div>
             </form>
         </div>
