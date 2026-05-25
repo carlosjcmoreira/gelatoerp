@@ -537,7 +537,7 @@ def get_previsao_30dias() -> dict:
                        fmc.score_min, fmc.multiplicador
                 FROM forecast_meteo_config fmc
                 LEFT JOIN stores s ON s.name = fmc.loja AND s.is_active = TRUE
-                WHERE fmc.score_min IN (0, 30)
+                WHERE fmc.score_min IN (0, 30, 60)
                   AND fmc.loja IN ('Matosinhos', 'Bolhão')
             """)
             _meteo_cfg_rows = cur.fetchall()
@@ -618,18 +618,25 @@ def get_previsao_30dias() -> dict:
 
     # ── Calibrated rain factors per store ────────────────────────────────────────
     # Band (0–29) = heavy rain proxy; band (30–59) = light rain proxy.
-    # Multipliers are normalised so band (60–84) = 1.0 (good weather = baseline).
-    _calibrated_rain: dict = {}
+    # Both are normalised by the neutral band (60–84) so the reference = 1.0.
+    _raw_meteo: dict = {}  # {store_id: {score_min: multiplier}}
     for _r in _meteo_cfg_rows:
         _sid = int(_r[0]) if _r[0] is not None else None
         if _sid is None:
             continue
-        if _sid not in _calibrated_rain:
-            _calibrated_rain[_sid] = {'heavy': 0.85, 'light': 0.93}
-        if int(_r[1]) == 0:
-            _calibrated_rain[_sid]['heavy'] = float(_r[2])
-        elif int(_r[1]) == 30:
-            _calibrated_rain[_sid]['light'] = float(_r[2])
+        _raw_meteo.setdefault(_sid, {})[int(_r[1])] = float(_r[2])
+
+    _calibrated_rain: dict = {}
+    for _sid, _bands in _raw_meteo.items():
+        _neutral = _bands.get(60, 1.0)
+        if not _neutral or _neutral <= 0:
+            _neutral = 1.0
+        _raw_heavy = _bands.get(0)
+        _raw_light = _bands.get(30)
+        _calibrated_rain[_sid] = {
+            'heavy': round(_raw_heavy / _neutral, 4) if _raw_heavy is not None else 0.85,
+            'light': round(_raw_light / _neutral, 4) if _raw_light is not None else 0.93,
+        }
 
     def _tmax_ratio(forecast_tmax, hist_tmax):
         if forecast_tmax is None or hist_tmax is None or hist_tmax == 0:
@@ -798,26 +805,40 @@ def get_backtesting_rolling() -> dict:
         train_start, train_end, test_start, test_end — ISO date strings
         train_label, test_label — human-readable period labels (pt-PT)
     """
+    import calendar as _cal
     today = date.today()
     _MONTH_PT = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
                  'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
-    first_of_month = today.replace(day=1)
-    TEST_END   = first_of_month - timedelta(days=1)
-    TEST_START = TEST_END.replace(day=1)
-    TRAIN_END   = TEST_START - timedelta(days=1)
-    TRAIN_START = TRAIN_END - timedelta(days=89)
-
-    if TRAIN_START.month == TRAIN_END.month:
-        train_label = _MONTH_PT[TRAIN_START.month]
-    else:
-        train_label = f"{_MONTH_PT[TRAIN_START.month]}–{_MONTH_PT[TRAIN_END.month]}"
-    test_label = f"{_MONTH_PT[TEST_START.month]} {TEST_END.year}"
-
     with db_connection() as conn:
         cur = conn.cursor()
 
-        # ── 1. Training DOW averages (Jan+Feb 2026, sales + weather) ─────────
+        # ── 0. Determine test/train windows from actual data availability ─────
+        cur.execute("SELECT MAX(data) FROM vendas_detalhe")
+        _max_r = cur.fetchone()
+        _max_sales = _max_r[0] if _max_r and _max_r[0] else None
+
+        if _max_sales is not None:
+            _last_day_of_max = _cal.monthrange(_max_sales.year, _max_sales.month)[1]
+            _end_of_max_month = date(_max_sales.year, _max_sales.month, _last_day_of_max)
+            if today > _end_of_max_month:
+                TEST_END = _end_of_max_month
+            else:
+                TEST_END = _max_sales.replace(day=1) - timedelta(days=1)
+        else:
+            TEST_END = today.replace(day=1) - timedelta(days=1)
+
+        TEST_START  = TEST_END.replace(day=1)
+        TRAIN_END   = TEST_START - timedelta(days=1)
+        TRAIN_START = TRAIN_END - timedelta(days=89)
+
+        if TRAIN_START.month == TRAIN_END.month:
+            train_label = _MONTH_PT[TRAIN_START.month]
+        else:
+            train_label = f"{_MONTH_PT[TRAIN_START.month]}–{_MONTH_PT[TRAIN_END.month]}"
+        test_label = f"{_MONTH_PT[TEST_START.month]} {TEST_END.year}"
+
+        # ── 1. Training DOW averages, sales + weather ─────────────────────────
         cur.execute("""
             WITH daily_sales AS (
                 SELECT

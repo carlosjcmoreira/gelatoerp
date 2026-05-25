@@ -541,10 +541,17 @@ def _handle_upload_vendas(loja_map_vendas):
         invalidate_prefix('kpi_monthly')
         invalidate_prefix('kpi_by_day')
 
-        def _run_forecast_calibration():
+        if file_name.endswith('.xlsx'):
+            _cal_lojas = set(dates_by_loja.keys()) or set(loja_map_vendas.values())
+        elif file_name.endswith('.csv'):
+            _cal_lojas = {request.form.get('loja_csv', 'Matosinhos')}
+        else:
+            _cal_lojas = set(loja_map_vendas.values())
+
+        def _run_forecast_calibration(_lojas=_cal_lojas):
             try:
                 from db.forecast import calibrate_meteo_multipliers, calibrate_wind_multipliers
-                for _loja in ['Matosinhos', 'Bolhão']:
+                for _loja in _lojas:
                     try:
                         calibrate_meteo_multipliers(_loja, days=90)
                     except Exception:
