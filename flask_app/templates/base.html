@@ -163,6 +163,46 @@
         }, {passive: true});
     })();
     </script>
+    <script>
+    /* iOS keyboard dismiss: after blurring a form input, scroll any obscured
+       submit button above the fixed back-bar (and mobile nav when present). */
+    (function(){
+        var bar = document.getElementById('backBar');
+        if (!bar) return;
+
+        function ensureSubmitVisible() {
+            var submits = document.querySelectorAll(
+                'button[type="submit"], input[type="submit"], ' +
+                'button:not([type]):not([data-bs-dismiss]):not([data-no-loading])'
+            );
+            if (!submits.length) return;
+
+            var isMobile = window.innerWidth < 768;
+            /* On mobile: bottom-nav (64 px) + back-bar (48 px) + safe-area (~34 px) + gap (8 px) ≈ 154 px
+               On desktop: back-bar (48 px) + gap (8 px) = 56 px */
+            var fixedBottom = isMobile ? 154 : 56;
+            var visibleBottom = window.innerHeight - fixedBottom;
+
+            var worstBottom = 0;
+            submits.forEach(function(btn) {
+                var r = btn.getBoundingClientRect();
+                if (r.bottom > worstBottom) { worstBottom = r.bottom; }
+            });
+
+            if (worstBottom > visibleBottom) {
+                window.scrollBy({ top: worstBottom - visibleBottom + 8, behavior: 'smooth' });
+            }
+        }
+
+        document.addEventListener('focusout', function(e) {
+            var tag = (e.target || {}).tagName;
+            if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
+            /* iOS keyboard takes ~300 ms to animate away; wait 350 ms so the
+               new viewport height is stable before we measure button positions. */
+            setTimeout(ensureSubmitVisible, 350);
+        }, true);
+    })();
+    </script>
     {% endif %}
     {% block scripts %}{% endblock %}
 </body>
