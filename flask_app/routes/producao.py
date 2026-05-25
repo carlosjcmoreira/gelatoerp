@@ -457,13 +457,17 @@ def pesagens_loja():
             store = get_store_by_id(loja_id)
             if store and store.get('name'):
                 user_loja = store['name']
-        three_day = get_pesagens_loja_3dias(user_loja)
+        selected_loja = request.args.get('loja', '').strip() or user_loja
+        if selected_loja not in _PESAGENS_LOJA_ORDER:
+            selected_loja = user_loja
+        three_day = get_pesagens_loja_3dias(selected_loja)
         return render_template('producao/pesagens_loja.html',
                                active_tab='pesagens_loja', tabs=_tabs_with_urls(),
                                lojas=[], rows=[],
                                days=days, days_options=_PESAGENS_DAYS_OPTIONS,
                                history_rows=None,
-                               three_day=three_day, user_loja=user_loja)
+                               three_day=three_day, user_loja=selected_loja,
+                               all_lojas=_PESAGENS_LOJA_ORDER)
     else:
         raw = get_pesagens_loja_range(days)
         history_rows = [

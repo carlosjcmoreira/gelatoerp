@@ -24,6 +24,17 @@
 {% if history_rows is none %}
 
 {% if days == 3 and three_day is defined %}
+    {# ── Store selector for 3-day view ── #}
+    {% if all_lojas is defined %}
+    <div class="btn-group btn-group-sm mb-3" role="group" aria-label="Selecionar loja">
+        {% for loja_opt in all_lojas %}
+        <a href="{{ url_for('producao.pesagens_loja', days=3, loja=loja_opt) }}"
+           class="btn {% if loja_opt == user_loja %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            {{ loja_opt }}
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
     {# ── 3-day comparison view ── #}
     {% if three_day.rows %}
     <div class="table-responsive">
