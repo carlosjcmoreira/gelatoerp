@@ -1317,11 +1317,17 @@ def get_meteo_config(loja: str) -> list[dict]:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, score_min, score_max, multiplicador
+            SELECT id, score_min, score_max, multiplicador, updated_at
             FROM forecast_meteo_config WHERE loja = %s ORDER BY score_min
         """, (loja,))
-        return [{'id': r[0], 'score_min': r[1], 'score_max': r[2], 'multiplicador': float(r[3])}
-                for r in cursor.fetchall()]
+        return [
+            {
+                'id': r[0], 'score_min': r[1], 'score_max': r[2],
+                'multiplicador': float(r[3]),
+                'updated_at': r[4],
+            }
+            for r in cursor.fetchall()
+        ]
 
 
 def update_meteo_config(loja: str, score_min: int, score_max: int, multiplicador: float):

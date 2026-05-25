@@ -143,6 +143,49 @@ def previsao_30dias():
     )
 
 
+@financeiro_bp.route('/previsao-30-dias/config')
+@perm_required('acesso_gestor')
+def previsao_30dias_config():
+    from flask import jsonify
+    from db.forecast import get_meteo_config, get_wind_config
+    lojas = ['Matosinhos', 'Bolhão']
+    result = {}
+    for loja in lojas:
+        key = 'mat' if loja == 'Matosinhos' else 'bol'
+        meteo = get_meteo_config(loja)
+        wind  = get_wind_config(loja)
+        updated_at = None
+        for row in (meteo + wind):
+            ts = row.get('updated_at')
+            if ts:
+                ts_str = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
+                if updated_at is None or ts_str > updated_at:
+                    updated_at = ts_str
+        result[key] = {
+            'loja': loja,
+            'meteo': [
+                {
+                    'score_min': r['score_min'],
+                    'score_max': r['score_max'],
+                    'multiplicador': r['multiplicador'],
+                    'updated_at': r['updated_at'].isoformat() if r.get('updated_at') and hasattr(r['updated_at'], 'isoformat') else (str(r['updated_at']) if r.get('updated_at') else None),
+                }
+                for r in meteo
+            ],
+            'wind': [
+                {
+                    'vento_min': r['vento_min'],
+                    'vento_max': r['vento_max'],
+                    'multiplicador': r['multiplicador'],
+                    'updated_at': r['updated_at'].isoformat() if r.get('updated_at') and hasattr(r['updated_at'], 'isoformat') else (str(r['updated_at']) if r.get('updated_at') else None),
+                }
+                for r in wind
+            ],
+            'updated_at': updated_at,
+        }
+    return jsonify(result)
+
+
 @financeiro_bp.route('/dashboard-vendas')
 @perm_required('acesso_gestor')
 def dashboard_vendas():

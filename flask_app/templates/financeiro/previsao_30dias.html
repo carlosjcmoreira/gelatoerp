@@ -108,6 +108,38 @@
 .acc-ok    { color: #f59e0b; font-weight: 700; }
 .acc-bad   { color: #ef4444; font-weight: 700; }
 .acc-muted { color: var(--bs-secondary-color); }
+.cfg-accordion .accordion-button {
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.5rem 0.85rem;
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+}
+.cfg-accordion .accordion-button:not(.collapsed) {
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-primary);
+    box-shadow: none;
+}
+.cfg-accordion .accordion-body {
+    padding: 0.75rem 0.85rem;
+    font-size: 0.78rem;
+}
+.cfg-table th {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+}
+.cfg-table td {
+    font-size: 0.78rem;
+    vertical-align: middle;
+}
+.cfg-mult-pos { color: #10b981; font-weight: 700; }
+.cfg-mult-neg { color: #ef4444; font-weight: 700; }
+.cfg-mult-neu { color: var(--bs-secondary-color); }
+.cfg-awaiting { color: var(--bs-warning); font-style: italic; font-size: 0.74rem; }
 </style>
 {% endblock %}
 
@@ -123,6 +155,24 @@
             <button class="btn btn-outline-primary btn-sm pv-pill-btn active" data-loja="total">Total</button>
             <button class="btn btn-outline-primary btn-sm pv-pill-btn" data-loja="mat">Matosinhos</button>
             <button class="btn btn-outline-primary btn-sm pv-pill-btn" data-loja="bol">Bolhão</button>
+        </div>
+    </div>
+
+    <div class="accordion cfg-accordion mb-3" id="cfgAccordion">
+        <div class="accordion-item border">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#cfgPanel"
+                        aria-expanded="false" aria-controls="cfgPanel">
+                    ⚙️ Multiplicadores calibrados em vigor
+                    <span id="cfgLastUpdate" class="text-muted fw-normal ms-2" style="font-size:0.7rem;"></span>
+                </button>
+            </h2>
+            <div id="cfgPanel" class="accordion-collapse collapse">
+                <div class="accordion-body" id="cfgBody">
+                    <div class="text-center text-muted py-2" style="font-size:0.78rem;">A carregar…</div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -513,6 +563,134 @@ document.getElementById('lojaFilters').addEventListener('click', e => {
     render();
     renderAccuracy();
     renderBacktest();
+});
+
+function meteoLabel(score_min, score_max) {
+    if (score_min === 0)  return 'Mau (0–29)';
+    if (score_min === 30) return 'Nublado (30–59)';
+    if (score_min === 60) return 'Normal (60–84)';
+    if (score_min === 85) return 'Bom (85–100)';
+    return `${score_min}–${score_max}`;
+}
+
+function windLabel(vento_min, vento_max) {
+    if (vento_min === 0)  return 'Calmo (0–20)';
+    if (vento_min === 21) return 'Moderado (21–35)';
+    if (vento_min === 36) return 'Forte (36–55)';
+    if (vento_min === 56) return 'Muito forte (>55)';
+    return `${vento_min}–${vento_max}`;
+}
+
+function multCell(v) {
+    if (v == null) return '—';
+    const cls = v > 1.01 ? 'cfg-mult-pos' : (v < 0.99 ? 'cfg-mult-neg' : 'cfg-mult-neu');
+    const sign = v > 1.01 ? '+' : '';
+    const pct = ((v - 1) * 100).toFixed(1);
+    return `<span class="${cls}">×${v.toFixed(4)} <small>(${sign}${pct}%)</small></span>`;
+}
+
+function fmtTs(ts) {
+    if (!ts) return null;
+    const d = new Date(ts);
+    if (isNaN(d)) return null;
+    return d.toLocaleDateString('pt-PT', {day:'2-digit', month:'2-digit', year:'numeric'})
+         + ' ' + d.toLocaleTimeString('pt-PT', {hour:'2-digit', minute:'2-digit'});
+}
+
+function isDefaultMeteo(rows) {
+    const defaults = [[0,29,0.7],[30,59,0.85],[60,84,1.0],[85,100,1.15]];
+    if (!rows || rows.length !== defaults.length) return false;
+    return rows.every((r, i) =>
+        r.score_min === defaults[i][0] &&
+        r.score_max === defaults[i][1] &&
+        Math.abs(r.multiplicador - defaults[i][2]) < 0.0001
+    );
+}
+
+function isDefaultWind(rows) {
+    const defaults = [[0,20,1.0],[21,35,0.95],[36,55,0.85],[56,999,0.75]];
+    if (!rows || rows.length === 0) return true;
+    return rows.every((r, i) => {
+        const d = defaults[i];
+        return d && Math.abs(r.multiplicador - d[2]) < 0.0001;
+    });
+}
+
+function buildCfgTable(label, rows, isMeteo) {
+    const awaiting = isMeteo ? isDefaultMeteo(rows) : isDefaultWind(rows);
+    let html = `<div class="mb-3">
+        <div class="pv-section-label mb-1">${label}</div>`;
+    if (awaiting) {
+        html += `<div class="cfg-awaiting mb-1">⏳ Aguarda dados — valores por defeito activos</div>`;
+    }
+    html += `<table class="table table-sm cfg-table mb-0"><thead><tr>
+        <th>Banda</th><th class="text-end">Multiplicador</th>
+    </tr></thead><tbody>`;
+    if (!rows || rows.length === 0) {
+        html += `<tr><td colspan="2" class="text-muted">Sem dados</td></tr>`;
+    } else {
+        rows.forEach(r => {
+            const lbl = isMeteo
+                ? meteoLabel(r.score_min, r.score_max)
+                : windLabel(r.vento_min, r.vento_max);
+            html += `<tr><td>${lbl}</td><td class="text-end">${multCell(r.multiplicador)}</td></tr>`;
+        });
+    }
+    html += `</tbody></table></div>`;
+    return html;
+}
+
+function renderCfgPanel(data) {
+    const body = document.getElementById('cfgBody');
+    const lastEl = document.getElementById('cfgLastUpdate');
+
+    const lojas = [
+        { key: 'mat', label: '🏪 Matosinhos' },
+        { key: 'bol', label: '🏪 Bolhão' },
+    ];
+
+    let latestTs = null;
+    lojas.forEach(({ key }) => {
+        const d = data[key];
+        if (d && d.updated_at) {
+            if (!latestTs || d.updated_at > latestTs) latestTs = d.updated_at;
+        }
+    });
+
+    if (latestTs) {
+        const fmted = fmtTs(latestTs);
+        lastEl.textContent = fmted ? `· calibrado em ${fmted}` : '';
+    }
+
+    let html = '<div class="row g-3">';
+    lojas.forEach(({ key, label }) => {
+        const d = data[key];
+        if (!d) return;
+        html += `<div class="col-12 col-md-6">
+            <div class="fw-bold mb-2" style="font-size:0.8rem;">${label}</div>
+            ${buildCfgTable('Meteorologia (score solar)', d.meteo, true)}
+            ${buildCfgTable('Vento (km/h)', d.wind, false)}
+        </div>`;
+    });
+    html += '</div>';
+    body.innerHTML = html;
+}
+
+function loadCfgPanel() {
+    fetch('/financeiro/previsao-30-dias/config')
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(data => renderCfgPanel(data))
+        .catch(() => {
+            document.getElementById('cfgBody').innerHTML =
+                '<div class="text-muted" style="font-size:0.78rem;">Não foi possível carregar os multiplicadores.</div>';
+        });
+}
+
+document.getElementById('cfgPanel').addEventListener('show.bs.collapse', () => {
+    const body = document.getElementById('cfgBody');
+    if (body.dataset.loaded) return;
+    body.dataset.loaded = '1';
+    loadCfgPanel();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
