@@ -286,16 +286,23 @@ def vendas_diarias():
 @financeiro_bp.route('/distribuicao-centros-custo', methods=['GET', 'POST'])
 @perm_required('acesso_financeiro')
 def distribuicao_centros_custo():
-    from db.centros_custo import get_cost_categories, get_all_allocations, save_allocation
+    from db.centros_custo import (
+        get_cost_categories, get_all_allocations, save_allocation,
+        get_sales_split_pct,
+    )
     from db.stores import get_all_stores
 
     stores = [s for s in get_all_stores() if s['is_active']]
     categories = get_cost_categories(ativo_only=True)
 
+    _VALID_MODOS = {'volume_vendas', 'tudo_loja', 'manual', 'igualitario'}
+
     if request.method == 'POST':
         for cat in categories:
             cid = cat['id']
             modo = request.form.get(f'modo_{cid}', 'volume_vendas')
+            if modo not in _VALID_MODOS:
+                modo = 'volume_vendas'
             store_pct: dict = {}
 
             if modo == 'tudo_loja':
@@ -315,15 +322,26 @@ def distribuicao_centros_custo():
                     except (ValueError, TypeError):
                         store_pct[sid] = 0.0
 
+            elif modo == 'igualitario':
+                # 50 % per active store — stored exactly like manual
+                for store in stores:
+                    store_pct[store['id']] = 50.0
+
             save_allocation(cid, modo, store_pct)
 
         flash('Configuração de distribuição guardada com sucesso.', 'success')
         return redirect(url_for('financeiro.distribuicao_centros_custo'))
 
     allocations = get_all_allocations()
+    try:
+        sales_split = get_sales_split_pct(months=12)
+    except Exception:
+        sales_split = {}
+
     return render_template(
         'financeiro/distribuicao_centros_custo.html',
         categories=categories,
         stores=stores,
         allocations=allocations,
+        sales_split=sales_split,
     )

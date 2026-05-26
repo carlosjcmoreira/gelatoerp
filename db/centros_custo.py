@@ -354,6 +354,49 @@ def migrate_colaboradores_from_json(json_str: str) -> int:
 
 # ── Cost Center Allocation (P&L store distribution) ────────────────────────
 
+def get_sales_split_pct(months: int = 12) -> dict:
+    """Return the sales-volume percentage split per store for the last *months* months.
+
+    Aggregates `vendas_detalhe.valor_euros` by store name, joins with `stores`
+    to resolve store_id, and returns `{store_id (int): pct (float)}` rounded to
+    1 decimal place.  Percentages sum to 100.0 (within rounding).
+
+    Returns an empty dict if there is no sales data in the period.
+    """
+    from datetime import date, timedelta
+    cutoff = date.today() - timedelta(days=months * 30)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT s.id AS store_id, COALESCE(SUM(vd.valor_euros), 0) AS total_eur
+            FROM stores s
+            LEFT JOIN vendas_detalhe vd
+                ON vd.loja = s.name
+               AND vd.data >= %s
+               AND vd.valor_euros IS NOT NULL
+            WHERE s.is_active = TRUE
+            GROUP BY s.id
+        """, (cutoff,))
+        rows = cursor.fetchall()
+
+    if not rows:
+        return {}
+
+    totals = {r[0]: float(r[1]) for r in rows}
+    grand_total = sum(totals.values())
+    if grand_total <= 0:
+        return {}
+
+    pct = {sid: round(v / grand_total * 100, 1) for sid, v in totals.items()}
+
+    # Correct rounding drift so values sum exactly to 100.0
+    diff = round(100.0 - sum(pct.values()), 1)
+    if diff != 0 and pct:
+        largest = max(pct, key=pct.get)
+        pct[largest] = round(pct[largest] + diff, 1)
+
+    return pct
+
 def get_all_allocations() -> dict:
     """Return allocation config indexed by categoria_custo_id.
 
@@ -386,11 +429,11 @@ def save_allocation(categoria_custo_id: int, modo: str, store_percentages: dict)
 
     Args:
         categoria_custo_id: cost_categories.id
-        modo: 'volume_vendas' | 'tudo_loja' | 'manual'
+        modo: 'volume_vendas' | 'tudo_loja' | 'manual' | 'igualitario'
         store_percentages: {store_id (int): percentagem (float)}
             - ignored for 'volume_vendas' (sentinel NULL row is written instead)
             - one entry for 'tudo_loja'
-            - one entry per store for 'manual'
+            - one entry per store for 'manual' or 'igualitario'
     """
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -405,6 +448,8 @@ def save_allocation(categoria_custo_id: int, modo: str, store_percentages: dict)
                 "VALUES (%s, NULL, 0, 'volume_vendas')",
                 (categoria_custo_id,)
             )
+        elif not store_percentages:
+            pass  # no rows to insert
         else:
             for sid, pct in store_percentages.items():
                 cursor.execute(

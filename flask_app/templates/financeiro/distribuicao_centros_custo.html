@@ -19,11 +19,18 @@
     <div class="alert alert-info py-2 small mb-3">
         <strong>Modos de distribuição:</strong>
         <ul class="mb-0 mt-1">
-            <li><strong>Volume de vendas</strong> — O custo é distribuído automaticamente pelo volume de vendas de cada loja (calculado no momento do relatório).</li>
+            <li><strong>Volume de vendas</strong> — Distribuído automaticamente pelo volume de vendas de cada loja (últimos 12 meses). As percentagens calculadas são apresentadas a título informativo.</li>
+            <li><strong>50/50</strong> — Divisão igual entre lojas activas (50% cada).</li>
             <li><strong>100% a uma loja</strong> — O custo é atribuído integralmente à loja selecionada.</li>
             <li><strong>Percentagens manuais</strong> — Defina manualmente a percentagem de cada loja (devem somar 100%).</li>
         </ul>
     </div>
+
+    {% if not sales_split %}
+    <div class="alert alert-warning py-2 small mb-3">
+        ⚠️ Sem dados de vendas nos últimos 12 meses — as percentagens do modo "Volume de vendas" aparecem como "Sem dados".
+    </div>
+    {% endif %}
 
     <form method="post" id="allocationForm">
         <div class="card mb-3">
@@ -68,6 +75,9 @@
                                 <option value="volume_vendas" {% if cur_modo == 'volume_vendas' %}selected{% endif %}>
                                     📈 Volume de vendas
                                 </option>
+                                <option value="igualitario" {% if cur_modo == 'igualitario' %}selected{% endif %}>
+                                    ⚖️ 50/50
+                                </option>
                                 <option value="tudo_loja" {% if cur_modo == 'tudo_loja' %}selected{% endif %}>
                                     🏪 100% a uma loja
                                 </option>
@@ -79,10 +89,22 @@
                         {% for store in stores %}
                         {% set sid = store.id %}
                         {% set cur_pct = alloc.stores.get(sid, 0) %}
+                        {% set vol_pct = sales_split.get(sid) %}
                         <td class="text-center store-cell store-cell-{{ cid }}" data-catid="{{ cid }}" data-storeid="{{ sid }}">
 
-                            {# volume_vendas: show dash #}
-                            <span class="cell-volume {% if cur_modo != 'volume_vendas' %}d-none{% endif %} text-muted small">—</span>
+                            {# volume_vendas: show calculated percentage (read-only) #}
+                            <span class="cell-volume {% if cur_modo != 'volume_vendas' %}d-none{% endif %} text-muted small">
+                                {% if vol_pct is not none %}
+                                <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle">{{ vol_pct }}%</span>
+                                {% else %}
+                                <span class="text-muted fst-italic">Sem dados</span>
+                                {% endif %}
+                            </span>
+
+                            {# igualitario: static 50% badge (read-only) #}
+                            <span class="cell-igualitario {% if cur_modo != 'igualitario' %}d-none{% endif %} text-muted small">
+                                <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">50%</span>
+                            </span>
 
                             {# tudo_loja: radio button #}
                             <div class="cell-tudo {% if cur_modo != 'tudo_loja' %}d-none{% endif %}">
@@ -113,7 +135,10 @@
                             <span class="manual-total-{{ cid }} small fw-semibold {% if cur_modo == 'manual' %}{% set total_pct = alloc.stores.values() | sum %}{% if (total_pct - 100) | abs < 0.01 %}text-success{% else %}text-danger{% endif %}{% else %}d-none{% endif %}">
                                 {% if cur_modo == 'manual' %}{{ alloc.stores.values() | sum | round(1) }}%{% endif %}
                             </span>
-                            <span class="volume-label-{{ cid }} small text-muted {% if cur_modo != 'volume_vendas' %}d-none{% endif %}">auto</span>
+                            <span class="volume-label-{{ cid }} small text-muted {% if cur_modo != 'volume_vendas' %}d-none{% endif %}">
+                                {% if sales_split %}auto{% else %}—{% endif %}
+                            </span>
+                            <span class="igualitario-label-{{ cid }} small text-info-emphasis fw-semibold {% if cur_modo != 'igualitario' %}d-none{% endif %}">100%</span>
                             <span class="tudo-label-{{ cid }} small text-muted {% if cur_modo != 'tudo_loja' %}d-none{% endif %}">100%</span>
                         </td>
                     </tr>
@@ -145,6 +170,7 @@ function onModoChange(catId, modo) {
     const row = document.querySelector(`.alloc-row[data-catid="${catId}"]`);
 
     row.querySelectorAll('.cell-volume').forEach(el => el.classList.toggle('d-none', modo !== 'volume_vendas'));
+    row.querySelectorAll('.cell-igualitario').forEach(el => el.classList.toggle('d-none', modo !== 'igualitario'));
     row.querySelectorAll('.cell-tudo').forEach(el => el.classList.toggle('d-none', modo !== 'tudo_loja'));
     row.querySelectorAll('.cell-manual').forEach(el => el.classList.toggle('d-none', modo !== 'manual'));
 
@@ -158,11 +184,13 @@ function onModoChange(catId, modo) {
     });
 
     // Show/hide total column labels
-    const manualTotal = row.querySelector(`.manual-total-${catId}`);
-    const volumeLabel = row.querySelector(`.volume-label-${catId}`);
-    const tudoLabel   = row.querySelector(`.tudo-label-${catId}`);
+    const manualTotal  = row.querySelector(`.manual-total-${catId}`);
+    const volumeLabel  = row.querySelector(`.volume-label-${catId}`);
+    const igualLabel   = row.querySelector(`.igualitario-label-${catId}`);
+    const tudoLabel    = row.querySelector(`.tudo-label-${catId}`);
     if (manualTotal) manualTotal.classList.toggle('d-none', modo !== 'manual');
     if (volumeLabel) volumeLabel.classList.toggle('d-none', modo !== 'volume_vendas');
+    if (igualLabel)  igualLabel.classList.toggle('d-none',  modo !== 'igualitario');
     if (tudoLabel)   tudoLabel.classList.toggle('d-none',   modo !== 'tudo_loja');
 
     updateTotal(catId);
