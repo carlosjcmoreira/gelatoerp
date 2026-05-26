@@ -38,6 +38,7 @@ from db.schema import run_migrations_fecho_caixa_audit
 from db.schema import run_migrations_user_audit_log
 from db.schema import run_migrations_cost_center_allocation
 from db.schema import run_migrations_suppliers_nullable_nif, run_migrations_normalise_supplier_nifs
+from db.schema import run_migrations_onedrive_retry
 
 
 def _start_sheets_sync_scheduler():
@@ -157,6 +158,7 @@ def create_app():
         seed_artigos_administrativos()
         run_migrations_suppliers_nullable_nif()
         run_migrations_normalise_supplier_nifs()
+        run_migrations_onedrive_retry()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()
@@ -281,4 +283,6 @@ if __name__ == '__main__':
     app = create_app()
     if os.environ.get('EVENTOS_SYNC_ENABLED', '1') == '1':
         _start_sheets_sync_scheduler()
+    from flask_app.onedrive_scheduler import start_onedrive_scheduler
+    start_onedrive_scheduler()
     app.run(host='0.0.0.0', port=5000, debug=False)

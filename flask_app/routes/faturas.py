@@ -90,6 +90,19 @@ def index():
     confirming_contracts = get_confirming_contracts()
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
 
+    # Alert for permanently failed OneDrive uploads
+    try:
+        from db.faturas import count_onedrive_failed as _count_od_failed
+        _od_failed_count = _count_od_failed()
+        if _od_failed_count > 0:
+            flash(
+                f'⚠️ {_od_failed_count} fatura(s) com falha permanente no arquivo OneDrive. '
+                'Verifique as faturas marcadas com ❌ e contacte o administrador se necessário.',
+                'warning',
+            )
+    except Exception:
+        pass
+
     if view == 'fornecedor':
         forn_status = request.args.get('forn_status', '').strip()
         if forn_status not in ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', ''):
@@ -870,6 +883,8 @@ def detail(invoice_id: int):
     linhas = get_invoice_linhas(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
     stock_local_derivado = derive_local_from_store(store_name=inv.get('store_name'), store_id=inv.get('store_id'))
+    cost_centers = get_cost_centers(ativo_only=True)
+    cost_categories_tree = get_cost_categories_tree()
     return render_template(
         'financeiro/faturas/detail.html',
         inv=inv,
@@ -887,6 +902,8 @@ def detail(invoice_id: int):
         locais_stock=LOCAIS_STOCK,
         unidades_materiais=UNIDADES_MATERIAIS,
         stock_local_derivado=stock_local_derivado,
+        cost_centers=cost_centers,
+        cost_categories_tree=cost_categories_tree,
     )
 
 
@@ -922,6 +939,7 @@ def invoice_panel(invoice_id: int):
         locais_stock=LOCAIS_STOCK,
         unidades_materiais=UNIDADES_MATERIAIS,
         stock_local_derivado=stock_local_derivado,
+        suppliers=get_suppliers(),
     )
 
 
@@ -1068,7 +1086,21 @@ def edit(invoice_id: int):
         document_type = 'fatura'
 
     supplier_id = inv.get('supplier_id')
-    if supplier_nif and supplier_name:
+
+    # Accept supplier_id directly from the dropdown (closed-list selection)
+    supplier_id_form = request.form.get('supplier_id', '').strip()
+    if supplier_id_form.isdigit():
+        supplier_id = int(supplier_id_form)
+        # Back-fill name/nif from canonical supplier record when not submitted
+        if not supplier_name or not supplier_nif:
+            try:
+                _sup = get_supplier_by_id(supplier_id)
+                if _sup:
+                    supplier_name = supplier_name or _sup['name']
+                    supplier_nif = supplier_nif or (_sup['nif'] or '')
+            except Exception:
+                pass
+    elif supplier_nif and supplier_name:
         try:
             supplier_id = upsert_supplier(
                 name=supplier_name,

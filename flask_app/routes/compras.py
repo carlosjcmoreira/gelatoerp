@@ -119,6 +119,19 @@ def faturas():
     if document_type_filter not in DOCUMENT_TYPE_LABELS:
         document_type_filter = ''
 
+    # Alert for permanently failed OneDrive uploads
+    try:
+        from db.faturas import count_onedrive_failed as _count_od_failed
+        _od_failed = _count_od_failed()
+        if _od_failed > 0:
+            flash(
+                f'⚠️ {_od_failed} fatura(s) com falha permanente no arquivo OneDrive. '
+                'Verifique as faturas marcadas com ❌.',
+                'warning',
+            )
+    except Exception:
+        pass
+
     filter_kwargs = dict(
         supplier_id=supplier_filter_id,
         supplier_name=supplier_name_filter or None,
@@ -282,6 +295,7 @@ def invoice_panel(invoice_id: int):
     stock_local_derivado = derive_local_from_store(
         store_name=inv.get('store_name'), store_id=inv.get('store_id')
     )
+    suppliers = get_suppliers()
     return render_template(
         'compras/_panel.html',
         inv=inv,
@@ -297,6 +311,7 @@ def invoice_panel(invoice_id: int):
         locais_stock=LOCAIS_STOCK,
         unidades_materiais=UNIDADES_MATERIAIS,
         stock_local_derivado=stock_local_derivado,
+        suppliers=suppliers,
     )
 
 

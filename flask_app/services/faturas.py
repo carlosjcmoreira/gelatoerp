@@ -109,8 +109,8 @@ def _build_draft_data(ocr: dict, supplier, file_bytes: bytes, filename: str,
 
     return {
         'supplier_id': supplier['id'] if supplier else None,
-        'supplier_name': ocr.get('supplier_name') or (supplier['name'] if supplier else None),
-        'supplier_nif': ocr.get('supplier_nif') or (supplier['nif'] if supplier else None),
+        'supplier_name': (supplier['name'] if supplier else None) or ocr.get('supplier_name'),
+        'supplier_nif': (supplier['nif'] if supplier else None) or ocr.get('supplier_nif'),
         'invoice_number': ocr.get('invoice_number'),
         'amount_eur': ocr.get('amount_eur'),
         'vat_amount_eur': ocr.get('vat_amount_eur'),

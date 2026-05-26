@@ -29,3 +29,7 @@ def post_fork(server, worker):
         import weather_scheduler as wsch
         server.log.info("Starting weather scheduler in worker %s (age=%s)", worker.pid, worker.age)
         wsch.start_weather_scheduler()
+
+        from flask_app.onedrive_scheduler import start_onedrive_scheduler
+        server.log.info("Starting OneDrive retry scheduler in worker %s (age=%s)", worker.pid, worker.age)
+        start_onedrive_scheduler()

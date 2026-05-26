@@ -47,7 +47,21 @@
             📄 Ver PDF
         </a>
         {% endif %}
-        {% if not inv.onedrive_path %}
+        {% if inv.onedrive_path %}
+        <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle px-2 py-1"
+              title="Arquivado em: {{ inv.onedrive_path }}">
+            ✅ OneDrive
+        </span>
+        {% elif inv.onedrive_failed %}
+        <span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle px-2 py-1"
+              title="Falha permanente no arquivo OneDrive{% if inv.onedrive_retry_at %} — última tentativa: {{ inv.onedrive_retry_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}">
+            ❌ OneDrive
+        </span>
+        {% elif inv.pdf_filename %}
+        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1"
+              title="PDF presente mas ainda não arquivado no OneDrive{% if inv.onedrive_retry_at %} — a aguardar retry{% endif %}">
+            ⏳ OneDrive
+        </span>
         <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalOneDrive">
             ☁️ Arquivar OneDrive
         </button>
@@ -192,13 +206,27 @@
                         </div>
                         <div class="col-12 col-md-8">
                             <label class="form-label small">Fornecedor</label>
-                            <input type="text" name="supplier_name" class="form-control form-control-sm"
+                            <select name="supplier_id" class="form-select form-select-sm"
+                                    id="detailSupplierSelect{{ inv.id }}"
+                                    onchange="detailOnSupplierChange('{{ inv.id }}', this)">
+                                <option value="">— seleccionar —</option>
+                                {% for s in suppliers %}
+                                <option value="{{ s.id }}"
+                                        data-name="{{ s.name }}"
+                                        data-nif="{{ s.nif or '' }}"
+                                        {% if s.id == inv.supplier_id %}selected{% endif %}>
+                                    {{ s.name }}{% if s.nif %} ({{ s.nif }}){% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <input type="hidden" name="supplier_name" id="detailSupplierName{{ inv.id }}"
                                    value="{{ inv.supplier_name or '' }}">
                         </div>
                         <div class="col-12 col-md-4">
                             <label class="form-label small">NIF</label>
-                            <input type="text" name="supplier_nif" class="form-control form-control-sm"
-                                   value="{{ inv.supplier_nif or '' }}" inputmode="numeric">
+                            <input type="text" name="supplier_nif" id="detailSupplierNif{{ inv.id }}"
+                                   class="form-control form-control-sm"
+                                   value="{{ inv.supplier_nif or '' }}" inputmode="numeric" readonly>
                         </div>
                         <div class="col-12 col-md-6">
                             <label class="form-label small">Nº Fatura</label>
@@ -835,6 +863,16 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 
 <script>
+function detailOnSupplierChange(invId, sel) {
+    var opt = sel.options[sel.selectedIndex];
+    var name = opt ? (opt.getAttribute('data-name') || '') : '';
+    var nif  = opt ? (opt.getAttribute('data-nif')  || '') : '';
+    var nameEl = document.getElementById('detailSupplierName' + invId);
+    var nifEl  = document.getElementById('detailSupplierNif'  + invId);
+    if (nameEl) nameEl.value = name;
+    if (nifEl)  nifEl.value  = nif;
+}
+
 function preencherDescricaoMaterial(sel, descId, unidadeId) {
     var opt = sel.options[sel.selectedIndex];
     if (opt && opt.value) {

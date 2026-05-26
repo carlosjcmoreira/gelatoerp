@@ -834,7 +834,9 @@ def get_invoice(invoice_id: int) -> dict:
                    ip.confirmed_date AS payment_confirmed_date,
                    i.stock_registado_at,
                    i.stock_registado_por,
-                   i.payment_method
+                   i.payment_method,
+                   i.onedrive_failed,
+                   i.onedrive_retry_at
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -849,7 +851,62 @@ def get_invoice(invoice_id: int) -> dict:
     inv['stock_registado_at'] = row[28] if len(row) > 28 else None
     inv['stock_registado_por'] = row[29] if len(row) > 29 else None
     inv['payment_method'] = row[30] if len(row) > 30 else None
+    inv['onedrive_failed'] = row[31] if len(row) > 31 else False
+    inv['onedrive_retry_at'] = row[32] if len(row) > 32 else None
     return inv
+
+
+def get_invoices_missing_onedrive() -> list:
+    """Return invoices with a PDF but no OneDrive path and not permanently failed.
+
+    Used by the OneDrive retry scheduler to find uploads that need re-attempting.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, onedrive_subfolder, issue_date, onedrive_retry_at
+            FROM invoices
+            WHERE pdf_filename IS NOT NULL
+              AND onedrive_path IS NULL
+              AND (onedrive_failed IS NULL OR onedrive_failed = FALSE)
+              AND status != 'draft'
+            ORDER BY created_at
+        """)
+        rows = cursor.fetchall()
+    return [{'id': r[0], 'onedrive_subfolder': r[1], 'issue_date': r[2],
+             'onedrive_retry_at': r[3]} for r in rows]
+
+
+def mark_onedrive_retry(invoice_id: int):
+    """Record that a first upload attempt failed (sets onedrive_retry_at = NOW())."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE invoices SET onedrive_retry_at = NOW(), updated_at = NOW() WHERE id = %s",
+            (invoice_id,),
+        )
+        conn.commit()
+
+
+def mark_onedrive_failed(invoice_id: int):
+    """Mark an invoice as permanently failed for OneDrive upload."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE invoices SET onedrive_failed = TRUE, updated_at = NOW() WHERE id = %s",
+            (invoice_id,),
+        )
+        conn.commit()
+
+
+def count_onedrive_failed() -> int:
+    """Return the number of invoices with onedrive_failed = TRUE."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COUNT(*) FROM invoices WHERE onedrive_failed = TRUE"
+        )
+        return int(cursor.fetchone()[0])
 
 
 def get_invoice_pdf(invoice_id: int):

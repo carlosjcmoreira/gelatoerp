@@ -3249,3 +3249,24 @@ def run_migrations_suppliers_nullable_nif():
                 conn.rollback()
             except Exception:
                 pass
+
+
+def run_migrations_onedrive_retry():
+    """Idempotent: add onedrive_retry_at and onedrive_failed columns to invoices."""
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS onedrive_retry_at TIMESTAMP"
+            )
+            cursor.execute(
+                "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS onedrive_failed BOOLEAN DEFAULT FALSE"
+            )
+            conn.commit()
+            logger.info("run_migrations_onedrive_retry: columns ensured")
+        except Exception as exc:
+            logger.error("run_migrations_onedrive_retry failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
