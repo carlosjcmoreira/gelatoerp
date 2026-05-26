@@ -28,6 +28,7 @@ FINANCEIRO_GROUPS = [
             {'key': 'vendas_diarias', 'label': 'Vendas Diárias',       'icon': '📅', 'active': True,  'url_func': 'financeiro.vendas_diarias'},
             {'key': 'variaveis_previsao', 'label': 'Variáveis de Previsão', 'icon': '🌡️', 'active': True,  'url_func': 'financeiro.variaveis_previsao'},
             {'key': 'previsao_30dias',   'label': 'Previsão 30 Dias',      'icon': '🔮', 'active': True,  'url_func': 'financeiro.previsao_30dias'},
+            {'key': 'pl_por_loja',       'label': 'P&L por Loja',          'icon': '🏪', 'active': True,  'url_func': 'financeiro.pl_por_loja'},
         ],
     },
     {
@@ -280,6 +281,72 @@ def vendas_diarias():
         meses_pt=MESES_PT,
         weekday_names=WEEKDAY_NAMES,
         hoje=today,
+    )
+
+
+@financeiro_bp.route('/pl-por-loja')
+@perm_required('acesso_financeiro')
+def pl_por_loja():
+    from db.centros_custo import get_pl_by_store
+    import io
+    import csv as csv_mod
+    from flask import Response
+
+    today = date.today()
+    default_from = date(today.year, 1, 1)
+    default_to = today
+
+    date_from_str = request.args.get('date_from', str(default_from))
+    date_to_str = request.args.get('date_to', str(default_to))
+
+    try:
+        date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
+    except ValueError:
+        date_from = default_from
+
+    try:
+        date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
+    except ValueError:
+        date_to = default_to
+
+    pl = get_pl_by_store(date_from=date_from, date_to=date_to)
+
+    if request.args.get('export') == 'csv':
+        output = io.StringIO()
+        writer = csv_mod.writer(output)
+        store_names = [s['name'] for s in pl['stores']]
+        header = ['Categoria', 'Modo', 'Total (€)'] + store_names + ['Não alocado (€)']
+        writer.writerow(header)
+        for row in pl['rows']:
+            store_vals = [
+                f"{row['store_amounts'].get(s['id'], 0.0):.2f}"
+                for s in pl['stores']
+            ]
+            writer.writerow([
+                row['cat_name'],
+                row['modo'],
+                f"{row['total_eur']:.2f}",
+                *store_vals,
+                f"{row['unallocated']:.2f}",
+            ])
+        totals_row = ['TOTAL', '', f"{pl['grand_total']:.2f}"] + [
+            f"{pl['store_totals'].get(s['id'], 0.0):.2f}"
+            for s in pl['stores']
+        ] + ['']
+        writer.writerow(totals_row)
+        output.seek(0)
+        filename = f"pl_por_loja_{date_from}_{date_to}.csv"
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        )
+
+    return render_template(
+        'financeiro/pl_por_loja.html',
+        pl=pl,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 

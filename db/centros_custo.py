@@ -422,6 +422,126 @@ def get_all_allocations() -> dict:
     return result
 
 
+def get_pl_by_store(date_from=None, date_to=None) -> dict:
+    """Compute a P&L distribution matrix by store for a date range.
+
+    Aggregates ``invoices.amount_eur`` (non-cancelled) by ``categoria_custo_id``
+    and distributes each category total across active stores according to the
+    allocation config returned by :func:`get_all_allocations` and
+    :func:`get_sales_split_pct`.
+
+    Args:
+        date_from: ``date`` or ``None`` – filter on ``issue_date >= date_from``.
+        date_to:   ``date`` or ``None`` – filter on ``issue_date <= date_to``.
+
+    Returns::
+
+        {
+          'stores':        [{'id': int, 'name': str}, ...],   # active stores
+          'rows':          [                                   # one per category (+ uncat.)
+              {
+                'cat_id':        int | None,
+                'cat_name':      str,
+                'parent_id':     int | None,
+                'total_eur':     float,
+                'modo':          str,
+                'store_amounts': {store_id: float},
+                'unallocated':   float,   # portion not assigned to any store
+              }
+          ],
+          'grand_total':   float,
+          'store_totals':  {store_id: float},
+          'sales_split':   {store_id: float},   # pct used for volume_vendas
+        }
+    """
+    from db.stores import get_all_stores
+
+    active_stores = [s for s in get_all_stores() if s['is_active']]
+    store_ids = [s['id'] for s in active_stores]
+
+    where_parts = ["i.status != 'cancelled'"]
+    params: list = []
+    if date_from:
+        where_parts.append("i.issue_date >= %s")
+        params.append(date_from)
+    if date_to:
+        where_parts.append("i.issue_date <= %s")
+        params.append(date_to)
+    where_sql = "WHERE " + " AND ".join(where_parts)
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            SELECT i.categoria_custo_id,
+                   COALESCE(cc.name, 'Sem categoria') AS cat_name,
+                   cc.parent_id,
+                   COALESCE(SUM(i.amount_eur), 0) AS total_eur
+            FROM invoices i
+            LEFT JOIN cost_categories cc ON cc.id = i.categoria_custo_id
+            {where_sql}
+            GROUP BY i.categoria_custo_id, cc.name, cc.parent_id
+            ORDER BY cc.name NULLS LAST
+        """, params)
+        raw_rows = cursor.fetchall()
+
+    allocations = get_all_allocations()
+    sales_split = get_sales_split_pct(months=12)
+
+    def _resolve_store_pcts(cat_id, modo, stored_stores) -> dict:
+        """Return {store_id: pct} summing to ~100 for this category."""
+        if modo == 'volume_vendas':
+            return {sid: sales_split.get(sid, 0.0) for sid in store_ids}
+        if modo == 'igualitario':
+            n = len(store_ids)
+            equal = round(100.0 / n, 4) if n else 0.0
+            return {sid: equal for sid in store_ids}
+        if modo in ('tudo_loja', 'manual'):
+            return {sid: float(stored_stores.get(sid, 0.0)) for sid in store_ids}
+        return {}
+
+    rows = []
+    store_totals = {sid: 0.0 for sid in store_ids}
+    grand_total = 0.0
+
+    for raw in raw_rows:
+        cat_id, cat_name, parent_id, total_eur = raw
+        total_eur = float(total_eur)
+        grand_total += total_eur
+
+        alloc = allocations.get(cat_id, {'modo': 'volume_vendas', 'stores': {}})
+        modo = alloc['modo']
+        store_pcts = _resolve_store_pcts(cat_id, modo, alloc['stores'])
+
+        store_amounts = {}
+        allocated_sum = 0.0
+        for sid in store_ids:
+            pct = store_pcts.get(sid, 0.0)
+            amount = round(total_eur * pct / 100.0, 2)
+            store_amounts[sid] = amount
+            allocated_sum += amount
+            store_totals[sid] = round(store_totals[sid] + amount, 2)
+
+        unallocated = round(total_eur - allocated_sum, 2)
+
+        rows.append({
+            'cat_id': cat_id,
+            'cat_name': cat_name,
+            'parent_id': parent_id,
+            'total_eur': total_eur,
+            'modo': modo,
+            'store_amounts': store_amounts,
+            'unallocated': unallocated,
+        })
+
+    return {
+        'stores': active_stores,
+        'rows': rows,
+        'grand_total': round(grand_total, 2),
+        'store_totals': {sid: round(v, 2) for sid, v in store_totals.items()},
+        'sales_split': sales_split,
+    }
+
+
 def save_allocation(categoria_custo_id: int, modo: str, store_percentages: dict) -> None:
     """Persist allocation config for a cost category.
 

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block head %}
+<style>
+.pl-table th {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    white-space: nowrap;
+}
+.pl-table td {
+    font-size: 0.82rem;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+.pl-total-row td {
+    font-weight: 700;
+    border-top: 2px solid var(--bs-border-color);
+    background: var(--bs-tertiary-bg);
+}
+.modo-badge {
+    font-size: 0.65rem;
+    padding: 0.15em 0.45em;
+    border-radius: 0.3rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+.modo-volume { background: #e0f0ff; color: #0a5a9c; }
+.modo-igualitario { background: #e0ffe8; color: #1a6b3c; }
+.modo-tudo_loja { background: #fff3e0; color: #b34d00; }
+.modo-manual { background: #f3e0ff; color: #6a0ab3; }
+[data-bs-theme="dark"] .modo-volume { background: #0d3560; color: #7ec8f0; }
+[data-bs-theme="dark"] .modo-igualitario { background: #0a3b20; color: #5fe09a; }
+[data-bs-theme="dark"] .modo-tudo_loja { background: #3b2200; color: #f0a057; }
+[data-bs-theme="dark"] .modo-manual { background: #2a0a40; color: #c57ef0; }
+.unalloc-warn { color: var(--bs-danger); font-weight: 600; }
+.store-col { text-align: right; }
+.cat-sub { padding-left: 1.6rem !important; color: var(--bs-secondary-color); }
+.no-data-row td { color: var(--bs-secondary-color); font-style: italic; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+        <h5 class="mb-0">🏪 P&amp;L por Loja — Distribuição de Custos</h5>
+        <a href="{{ url_for('financeiro.pl_por_loja', date_from=date_from, date_to=date_to, export='csv') }}"
+           class="btn btn-outline-secondary btn-sm">
+            ⬇️ Exportar CSV
+        </a>
+    </div>
+    <p class="text-muted small mb-3">
+        Custos de cada categoria de fatura distribuídos pelas lojas activas de acordo com a configuração de distribuição definida.
+    </p>
+
+    {# ── Date filter ─────────────────────────────────────────────────── #}
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-4">
+        <div>
+            <label class="form-label small mb-1 fw-semibold">De</label>
+            <input type="date" name="date_from" class="form-control form-control-sm"
+                   value="{{ date_from }}" style="width:150px">
+        </div>
+        <div>
+            <label class="form-label small mb-1 fw-semibold">Até</label>
+            <input type="date" name="date_to" class="form-control form-control-sm"
+                   value="{{ date_to }}" style="width:150px">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+    </form>
+
+    {# ── No data states ──────────────────────────────────────────────── #}
+    {% if not pl.stores %}
+    <div class="alert alert-warning py-2 small">
+        ⚠️ Não existem lojas activas configuradas.
+    </div>
+    {% elif not pl.rows %}
+    <div class="alert alert-info py-2 small">
+        ℹ️ Nenhuma fatura encontrada para o período seleccionado.
+    </div>
+    {% else %}
+
+    {# ── Sales split info banner ─────────────────────────────────────── #}
+    {% if pl.sales_split %}
+    <div class="alert alert-info py-2 small mb-3">
+        <strong>Volume de vendas (últimos 12 meses):</strong>
+        {% for store in pl.stores %}
+        <span class="me-3">{{ store.name }}: <strong>{{ pl.sales_split.get(store.id, 0) }}%</strong></span>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-warning py-2 small mb-3">
+        ⚠️ Sem dados de vendas nos últimos 12 meses. As categorias em modo "Volume de vendas" aparecem sem alocação.
+    </div>
+    {% endif %}
+
+    {# ── P&L table ───────────────────────────────────────────────────── #}
+    <div class="card">
+        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center">
+            <span>Custos por categoria e loja</span>
+            <span class="text-muted">{{ date_from.strftime('%d/%m/%Y') }} – {{ date_to.strftime('%d/%m/%Y') }}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0 pl-table">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="ps-3" style="min-width:180px">Categoria</th>
+                        <th style="min-width:120px">Modo</th>
+                        <th class="text-end" style="min-width:110px">Total (€)</th>
+                        {% for store in pl.stores %}
+                        <th class="text-end" style="min-width:110px">{{ store.name }}</th>
+                        {% endfor %}
+                        <th class="text-end" style="min-width:100px">Não alocado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in pl.rows %}
+                <tr {% if row.cat_id is none %}class="no-data-row"{% endif %}>
+                    <td class="ps-3 {% if row.parent_id %}cat-sub{% endif %}">
+                        {% if row.parent_id %}<span class="text-muted me-1">↳</span>{% endif %}
+                        {{ row.cat_name }}
+                    </td>
+                    <td>
+                        {% if row.cat_id is not none %}
+                        <span class="modo-badge modo-{{ row.modo }}">
+                            {% if row.modo == 'volume_vendas' %}Volume
+                            {% elif row.modo == 'igualitario' %}50/50
+                            {% elif row.modo == 'tudo_loja' %}Tudo loja
+                            {% elif row.modo == 'manual' %}Manual
+                            {% else %}{{ row.modo }}{% endif %}
+                        </span>
+                        {% else %}
+                        <span class="text-muted small fst-italic">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end fw-semibold">{{ "%.2f"|format(row.total_eur) }} €</td>
+                    {% for store in pl.stores %}
+                    <td class="text-end store-col">
+                        {% set amt = row.store_amounts.get(store.id, 0) %}
+                        {% if amt %}
+                        {{ "%.2f"|format(amt) }} €
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="text-end">
+                        {% if row.unallocated and row.unallocated | abs > 0.01 %}
+                        <span class="unalloc-warn">{{ "%.2f"|format(row.unallocated) }} €</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="pl-total-row">
+                        <td class="ps-3" colspan="2">TOTAL</td>
+                        <td class="text-end">{{ "%.2f"|format(pl.grand_total) }} €</td>
+                        {% for store in pl.stores %}
+                        <td class="text-end">
+                            {{ "%.2f"|format(pl.store_totals.get(store.id, 0)) }} €
+                        </td>
+                        {% endfor %}
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    {# ── Legend ──────────────────────────────────────────────────────── #}
+    <div class="mt-3 small text-muted">
+        <strong>Modos:</strong>
+        <span class="modo-badge modo-volume me-2">Volume</span> — proporcional ao volume de vendas dos últimos 12 meses
+        <span class="modo-badge modo-igualitario me-2 ms-2">50/50</span> — igual entre lojas activas
+        <span class="modo-badge modo-tudo_loja me-2 ms-2">Tudo loja</span> — 100% a uma loja
+        <span class="modo-badge modo-manual me-2 ms-2">Manual</span> — percentagens definidas manualmente
+        <br>
+        <span class="text-danger fw-semibold">Não alocado</span> — valor sem distribuição definida (configure em
+        <a href="{{ url_for('financeiro.distribuicao_centros_custo') }}">Distribuição Centros de Custo</a>).
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
