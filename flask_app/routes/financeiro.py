@@ -317,6 +317,11 @@ def pl_por_loja():
         store_names = [s['name'] for s in pl['stores']]
         header = ['Categoria', 'Modo', 'Total (€)'] + store_names + ['Não alocado (€)']
         writer.writerow(header)
+        revenue_row = ['RECEITA', '', f"{pl['total_revenue']:.2f}"] + [
+            f"{pl['store_revenues'].get(s['id'], 0.0):.2f}"
+            for s in pl['stores']
+        ] + ['']
+        writer.writerow(revenue_row)
         for row in pl['rows']:
             store_vals = [
                 f"{row['store_amounts'].get(s['id'], 0.0):.2f}"
@@ -329,11 +334,24 @@ def pl_por_loja():
                 *store_vals,
                 f"{row['unallocated']:.2f}",
             ])
-        totals_row = ['TOTAL', '', f"{pl['grand_total']:.2f}"] + [
+        totals_row = ['TOTAL CUSTOS', '', f"{pl['grand_total']:.2f}"] + [
             f"{pl['store_totals'].get(s['id'], 0.0):.2f}"
             for s in pl['stores']
         ] + ['']
         writer.writerow(totals_row)
+        margin_row = ['RESULTADO BRUTO', '', f"{pl['total_margin']:.2f}"] + [
+            f"{pl['store_margins'].get(s['id'], 0.0):.2f}"
+            for s in pl['stores']
+        ] + ['']
+        writer.writerow(margin_row)
+        pct_row = ['MARGEM %', '', '']
+        for s in pl['stores']:
+            rev = pl['store_revenues'].get(s['id'], 0.0)
+            margin = pl['store_margins'].get(s['id'], 0.0)
+            pct = round(margin / rev * 100, 1) if rev else 0.0
+            pct_row.append(f"{pct:.1f}%")
+        pct_row.append('')
+        writer.writerow(pct_row)
         output.seek(0)
         filename = f"pl_por_loja_{date_from}_{date_to}.csv"
         return Response(

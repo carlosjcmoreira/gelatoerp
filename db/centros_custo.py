@@ -422,6 +422,43 @@ def get_all_allocations() -> dict:
     return result
 
 
+def get_revenue_by_store(date_from=None, date_to=None, store_ids=None) -> dict:
+    """Return revenue per store aggregated from vendas_detalhe for the period.
+
+    Joins on ``stores.name = vendas_detalhe.loja`` (case-insensitive) so
+    store_id is resolved correctly.
+
+    Returns ``{store_id (int): revenue (float)}``.  Stores with no sales in the
+    period return 0.0.
+    """
+    join_parts = ["LOWER(vd.loja) = LOWER(s.name)", "vd.valor_euros IS NOT NULL"]
+    join_p: list = []
+    if date_from:
+        join_parts.append("vd.data >= %s")
+        join_p.append(date_from)
+    if date_to:
+        join_parts.append("vd.data <= %s")
+        join_p.append(date_to)
+    join_sql = " AND ".join(join_parts)
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            SELECT s.id AS store_id, COALESCE(SUM(vd.valor_euros), 0) AS revenue
+            FROM stores s
+            LEFT JOIN vendas_detalhe vd ON {join_sql}
+            WHERE s.is_active = TRUE
+            GROUP BY s.id
+        """, join_p)
+        rows = cursor.fetchall()
+
+    result = {r[0]: float(r[1]) for r in rows}
+    if store_ids:
+        for sid in store_ids:
+            result.setdefault(sid, 0.0)
+    return result
+
+
 def get_pl_by_store(date_from=None, date_to=None) -> dict:
     """Compute a P&L distribution matrix by store for a date range.
 
@@ -437,8 +474,8 @@ def get_pl_by_store(date_from=None, date_to=None) -> dict:
     Returns::
 
         {
-          'stores':        [{'id': int, 'name': str}, ...],   # active stores
-          'rows':          [                                   # one per category (+ uncat.)
+          'stores':          [{'id': int, 'name': str}, ...],   # active stores
+          'rows':            [                                   # one per category (+ uncat.)
               {
                 'cat_id':        int | None,
                 'cat_name':      str,
@@ -446,12 +483,16 @@ def get_pl_by_store(date_from=None, date_to=None) -> dict:
                 'total_eur':     float,
                 'modo':          str,
                 'store_amounts': {store_id: float},
-                'unallocated':   float,   # portion not assigned to any store
+                'unallocated':   float,
               }
           ],
-          'grand_total':   float,
-          'store_totals':  {store_id: float},
-          'sales_split':   {store_id: float},   # pct used for volume_vendas
+          'grand_total':     float,
+          'store_totals':    {store_id: float},
+          'store_revenues':  {store_id: float},   # revenue per store for the period
+          'total_revenue':   float,               # sum of all store revenues
+          'store_margins':   {store_id: float},   # revenue - costs per store
+          'total_margin':    float,               # total revenue - total costs
+          'sales_split':     {store_id: float},   # pct used for volume_vendas
         }
     """
     from db.stores import get_all_stores
@@ -486,6 +527,7 @@ def get_pl_by_store(date_from=None, date_to=None) -> dict:
 
     allocations = get_all_allocations()
     sales_split = get_sales_split_pct(months=12)
+    store_revenues = get_revenue_by_store(date_from=date_from, date_to=date_to, store_ids=store_ids)
 
     def _resolve_store_pcts(cat_id, modo, stored_stores) -> dict:
         """Return {store_id: pct} summing to ~100 for this category."""
@@ -533,11 +575,22 @@ def get_pl_by_store(date_from=None, date_to=None) -> dict:
             'unallocated': unallocated,
         })
 
+    total_revenue = round(sum(store_revenues.values()), 2)
+    store_margins = {
+        sid: round(store_revenues.get(sid, 0.0) - store_totals[sid], 2)
+        for sid in store_ids
+    }
+    total_margin = round(total_revenue - round(grand_total, 2), 2)
+
     return {
         'stores': active_stores,
         'rows': rows,
         'grand_total': round(grand_total, 2),
         'store_totals': {sid: round(v, 2) for sid, v in store_totals.items()},
+        'store_revenues': {sid: round(v, 2) for sid, v in store_revenues.items()},
+        'total_revenue': total_revenue,
+        'store_margins': store_margins,
+        'total_margin': total_margin,
         'sales_split': sales_split,
     }
 
