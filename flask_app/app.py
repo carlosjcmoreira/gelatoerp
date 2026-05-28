@@ -40,6 +40,7 @@ from db.schema import run_migrations_cost_center_allocation
 from db.schema import run_migrations_suppliers_nullable_nif, run_migrations_normalise_supplier_nifs
 from db.schema import run_migrations_onedrive_retry
 from db.schema import run_migrations_invoice_centros_custo
+from db.schema import run_migrations_normalise_producao_sabores
 
 
 def _start_sheets_sync_scheduler():
@@ -161,6 +162,7 @@ def create_app():
         run_migrations_normalise_supplier_nifs()
         run_migrations_onedrive_retry()
         run_migrations_invoice_centros_custo()
+        run_migrations_normalise_producao_sabores()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()

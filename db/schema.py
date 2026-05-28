@@ -3272,6 +3272,91 @@ def run_migrations_onedrive_retry():
                 pass
 
 
+_LOCK_NORMALISE_PRODUCAO_SABORES = 202650
+
+
+def run_migrations_normalise_producao_sabores():
+    """Idempotent: normalise sabor names in the producao table.
+
+    Fixes historical entries where OCR or manual input produced non-canonical
+    names that differ from the nome_corrente values in receitas_gelado.
+    Also ensures the Stracciatella Ruby recipe exists.
+    Advisory lock 202650.
+
+    Mapping applied:
+      TIRAMISU                     → Tiramisu
+      Flor de leite                → Fior di Latte
+      Noz Pecan e Maple<space>     → Noz Pecan e Maple
+      Base Chocolate Nivà          → Base chocolate niva
+      GRANTORINO TUORLO ZUCCHERATO → Nocciolato
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_NORMALISE_PRODUCAO_SABORES,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_normalise_producao_sabores: lock held, skipping")
+                return
+
+            fixes = [
+                # Original batch
+                ("TIRAMISU",                     "Tiramisu"),
+                ("Flor de leite",                "Fior di Latte"),
+                ("Noz Pecan e Maple ",            "Noz Pecan e Maple"),
+                ("Base Chocolate Nivà",           "Base chocolate niva"),
+                ("GRANTORINO TUORLO ZUCCHERATO",  "Nocciolato"),
+                # Capitalisation mismatches
+                ("Extra noir",                   "Extra Noir"),
+                ("Doce de leite",                "Doce de Leite"),
+                ("Chocolate branco",             "Chocolate Branco"),
+                ("Queijo da serra",              "Queijo da Serra"),
+                ("Chocolate com laranja",        "Chocolate com Laranja"),
+                ("Creme de natal",               "Creme de Natal"),
+                # ALL NATURAL supplier-name → canonical nome_corrente
+                ("ALL NATURAL MORANGO",                   "Morango"),
+                ("ALL NATURAL CHOCOLATE HORTELA SORBETTO","Extra Noir Hortelã"),
+                ("CARAMELLO DULCE DE LECHE FRANCISCO(1)", "Doce de Leite"),
+                ("ALL NATURAL ANANAS ABACAXI",            "Abacaxi"),
+                ("Ananás",                                "Abacaxi"),
+                ("ALL NATURAL FRUTOS DO BOSQUE",          "Frutos Vermelhos"),
+                ("Frutos do Bosque",                      "Frutos Vermelhos"),
+                ("ZERO ALL NATURAL FRAGOLA",              "Morango"),
+            ]
+            total_updated = 0
+            for old_name, new_name in fixes:
+                cursor.execute(
+                    "UPDATE producao SET sabor = %s WHERE sabor = %s",
+                    (new_name, old_name),
+                )
+                n = cursor.rowcount
+                if n > 0:
+                    logger.info(
+                        "run_migrations_normalise_producao_sabores: %r → %r (%d rows)",
+                        old_name, new_name, n,
+                    )
+                total_updated += n
+
+            cursor.execute(
+                """INSERT INTO receitas_gelado (nome, nome_corrente, ativo, conta_eurokg)
+                   VALUES ('STRACCIATELLA RUBY', 'Stracciatella Ruby', TRUE, TRUE)
+                   ON CONFLICT (nome) DO NOTHING""",
+            )
+            if cursor.rowcount > 0:
+                logger.info("run_migrations_normalise_producao_sabores: inserted Stracciatella Ruby recipe")
+
+            conn.commit()
+            logger.info(
+                "run_migrations_normalise_producao_sabores: done (%d producao rows updated)",
+                total_updated,
+            )
+        except Exception as exc:
+            logger.error("run_migrations_normalise_producao_sabores failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_invoice_centros_custo():
     """Idempotent: create invoice_centros_custo junction table for multi-CC allocation.
 
