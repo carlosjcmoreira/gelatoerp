@@ -501,11 +501,23 @@ def pesagens_loja():
             }
             for r in raw
         ]
+        # Group by date for the expandable day view
+        from itertools import groupby as _groupby
+        history_grouped = []
+        for date_iso, grp in _groupby(history_rows, key=lambda r: r['data_iso']):
+            grp_list = list(grp)
+            history_grouped.append({
+                'date_iso': date_iso,
+                'date_fmt': grp_list[0]['data'],
+                'total_kg': round(sum(r['kg'] for r in grp_list), 3),
+                'rows': grp_list,
+            })
         return render_template('producao/pesagens_loja.html',
                                active_tab='pesagens_loja', tabs=_tabs_with_urls(),
                                lojas=[], rows=[],
                                days=days, days_options=_PESAGENS_DAYS_OPTIONS,
-                               history_rows=history_rows)
+                               history_rows=history_rows,
+                               history_grouped=history_grouped)
 
 
 @producao_bp.route('/registo-producao', methods=['GET'])

@@ -149,8 +149,8 @@
 {% endif %}{# end if days==3 / elif days==1 #}
 
 {% else %}
-    {# ── Flat history view for days>1 ── #}
-    {% if history_rows %}
+    {# ── Grouped-by-day history view for days>1 ── #}
+    {% if history_grouped %}
     <div class="card card-body bg-body-tertiary border mb-3 py-2 px-3" id="filterBar">
         <div class="row g-2 align-items-end">
             <div class="col-12 col-sm-5">
@@ -174,9 +174,10 @@
         </div>
     </div>
     <div class="table-responsive">
-        <table class="table table-sm table-striped align-middle" id="historyTable">
+        <table class="table table-sm align-middle mb-0" id="historyTable">
             <thead class="table-dark">
                 <tr>
+                    <th class="px-2" style="width:1.5rem"></th>
                     <th class="px-2">Data</th>
                     <th class="px-2">Loja</th>
                     <th class="px-2">Sabor</th>
@@ -185,42 +186,47 @@
                 </tr>
             </thead>
             <tbody>
-                {% for r in history_rows %}
-                <tr data-loja="{{ r.loja|e }}" data-sabor="{{ r.sabor|e }}">
+                {% for grp in history_grouped %}
+                {% set grp_id = 'day-' ~ loop.index %}
+                {# ── Day header row ── #}
+                <tr class="table-secondary day-header-row"
+                    data-day-group="{{ grp_id }}"
+                    data-day-total="{{ grp.total_kg }}"
+                    style="cursor:pointer"
+                    onclick="toggleDay('{{ grp_id }}', this)">
+                    <td class="px-2 text-center">
+                        <span class="day-chevron text-muted" style="font-size:0.75rem; display:inline-block; transition:transform .15s;">▶</span>
+                    </td>
+                    <td class="px-2 fw-semibold">{{ grp.date_fmt }}</td>
+                    <td class="px-2 text-muted small" colspan="2">
+                        <span class="day-row-count">{{ grp.rows|length }} pesagem{{ 's' if grp.rows|length != 1 }}</span>
+                    </td>
+                    <td class="text-end px-2 fw-bold text-primary day-total-display">{{ '%.2f'|format(grp.total_kg) }}</td>
+                    <td class="px-2"></td>
+                </tr>
+                {# ── Detail rows for this day (collapsed by default) ── #}
+                {% for r in grp.rows %}
+                <tr class="day-detail-row d-none"
+                    data-group="{{ grp_id }}"
+                    data-loja="{{ r.loja|e }}"
+                    data-sabor="{{ r.sabor|e }}">
+                    <td class="px-2"></td>
                     <td class="px-2 small text-muted">{{ r.data }}</td>
                     <td class="px-2 small">{{ r.loja }}</td>
-                    <td class="fw-semibold px-2 small">
-                        {{ r.sabor }}
-                        {% if r.carapinas and r.carapinas|length > 1 %}
-                        <button type="button" class="btn btn-link p-0 ms-1 text-muted fw-normal"
-                                style="font-size:0.65rem; line-height:1; vertical-align:middle;"
-                                data-bs-toggle="collapse" data-bs-target="#fc-{{ r.id }}"
-                                aria-expanded="false" title="Ver detalhe por carapina">{{ r.carapinas|length }}c ▾</button>
-                        {% endif %}
-                    </td>
+                    <td class="fw-semibold px-2 small">{{ r.sabor }}</td>
                     <td class="text-end px-2 text-primary fw-semibold">{{ '%.2f'|format(r.kg) }}</td>
                     <td class="px-2">
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
-                                onclick="abrirEditPesagem({{ r.id }}, '{{ r.sabor|e }}', '{{ r.loja|e }}', {{ r.kg }}, '{{ r.data_iso|e }}')"
-                                title="Editar pesagem">
-                            ✏️
-                        </button>
+                                onclick="event.stopPropagation(); abrirEditPesagem({{ r.id }}, '{{ r.sabor|e }}', '{{ r.loja|e }}', {{ r.kg }}, '{{ r.data_iso|e }}')"
+                                title="Editar pesagem">✏️</button>
                     </td>
                 </tr>
-                {% if r.carapinas and r.carapinas|length > 1 %}
-                <tr class="collapse" id="fc-{{ r.id }}" data-carapinas-row="1">
-                    <td colspan="5" class="px-3 py-1 small text-muted bg-body-tertiary">
-                        {% for kg in r.carapinas %}
-                        <span class="me-3">Carapina {{ loop.index }}: <strong>{{ '%.3f'|format(kg) }} kg</strong></span>
-                        {% endfor %}
-                    </td>
-                </tr>
-                {% endif %}
+                {% endfor %}
                 {% endfor %}
             </tbody>
         </table>
     </div>
-    <div class="alert alert-info d-none" id="noResultsMsg">Nenhuma pesagem corresponde aos filtros selecionados.</div>
+    <div class="alert alert-info d-none mt-2" id="noResultsMsg">Nenhuma pesagem corresponde aos filtros selecionados.</div>
     {% else %}
     <div class="alert alert-info">Sem pesagens registadas nos últimos {{ days }} dias.</div>
     {% endif %}
@@ -375,6 +381,21 @@ function autoFormatKgEdit(input) {
     }
 }
 
+function toggleDay(groupId, headerRow) {
+    var isOpen = headerRow.dataset.open === '1';
+    var detailRows = document.querySelectorAll('tr.day-detail-row[data-group="' + groupId + '"]:not(.filter-hidden)');
+    var chevron = headerRow.querySelector('.day-chevron');
+    if (isOpen) {
+        detailRows.forEach(function (r) { r.classList.add('d-none'); });
+        if (chevron) chevron.style.transform = '';
+        headerRow.dataset.open = '0';
+    } else {
+        detailRows.forEach(function (r) { r.classList.remove('d-none'); });
+        if (chevron) chevron.style.transform = 'rotate(90deg)';
+        headerRow.dataset.open = '1';
+    }
+}
+
 (function () {
     var table = document.getElementById('historyTable');
     if (!table) return;
@@ -386,10 +407,10 @@ function autoFormatKgEdit(input) {
     var countEl = document.getElementById('filterCount');
     var noResults = document.getElementById('noResultsMsg');
 
-    var rows = Array.from(table.querySelectorAll('tbody tr:not([data-carapinas-row])'));
+    var detailRows = Array.from(table.querySelectorAll('tbody tr.day-detail-row'));
 
     var lojas = [], sabores = [];
-    rows.forEach(function (tr) {
+    detailRows.forEach(function (tr) {
         var l = tr.dataset.loja, s = tr.dataset.sabor;
         if (l && lojas.indexOf(l) === -1) lojas.push(l);
         if (s && sabores.indexOf(s) === -1) sabores.push(s);
@@ -407,10 +428,7 @@ function autoFormatKgEdit(input) {
 
     function saveState() {
         try {
-            sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
-                loja: selLoja.value,
-                sabor: selSabor.value
-            }));
+            sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ loja: selLoja.value, sabor: selSabor.value }));
         } catch (e) {}
     }
 
@@ -427,28 +445,75 @@ function autoFormatKgEdit(input) {
     function applyFilters() {
         var loja = selLoja.value;
         var sabor = selSabor.value;
-        var visible = 0;
-        rows.forEach(function (tr) {
-            var match = (!loja || tr.dataset.loja === loja) &&
-                        (!sabor || tr.dataset.sabor === sabor);
-            tr.style.display = match ? '' : 'none';
-            if (match) visible++;
+        var filtering = !!(loja || sabor);
+        var totalVisible = 0;
+
+        // Group detail rows by their day group
+        var groups = {};
+        detailRows.forEach(function (tr) {
+            var g = tr.dataset.group;
+            if (!groups[g]) groups[g] = [];
+            groups[g].push(tr);
         });
+
+        Object.keys(groups).forEach(function (grpId) {
+            var rows = groups[grpId];
+            var headerRow = table.querySelector('tr.day-header-row[data-day-group="' + grpId + '"]');
+            var isOpen = headerRow && headerRow.dataset.open === '1';
+            var visibleInGroup = 0;
+            var visibleKg = 0;
+
+            rows.forEach(function (tr) {
+                var match = (!loja || tr.dataset.loja === loja) &&
+                            (!sabor || tr.dataset.sabor === sabor);
+                if (match) {
+                    tr.classList.remove('filter-hidden');
+                    if (isOpen) tr.classList.remove('d-none');
+                    visibleInGroup++;
+                    var kg = parseFloat(tr.querySelector('td:nth-child(5)').textContent.trim()) || 0;
+                    visibleKg += kg;
+                } else {
+                    tr.classList.add('filter-hidden');
+                    tr.classList.add('d-none');
+                }
+            });
+
+            if (headerRow) {
+                var hideHeader = filtering && visibleInGroup === 0;
+                headerRow.style.display = hideHeader ? 'none' : '';
+                if (!hideHeader) {
+                    totalVisible += visibleInGroup;
+                    // Update day total and count when filtering
+                    var totalEl = headerRow.querySelector('.day-total-display');
+                    var countRowEl = headerRow.querySelector('.day-row-count');
+                    if (filtering) {
+                        if (totalEl) totalEl.textContent = visibleKg.toFixed(2);
+                        if (countRowEl) countRowEl.textContent = visibleInGroup + ' pesagem' + (visibleInGroup !== 1 ? 's' : '');
+                    } else {
+                        if (totalEl) totalEl.textContent = parseFloat(headerRow.dataset.dayTotal).toFixed(2);
+                        if (countRowEl) {
+                            var total = rows.length;
+                            countRowEl.textContent = total + ' pesagem' + (total !== 1 ? 's' : '');
+                        }
+                    }
+                }
+            }
+        });
+
         if (countEl) {
-            countEl.textContent = (loja || sabor)
-                ? visible + ' de ' + rows.length + ' pesagens'
-                : '';
+            countEl.textContent = filtering ? totalVisible + ' de ' + detailRows.length + ' pesagens' : '';
         }
-        if (noResults) {
-            noResults.classList.toggle('d-none', visible > 0 || (!loja && !sabor));
-            table.closest('.table-responsive').classList.toggle('d-none', visible === 0);
+        var allHidden = filtering && totalVisible === 0;
+        if (noResults) noResults.classList.toggle('d-none', !allHidden);
+        if (table.closest('.table-responsive')) {
+            table.closest('.table-responsive').classList.toggle('d-none', allHidden);
         }
         saveState();
     }
 
-    selLoja.addEventListener('change', applyFilters);
-    selSabor.addEventListener('change', applyFilters);
-    btnClear.addEventListener('click', function () {
+    if (selLoja) selLoja.addEventListener('change', applyFilters);
+    if (selSabor) selSabor.addEventListener('change', applyFilters);
+    if (btnClear) btnClear.addEventListener('click', function () {
         selLoja.value = '';
         selSabor.value = '';
         applyFilters();
