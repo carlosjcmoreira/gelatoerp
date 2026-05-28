@@ -3331,15 +3331,47 @@ def run_migrations_normalise_producao_sabores():
                 n = cursor.rowcount
                 if n > 0:
                     logger.info(
-                        "run_migrations_normalise_producao_sabores: %r → %r (%d rows)",
+                        "run_migrations_normalise_producao_sabores: producao %r → %r (%d rows)",
                         old_name, new_name, n,
                     )
                 total_updated += n
 
+            # Align receitas_gelado.nome_corrente to match the canonical targets above.
+            # The schema seed may insert lowercase variants; these UPDATEs ensure
+            # receitas_gelado stays consistent with what producao.sabor now contains
+            # — including on a fresh install.
+            receita_fixes = [
+                ("ALL NATURAL CHOCOLATE SORBETTO",         "Extra Noir"),
+                ("ALL NATURAL CHOCOLATE HORTELA SORBETTO", "Extra Noir Hortelã"),
+                ("CARAMELLO DULCE DE LECHE FRANCISCO",     "Doce de Leite"),
+                ("CIOCCOBIANCO  RISOLATTE NEW",             "Chocolate Branco"),
+                ("CHOCOLATE COM LARANJA",                   "Chocolate com Laranja"),
+                ("EUSKALDUNA",                              "Queijo da Serra"),
+                ("CREMA DI NATALE",                         "Creme de Natal"),
+                ("ALL NATURAL MORANGO",                     "Morango"),
+                ("ALL NATURAL ANANAS ABACAXI",              "Abacaxi"),
+                ("ALL NATURAL FRUTOS DO BOSQUE",            "Frutos Vermelhos"),
+                ("FIORDILATTE",                             "Fior di Latte"),
+                ("GRANTORINO TUORLO ZUCCHERATO",            "Nocciolato"),
+            ]
+            for nome_receita, canonical in receita_fixes:
+                cursor.execute(
+                    "UPDATE receitas_gelado SET nome_corrente = %s WHERE nome = %s AND nome_corrente != %s",
+                    (canonical, nome_receita, canonical),
+                )
+                if cursor.rowcount > 0:
+                    logger.info(
+                        "run_migrations_normalise_producao_sabores: receitas_gelado %r nome_corrente → %r",
+                        nome_receita, canonical,
+                    )
+
+            # Ensure Stracciatella Ruby recipe exists — idempotent by nome_corrente
             cursor.execute(
                 """INSERT INTO receitas_gelado (nome, nome_corrente, ativo, conta_eurokg)
-                   VALUES ('STRACCIATELLA RUBY', 'Stracciatella Ruby', TRUE, TRUE)
-                   ON CONFLICT (nome) DO NOTHING""",
+                   SELECT 'STRACCIATELLA RUBY', 'Stracciatella Ruby', TRUE, TRUE
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM receitas_gelado WHERE nome_corrente = 'Stracciatella Ruby'
+                   )""",
             )
             if cursor.rowcount > 0:
                 logger.info("run_migrations_normalise_producao_sabores: inserted Stracciatella Ruby recipe")
