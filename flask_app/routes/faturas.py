@@ -34,6 +34,7 @@ from database import (
     get_cost_centers, get_cost_categories_tree,
     get_invoices_with_payments, get_vat_periods,
     propose_invoice_payment, suggest_payment_date,
+    get_invoice_centros_custo, add_invoice_centro_custo, remove_invoice_centro_custo,
 )
 
 import flask_app.services.faturas as faturas_svc
@@ -885,6 +886,7 @@ def detail(invoice_id: int):
     stock_local_derivado = derive_local_from_store(store_name=inv.get('store_name'), store_id=inv.get('store_id'))
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
+    inv_centros_custo = get_invoice_centros_custo(invoice_id)
     return render_template(
         'financeiro/faturas/detail.html',
         inv=inv,
@@ -904,7 +906,68 @@ def detail(invoice_id: int):
         stock_local_derivado=stock_local_derivado,
         cost_centers=cost_centers,
         cost_categories_tree=cost_categories_tree,
+        inv_centros_custo=inv_centros_custo,
     )
+
+
+# ── Invoice cost-center allocation management ────────────────────────────────────
+
+@faturas_bp.route('/<int:invoice_id>/centros-custo', methods=['POST'])
+@perm_required('acesso_gestor')
+def gestao_centros_custo(invoice_id: int):
+    """Add or remove a cost-center allocation for an invoice."""
+    inv = get_invoice(invoice_id)
+    if not inv:
+        flash('Fatura não encontrada.', 'warning')
+        return redirect(url_for('faturas.index'))
+
+    action = request.form.get('action', '').strip()
+    return_url = request.form.get('_return_url', '').strip() or url_for('faturas.detail', invoice_id=invoice_id)
+
+    if action == 'add':
+        cc_raw = request.form.get('centro_custo_id', '').strip()
+        pct_raw = request.form.get('percentagem', '100').strip().replace(',', '.')
+        if not cc_raw:
+            flash('Seleciona um centro de custo.', 'warning')
+            return redirect(return_url)
+        try:
+            cc_id = int(cc_raw)
+            pct = float(pct_raw)
+            if pct <= 0 or pct > 100:
+                raise ValueError('pct out of range')
+        except (ValueError, TypeError):
+            flash('Dados inválidos.', 'warning')
+            return redirect(return_url)
+        try:
+            add_invoice_centro_custo(invoice_id, cc_id, pct)
+            flash('Centro de custo adicionado.', 'success')
+        except Exception as exc:
+            logger.error('add_invoice_centro_custo inv=%s cc=%s: %s', invoice_id, cc_id, exc)
+            flash(f'Erro ao adicionar: {exc}', 'danger')
+
+    elif action == 'remove':
+        cc_raw = request.form.get('centro_custo_id', '').strip()
+        if not cc_raw:
+            flash('Centro de custo não especificado.', 'warning')
+            return redirect(return_url)
+        try:
+            cc_id = int(cc_raw)
+        except ValueError:
+            flash('Dados inválidos.', 'warning')
+            return redirect(return_url)
+        try:
+            removed = remove_invoice_centro_custo(invoice_id, cc_id)
+            if removed:
+                flash('Alocação removida.', 'success')
+            else:
+                flash('Alocação não encontrada.', 'warning')
+        except Exception as exc:
+            logger.error('remove_invoice_centro_custo inv=%s cc=%s: %s', invoice_id, cc_id, exc)
+            flash(f'Erro ao remover: {exc}', 'danger')
+    else:
+        flash('Acção inválida.', 'warning')
+
+    return redirect(return_url)
 
 
 # ── Invoice panel (offcanvas fragment) ──────────────────────────────────────────

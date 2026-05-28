@@ -1,4 +1,5 @@
 import sys, os
+from datetime import date
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session
 from flask_app.auth import perm_required
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -53,3 +54,51 @@ def index():
 
     centros = get_cost_centers()
     return render_template('financeiro/centros_custo/index.html', centros=centros)
+
+
+@centros_custo_bp.route('/relatorio')
+@perm_required('acesso_gestor')
+def relatorio():
+    """Expense report grouped by cost center."""
+    from db.centros_custo import get_despesas_por_centro_custo
+    from db.faturas import INVOICE_STATUS_LABELS
+
+    today = date.today()
+    date_from_raw = request.args.get('date_from', '').strip()
+    date_to_raw = request.args.get('date_to', '').strip()
+    status_filter = [s for s in request.args.getlist('status') if s]
+
+    def _parse(val):
+        if not val:
+            return None
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y'):
+            try:
+                from datetime import datetime
+                return datetime.strptime(val, fmt).date()
+            except ValueError:
+                continue
+        return None
+
+    date_from = _parse(date_from_raw)
+    date_to = _parse(date_to_raw)
+    statuses = status_filter if status_filter else ['pending_review', 'scheduled', 'paid']
+
+    grupos = get_despesas_por_centro_custo(
+        date_from=date_from,
+        date_to=date_to,
+        statuses=statuses,
+    )
+    total_geral = sum(g['total_eur'] for g in grupos)
+
+    return render_template(
+        'financeiro/centros_custo/relatorio.html',
+        grupos=grupos,
+        total_geral=total_geral,
+        today=today,
+        date_from=date_from,
+        date_to=date_to,
+        date_from_raw=date_from_raw,
+        date_to_raw=date_to_raw,
+        statuses=statuses,
+        status_labels=INVOICE_STATUS_LABELS,
+    )

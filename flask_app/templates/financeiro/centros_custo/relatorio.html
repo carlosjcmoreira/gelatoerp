@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% set back_url = url_for("centros_custo.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <div class="d-flex align-items-center justify-content-between mb-3 gap-2 flex-wrap">
+        <h5 class="mb-0">📊 Despesas por Centro de Custo</h5>
+        <a href="{{ url_for('centros_custo.index') }}" class="btn btn-outline-secondary btn-sm">Gestão de centros</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ 'danger' if cat == 'danger' else ('warning' if cat == 'warning' else 'success') }} alert-dismissible fade show py-2 small" role="alert">
+          {{ msg }}<button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endwith %}
+
+    <!-- Filters -->
+    <div class="card mb-3">
+        <div class="card-body py-2">
+            <form method="get" class="row g-2 align-items-end">
+                <div class="col-6 col-md-3">
+                    <label class="form-label small mb-1">De</label>
+                    <input type="date" name="date_from" class="form-control form-control-sm"
+                           value="{{ date_from_raw }}">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small mb-1">Até</label>
+                    <input type="date" name="date_to" class="form-control form-control-sm"
+                           value="{{ date_to_raw }}">
+                </div>
+                <div class="col-12 col-md-4">
+                    <label class="form-label small mb-1">Estado</label>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for key, label in status_labels.items() %}
+                        {% if key not in ('draft', 'overdue') %}
+                        <div class="form-check form-check-inline mb-0">
+                            <input class="form-check-input" type="checkbox" name="status" value="{{ key }}"
+                                   id="st_{{ key }}" {% if key in statuses %}checked{% endif %}>
+                            <label class="form-check-label small" for="st_{{ key }}">{{ label }}</label>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="col-12 col-md-2">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">Filtrar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Total geral -->
+    <div class="card mb-3 border-primary">
+        <div class="card-body py-2 d-flex justify-content-between align-items-center">
+            <span class="fw-semibold small">Total geral</span>
+            <span class="fw-bold fs-5 text-danger">{{ "%.2f €"|format(total_geral) }}</span>
+        </div>
+    </div>
+
+    {% if not grupos %}
+    <div class="text-center text-muted py-5">Nenhuma fatura encontrada para os filtros seleccionados.</div>
+    {% else %}
+
+    {% for grupo in grupos %}
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center py-2">
+            <div>
+                {% if grupo.code %}
+                <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle me-1">{{ grupo.code }}</span>
+                {% endif %}
+                <span class="fw-semibold small">{{ grupo.name or 'Sem centro de custo' }}</span>
+            </div>
+            <div class="text-end">
+                <span class="fw-bold text-danger">{{ "%.2f €"|format(grupo.total_eur) }}</span>
+                <span class="text-muted small ms-2">({{ grupo.invoice_count }} doc.)</span>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Data emissão</th>
+                            <th>Fornecedor</th>
+                            <th>Nº doc.</th>
+                            <th>Estado</th>
+                            <th>Loja</th>
+                            <th class="text-end">% alocado</th>
+                            <th class="text-end">Valor</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for inv in grupo.invoices %}
+                    <tr>
+                        <td class="text-nowrap">{{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</td>
+                        <td>{{ inv.supplier_name or '—' }}</td>
+                        <td class="text-muted">{{ inv.invoice_number or '—' }}</td>
+                        <td>
+                            {% set st = inv.status %}
+                            <span class="badge
+                                {% if st == 'paid' %}bg-success
+                                {% elif st == 'scheduled' %}bg-info text-dark
+                                {% elif st == 'pending_review' %}bg-warning text-dark
+                                {% elif st == 'cancelled' %}bg-secondary
+                                {% else %}bg-light text-dark{% endif %}">
+                                {{ status_labels.get(st, st) }}
+                            </span>
+                        </td>
+                        <td>{{ inv.store_name or '—' }}</td>
+                        <td class="text-end">
+                            {% set pct = inv._allocated_pct|default(100) %}
+                            {% if pct < 100 %}
+                            <span class="badge bg-warning-subtle text-warning-emphasis">{{ "%.0f"|format(pct) }}%</span>
+                            {% else %}
+                            <span class="text-muted">100%</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end text-nowrap fw-semibold
+                            {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}">
+                            {{ "%.2f €"|format(inv._allocated_amount|default(inv.amount_eur or 0)) }}
+                        </td>
+                        <td class="text-end">
+                            <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}"
+                               class="btn btn-link btn-sm p-0 text-secondary" title="Ver fatura">→</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot class="table-light">
+                        <tr>
+                            <td colspan="6" class="fw-semibold small text-end">Total {{ grupo.name or 'Sem CC' }}:</td>
+                            <td class="fw-bold text-end text-danger text-nowrap">{{ "%.2f €"|format(grupo.total_eur) }}</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <!-- Summary pie by center -->
+    {% if grupos | length > 1 %}
+    <div class="card mt-3">
+        <div class="card-header small fw-semibold py-2">Resumo</div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 small">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Centro de custo</th>
+                            <th class="text-end">Total</th>
+                            <th class="text-end">%</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for g in grupos %}
+                    <tr>
+                        <td>
+                            {% if g.code %}<span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle me-1">{{ g.code }}</span>{% endif %}
+                            {{ g.name or 'Sem CC' }}
+                        </td>
+                        <td class="text-end fw-semibold text-danger text-nowrap">{{ "%.2f €"|format(g.total_eur) }}</td>
+                        <td class="text-end text-muted">
+                            {% if total_geral > 0 %}{{ "%.1f"|format(g.total_eur / total_geral * 100) }}%{% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot class="table-light fw-bold">
+                        <tr>
+                            <td>Total</td>
+                            <td class="text-end text-danger text-nowrap">{{ "%.2f €"|format(total_geral) }}</td>
+                            <td class="text-end">100%</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+</div>
+{% endblock %}

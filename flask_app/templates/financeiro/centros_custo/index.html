@@ -3,7 +3,12 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <h5 class="mb-1">🏷️ Centros de Custo</h5>
+    <div class="d-flex align-items-center justify-content-between mb-2">
+        <h5 class="mb-0">🏷️ Centros de Custo</h5>
+        <a href="{{ url_for('centros_custo.relatorio') }}" class="btn btn-outline-primary btn-sm">
+            📊 Relatório de despesas
+        </a>
+    </div>
     <p class="text-muted small mb-3">Gestão dos centros de custo da organização.</p>
 
     {% with messages = get_flashed_messages(with_categories=true) %}

@@ -665,8 +665,11 @@ def _build_invoice_where(status: str = None, statuses: list = None,
         where.append("i.store_id = %s")
         params.append(store_id)
     if centro_custo_id:
-        where.append("i.centro_custo_id = %s")
-        params.append(centro_custo_id)
+        where.append("""(i.centro_custo_id = %s OR EXISTS (
+            SELECT 1 FROM invoice_centros_custo icc
+            WHERE icc.invoice_id = i.id AND icc.centro_custo_id = %s
+        ))""")
+        params.extend([centro_custo_id, centro_custo_id])
     if categoria_custo_id:
         where.append("i.categoria_custo_id = %s")
         params.append(categoria_custo_id)

@@ -3270,3 +3270,42 @@ def run_migrations_onedrive_retry():
                 conn.rollback()
             except Exception:
                 pass
+
+
+def run_migrations_invoice_centros_custo():
+    """Idempotent: create invoice_centros_custo junction table for multi-CC allocation.
+
+    Allows each invoice to be allocated to one or more cost centers with an
+    optional percentage split. Advisory lock 202608.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(202608)")
+            if not cursor.fetchone()[0]:
+                return
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS invoice_centros_custo (
+                    id SERIAL PRIMARY KEY,
+                    invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                    centro_custo_id INTEGER NOT NULL REFERENCES cost_centers(id) ON DELETE CASCADE,
+                    percentagem NUMERIC(5,2) NOT NULL DEFAULT 100.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(invoice_id, centro_custo_id)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_icc_invoice ON invoice_centros_custo(invoice_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_icc_cc ON invoice_centros_custo(centro_custo_id)"
+            )
+            conn.commit()
+            logger.info("run_migrations_invoice_centros_custo: table ensured")
+        except Exception as exc:
+            logger.error("run_migrations_invoice_centros_custo failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass

@@ -100,6 +100,200 @@ def get_cost_categories_tree(ativo_only: bool = True):
     return top
 
 
+# ── Invoice ↔ Cost-Center allocations ─────────────────────────────────────────
+
+def get_invoice_centros_custo(invoice_id: int) -> list:
+    """Return all cost-center allocations for a given invoice.
+
+    Each entry is a dict with keys: id, invoice_id, centro_custo_id,
+    percentagem, created_at, code, name.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT icc.id, icc.invoice_id, icc.centro_custo_id,
+                   icc.percentagem, icc.created_at,
+                   cc.code, cc.name
+            FROM invoice_centros_custo icc
+            JOIN cost_centers cc ON cc.id = icc.centro_custo_id
+            WHERE icc.invoice_id = %s
+            ORDER BY cc.code
+        """, (invoice_id,))
+        return [dict(r) for r in cursor.fetchall()]
+
+
+def add_invoice_centro_custo(invoice_id: int, centro_custo_id: int,
+                              percentagem: float = 100.0) -> int:
+    """Add a cost-center allocation to an invoice.
+
+    If the invoice already has an entry for this cost center it is updated.
+    Returns the allocation id.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO invoice_centros_custo (invoice_id, centro_custo_id, percentagem)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (invoice_id, centro_custo_id)
+            DO UPDATE SET percentagem = EXCLUDED.percentagem
+            RETURNING id
+        """, (invoice_id, centro_custo_id, float(percentagem)))
+        row = cursor.fetchone()
+        conn.commit()
+    return row[0]
+
+
+def remove_invoice_centro_custo(invoice_id: int, centro_custo_id: int) -> bool:
+    """Remove a cost-center allocation from an invoice. Returns True if a row was deleted."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            DELETE FROM invoice_centros_custo
+            WHERE invoice_id = %s AND centro_custo_id = %s
+        """, (invoice_id, centro_custo_id))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+    return deleted
+
+
+# ── Expense report by cost center ─────────────────────────────────────────────
+
+def get_despesas_por_centro_custo(date_from=None, date_to=None,
+                                   statuses=None) -> list:
+    """Return aggregated invoice expenses grouped by cost center.
+
+    Invoices are matched to cost centers via BOTH:
+      1. invoices.centro_custo_id  (single FK, legacy)
+      2. invoice_centros_custo     (junction table, multi-allocation)
+
+    When an invoice appears in the junction table it is included under each
+    allocated center (with the stored percentagem weighting applied to the
+    amount). When it only has the single FK it is attributed 100 % to that
+    center. An invoice with neither is listed under "Sem centro de custo".
+
+    Returns a list of dicts ordered by center code:
+        {
+          'centro_custo_id': int | None,
+          'code': str | None,
+          'name': str | None,
+          'total_eur': float,
+          'invoice_count': int,
+          'invoices': [...],
+        }
+    """
+    if statuses is None:
+        statuses = ['pending_review', 'scheduled', 'paid']
+
+    where_parts = ["i.status = ANY(%s)"]
+    params: list = [statuses]
+
+    if date_from:
+        where_parts.append("i.issue_date >= %s")
+        params.append(date_from)
+    if date_to:
+        where_parts.append("i.issue_date <= %s")
+        params.append(date_to)
+
+    where_sql = "WHERE " + " AND ".join(where_parts)
+
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # ── Step 1: fetch matching invoices ──────────────────────────────────
+        cursor.execute(f"""
+            SELECT i.id, i.supplier_name, i.invoice_number,
+                   i.amount_eur, i.issue_date, i.due_date, i.status,
+                   i.centro_custo_id, i.document_type,
+                   st.name AS store_name
+            FROM invoices i
+            LEFT JOIN stores st ON st.id = i.store_id
+            {where_sql}
+            ORDER BY i.issue_date DESC NULLS LAST
+        """, params)
+        invoices = [dict(r) for r in cursor.fetchall()]
+
+        if not invoices:
+            return []
+
+        invoice_ids = [inv['id'] for inv in invoices]
+
+        # ── Step 2: fetch junction-table allocations ─────────────────────────
+        cursor.execute("""
+            SELECT icc.invoice_id, icc.centro_custo_id, icc.percentagem,
+                   cc.code, cc.name
+            FROM invoice_centros_custo icc
+            JOIN cost_centers cc ON cc.id = icc.centro_custo_id
+            WHERE icc.invoice_id = ANY(%s)
+        """, (invoice_ids,))
+        jt_rows = cursor.fetchall()
+
+        # invoice_id → list of {centro_custo_id, percentagem, code, name}
+        from collections import defaultdict
+        jt_by_invoice: dict = defaultdict(list)
+        for row in jt_rows:
+            jt_by_invoice[row['invoice_id']].append(dict(row))
+
+        # ── Step 3: fetch cost-center metadata for FK allocations ────────────
+        cursor.execute("SELECT id, code, name FROM cost_centers")
+        cc_meta = {r['id']: dict(r) for r in cursor.fetchall()}
+
+    # ── Step 4: aggregate ────────────────────────────────────────────────────
+    from collections import defaultdict
+    groups: dict = defaultdict(lambda: {
+        'centro_custo_id': None, 'code': None, 'name': None,
+        'total_eur': 0.0, 'invoice_count': 0, 'invoices': [],
+    })
+
+    for inv in invoices:
+        amount = float(inv.get('amount_eur') or 0)
+        inv_id = inv['id']
+        jt_allocs = jt_by_invoice.get(inv_id, [])
+
+        if jt_allocs:
+            # Use junction-table allocations (may be multiple centers)
+            for alloc in jt_allocs:
+                cc_id = alloc['centro_custo_id']
+                pct = float(alloc.get('percentagem') or 100)
+                allocated_amount = round(amount * pct / 100, 4)
+                g = groups[cc_id]
+                g['centro_custo_id'] = cc_id
+                g['code'] = alloc['code']
+                g['name'] = alloc['name']
+                g['total_eur'] += allocated_amount
+                g['invoice_count'] += 1
+                g['invoices'].append({**inv, '_allocated_pct': pct,
+                                      '_allocated_amount': allocated_amount})
+        elif inv.get('centro_custo_id'):
+            # Fall back to single FK
+            cc_id = inv['centro_custo_id']
+            meta = cc_meta.get(cc_id, {})
+            g = groups[cc_id]
+            g['centro_custo_id'] = cc_id
+            g['code'] = meta.get('code')
+            g['name'] = meta.get('name')
+            g['total_eur'] += amount
+            g['invoice_count'] += 1
+            g['invoices'].append({**inv, '_allocated_pct': 100,
+                                   '_allocated_amount': amount})
+        else:
+            # No allocation
+            g = groups['none']
+            g['centro_custo_id'] = None
+            g['code'] = None
+            g['name'] = 'Sem centro de custo'
+            g['total_eur'] += amount
+            g['invoice_count'] += 1
+            g['invoices'].append({**inv, '_allocated_pct': 100,
+                                   '_allocated_amount': amount})
+
+    # Sort: alphabetically by code, "none" last
+    result = sorted(
+        list(groups.values()),
+        key=lambda g: ('z' if g['code'] is None else (g['code'] or '').lower())
+    )
+    return result
+
+
 def create_cost_category(name: str, parent_id: int = None) -> int:
     with db_connection() as conn:
         cursor = conn.cursor()
