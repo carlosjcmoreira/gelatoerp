@@ -25,6 +25,12 @@
 </div>
 {% endif %}
 
+{% if not manual_entry and not no_ocr_values %}
+<div class="mb-2" style="font-size:0.78rem; color:#6c757d;">
+    Linhas com <span class="badge bg-danger" style="font-size:0.7rem;">!</span> indicam valores com baixa confiança OCR — verifique antes de guardar.
+</div>
+{% endif %}
+
 <form method="post" action="{{ url_for('producao.registo_producao_guardar') }}">
     <div class="d-flex gap-2 mb-3">
         <a href="{{ url_for('producao.registo_producao') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
@@ -53,8 +59,18 @@
             </thead>
             <tbody>
                 {% for r in rows %}
-                <tr>
-                    <td class="fw-semibold px-2">{{ r.sabor }}</td>
+                {% set low_conf = r.ocr_confidence is not none and r.ocr_confidence < 0.7 %}
+                <tr{% if low_conf %} class="table-warning"{% endif %}>
+                    <td class="fw-semibold px-2">
+                        {{ r.sabor }}
+                        {% if low_conf %}
+                        <span class="badge bg-danger ms-1" style="font-size:0.68rem;"
+                              title="Confiança OCR: {{ '%.0f'|format(r.ocr_confidence * 100) }}%">!</span>
+                        {% elif r.ocr_confidence is not none and r.ocr_confidence >= 0.7 and r.ocr_confidence < 0.85 %}
+                        <span class="badge bg-warning text-dark ms-1" style="font-size:0.68rem;"
+                              title="Confiança OCR: {{ '%.0f'|format(r.ocr_confidence * 100) }}%">~</span>
+                        {% endif %}
+                    </td>
                     <td class="text-center px-1">
                         <input type="number" name="pesagem_mat_{{ r.sabor }}" class="form-control form-control-sm text-center p-1"
                                value="{{ '%.3f'|format(r.pesagem_mat) if r.pesagem_mat else '' }}"

@@ -626,6 +626,7 @@ def registo_producao_confirmar():
             'prod_matosinhos': vals.get('prod_matosinhos', 0.0),
             'prod_mouzinho': vals.get('prod_mouzinho', 0.0),
             'prod_b2b': vals.get('prod_b2b', 0.0),
+            'ocr_confidence': vals.get('confidence') if ocr_sabores.get(sabor) else None,
         })
 
     for sabor in ocr_sabores:
@@ -638,6 +639,7 @@ def registo_producao_confirmar():
                 'prod_matosinhos': vals.get('prod_matosinhos', 0.0),
                 'prod_mouzinho': vals.get('prod_mouzinho', 0.0),
                 'prod_b2b': vals.get('prod_b2b', 0.0),
+                'ocr_confidence': vals.get('confidence'),
             })
 
     return render_template('producao/registo_producao_confirmar.html',

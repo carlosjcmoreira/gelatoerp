@@ -9,6 +9,106 @@ logger = logging.getLogger(__name__)
 AI_INTEGRATIONS_ANTHROPIC_API_KEY = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
 AI_INTEGRATIONS_ANTHROPIC_BASE_URL = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
 
+_CONFIDENCE_RETRY_THRESHOLD = 0.75
+
+_PRODUCAO_PROMPT = """Analisa esta fotografia de uma folha de planeamento de produção de gelado artesanal.
+
+A folha tem uma linha por sabor (gelado) e 5 colunas numéricas:
+1. PESAGEM MATOSINHOS — peso atual do gelado no início do dia (kg)
+2. PRODUÇÃO BOLHÃO — kg produzidos para a loja Bolhão
+3. PRODUÇÃO MATOSINHOS — kg produzidos para a loja Matosinhos
+4. PRODUÇÃO MOUZINHO — kg produzidos para a loja Mouzinho
+5. PRODUÇÃO B2B / OUTROS / EVENTOS — kg produzidos para B2B ou eventos
+
+Extrai APENAS um objeto JSON válido (sem markdown, sem texto extra) com esta estrutura:
+
+{
+  "date": "YYYY-MM-DD",
+  "confidence": 0.90,
+  "sabores": {
+    "NomeSabor": {
+      "pesagem_mat": 0.0,
+      "prod_bolhao": 0.0,
+      "prod_matosinhos": 0.0,
+      "prod_mouzinho": 0.0,
+      "prod_b2b": 0.0,
+      "confidence": 0.85
+    }
+  }
+}
+
+REGRAS GERAIS:
+- Se a data não for visível, usa null para "date".
+- Para datas usa o formato YYYY-MM-DD.
+- Se um valor estiver em branco ou ausente, usa 0.0.
+- O nome do sabor deve ser exactamente como aparece escrito na folha (ver tabela de abreviações abaixo).
+- Inclui APENAS sabores com pelo menos um valor diferente de zero.
+- "confidence" global é a tua confiança na extracção completa (0.0 a 1.0).
+- "confidence" por sabor é a tua confiança na leitura daquele sabor específico (0.0 a 1.0).
+- Devolve APENAS o JSON, sem qualquer texto adicional.
+
+FORMATO DOS NÚMEROS — MUITO IMPORTANTE:
+A folha usa dois formatos mistos na mesma página. Aplica estas regras sem excepção:
+
+  Formato A — COM vírgula decimal: é sempre kg directamente
+    ex: "1,906" → 1.906 kg | "4,525" → 4.525 kg | "0,650" → 0.650 kg
+
+  Formato B — inteiro SEM vírgula: está sempre em gramas, divide por 1000
+    ex: "4525"  → 4.525 kg | "1774" → 1.774 kg | "3936" → 3.936 kg
+        "4205"  → 4.205 kg | "4210" → 4.210 kg | "650"  → 0.650 kg
+
+  Inteiro pequeno < 100: é kg directamente
+    ex: "8" → 8.0 kg | "12" → 12.0 kg | "45" → 45.0 kg
+
+NÃO apliques nenhum limite máximo de kg por célula.
+NÃO descartes nem modifiques valores por parecerem "demasiado altos".
+Lê todos os números exactamente como aparecem e aplica apenas as regras acima.
+
+NOMES DE SABORES — ABREVIAÇÕES CONHECIDAS:
+Usa sempre o nome completo no JSON, mesmo que a folha use abreviações:
+  • "Stroc. Ruby" / "Strac. Ruby" / "Stracciatella R." → "Stracciatella Ruby"
+  • "Stracciatella" (sem Ruby) → "Stracciatella"
+  • "Pistac." / "Pistachio" → "Pistacchio"
+  • "Pist. V." / "Pistac. V." / "Pistachio V." → "Pistacchio V."
+  • "Noc." / "Nocciola" / "Nocciolato" → "Nocciolato"
+  • "Fior de Leite" / "Flor de Leite" / "Fior di Latte" → "Fior di Latte"
+  • "Arachide" → "Amendoim"
+  • "Tiramisu" / "Tiramisù" → "Tiramisu"
+  • "Choc. Branco" → "Chocolate Branco"
+  • "Dulce de Leche" / "Doce Leite" → "Doce de Leite"
+  • "Extra Noir" → "Extra Noir"
+  • "Ricot. Noz Mel" / "Ricota Noz Mel" → "Ricota, Noz e Mel"
+  • "Noz Pecan Maple" / "Noc. Pecan Maple" → "Noz Pecan e Maple"
+
+ATENÇÃO — ESCRITA MANUAL:
+Esta folha é preenchida à mão. Sê extremamente cuidadoso com os seguintes erros frequentes de leitura:
+
+DÍGITOS AMBÍGUOS — verifica sempre o contexto do número inteiro antes de decidir:
+  • "1" vs "4": em manuscrito são frequentemente confundidos. O "1" tem traço recto; o "4" tem ângulo no topo.
+  • "0" vs "8": o "0" é uma elipse simples; o "8" tem o nó a meio.
+  • "3" vs "2": o "3" tem duas curvas à direita; o "2" tem base plana.
+  • "5" vs "6": o "5" tem o topo plano; o "6" tem a cauda fechada em baixo.
+  • "7" vs "4": ambos têm traço diagonal, mas o "7" é mais simples.
+  • "9" vs "4": o "9" tem cauda descendente; o "4" tem ângulo no topo.
+
+ZEROS/DÍGITOS INICIAIS — nunca elimines dígitos iniciais:
+  • Valores como "2,476" NÃO devem ser lidos como "0,476" — verifica se existe um "2" antes da vírgula.
+  • Valores escritos como "0,xxx" têm mesmo o zero no início; não os ignores.
+
+VÍRGULA DECIMAL — o separador decimal é sempre a vírgula (formato português):
+  • "1,906" = 1.906 kg (não "1906" nem "1,9")
+  • "0,650" = 0.650 kg
+
+SOMA DE PARCELAS (notação "N+M"):
+  • Alguns valores podem estar escritos como "1,158+2,400" ou "4205+4210" indicando duas pesagens.
+  • Se encontrares esta notação, CALCULA o total e devolve apenas o número final (ex: 8.415).
+  • Aplica as regras de formato acima a cada parcela antes de somar.
+  • Nunca devolvas uma string com "+" no JSON — apenas o resultado numérico.
+
+ZEROS E TRAÇOS:
+  • Um "0" ou "—" numa célula significa zero (0.0); não confundas com valor em falta.
+  • Uma célula vazia é também 0.0."""
+
 
 def _get_anthropic_client():
     try:
@@ -40,6 +140,7 @@ def extract_producao_sheet(image_bytes: bytes, filename: str = '') -> dict:
               'prod_matosinhos': float,
               'prod_mouzinho': float,
               'prod_b2b': float,
+              'confidence': float,  # per-sabor OCR confidence (0.0–1.0)
           },
           ...
       },
@@ -76,74 +177,31 @@ def extract_producao_sheet(image_bytes: bytes, filename: str = '') -> dict:
 
         image_b64 = base64.standard_b64encode(image_bytes).decode('utf-8')
 
-        prompt = """Analisa esta fotografia de uma folha de planeamento de produção de gelado artesanal.
+        result = _single_ocr_call(client, image_b64, media_type)
 
-A folha tem uma linha por sabor (gelado) e 5 colunas numéricas:
-1. PESAGEM MATOSINHOS — peso atual do gelado no início do dia (kg)
-2. PRODUÇÃO BOLHÃO — kg produzidos para a loja Bolhão
-3. PRODUÇÃO MATOSINHOS — kg produzidos para a loja Matosinhos
-4. PRODUÇÃO MOUZINHO — kg produzidos para a loja Mouzinho
-5. PRODUÇÃO B2B / OUTROS / EVENTOS — kg produzidos para B2B ou eventos
+        if not result.get('error') and result.get('ocr_confidence', 1.0) < _CONFIDENCE_RETRY_THRESHOLD:
+            logger.info(
+                "OCR confidence %.3f below threshold %.2f — retrying",
+                result['ocr_confidence'], _CONFIDENCE_RETRY_THRESHOLD,
+            )
+            retry = _single_ocr_call(client, image_b64, media_type)
+            if not retry.get('error') and retry.get('ocr_confidence', 0) > result.get('ocr_confidence', 0):
+                logger.info(
+                    "OCR retry improved confidence: %.3f → %.3f",
+                    result['ocr_confidence'], retry['ocr_confidence'],
+                )
+                result = retry
 
-Extrai APENAS um objeto JSON válido (sem markdown, sem texto extra) com esta estrutura:
+        return result
 
-{
-  "date": "YYYY-MM-DD",
-  "confidence": 0.90,
-  "sabores": {
-    "NomeSabor": {
-      "pesagem_mat": 0.0,
-      "prod_bolhao": 0.0,
-      "prod_matosinhos": 0.0,
-      "prod_mouzinho": 0.0,
-      "prod_b2b": 0.0
-    }
-  }
-}
+    except Exception as e:
+        logger.error("OCR producao extraction failed: %s", e)
+        return _empty_result(str(e))
 
-REGRAS GERAIS:
-- Se a data não for visível, usa null para "date".
-- Para datas usa o formato YYYY-MM-DD.
-- Se um valor estiver em branco ou ausente, usa 0.0.
-- Se os valores estiverem claramente em gramas (ex: 1500), converte para kg (1.5).
-- O nome do sabor deve ser exactamente como aparece escrito na folha.
-- Inclui APENAS sabores com pelo menos um valor diferente de zero.
-- "confidence" é a tua confiança global na extracção (0.0 a 1.0).
-- Devolve APENAS o JSON, sem qualquer texto adicional.
 
-ATENÇÃO — ESCRITA MANUAL (muito importante):
-Esta folha é preenchida à mão. Sê extremamente cuidadoso com os seguintes erros frequentes de leitura:
-
-DÍGITOS AMBÍGUOS — verifica sempre o contexto do número inteiro antes de decidir:
-  • "1" vs "4": em manuscrito são frequentemente confundidos. O "1" tem traço recto; o "4" tem ângulo no topo.
-  • "0" vs "8": o "0" é uma elipse simples; o "8" tem o nó a meio.
-  • "3" vs "2": o "3" tem duas curvas à direita; o "2" tem base plana.
-  • "5" vs "6": o "5" tem o topo plano; o "6" tem a cauda fechada em baixo.
-  • "7" vs "4": ambos têm traço diagonal, mas o "7" é mais simples.
-  • "9" vs "4": o "9" tem cauda descendente; o "4" tem ângulo no topo.
-
-ZEROS/DÍGITOS INICIAIS — nunca elimines dígitos iniciais:
-  • Valores como "2,476" NÃO devem ser lidos como "0,476" — verifica se existe um "2" antes da vírgula.
-  • Valores escritos como "0,xxx" têm mesmo o zero no início; não os ignores.
-
-VÍRGULA DECIMAL — o separador decimal é sempre a vírgula (formato português):
-  • "1,906" = 1.906 kg (não "1906" nem "1,9")
-  • "0,650" = 0.650 kg
-
-SOMA DE PARCELAS (notação "N+M"):
-  • Alguns valores podem estar escritos como "1,158+2,400" indicando duas pesagens.
-  • Se encontrares esta notação, CALCULA o total e devolve apenas o número final (ex: 3.558).
-  • Nunca devolvas uma string com "+" no JSON — apenas o resultado numérico.
-
-ZEROS E TRAÇOS:
-  • Um "0" ou "—" numa célula significa zero (0.0); não confundas com valor em falta.
-  • Uma célula vazia é também 0.0.
-
-CONTEXTO DO NÚMERO:
-  • Os pesos de gelado nesta folha estão normalmente entre 0.0 e 10.0 kg por célula.
-  • Valores acima de 15 kg numa única célula são muito raros — confirma se não é um erro de leitura.
-  • Se tiveres dúvida entre dois dígitos, escolhe o que produz um valor no intervalo 0.0–10.0 kg."""
-
+def _single_ocr_call(client, image_b64: str, media_type: str) -> dict:
+    """Make a single OCR API call and return a parsed result dict."""
+    try:
         message = client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=4096,
@@ -158,7 +216,7 @@ CONTEXTO DO NÚMERO:
                             "data": image_b64,
                         },
                     },
-                    {"type": "text", "text": prompt}
+                    {"type": "text", "text": _PRODUCAO_PROMPT}
                 ]
             }]
         )
@@ -171,7 +229,7 @@ CONTEXTO DO NÚMERO:
         raw_text = raw_text.strip()
 
         parsed = json.loads(raw_text)
-        confidence = float(parsed.get('confidence', 0.7))
+        global_confidence = float(parsed.get('confidence', 0.7))
 
         from sabor_utils import normalise_sabor
         sabores_raw = parsed.get('sabores', {})
@@ -180,16 +238,20 @@ CONTEXTO DO NÚMERO:
             if not isinstance(vals, dict):
                 continue
             canonical = normalise_sabor(nome)
+            sabor_conf = float(vals.get('confidence', global_confidence))
             entry = {
                 'pesagem_mat': _parse_float(vals.get('pesagem_mat', 0)),
                 'prod_bolhao': _parse_float(vals.get('prod_bolhao', 0)),
                 'prod_matosinhos': _parse_float(vals.get('prod_matosinhos', 0)),
                 'prod_mouzinho': _parse_float(vals.get('prod_mouzinho', 0)),
                 'prod_b2b': _parse_float(vals.get('prod_b2b', 0)),
+                'confidence': round(sabor_conf, 3),
             }
             if canonical in sabores:
                 existing = sabores[canonical]
-                sabores[canonical] = {k: existing[k] + entry[k] for k in entry}
+                merged = {k: existing[k] + entry[k] for k in entry if k != 'confidence'}
+                merged['confidence'] = round(min(existing['confidence'], entry['confidence']), 3)
+                sabores[canonical] = merged
             else:
                 sabores[canonical] = entry
 
@@ -197,11 +259,11 @@ CONTEXTO DO NÚMERO:
             'date': _parse_date(parsed.get('date')),
             'sabores': sabores,
             'error': None,
-            'ocr_confidence': round(confidence, 3),
+            'ocr_confidence': round(global_confidence, 3),
         }
 
     except Exception as e:
-        logger.error("OCR producao extraction failed: %s", e)
+        logger.error("_single_ocr_call failed: %s", e)
         return _empty_result(str(e))
 
 

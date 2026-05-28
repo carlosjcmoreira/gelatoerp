@@ -24,6 +24,7 @@ _SABOR_ALIASES: dict[str, str] = {
     "avela":                             "Avelã",
     "nocciola":                          "Nocciolato",
     "nocciolato":                        "Nocciolato",
+    "noc.":                              "Nocciolato",
     "grantorino tuorlo zuccherato":      "Nocciolato",
     # Baunilha
     "baunilha":                          "Baunilha",
@@ -86,23 +87,30 @@ _SABOR_ALIASES: dict[str, str] = {
     # Maracujá
     "maracujá":                          "Maracujá",
     "maracuja":                          "Maracujá",
-    # Noz Pecan e Maple (inclui variante com espaço extra)
+    # Noz Pecan e Maple (inclui variante com espaço extra e abreviações OCR)
     "noz pecan e maple":                 "Noz Pecan e Maple",
     "noz pecan e maple ":                "Noz Pecan e Maple",
     "noc. pecan e maple":                "Noz Pecan e Maple",
+    "noz pecan maple":                   "Noz Pecan e Maple",
+    "noc. pecan maple":                  "Noz Pecan e Maple",
     # Pistacchio
     "pistachio":                         "Pistacchio",
     "pistacchio":                        "Pistacchio",
+    "pistac.":                           "Pistacchio",
     "pistachio v.":                      "Pistacchio V.",
     "pistacchio v.":                     "Pistacchio V.",
+    "pistac. v.":                        "Pistacchio V.",
+    "pist. v.":                          "Pistacchio V.",
     "pistachio vegan":                   "Pistacchio V.",
     "pistacchio vegan":                  "Pistacchio V.",
     "pistacchio v":                      "Pistacchio V.",
     "pistachio v":                       "Pistacchio V.",
-    # Ricota, Noz e Mel
+    # Ricota, Noz e Mel (e abreviações OCR)
     "ricota, noz e mel":                 "Ricota, Noz e Mel",
     "ricotta, noz e mel":                "Ricota, Noz e Mel",
     "ricota noz e mel":                  "Ricota, Noz e Mel",
+    "ricot. noz e mel":                  "Ricota, Noz e Mel",
+    "ricot. noz mel":                    "Ricota, Noz e Mel",
     # Stracciatella (regular)
     "stracciatella":                     "Stracciatella",
     # Stracciatella Ruby — todas as variantes de escrita manual / OCR
