@@ -267,7 +267,7 @@ def get_producao_sabor_overview() -> pd.DataFrame:
 def get_sabores_excluidos_eurokg() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE conta_eurokg = FALSE AND ativo = TRUE")
+        cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE conta_eurokg = FALSE")
         return [row[0] for row in cursor.fetchall()]
 
 def get_producao_total_by_period(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> float:
