@@ -2300,30 +2300,19 @@ def run_data_fix_pesagem_matosinhos_backfill():
     Fixes the gap from 2026-03-02 onwards where the production manager entered
     Matosinhos weighings via the production plan but the values were never
     mirrored into stock_gelado.
+
+    Sabor names are normalised with normalise_sabor before the existence check
+    so that case variants ('Chocolate branco' vs 'Chocolate Branco') are treated
+    as the same flavour.  The INSERT uses ON CONFLICT DO NOTHING so it is safe
+    against race conditions once the unique constraint exists.
     """
+    from sabor_utils import normalise_sabor
     with db_connection() as conn:
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT pg_try_advisory_lock(202607)")
             if not cursor.fetchone()[0]:
                 logger.info("run_data_fix_pesagem_matosinhos_backfill: lock held by another worker, skipping")
-                return
-
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM plano_producao pp
-                WHERE pp.pesagem_matosinhos > 0
-                  AND NOT EXISTS (
-                      SELECT 1 FROM stock_gelado sg
-                      WHERE sg.data = pp.data
-                        AND sg.loja = 'Matosinhos'
-                        AND sg.sabor = pp.sabor
-                        AND sg.tipo = 'inicio'
-                  )
-            """)
-            pending = cursor.fetchone()[0]
-            if pending == 0:
-                logger.info("run_data_fix_pesagem_matosinhos_backfill: nothing to backfill, skipping")
                 return
 
             cursor.execute("""
@@ -2336,24 +2325,35 @@ def run_data_fix_pesagem_matosinhos_backfill():
             store_id = row[0] if row else None
 
             cursor.execute("""
-                INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
-                SELECT pp.data, 'Matosinhos', pp.sabor, pp.pesagem_matosinhos, 'inicio', %s
-                FROM plano_producao pp
-                WHERE pp.pesagem_matosinhos > 0
-                  AND NOT EXISTS (
-                      SELECT 1 FROM stock_gelado sg
-                      WHERE sg.data = pp.data
-                        AND sg.loja = 'Matosinhos'
-                        AND sg.sabor = pp.sabor
-                        AND sg.tipo = 'inicio'
-                  )
-            """, (store_id,))
-            inserted = cursor.rowcount
+                SELECT data, sabor, pesagem_matosinhos
+                FROM plano_producao
+                WHERE pesagem_matosinhos > 0
+            """)
+            plano_rows = cursor.fetchall()
+
+            inserted = 0
+            for data, sabor_raw, kg in plano_rows:
+                sabor = normalise_sabor(sabor_raw)
+                cursor.execute("""
+                    INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
+                    SELECT %s, %s, %s, %s, %s, %s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM stock_gelado sg
+                        WHERE sg.data = %s AND sg.loja = 'Matosinhos'
+                          AND sg.sabor = %s AND sg.tipo = 'inicio'
+                    )
+                """, (data, 'Matosinhos', sabor, kg, 'inicio', store_id,
+                      data, sabor))
+                inserted += cursor.rowcount
+
+            if inserted == 0:
+                logger.info("run_data_fix_pesagem_matosinhos_backfill: nothing to backfill, skipping")
+            else:
+                logger.info(
+                    "run_data_fix_pesagem_matosinhos_backfill: inserted %d rows into stock_gelado",
+                    inserted,
+                )
             conn.commit()
-            logger.info(
-                "run_data_fix_pesagem_matosinhos_backfill: inserted %d rows into stock_gelado",
-                inserted,
-            )
         except Exception as exc:
             logger.error("run_data_fix_pesagem_matosinhos_backfill failed: %s", exc)
             try:
@@ -2836,6 +2836,7 @@ def run_migrations_agente():
 
 
 _LOCK_STOCK_GELADO_MARCH2026_DEDUP = 202624
+_LOCK_STOCK_GELADO_DEDUP_UNIQUE = 202651
 
 
 def run_data_fix_stock_gelado_march2026_dedup():
@@ -2918,6 +2919,164 @@ def run_data_fix_stock_gelado_march2026_dedup():
 
         except Exception as exc:
             logger.error("run_data_fix_stock_gelado_march2026_dedup failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
+def run_data_fix_stock_gelado_dedup_and_unique():
+    """Idempotent migration that eliminates duplicate rows in stock_gelado and
+    adds a UNIQUE constraint to prevent recurrence.
+
+    Steps performed (in a single transaction under advisory lock 202651):
+
+    1. Normalise sabor names in plano_producao — collapses 'Chocolate branco',
+       'CHOCOLATE BRANCO', etc. into the canonical 'Chocolate Branco' form.
+
+    2. Normalise sabor names in stock_gelado — updates variant spellings to their
+       canonical form.  Rows whose canonical name already exists for the same
+       (data, loja, tipo) are deleted (the canonical row is kept); otherwise the
+       sabor column is updated in-place.
+
+    3. Deduplicate stock_gelado — for every remaining group sharing the same
+       (data, loja, sabor, tipo), keep the row with the lowest id and delete
+       the rest.
+
+    4. Add UNIQUE constraint uq_stock_gelado_data_loja_sabor_tipo.  Skips the
+       entire function early if the constraint already exists (idempotent).
+    """
+    from sabor_utils import normalise_sabor
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_STOCK_GELADO_DEDUP_UNIQUE,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_data_fix_stock_gelado_dedup_and_unique: lock held by another worker, skipping")
+                return
+
+            cursor.execute("""
+                SELECT COUNT(*) FROM pg_constraint
+                WHERE conname = 'uq_stock_gelado_data_loja_sabor_tipo'
+                  AND conrelid = 'stock_gelado'::regclass
+            """)
+            if cursor.fetchone()[0] > 0:
+                logger.info("run_data_fix_stock_gelado_dedup_and_unique: constraint already exists, nothing to do")
+                return
+
+            # ── Phase 1: normalise + dedup (committed before ALTER TABLE) ──
+            # Committing phase 1 releases all row-level locks acquired during
+            # the UPDATEs/DELETEs, so the subsequent ALTER TABLE (phase 2) can
+            # acquire its AccessExclusiveLock without deadlocking against
+            # concurrent reads that were waiting for those same rows.
+
+            # Step 1: normalise plano_producao.sabor
+            # plano_producao has UNIQUE (data, sabor), so delete colliding
+            # variant rows before renaming the remainder.
+            cursor.execute("SELECT DISTINCT sabor FROM plano_producao WHERE sabor IS NOT NULL")
+            plano_sabores = [r[0] for r in cursor.fetchall()]
+            pp_deleted = 0
+            pp_updated = 0
+            for s in plano_sabores:
+                canonical = normalise_sabor(s)
+                if canonical == s:
+                    continue
+                cursor.execute("""
+                    DELETE FROM plano_producao pp
+                    WHERE pp.sabor = %s
+                      AND EXISTS (
+                          SELECT 1 FROM plano_producao pp2
+                          WHERE pp2.data  = pp.data
+                            AND pp2.sabor = %s
+                      )
+                """, (s, canonical))
+                pp_deleted += cursor.rowcount
+                cursor.execute(
+                    "UPDATE plano_producao SET sabor = %s WHERE sabor = %s",
+                    (canonical, s),
+                )
+                pp_updated += cursor.rowcount
+            if pp_deleted or pp_updated:
+                logger.info(
+                    "run_data_fix_stock_gelado_dedup_and_unique: "
+                    "plano_producao sabor normalisation — deleted %d duplicates, renamed %d rows",
+                    pp_deleted, pp_updated,
+                )
+
+            # Step 2: normalise stock_gelado.sabor
+            cursor.execute("SELECT DISTINCT sabor FROM stock_gelado WHERE sabor IS NOT NULL")
+            sg_sabores = [r[0] for r in cursor.fetchall()]
+            sg_merged = 0
+            sg_renamed = 0
+            for s in sg_sabores:
+                canonical = normalise_sabor(s)
+                if canonical == s:
+                    continue
+                cursor.execute("""
+                    DELETE FROM stock_gelado AS sg
+                    WHERE sg.sabor = %s
+                      AND EXISTS (
+                          SELECT 1 FROM stock_gelado sg2
+                          WHERE sg2.data  = sg.data
+                            AND sg2.loja  = sg.loja
+                            AND sg2.tipo  = sg.tipo
+                            AND sg2.sabor = %s
+                      )
+                """, (s, canonical))
+                sg_merged += cursor.rowcount
+                cursor.execute(
+                    "UPDATE stock_gelado SET sabor = %s WHERE sabor = %s",
+                    (canonical, s),
+                )
+                sg_renamed += cursor.rowcount
+            if sg_merged or sg_renamed:
+                logger.info(
+                    "run_data_fix_stock_gelado_dedup_and_unique: "
+                    "stock_gelado sabor normalisation — merged %d, renamed %d rows",
+                    sg_merged, sg_renamed,
+                )
+
+            # Step 3: deduplicate stock_gelado using window function
+            # (avoids NOT-IN-with-NULL pitfall that silently skips all deletes)
+            cursor.execute("""
+                WITH ranked AS (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY data, loja, sabor, tipo
+                               ORDER BY id
+                           ) AS rn
+                    FROM stock_gelado
+                )
+                DELETE FROM stock_gelado
+                WHERE id IN (SELECT id FROM ranked WHERE rn > 1)
+            """)
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info(
+                    "run_data_fix_stock_gelado_dedup_and_unique: deleted %d duplicate rows",
+                    deleted,
+                )
+            else:
+                logger.info("run_data_fix_stock_gelado_dedup_and_unique: no duplicates found")
+
+            # COMMIT phase 1 — releases all row locks so ALTER TABLE
+            # can acquire AccessExclusiveLock without deadlocking.
+            conn.commit()
+
+            # ── Phase 2: add UNIQUE constraint (separate short transaction) ──
+            # The advisory lock is still held at session level.
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD CONSTRAINT uq_stock_gelado_data_loja_sabor_tipo
+                UNIQUE (data, loja, sabor, tipo)
+            """)
+            conn.commit()
+            logger.info(
+                "run_data_fix_stock_gelado_dedup_and_unique: UNIQUE constraint added successfully"
+            )
+
+        except Exception as exc:
+            logger.error("run_data_fix_stock_gelado_dedup_and_unique failed: %s", exc)
             try:
                 conn.rollback()
             except Exception:

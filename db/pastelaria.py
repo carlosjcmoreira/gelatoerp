@@ -660,37 +660,40 @@ def add_stock_gelado_bulk(entries: list, loja: str) -> int:
             execute_values(
                 cursor,
                 '''INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, local, store_id)
-                   VALUES %s''',
+                   VALUES %s
+                   ON CONFLICT DO NOTHING''',
                 rows,
             )
+            inserted = cursor.rowcount
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-    return len(rows)
+    return inserted if inserted >= 0 else len(rows)
 
 
 def upsert_stock_gelado_matosinhos(data: date, sabor: str, quantidade_kg: float) -> None:
     """
-    Insert a stock_gelado record for Matosinhos/inicio if one doesn't already
-    exist for that (data, loja, sabor, tipo) combination.  Used when saving
-    the production plan so pesagens entered there are reflected in the
-    Euro/kg Pesagens page.
+    Upsert a stock_gelado record for Matosinhos/inicio.  If a row already
+    exists for (data, Matosinhos, sabor, inicio), it is updated in-place;
+    otherwise a new row is inserted.  Sabor name is normalised to its
+    canonical form before the upsert so case variants are collapsed.
+
+    Uses ON CONFLICT on the uq_stock_gelado_data_loja_sabor_tipo unique
+    constraint — no race conditions possible.
     """
+    from sabor_utils import normalise_sabor
+    sabor = normalise_sabor(sabor)
     store_id = get_store_id_by_name('Matosinhos')
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
             INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
-            SELECT %s, %s, %s, %s, %s, %s
-            WHERE NOT EXISTS (
-                SELECT 1 FROM stock_gelado
-                WHERE data = %s AND loja = %s AND sabor = %s AND tipo = %s
-            )
-        ''', (
-            data, 'Matosinhos', sabor, quantidade_kg, 'inicio', store_id,
-            data, 'Matosinhos', sabor, 'inicio',
-        ))
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (data, loja, sabor, tipo)
+            DO UPDATE SET quantidade_kg = EXCLUDED.quantidade_kg,
+                          store_id     = EXCLUDED.store_id
+        ''', (data, 'Matosinhos', sabor, quantidade_kg, 'inicio', store_id))
         conn.commit()
 
 
