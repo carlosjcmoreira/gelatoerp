@@ -2293,20 +2293,22 @@ def run_migrations_preco_caixa_kg():
                 pass
 def run_data_fix_pesagem_matosinhos_backfill():
     """
-    One-time idempotent backfill: copy all plano_producao rows where
-    pesagem_matosinhos > 0 into stock_gelado (loja='Matosinhos', tipo='inicio')
-    for any (data, sabor) pair not already present there.
+    Idempotent backfill: mirror all plano_producao rows where
+    pesagem_matosinhos > 0 into stock_gelado (loja='Matosinhos', tipo='inicio').
 
-    Fixes the gap from 2026-03-02 onwards where the production manager entered
-    Matosinhos weighings via the production plan but the values were never
-    mirrored into stock_gelado.
+    Must run AFTER run_data_fix_stock_gelado_dedup_and_unique so that the
+    UNIQUE constraint uq_stock_gelado_data_loja_sabor_tipo already exists —
+    the INSERT uses ON CONFLICT (data, loja, sabor, tipo) DO NOTHING which
+    requires that constraint and is safe against concurrent writers.
 
-    Sabor names are normalised with normalise_sabor before the existence check
-    so that case variants ('Chocolate branco' vs 'Chocolate Branco') are treated
-    as the same flavour.  The INSERT uses ON CONFLICT DO NOTHING so it is safe
-    against race conditions once the unique constraint exists.
+    Sabor names are normalised with normalise_sabor before insert so that
+    case variants ('Chocolate branco' vs 'Chocolate Branco') are collapsed to
+    the canonical form.
+
+    Advisory lock 202607.
     """
     from sabor_utils import normalise_sabor
+    from psycopg2.extras import execute_values
     with db_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -2331,29 +2333,31 @@ def run_data_fix_pesagem_matosinhos_backfill():
             """)
             plano_rows = cursor.fetchall()
 
-            inserted = 0
-            for data, sabor_raw, kg in plano_rows:
-                sabor = normalise_sabor(sabor_raw)
-                cursor.execute("""
-                    INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
-                    SELECT %s, %s, %s, %s, %s, %s
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM stock_gelado sg
-                        WHERE sg.data = %s AND sg.loja = 'Matosinhos'
-                          AND sg.sabor = %s AND sg.tipo = 'inicio'
-                    )
-                """, (data, 'Matosinhos', sabor, kg, 'inicio', store_id,
-                      data, sabor))
-                inserted += cursor.rowcount
-
-            if inserted == 0:
+            if not plano_rows:
                 logger.info("run_data_fix_pesagem_matosinhos_backfill: nothing to backfill, skipping")
-            else:
+                conn.commit()
+                return
+
+            rows = [
+                (data, 'Matosinhos', normalise_sabor(sabor_raw), kg, 'inicio', store_id)
+                for data, sabor_raw, kg in plano_rows
+            ]
+            execute_values(
+                cursor,
+                """INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
+                   VALUES %s
+                   ON CONFLICT (data, loja, sabor, tipo) DO NOTHING""",
+                rows,
+            )
+            inserted = cursor.rowcount
+            conn.commit()
+            if inserted > 0:
                 logger.info(
                     "run_data_fix_pesagem_matosinhos_backfill: inserted %d rows into stock_gelado",
                     inserted,
                 )
-            conn.commit()
+            else:
+                logger.info("run_data_fix_pesagem_matosinhos_backfill: all rows already present, nothing inserted")
         except Exception as exc:
             logger.error("run_data_fix_pesagem_matosinhos_backfill failed: %s", exc)
             try:
