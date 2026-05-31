@@ -255,6 +255,8 @@ def _single_ocr_call(client, image_b64: str, media_type: str) -> dict:
             else:
                 sabores[canonical] = entry
 
+        sabores = _sanitise_kg_values(sabores)
+
         return {
             'date': _parse_date(parsed.get('date')),
             'sabores': sabores,
@@ -265,6 +267,37 @@ def _single_ocr_call(client, image_b64: str, media_type: str) -> dict:
     except Exception as e:
         logger.error("_single_ocr_call failed: %s", e)
         return _empty_result(str(e))
+
+
+def _sanitise_kg_values(sabores: dict) -> dict:
+    """Auto-correct kg values that are clearly in grams (OCR missed the /1000 conversion).
+
+    Rule: if a numeric field value V > 50 and V/1000 is in [0.1, 15],
+    replace V with V/1000, log a WARNING, and cap that sabor's confidence at 0.5.
+    """
+    _KG_FIELDS = ('pesagem_mat', 'prod_bolhao', 'prod_matosinhos', 'prod_mouzinho', 'prod_b2b')
+    _MAX_PLAUSIBLE_KG = 50.0
+    _MIN_CORRECTED_KG = 0.1
+    _MAX_CORRECTED_KG = 15.0
+
+    for nome, vals in sabores.items():
+        corrected_fields = []
+        for field in _KG_FIELDS:
+            v = vals.get(field, 0.0)
+            if v > _MAX_PLAUSIBLE_KG:
+                corrected = v / 1000.0
+                if _MIN_CORRECTED_KG <= corrected <= _MAX_CORRECTED_KG:
+                    logger.warning(
+                        "OCR kg sanity: sabor=%r field=%s value=%.3f > %g kg — "
+                        "auto-correcting to %.3f kg (÷1000). Manual review recommended.",
+                        nome, field, v, _MAX_PLAUSIBLE_KG, corrected,
+                    )
+                    vals[field] = round(corrected, 3)
+                    corrected_fields.append(field)
+        if corrected_fields:
+            vals['confidence'] = min(vals.get('confidence', 1.0), 0.5)
+
+    return sabores
 
 
 def _empty_result(error: str) -> dict:
