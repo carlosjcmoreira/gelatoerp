@@ -47,6 +47,22 @@ REGRAS GERAIS:
 - "confidence" por sabor é a tua confiança na leitura daquele sabor específico (0.0 a 1.0).
 - Devolve APENAS o JSON, sem qualquer texto adicional.
 
+LEITURA OBRIGATÓRIA — COLUNA POR COLUNA:
+A folha tem EXACTAMENTE 5 colunas numéricas, separadas por linhas verticais.
+Para cada linha (sabor), conta as colunas rigorosamente da esquerda para a direita:
+  • 1ª coluna numérica (mais à esquerda)  → pesagem_mat
+  • 2ª coluna numérica                    → prod_bolhao
+  • 3ª coluna numérica                    → prod_matosinhos
+  • 4ª coluna numérica                    → prod_mouzinho
+  • 5ª coluna numérica (mais à direita)   → prod_b2b
+
+ATENÇÃO CRÍTICA — COLUNAS FREQUENTEMENTE VAZIAS:
+As colunas PRODUÇÃO MOUZINHO (4ª) e PRODUÇÃO B2B (5ª) estão frequentemente em branco.
+Se não existir nenhum número claramente escrito nessas colunas para um sabor, usa 0.0.
+NÃO coloques valores nessas colunas a não ser que haja números claramente visíveis e escritos.
+Quando em dúvida se um número pertence à 3ª ou 4ª coluna, verifica o alinhamento vertical
+com outros números na mesma coluna noutras linhas. Uma coluna vazia mantém-se vazia em TODAS as linhas.
+
 FORMATO DOS NÚMEROS — MUITO IMPORTANTE:
 A folha usa dois formatos mistos na mesma página. Aplica estas regras sem excepção:
 
@@ -69,16 +85,17 @@ Usa sempre o nome completo no JSON, mesmo que a folha use abreviações:
   • "Stroc. Ruby" / "Strac. Ruby" / "Stracciatella R." → "Stracciatella Ruby"
   • "Stracciatella" (sem Ruby) → "Stracciatella"
   • "Pistac." / "Pistachio" → "Pistacchio"
-  • "Pist. V." / "Pistac. V." / "Pistachio V." → "Pistacchio V."
+  • "Pist. V." / "Pistac. V." / "Pistachio V." / "Pistacchio V." / "Pistacchio Vegan" → "Pistacchio V."
   • "Noc." / "Nocciola" / "Nocciolato" → "Nocciolato"
   • "Fior de Leite" / "Flor de Leite" / "Fior di Latte" → "Fior di Latte"
   • "Arachide" → "Amendoim"
-  • "Tiramisu" / "Tiramisù" → "Tiramisu"
+  • "Tiramisu" / "Tiramisù" / "Jiromisu" / "Tiromisu" → "Tiramisu"
   • "Choc. Branco" → "Chocolate Branco"
   • "Dulce de Leche" / "Doce Leite" → "Doce de Leite"
   • "Extra Noir" → "Extra Noir"
   • "Ricot. Noz Mel" / "Ricota Noz Mel" → "Ricota, Noz e Mel"
   • "Noz Pecan Maple" / "Noc. Pecan Maple" → "Noz Pecan e Maple"
+  • "Stroc. Ruby" / "Strac. Ruby" / "Stracciatella Ruby" → "Stracciatella Ruby"
 
 ATENÇÃO — ESCRITA MANUAL:
 Esta folha é preenchida à mão. Sê extremamente cuidadoso com os seguintes erros frequentes de leitura:
@@ -99,11 +116,21 @@ VÍRGULA DECIMAL — o separador decimal é sempre a vírgula (formato portuguê
   • "1,906" = 1.906 kg (não "1906" nem "1,9")
   • "0,650" = 0.650 kg
 
-SOMA DE PARCELAS (notação "N+M"):
-  • Alguns valores podem estar escritos como "1,158+2,400" ou "4205+4210" indicando duas pesagens.
-  • Se encontrares esta notação, CALCULA o total e devolve apenas o número final (ex: 8.415).
-  • Aplica as regras de formato acima a cada parcela antes de somar.
-  • Nunca devolvas uma string com "+" no JSON — apenas o resultado numérico.
+SOMA DE PARCELAS (notação "N+M") — REGRA CRÍTICA:
+  • Alguns valores estão escritos como "1,158+2,400" ou "4205+4210" indicando duas pesagens somadas.
+  • A soma INTEIRA pertence à coluna onde foi escrita — NÃO dividas as parcelas por colunas diferentes.
+  • CORRECTO: "2118+4108" na coluna PESAGEM → pesagem_mat = 2.118+4.108 = 6.226 (prod_bolhao = 0.0)
+  • ERRADO:   "2118+4108" na coluna PESAGEM → pesagem_mat = 2.118, prod_bolhao = 4.108  ← NÃO FAÇAS ISTO
+  • CORRECTO: "906+4045" na coluna PESAGEM  → pesagem_mat = 0.906+4.045 = 4.951 (prod_bolhao = 0.0)
+  • Aplica as regras de formato (inteiro=gramas÷1000, vírgula=kg directo) a cada parcela antes de somar.
+  • Nunca devolvas uma string com "+" no JSON — apenas o resultado numérico final.
+  • O número após "+" é sempre parte da mesma célula — não pertence à coluna seguinte.
+
+NOTAÇÃO "(TSF)" E ANOTAÇÕES ENTRE PARÊNTESES:
+  • Valores seguidos de "(TSF)", "(Transf.)", "(T)" ou anotações similares indicam transferências.
+  • Lê o número normalmente e ignora a anotação entre parênteses.
+  • ex: "4108(TSF)" → 4.108 kg (inteiro sem vírgula → divide por 1000)
+  • ex: "7660(TSF)" → 7.660 kg
 
 ZEROS E TRAÇOS:
   • Um "0" ou "—" numa célula significa zero (0.0); não confundas com valor em falta.
@@ -199,12 +226,21 @@ def extract_producao_sheet(image_bytes: bytes, filename: str = '') -> dict:
         return _empty_result(str(e))
 
 
+_SYSTEM_PROMPT = (
+    "És um especialista em leitura e extracção de dados de tabelas manuscritas "
+    "de produção de gelado artesanal. A tua tarefa é extrair valores numéricos "
+    "de células de uma grelha, respeitando rigorosamente as fronteiras das colunas. "
+    "Devolves SEMPRE JSON válido, sem texto adicional."
+)
+
+
 def _single_ocr_call(client, image_b64: str, media_type: str) -> dict:
     """Make a single OCR API call and return a parsed result dict."""
     try:
         message = client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=4096,
+            system=_SYSTEM_PROMPT,
             messages=[{
                 "role": "user",
                 "content": [
@@ -220,6 +256,9 @@ def _single_ocr_call(client, image_b64: str, media_type: str) -> dict:
                 ]
             }]
         )
+
+        actual_model = getattr(message, 'model', 'unknown')
+        logger.info("OCR producao: model requested=claude-sonnet-4-5 actual=%s", actual_model)
 
         raw_text = message.content[0].text.strip()
         if raw_text.startswith("```"):
@@ -256,6 +295,7 @@ def _single_ocr_call(client, image_b64: str, media_type: str) -> dict:
                 sabores[canonical] = entry
 
         sabores = _sanitise_kg_values(sabores)
+        sabores = _detect_column_shift(sabores)
 
         return {
             'date': _parse_date(parsed.get('date')),
@@ -272,13 +312,15 @@ def _single_ocr_call(client, image_b64: str, media_type: str) -> dict:
 def _sanitise_kg_values(sabores: dict) -> dict:
     """Auto-correct kg values that are clearly in grams (OCR missed the /1000 conversion).
 
-    Rule: if a numeric field value V > 50 and V/1000 is in [0.1, 15],
+    Rule: if a numeric field value V > 50 and V/1000 is in [0.1, 25],
     replace V with V/1000, log a WARNING, and cap that sabor's confidence at 0.5.
+
+    Upper bound is 25 kg to handle large pesagem values (e.g. Pistacchio: 17+ kg stockroom weight).
     """
     _KG_FIELDS = ('pesagem_mat', 'prod_bolhao', 'prod_matosinhos', 'prod_mouzinho', 'prod_b2b')
     _MAX_PLAUSIBLE_KG = 50.0
     _MIN_CORRECTED_KG = 0.1
-    _MAX_CORRECTED_KG = 15.0
+    _MAX_CORRECTED_KG = 25.0
 
     for nome, vals in sabores.items():
         corrected_fields = []
@@ -296,6 +338,55 @@ def _sanitise_kg_values(sabores: dict) -> dict:
                     corrected_fields.append(field)
         if corrected_fields:
             vals['confidence'] = min(vals.get('confidence', 1.0), 0.5)
+
+    return sabores
+
+
+def _detect_column_shift(sabores: dict) -> dict:
+    """Detect and correct systematic column-shift errors.
+
+    When a model mis-aligns columns by one position, many sabores end up with
+    prod_mouzinho > 0 while prod_bolhao ≈ 0 (or vice-versa for other shifts).
+
+    Heuristic: if ≥70% of sabores with any production value have prod_mouzinho > 0
+    but prod_bolhao == 0, this is a strong signal that Matosinhos values landed in
+    the Mouzinho column and Bolhão values landed in the Matosinhos column.
+    In that case, shift: bolhao←matosinhos, matosinhos←mouzinho, mouzinho←b2b, b2b←0.
+    """
+    prod_fields = ('prod_bolhao', 'prod_matosinhos', 'prod_mouzinho', 'prod_b2b')
+    sabores_with_prod = [
+        v for v in sabores.values()
+        if any(v.get(f, 0) > 0 for f in prod_fields)
+    ]
+
+    if len(sabores_with_prod) < 3:
+        return sabores
+
+    mouzinho_positive = sum(1 for v in sabores_with_prod if v.get('prod_mouzinho', 0) > 0)
+    bolhao_zero = sum(1 for v in sabores_with_prod if v.get('prod_bolhao', 0) == 0)
+    total = len(sabores_with_prod)
+
+    if (mouzinho_positive / total) >= 0.70 and (bolhao_zero / total) >= 0.70:
+        logger.warning(
+            "OCR column-shift detected: %d/%d sabores have prod_mouzinho>0 but prod_bolhao==0. "
+            "Shifting columns: matosinhos→bolhao, mouzinho→matosinhos, b2b→mouzinho, 0→b2b.",
+            mouzinho_positive, total,
+        )
+        for vals in sabores.values():
+            old_bolhao = vals.get('prod_bolhao', 0)
+            old_mat = vals.get('prod_matosinhos', 0)
+            old_mouz = vals.get('prod_mouzinho', 0)
+            old_b2b = vals.get('prod_b2b', 0)
+            vals['prod_bolhao'] = old_mat
+            vals['prod_matosinhos'] = old_mouz
+            vals['prod_mouzinho'] = old_b2b
+            vals['prod_b2b'] = 0.0
+            if old_bolhao > 0:
+                logger.warning(
+                    "OCR column-shift: discarding prod_bolhao=%.3f that was in wrong position.",
+                    old_bolhao,
+                )
+            vals['confidence'] = min(vals.get('confidence', 1.0), 0.4)
 
     return sabores
 
