@@ -126,12 +126,6 @@ def dashboard():
             line=dict(color='#667eea', width=3), marker=dict(size=8),
             hovertemplate='%{x}<br>KPI: %{y:.2f} €/kg<extra></extra>'
         ))
-        fig.add_trace(go.Scatter(
-            x=kpi_df['data_str'].tolist(), y=kpi_df['target'].tolist(),
-            mode='lines', name='Target',
-            line=dict(color='#E74C3C', width=2, dash='dash'),
-            hovertemplate='%{x}<br>Target: %{y:.2f} €/kg<extra></extra>'
-        ))
         fig.update_layout(
             xaxis_title="Data", yaxis_title="€/kg", hovermode='x unified',
             plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
@@ -165,7 +159,6 @@ def dashboard():
                 'quebras': round(row['quebras_kg'], 3),
                 'consumo': round(row['consumo_kg'], 3),
                 'kpi': round(row['kpi'], 2),
-                'target': round(row['target'], 2)
             })
     else:
         detail_entrada_label = 'Produção (kg)'
@@ -176,12 +169,9 @@ def dashboard():
         active_tab='dashboard', tabs=tabs,
         is_gestor=is_gestor, loja_filter=loja_filter,
         kpi_ytd=kpi_ytd, kpi_month=kpi_month, kpi_week=kpi_week,
-        target_atual=target_atual, month_name=month_name, year=today.year,
+        month_name=month_name, year=today.year,
         chart_json=chart_json, daily_details=daily_details,
-        detail_entrada_label=detail_entrada_label,
-        delta_ytd=kpi_ytd - target_atual,
-        delta_month=kpi_month - target_atual,
-        delta_week=kpi_week - target_atual)
+        detail_entrada_label=detail_entrada_label)
 
 
 @eurokg_bp.route('/resumo')
@@ -245,7 +235,6 @@ def resumo_mensal():
             'consumo': round(consumo_kg, 2),
             'vendas': round(vendas_eur, 2),
             'euro_kg': round(euro_kg, 2),
-            'target': target
         })
 
     total_euro_kg = total_vendas / total_consumo if total_consumo > 0 else 0

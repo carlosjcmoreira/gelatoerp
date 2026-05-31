@@ -31,43 +31,28 @@
     
 
     <div class="row g-2 mb-3">
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <div class="kpi-card">
                 <div class="kpi-card-title">📅 Acumulado {{ year }}</div>
                 <div class="kpi-card-value">{{ "%.2f"|format(kpi_ytd) }} €/kg</div>
-                <div class="{{ 'kpi-card-delta-positive' if delta_ytd >= 0 else 'kpi-card-delta-negative' }}">
-                    {{ "%+.2f"|format(delta_ytd) }} vs target
-                </div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <div class="kpi-card">
                 <div class="kpi-card-title">📆 Média {{ month_name }}</div>
                 <div class="kpi-card-value">{{ "%.2f"|format(kpi_month) }} €/kg</div>
-                <div class="{{ 'kpi-card-delta-positive' if delta_month >= 0 else 'kpi-card-delta-negative' }}">
-                    {{ "%+.2f"|format(delta_month) }} vs target
-                </div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <div class="kpi-card">
                 <div class="kpi-card-title">📊 Média Semana</div>
                 <div class="kpi-card-value">{{ "%.2f"|format(kpi_week) }} €/kg</div>
-                <div class="{{ 'kpi-card-delta-positive' if delta_week >= 0 else 'kpi-card-delta-negative' }}">
-                    {{ "%+.2f"|format(delta_week) }} vs target
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-3">
-            <div class="kpi-card">
-                <div class="kpi-card-title">🎯 Target</div>
-                <div class="kpi-card-value">{{ target_atual }} €/kg</div>
             </div>
         </div>
     </div>
 
     <hr>
-    <h6 class="fw-bold mb-3">Performance Diária vs Target (Últimos 30 dias)</h6>
+    <h6 class="fw-bold mb-3">Performance Diária (Últimos 30 dias)</h6>
 
     {% if chart_json %}
     <div id="kpi-chart" style="width:100%; height:350px;"></div>
@@ -86,7 +71,6 @@
                     <th>Quebras (kg)</th>
                     <th>Consumo (kg)</th>
                     <th>KPI (€/kg)</th>
-                    <th>Target (€/kg)</th>
                 </tr>
             </thead>
             <tbody>
@@ -99,8 +83,7 @@
                     <td>{{ row.stock_final }}</td>
                     <td>{{ row.quebras }}</td>
                     <td>{{ row.consumo }}</td>
-                    <td class="{{ 'text-success' if row.kpi >= row.target else 'text-danger' }}">{{ row.kpi }}</td>
-                    <td>{{ row.target }}</td>
+                    <td>{{ row.kpi }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
