@@ -2975,8 +2975,12 @@ def run_data_fix_stock_gelado_dedup_and_unique():
             # concurrent reads that were waiting for those same rows.
 
             # Step 1: normalise plano_producao.sabor
-            # plano_producao has UNIQUE (data, sabor), so delete colliding
-            # variant rows before renaming the remainder.
+            # plano_producao has a pre-existing UNIQUE (data, sabor) constraint,
+            # so we can't UPDATE a variant to canonical when canonical already
+            # exists on the same date — that would violate the constraint.
+            # For each variant→canonical pair we keep the MIN(id) row across
+            # both spellings on each date (id-based retention, not
+            # spelling-based), then rename the surviving row to the canonical.
             cursor.execute("SELECT DISTINCT sabor FROM plano_producao WHERE sabor IS NOT NULL")
             plano_sabores = [r[0] for r in cursor.fetchall()]
             pp_deleted = 0
@@ -2985,15 +2989,18 @@ def run_data_fix_stock_gelado_dedup_and_unique():
                 canonical = normalise_sabor(s)
                 if canonical == s:
                     continue
+                # Delete the higher-id row(s) in the (variant, canonical) pair
+                # on each date — id-based, so the oldest entry always survives.
                 cursor.execute("""
-                    DELETE FROM plano_producao pp
-                    WHERE pp.sabor = %s
-                      AND EXISTS (
-                          SELECT 1 FROM plano_producao pp2
-                          WHERE pp2.data  = pp.data
-                            AND pp2.sabor = %s
-                      )
-                """, (s, canonical))
+                    WITH combined AS (
+                        SELECT id,
+                               ROW_NUMBER() OVER (PARTITION BY data ORDER BY id) AS rn
+                        FROM plano_producao
+                        WHERE sabor = ANY(%s)
+                    )
+                    DELETE FROM plano_producao
+                    WHERE id IN (SELECT id FROM combined WHERE rn > 1)
+                """, ([s, canonical],))
                 pp_deleted += cursor.rowcount
                 cursor.execute(
                     "UPDATE plano_producao SET sabor = %s WHERE sabor = %s",
@@ -3008,40 +3015,33 @@ def run_data_fix_stock_gelado_dedup_and_unique():
                 )
 
             # Step 2: normalise stock_gelado.sabor
+            # stock_gelado has NO pre-existing unique constraint, so we UPDATE
+            # all variant names to canonical directly without deleting first.
+            # This may temporarily produce same-key rows; the window-function
+            # dedup in step 3 always retains MIN(id), so the oldest/most-
+            # legitimate row is kept regardless of which spelling it had.
             cursor.execute("SELECT DISTINCT sabor FROM stock_gelado WHERE sabor IS NOT NULL")
             sg_sabores = [r[0] for r in cursor.fetchall()]
-            sg_merged = 0
             sg_renamed = 0
             for s in sg_sabores:
                 canonical = normalise_sabor(s)
                 if canonical == s:
                     continue
-                cursor.execute("""
-                    DELETE FROM stock_gelado AS sg
-                    WHERE sg.sabor = %s
-                      AND EXISTS (
-                          SELECT 1 FROM stock_gelado sg2
-                          WHERE sg2.data  = sg.data
-                            AND sg2.loja  = sg.loja
-                            AND sg2.tipo  = sg.tipo
-                            AND sg2.sabor = %s
-                      )
-                """, (s, canonical))
-                sg_merged += cursor.rowcount
                 cursor.execute(
                     "UPDATE stock_gelado SET sabor = %s WHERE sabor = %s",
                     (canonical, s),
                 )
                 sg_renamed += cursor.rowcount
-            if sg_merged or sg_renamed:
+            if sg_renamed:
                 logger.info(
                     "run_data_fix_stock_gelado_dedup_and_unique: "
-                    "stock_gelado sabor normalisation — merged %d, renamed %d rows",
-                    sg_merged, sg_renamed,
+                    "stock_gelado sabor normalisation — renamed %d rows",
+                    sg_renamed,
                 )
 
-            # Step 3: deduplicate stock_gelado using window function
-            # (avoids NOT-IN-with-NULL pitfall that silently skips all deletes)
+            # Step 3: deduplicate stock_gelado keeping MIN(id) per group
+            # Window-function approach avoids the NOT-IN-with-NULL pitfall
+            # that would silently skip all deletes.
             cursor.execute("""
                 WITH ranked AS (
                     SELECT id,
@@ -3062,6 +3062,24 @@ def run_data_fix_stock_gelado_dedup_and_unique():
                 )
             else:
                 logger.info("run_data_fix_stock_gelado_dedup_and_unique: no duplicates found")
+
+            # Post-dedup validation: total must equal unique combos.
+            cursor.execute("""
+                SELECT COUNT(*) AS total,
+                       COUNT(DISTINCT (data, loja, sabor, tipo)) AS unique_combos
+                FROM stock_gelado
+            """)
+            sg_total, sg_unique = cursor.fetchone()
+            logger.info(
+                "run_data_fix_stock_gelado_dedup_and_unique: post-dedup — "
+                "total=%d unique_combos=%d duplicates_remaining=%d",
+                sg_total, sg_unique, sg_total - sg_unique,
+            )
+            if sg_total != sg_unique:
+                raise RuntimeError(
+                    f"Dedup incomplete: {sg_total - sg_unique} duplicate rows remain — "
+                    "aborting constraint creation"
+                )
 
             # COMMIT phase 1 — releases all row locks so ALTER TABLE
             # can acquire AccessExclusiveLock without deadlocking.
