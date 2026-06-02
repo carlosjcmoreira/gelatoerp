@@ -214,6 +214,29 @@
     })();
     </script>
     {% endif %}
+    <script>
+    (function () {
+        var MAX_PDF_BYTES = 10 * 1024 * 1024;
+        function initPdfSizeCheck(root) {
+            root.querySelectorAll('.pdf-attach-form').forEach(function (form) {
+                var input = form.querySelector('.pdf-size-input');
+                var warning = form.querySelector('.pdf-size-warning');
+                var btn = form.querySelector('.pdf-attach-btn');
+                if (!input) return;
+                input.addEventListener('change', function () {
+                    var file = input.files[0];
+                    var tooBig = file && file.size > MAX_PDF_BYTES;
+                    if (warning) warning.classList.toggle('d-none', !tooBig);
+                    if (btn) btn.disabled = tooBig;
+                });
+            });
+        }
+        document.addEventListener('DOMContentLoaded', function () { initPdfSizeCheck(document); });
+        document.addEventListener('scoopy:panel-loaded', function (e) {
+            if (e.detail && e.detail.root) initPdfSizeCheck(e.detail.root);
+        });
+    })();
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

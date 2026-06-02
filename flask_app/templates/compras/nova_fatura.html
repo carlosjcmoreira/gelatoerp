@@ -17,9 +17,12 @@
                 </div>
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Ficheiro PDF <span class="text-danger">*</span></label>
-                    <input type="file" name="pdf_file" class="form-control"
+                    <input type="file" name="pdf_file" id="pdf_file_upload" class="form-control"
                            accept=".pdf" required>
-                    <div class="form-text">PDF de fatura — extracção OCR automática dos dados.</div>
+                    <div class="form-text">PDF de fatura — extracção OCR automática dos dados. <strong>Máximo 10 MB.</strong></div>
+                    <div id="pdf_size_warning" class="alert alert-warning py-1 px-2 mt-1 small d-none">
+                        ⚠️ O ficheiro excede 10 MB. Escolhe um PDF mais pequeno.
+                    </div>
                 </div>
             </form>
         </div>
@@ -182,6 +185,21 @@
 {% block scripts %}
 <script>
 (function () {
+    var MAX_PDF_BYTES = 10 * 1024 * 1024;
+
+    var pdfInput = document.getElementById('pdf_file_upload');
+    var pdfWarning = document.getElementById('pdf_size_warning');
+    var pdfSubmitBtn = pdfInput && pdfInput.closest('form') && pdfInput.closest('form').querySelector('button[type="submit"]');
+
+    if (pdfInput) {
+        pdfInput.addEventListener('change', function () {
+            var file = pdfInput.files[0];
+            var tooBig = file && file.size > MAX_PDF_BYTES;
+            pdfWarning.classList.toggle('d-none', !tooBig);
+            if (pdfSubmitBtn) pdfSubmitBtn.disabled = tooBig;
+        });
+    }
+
     var docTypeSelect = document.getElementById('document_type');
     var supplierExtra = document.getElementById('supplier-extra-fields');
     var vatField = document.getElementById('vat-field');

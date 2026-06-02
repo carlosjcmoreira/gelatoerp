@@ -112,7 +112,7 @@ def create_app():
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 30
-    app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB for PDF uploads
+    app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB — Replit proxy limit
 
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -218,6 +218,13 @@ def create_app():
     app.register_blueprint(avencas_bp, url_prefix='/financeiro/avencas')
     app.register_blueprint(tarefas_bp, url_prefix='/tarefas')
     app.register_blueprint(agente_bp, url_prefix='/agente')
+
+    @app.errorhandler(413)
+    def request_entity_too_large(e):
+        from flask import flash, redirect, request as _req
+        flash('Ficheiro demasiado grande (máximo 10 MB). Escolhe um PDF mais pequeno.', 'warning')
+        referrer = _req.referrer or url_for('home.index')
+        return redirect(referrer), 303
 
     @app.route('/healthcheck')
     def healthcheck():

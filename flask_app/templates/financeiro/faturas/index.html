@@ -988,6 +988,7 @@ function openInvPanel(id) {
                 document.body.appendChild(m);
             });
             _renderPanelPdf(panelBody);
+            document.dispatchEvent(new CustomEvent('scoopy:panel-loaded', { detail: { root: panelBody } }));
         })
         .catch(function() { panelBody.innerHTML = '<p class="text-danger p-3">Erro ao carregar o documento.</p>'; });
 }

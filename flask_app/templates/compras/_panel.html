@@ -120,11 +120,15 @@
     {% else %}
     <div class="mb-3 p-3 border rounded border-warning-subtle bg-warning-subtle">
         <div class="small fw-semibold text-warning-emphasis mb-2">📎 Sem documento PDF associado</div>
-        <form method="post" action="{{ url_for('compras.attach_pdf', invoice_id=inv.id) }}" enctype="multipart/form-data">
+        <form method="post" action="{{ url_for('compras.attach_pdf', invoice_id=inv.id) }}" enctype="multipart/form-data" class="pdf-attach-form">
             <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
             <div class="d-flex gap-2 align-items-center">
-                <input type="file" name="pdf_file" class="form-control form-control-sm" accept=".pdf" required>
-                <button type="submit" class="btn btn-warning btn-sm text-nowrap">⬆ Anexar</button>
+                <input type="file" name="pdf_file" class="form-control form-control-sm pdf-size-input" accept=".pdf" required>
+                <button type="submit" class="btn btn-warning btn-sm text-nowrap pdf-attach-btn">⬆ Anexar</button>
+            </div>
+            <div class="form-text mt-1">Máximo 10 MB</div>
+            <div class="pdf-size-warning alert alert-warning py-1 px-2 mt-1 small d-none">
+                ⚠️ O ficheiro excede 10 MB. Escolhe um PDF mais pequeno.
             </div>
         </form>
     </div>
