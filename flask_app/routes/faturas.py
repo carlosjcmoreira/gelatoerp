@@ -1123,7 +1123,7 @@ def registar_stock(invoice_id: int):
 # ── Edit ───────────────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/edit', methods=['POST'])
-@perm_required('acesso_gestor')
+@perm_required('acesso_administrativo')
 def edit(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:
