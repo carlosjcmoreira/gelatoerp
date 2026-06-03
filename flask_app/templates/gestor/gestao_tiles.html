@@ -4,7 +4,7 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
     <h5 class="mb-1">🔲 Gestão de Tiles</h5>
-    <p class="text-muted small mb-4">Ative ou desative os tiles visíveis em cada módulo.</p>
+    <p class="text-muted small mb-4">Renomeia e ativa/desativa os tiles de navegação em todos os módulos.</p>
 
     <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:1100;"></div>
 
@@ -13,47 +13,52 @@
     {% else %}
 
     {% set module_labels = {
-        'producao': '🍦 Produção',
-        'pastelaria': '🥐 Pastelaria',
-        'vendas': '🛍️ Vendas',
-        'gestor': '⚙️ Gestor',
-        'financeiro': '💰 Financeiro'
+        'producao':  '🍦 Produção',
+        'pastelaria':'🥐 Pastelaria',
+        'vendas':    '🛍️ Vendas',
+        'gestor':    '⚙️ Gestor',
+        'financeiro':'💰 Financeiro'
     } %}
 
     {% for module_id, tiles in modules.items() %}
-    <div class="card mb-4" style="max-width:640px;">
-        <div class="card-header">
-            <strong>{{ module_labels.get(module_id, module_id) }}</strong>
+    <div class="card mb-4" style="max-width:700px;">
+        <div class="card-header fw-semibold">
+            {{ module_labels.get(module_id, module_id) }}
         </div>
-        <div class="card-body p-0">
-            <table class="table table-sm mb-0">
-                <thead class="table-light">
-                    <tr>
-                        <th>Tile</th>
-                        <th class="text-center" style="width:120px;">Visível</th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% for tile in tiles %}
-                <tr>
-                    <td class="align-middle py-2">
-                        <span class="text-muted small font-monospace me-1">{{ tile.tile_id }}</span>
-                        {% if tile.label %}— {{ tile.label }}{% endif %}
-                    </td>
-                    <td class="text-center align-middle py-2">
-                        <button type="button"
-                                class="btn btn-sm tile-toggle {% if tile.visible %}btn-success{% else %}btn-outline-secondary{% endif %}"
-                                data-module="{{ module_id }}"
-                                data-tile-id="{{ tile.tile_id }}"
-                                data-visible="{{ '1' if tile.visible else '0' }}"
-                                title="{{ 'Clique para ocultar' if tile.visible else 'Clique para mostrar' }}">
-                            {{ 'Visível' if tile.visible else 'Oculto' }}
-                        </button>
-                    </td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
+        <div class="list-group list-group-flush">
+            {% for tile in tiles %}
+            <div class="list-group-item px-3 py-2">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="fs-5 flex-shrink-0" style="width:1.6rem;text-align:center;">{{ tile.icon }}</span>
+                    <input type="text"
+                           class="form-control form-control-sm tile-label-input flex-grow-1"
+                           value="{{ tile.label }}"
+                           data-module="{{ module_id }}"
+                           data-tile-id="{{ tile.tile_id }}"
+                           data-original="{{ tile.label }}"
+                           maxlength="80"
+                           aria-label="Nome do tile {{ tile.tile_id }}">
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm tile-rename-btn flex-shrink-0"
+                            data-module="{{ module_id }}"
+                            data-tile-id="{{ tile.tile_id }}"
+                            title="Guardar nome"
+                            style="min-width:2.2rem;">💾</button>
+                    <button type="button"
+                            class="btn btn-sm tile-toggle flex-shrink-0 {% if tile.visible %}btn-success{% else %}btn-outline-secondary{% endif %}"
+                            data-module="{{ module_id }}"
+                            data-tile-id="{{ tile.tile_id }}"
+                            data-visible="{{ '1' if tile.visible else '0' }}"
+                            title="{{ 'Clique para ocultar' if tile.visible else 'Clique para mostrar' }}"
+                            style="min-width:4.5rem;font-size:0.75rem;">
+                        {{ '👁 Visível' if tile.visible else '🙈 Oculto' }}
+                    </button>
+                </div>
+                <div class="text-muted ms-4 ps-2" style="font-size:0.75rem;margin-top:3px;">
+                    {{ tile.description }}
+                </div>
+            </div>
+            {% endfor %}
         </div>
     </div>
     {% endfor %}
@@ -63,22 +68,29 @@
 <script>
 (function () {
     const TOGGLE_URL = "{{ url_for('gestor.gestao_tiles_toggle') }}";
+    const RENAME_URL = "{{ url_for('gestor.gestao_tiles_rename') }}";
 
     function showToast(msg, ok) {
         const container = document.getElementById('toast-container');
         const id = 'toast-' + Date.now();
         const cls = ok ? 'bg-success text-white' : 'bg-danger text-white';
-        const html = `<div id="${id}" class="toast align-items-center ${cls} border-0" role="alert" aria-live="assertive" aria-atomic="true">
-            <div class="d-flex">
-                <div class="toast-body">${msg}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-            </div>
-        </div>`;
-        container.insertAdjacentHTML('beforeend', html);
+        container.insertAdjacentHTML('beforeend',
+            `<div id="${id}" class="toast align-items-center ${cls} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="d-flex">
+                    <div class="toast-body">${msg}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>`);
         const el = document.getElementById(id);
-        const toast = new bootstrap.Toast(el, {delay: 2500});
+        const toast = new bootstrap.Toast(el, {delay: 2000});
         toast.show();
         el.addEventListener('hidden.bs.toast', () => el.remove());
+    }
+
+    function postForm(url, data) {
+        const fd = new FormData();
+        Object.entries(data).forEach(([k, v]) => fd.append(k, v));
+        return fetch(url, {method: 'POST', body: fd}).then(r => r.json());
     }
 
     document.querySelectorAll('.tile-toggle').forEach(btn => {
@@ -87,23 +99,15 @@
             const tileId = this.dataset.tileId;
             const currentVisible = this.dataset.visible === '1';
             const newVisible = currentVisible ? '0' : '1';
-
             btn.disabled = true;
-
-            const fd = new FormData();
-            fd.append('module', module);
-            fd.append('tile_id', tileId);
-            fd.append('visible', newVisible);
-
-            fetch(TOGGLE_URL, {method: 'POST', body: fd})
-                .then(r => r.json())
+            postForm(TOGGLE_URL, {module, tile_id: tileId, visible: newVisible})
                 .then(data => {
                     if (data.ok) {
-                        const nowVisible = data.visible;
-                        btn.dataset.visible = nowVisible ? '1' : '0';
-                        btn.textContent = nowVisible ? 'Visível' : 'Oculto';
-                        btn.className = 'btn btn-sm tile-toggle ' + (nowVisible ? 'btn-success' : 'btn-outline-secondary');
-                        btn.title = nowVisible ? 'Clique para ocultar' : 'Clique para mostrar';
+                        const v = data.visible;
+                        btn.dataset.visible = v ? '1' : '0';
+                        btn.textContent = v ? '👁 Visível' : '🙈 Oculto';
+                        btn.className = 'btn btn-sm tile-toggle flex-shrink-0 ' + (v ? 'btn-success' : 'btn-outline-secondary');
+                        btn.title = v ? 'Clique para ocultar' : 'Clique para mostrar';
                         showToast('Guardado', true);
                     } else {
                         showToast(data.error || 'Erro ao guardar', false);
@@ -111,6 +115,42 @@
                 })
                 .catch(() => showToast('Erro de rede', false))
                 .finally(() => { btn.disabled = false; });
+        });
+    });
+
+    document.querySelectorAll('.tile-rename-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const module = this.dataset.module;
+            const tileId = this.dataset.tileId;
+            const row = this.closest('.list-group-item');
+            const input = row.querySelector('.tile-label-input');
+            const label = input.value.trim();
+            if (!label) { showToast('O nome não pode estar vazio', false); return; }
+            btn.disabled = true;
+            postForm(RENAME_URL, {module, tile_id: tileId, label})
+                .then(data => {
+                    if (data.ok) {
+                        input.dataset.original = data.label;
+                        input.value = data.label;
+                        showToast('Nome guardado', true);
+                    } else {
+                        showToast(data.error || 'Erro ao guardar', false);
+                    }
+                })
+                .catch(() => showToast('Erro de rede', false))
+                .finally(() => { btn.disabled = false; });
+        });
+    });
+
+    document.querySelectorAll('.tile-label-input').forEach(input => {
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.closest('.list-group-item').querySelector('.tile-rename-btn').click();
+            }
+            if (e.key === 'Escape') {
+                this.value = this.dataset.original;
+            }
         });
     });
 })();

@@ -1704,22 +1704,100 @@ def gestao_tarefas():
     )
 
 
+_TILE_MASTER = {
+    'producao': [
+        {'id': 'pesagens_loja',     'icon': '⚖️',  'default_label': 'Pesagens de Loja',            'description': 'Registo diário do stock de gelado em expositor por sabor no fim do dia'},
+        {'id': 'registo_producao',  'icon': '📸',  'default_label': 'Registo de Produção',          'description': 'Lançar produção de gelado por sabor e quantidade (manual ou via OCR)'},
+        {'id': 'transferir',        'icon': '🔄',  'default_label': 'Transferir para Loja',         'description': 'Criar ordens de transferência de gelado da produção para a loja'},
+        {'id': 'ordem',             'icon': '🔢',  'default_label': 'Ordem de Produção',            'description': 'Planear as quantidades a produzir por sabor para o dia seguinte'},
+        {'id': 'por_sabor',         'icon': '🍨',  'default_label': 'Stock Gelado',                 'description': 'Consultar o stock atual de gelado por sabor em cada loja'},
+        {'id': 'quebra',            'icon': '⚠️',  'default_label': 'Registar Quebra de Produção',  'description': 'Registar perdas ou desperdícios de gelado com motivo justificativo'},
+        {'id': 'dashboard',         'icon': '📊',  'default_label': 'Dashboard Produção',           'description': 'Resumo visual de produção, transferências e stock por período'},
+        {'id': 'receitas',          'icon': '📖',  'default_label': 'Receitas de Gelado',           'description': 'Consultar e gerir as receitas e componentes de cada sabor'},
+        {'id': 'sabores_ativos',    'icon': '✅',  'default_label': 'Sabores Ativos',               'description': 'Lista dos sabores em produção ativa e respetivas tipologias'},
+    ],
+    'vendas': [
+        {'id': 'dashboard',         'icon': '📊',  'default_label': 'Resumo Diário',                'description': 'Resumo das vendas do dia por loja com totais e indicadores de performance'},
+        {'id': 'transferencias',    'icon': '📦',  'default_label': 'Receção de Mercadoria',        'description': 'Confirmar a receção de transferências enviadas pela produção e pastelaria'},
+        {'id': 'quebras',           'icon': '⚠️',  'default_label': 'Registar Quebras',             'description': 'Registar quebras de gelado, pastelaria e confeitaria com motivo justificativo'},
+        {'id': 'pesagem',           'icon': '⚖️',  'default_label': 'Pesagem Fim de Dia',           'description': 'Registar o stock de gelado em expositor no fecho do dia por sabor'},
+        {'id': 'fecho_caixa',       'icon': '💵',  'default_label': 'Fecho de Caixa',              'description': 'Lançar os totais do fecho de caixa diário por método de pagamento'},
+        {'id': 'sabores_ativos',    'icon': '✅',  'default_label': 'Sabores Ativos',              'description': 'Lista dos sabores de gelado disponíveis e ativos em loja'},
+        {'id': 'fecho_historico',   'icon': '📋',  'default_label': 'Histórico Caixa',             'description': 'Consultar, corrigir e auditar o histórico completo de fechos de caixa'},
+    ],
+    'pastelaria': [
+        {'id': 'stock_balcao',      'icon': '📦',  'default_label': 'Visão de Stock',              'description': 'Ver o stock atual de pastelaria e confeitaria disponível em loja'},
+        {'id': 'planear',           'icon': '📋',  'default_label': 'Planear Produção',            'description': 'Definir as quantidades a produzir por produto para o dia seguinte'},
+        {'id': 'produzir',          'icon': '▶️',  'default_label': 'Produzir',                    'description': 'Registar a produção realizada de produtos de pastelaria e confeitaria'},
+        {'id': 'transferir',        'icon': '🔄',  'default_label': 'Transferir para Loja',        'description': 'Enviar stock de pastelaria e confeitaria para a loja via ordem de transferência'},
+        {'id': 'quebra',            'icon': '⚠️',  'default_label': 'Registar Quebra',             'description': 'Registar perdas de produtos de pastelaria e confeitaria com motivo'},
+        {'id': 'reconciliacao',     'icon': '📊',  'default_label': 'Reconciliação',               'description': 'Acertar o stock de pastelaria e confeitaria com as contagens físicas em loja'},
+        {'id': 'gerir_produtos',    'icon': '🍡',  'default_label': 'Gerir Produtos',              'description': 'Adicionar, editar e arquivar produtos de pastelaria e confeitaria'},
+    ],
+    'financeiro': [
+        {'id': 'faturas',                     'icon': '📄',  'default_label': 'Documentos',                    'description': 'Gerir faturas de fornecedores, pagamentos, IVA e OCR automático de documentos'},
+        {'id': 'credito',                     'icon': '💳',  'default_label': 'Crédito',                       'description': 'Acompanhar contratos de crédito, parcelas e responsabilidades financeiras'},
+        {'id': 'iva',                         'icon': '📋',  'default_label': 'IVA',                           'description': 'Consultar e gerir períodos de IVA e valores a regularizar com o Estado'},
+        {'id': 'liquidez',                    'icon': '🏦',  'default_label': 'Tesouraria Previsional',        'description': 'Previsão de cash flow a 13 semanas por semana e por loja'},
+        {'id': 'avencas',                     'icon': '🔁',  'default_label': 'Avenças',                       'description': 'Gerir contratos de avença e pagamentos recorrentes fixos'},
+        {'id': 'debitos',                     'icon': '🔄',  'default_label': 'Débitos Diretos',               'description': 'Registar e acompanhar débitos diretos bancários e respetivas datas de vencimento'},
+        {'id': 'salarios',                    'icon': '👥',  'default_label': 'Salários',                      'description': 'Gerir folhas de salários, subsídios e encargos sociais mensais'},
+        {'id': 'dashboard_vendas',            'icon': '📊',  'default_label': 'Dashboard de Vendas',           'description': 'Resumo visual de vendas consolidadas por loja e período temporal'},
+        {'id': 'vendas_diarias',              'icon': '📅',  'default_label': 'Vendas Diárias',                'description': 'Ver e corrigir as vendas diárias registadas por loja e por produto'},
+        {'id': 'variaveis_previsao',          'icon': '🌡️', 'default_label': 'Variáveis de Previsão',         'description': 'Configurar fatores meteorológicos e sazonais usados no modelo de previsão de vendas'},
+        {'id': 'previsao_30dias',             'icon': '🔮',  'default_label': 'Previsão 30 Dias',              'description': 'Previsão de vendas para os próximos 30 dias com indicadores semanais e ajuste meteo'},
+        {'id': 'pl_por_loja',                'icon': '🏪',  'default_label': 'P&L por Loja',                  'description': 'Resultados de exploração — receitas, custos e margem líquida — por loja e período'},
+        {'id': 'centros_custo',              'icon': '🏷️', 'default_label': 'Centros de Custo',              'description': 'Alocar custos de faturas a centros de custo e consultar distribuição por categoria'},
+        {'id': 'categorias',                 'icon': '📂',  'default_label': 'Categorias de Custo',           'description': 'Gerir as categorias e subcategorias usadas para classificar custos em faturas'},
+        {'id': 'distribuicao_centros_custo', 'icon': '📊',  'default_label': 'Distribuição Centros de Custo', 'description': 'Configurar a distribuição percentual de custos entre os centros de custo definidos'},
+    ],
+    'gestor': [
+        {'id': 'upload_producao',        'icon': '📤',  'default_label': 'Upload Produção',        'description': 'Carregar folha de produção em imagem para extração automática de dados via OCR'},
+        {'id': 'upload_pesagem',         'icon': '⚖️',  'default_label': 'Upload Pesagem',         'description': 'Carregar folha de pesagem em imagem para extração automática de quantidades via OCR'},
+        {'id': 'vendas_detalhe',         'icon': '🛒',  'default_label': 'Vendas Detalhe',         'description': 'Ver detalhe de vendas por produto e método de pagamento discriminado por loja'},
+        {'id': 'config_vendas_diarias',  'icon': '📅',  'default_label': 'Filtro Vendas Diárias',  'description': 'Configurar quais produtos e categorias aparecem na vista de vendas diárias'},
+        {'id': 'alocacao_produtos',      'icon': '📋',  'default_label': 'Alocação de Produtos',   'description': 'Definir regras de alocação de produtos por loja, categoria e tipologia'},
+        {'id': 'ajustes_producao',       'icon': '🔧',  'default_label': 'Ajustes Produção',       'description': 'Corrigir manualmente registos de produção ou pesagem que contenham erros'},
+        {'id': 'motivos_quebra',         'icon': '⚠️',  'default_label': 'Motivos Quebra',         'description': 'Gerir a lista de motivos disponíveis ao registar quebras de produto'},
+        {'id': 'produtos_rececao',       'icon': '📦',  'default_label': 'Produtos de Venda',      'description': 'Gerir os artigos e produtos disponíveis para venda e receção em loja'},
+        {'id': 'receitas_eurokg',        'icon': '🍦',  'default_label': 'Sabores Euro/kg',        'description': 'Configurar o custo por kg de cada sabor para cálculo do KPI de rentabilidade'},
+        {'id': 'gestao_utilizadores',    'icon': '👥',  'default_label': 'Utilizadores',            'description': 'Criar, editar e definir permissões de acesso de cada utilizador da aplicação'},
+        {'id': 'premio_eurokg',          'icon': '🏆',  'default_label': 'Prémio Euro/kg',         'description': 'Configurar e consultar o prémio de rentabilidade Euro/kg atribuído por loja'},
+        {'id': 'gestao_lojas',           'icon': '🏪',  'default_label': 'Lojas',                   'description': 'Gerir as lojas registadas na aplicação e respetivas configurações operacionais'},
+        {'id': 'metodos_pagamento',      'icon': '💳',  'default_label': 'Métodos de Pagamento',   'description': 'Gerir os métodos de pagamento disponíveis e ativos para fecho de caixa em loja'},
+        {'id': 'materiais',              'icon': '🗂️', 'default_label': 'Catálogo de Materiais',  'description': 'Gerir o catálogo de materiais e matérias-primas utilizadas na produção'},
+        {'id': 'gestao_tarefas',         'icon': '✅',  'default_label': 'Gestão de Tarefas',      'description': 'Criar, atribuir e acompanhar tarefas recorrentes e pontuais da equipa'},
+        {'id': 'configuracoes',          'icon': '⚙️',  'default_label': 'Configurações',           'description': 'Configurar parâmetros globais da aplicação (fundo de caixa, feriados, etc.)'},
+        {'id': 'gestao_tiles',           'icon': '🔲',  'default_label': 'Gestão de Tiles',        'description': 'Ativar, desativar e renomear os tiles de navegação em todos os módulos'},
+    ],
+}
+
+
 @gestor_bp.route('/gestao-tiles', methods=['GET'])
 @perm_required('acesso_gestor')
 def gestao_tiles():
     from db.tiles import get_all_tile_config
-    from flask import jsonify
 
-    all_tiles = get_all_tile_config()
-    raw_modules = {}
-    for t in all_tiles:
-        raw_modules.setdefault(t['module'], []).append(t)
+    db_state = {(r['module'], r['tile_id']): r for r in get_all_tile_config()}
 
     _ORDER = ['producao', 'pastelaria', 'vendas', 'gestor', 'financeiro']
-    modules = {m: raw_modules[m] for m in _ORDER if m in raw_modules}
-    for m in raw_modules:
-        if m not in modules:
-            modules[m] = raw_modules[m]
+    modules = {}
+    for module_id in _ORDER:
+        tile_defs = _TILE_MASTER.get(module_id, [])
+        merged = []
+        for t in tile_defs:
+            db_row = db_state.get((module_id, t['id']), {})
+            db_label = db_row.get('label', '')
+            merged.append({
+                'tile_id': t['id'],
+                'icon': t['icon'],
+                'label': db_label if db_label else t['default_label'],
+                'default_label': t['default_label'],
+                'description': t['description'],
+                'visible': db_row.get('visible', True),
+            })
+        if merged:
+            modules[module_id] = merged
 
     return render_template(
         'gestor/gestao_tiles.html',
@@ -1745,3 +1823,20 @@ def gestao_tiles_toggle():
     visible = visible_str == '1'
     set_tile_visibility(module, tile_id, visible)
     return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'visible': visible})
+
+
+@gestor_bp.route('/gestao-tiles/rename', methods=['POST'])
+@perm_required('acesso_gestor')
+def gestao_tiles_rename():
+    from db.tiles import set_tile_label
+    from flask import jsonify
+
+    module = request.form.get('module', '').strip()
+    tile_id = request.form.get('tile_id', '').strip()
+    label = request.form.get('label', '').strip()
+
+    if not module or not tile_id or not label:
+        return jsonify({'ok': False, 'error': 'Parâmetros inválidos'}), 400
+
+    set_tile_label(module, tile_id, label)
+    return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'label': label})

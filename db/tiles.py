@@ -114,6 +114,20 @@ def seed_tile_config(module: str, tiles: list) -> None:
         conn.commit()
 
 
+def set_tile_label(module: str, tile_id: str, label: str) -> None:
+    """Update only the label for a tile, preserving its current visibility."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO tile_config (module, tile_id, label, visible, updated_at)
+            VALUES (%s, %s, %s, TRUE, NOW())
+            ON CONFLICT (module, tile_id) DO UPDATE
+                SET label = EXCLUDED.label,
+                    updated_at = NOW()
+        """, (module, tile_id, label.strip()))
+        conn.commit()
+
+
 def get_all_tile_config() -> list:
     """Return all tile_config rows ordered by module, tile_id.
 
