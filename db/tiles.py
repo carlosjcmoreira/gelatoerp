@@ -108,7 +108,7 @@ def seed_tile_config(module: str, tiles: list) -> None:
                 INSERT INTO tile_config (module, tile_id, label, visible)
                 VALUES (%s, %s, %s, TRUE)
                 ON CONFLICT (module, tile_id) DO UPDATE
-                    SET label = CASE WHEN EXCLUDED.label != '' THEN EXCLUDED.label
+                    SET label = CASE WHEN tile_config.label = '' THEN EXCLUDED.label
                                      ELSE tile_config.label END
             """, (module, t['id'], t.get('label', '')))
         conn.commit()

@@ -1771,6 +1771,8 @@ _TILE_MASTER = {
         {'id': 'gestao_tarefas',         'icon': '✅',  'default_label': 'Gestão de Tarefas',      'description': 'Criar, atribuir e acompanhar tarefas recorrentes e pontuais da equipa'},
         {'id': 'configuracoes',          'icon': '⚙️',  'default_label': 'Configurações',           'description': 'Configurar parâmetros globais da aplicação (fundo de caixa, feriados, etc.)'},
         {'id': 'gestao_tiles',           'icon': '🔲',  'default_label': 'Gestão de Tiles',        'description': 'Ativar, desativar e renomear os tiles de navegação em todos os módulos'},
+        {'id': 'centros_custo',          'icon': '🏷️', 'default_label': 'Centros de Custo',        'description': 'Alocar custos a centros de custo e configurar as regras de distribuição'},
+        {'id': 'categorias_custo',       'icon': '📂',  'default_label': 'Categorias de Custo',     'description': 'Gerir as categorias e subcategorias para classificar custos em faturas'},
     ],
 }
 
