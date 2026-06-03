@@ -674,6 +674,70 @@ def artigos():
                            artigos=artigos_list, fornecedores=fornecedores)
 
 
+@compras_bp.route('/nova-fatura/upload-chunk', methods=['POST'])
+@perm_required('acesso_administrativo')
+def nova_fatura_upload_chunk():
+    import re, shutil
+    upload_id = request.form.get('upload_id', '')
+    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', upload_id):
+        return jsonify({'ok': False, 'error': 'upload_id inválido'}), 400
+    try:
+        chunk_index = int(request.form.get('chunk_index', -1))
+        total_chunks = int(request.form.get('total_chunks', 0))
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'Parâmetros inválidos'}), 400
+    if chunk_index < 0 or total_chunks < 1 or chunk_index >= total_chunks:
+        return jsonify({'ok': False, 'error': 'Índice de chunk inválido'}), 400
+    chunk_file = request.files.get('chunk')
+    if not chunk_file:
+        return jsonify({'ok': False, 'error': 'Dados do chunk em falta'}), 400
+    chunk_data = chunk_file.read()
+    if len(chunk_data) > 4 * 1024 * 1024:
+        return jsonify({'ok': False, 'error': 'Chunk demasiado grande'}), 400
+    chunk_dir = f'/tmp/pdf_upload_{upload_id}'
+    os.makedirs(chunk_dir, exist_ok=True)
+    chunk_path = os.path.join(chunk_dir, f'chunk_{chunk_index:06d}')
+    with open(chunk_path, 'wb') as f:
+        f.write(chunk_data)
+    return jsonify({'ok': True, 'chunk': chunk_index})
+
+
+@compras_bp.route('/nova-fatura/finalize-upload', methods=['POST'])
+@perm_required('acesso_administrativo')
+def nova_fatura_finalize_upload():
+    import re, glob, shutil
+    upload_id = request.form.get('upload_id', '')
+    if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', upload_id):
+        return jsonify({'ok': False, 'error': 'upload_id inválido'}), 400
+    try:
+        total_chunks = int(request.form.get('total_chunks', 0))
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'Parâmetros inválidos'}), 400
+    filename = request.form.get('filename', 'fatura.pdf').strip()
+    if _ext(filename) != 'pdf':
+        filename = 'fatura.pdf'
+    chunk_dir = f'/tmp/pdf_upload_{upload_id}'
+    chunk_files = sorted(glob.glob(os.path.join(chunk_dir, 'chunk_*')))
+    if len(chunk_files) != total_chunks:
+        shutil.rmtree(chunk_dir, ignore_errors=True)
+        return jsonify({'ok': False, 'error': f'Esperados {total_chunks} chunks, recebidos {len(chunk_files)}'}), 400
+    pdf_data = b''
+    for cf in chunk_files:
+        with open(cf, 'rb') as f:
+            pdf_data += f.read()
+    shutil.rmtree(chunk_dir, ignore_errors=True)
+    if not pdf_data.startswith(b'%PDF'):
+        return jsonify({'ok': False, 'error': 'Ficheiro não é um PDF válido'}), 400
+    if len(pdf_data) > 55 * 1024 * 1024:
+        return jsonify({'ok': False, 'error': 'Ficheiro demasiado grande (máx. 50 MB)'}), 400
+    username = _get_username()
+    try:
+        invoice_id = faturas_svc.create_draft_from_pdf(pdf_data, filename, username, source='email_upload')
+        return jsonify({'ok': True, 'redirect': url_for('compras.review_draft', invoice_id=invoice_id)})
+    except ServiceError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
 @compras_bp.route('/nova-fatura', methods=['GET', 'POST'])
 @perm_required('acesso_administrativo')
 def nova_fatura():
