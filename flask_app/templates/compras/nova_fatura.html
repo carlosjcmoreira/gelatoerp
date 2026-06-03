@@ -19,9 +19,9 @@
                     <label class="form-label fw-semibold">Ficheiro PDF <span class="text-danger">*</span></label>
                     <input type="file" name="pdf_file" id="pdf_file_upload" class="form-control"
                            accept=".pdf" required>
-                    <div class="form-text">PDF de fatura — extracção OCR automática dos dados. <strong>Máximo 10 MB.</strong></div>
+                    <div class="form-text">PDF de fatura — extracção OCR automática dos dados. <strong>Máximo 5 MB.</strong> Se for maior, comprima em <a href="https://ilovepdf.com/compress_pdf" target="_blank" rel="noopener">ilovepdf.com</a>.</div>
                     <div id="pdf_size_warning" class="alert alert-warning py-1 px-2 mt-1 small d-none">
-                        ⚠️ O ficheiro excede 10 MB. Escolhe um PDF mais pequeno.
+                        ⚠️ O ficheiro excede 5 MB. Comprime-o antes de carregar (ex: <a href="https://ilovepdf.com/compress_pdf" target="_blank" rel="noopener">ilovepdf.com</a>).
                     </div>
                 </div>
             </form>
@@ -185,7 +185,7 @@
 {% block scripts %}
 <script>
 (function () {
-    var MAX_PDF_BYTES = 10 * 1024 * 1024;
+    var MAX_PDF_BYTES = 5 * 1024 * 1024;
 
     var pdfInput = document.getElementById('pdf_file_upload');
     var pdfWarning = document.getElementById('pdf_size_warning');
