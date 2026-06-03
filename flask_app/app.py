@@ -112,7 +112,7 @@ def create_app():
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 30
-    app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB — Replit proxy limit
+    app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB — conservative Replit proxy limit
 
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
@@ -222,7 +222,7 @@ def create_app():
     @app.errorhandler(413)
     def request_entity_too_large(e):
         from flask import flash, redirect, request as _req
-        flash('Ficheiro demasiado grande (máximo 10 MB). Escolhe um PDF mais pequeno.', 'warning')
+        flash('Ficheiro demasiado grande (máximo 5 MB). Escolhe um PDF mais pequeno ou comprime-o primeiro.', 'warning')
         referrer = _req.referrer or url_for('home.index')
         return redirect(referrer), 303
 

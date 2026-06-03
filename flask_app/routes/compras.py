@@ -565,8 +565,8 @@ def attach_pdf(invoice_id: int):
         flash('Apenas ficheiros PDF são aceites.', 'warning')
         return redirect(back)
     pdf_data = pdf_file.read()
-    if len(pdf_data) > 10 * 1024 * 1024:
-        flash('Ficheiro demasiado grande (máx. 10 MB).', 'warning')
+    if len(pdf_data) > 5 * 1024 * 1024:
+        flash('Ficheiro demasiado grande (máx. 5 MB). Comprime o PDF antes de carregar.', 'warning')
         return redirect(back)
     save_invoice_pdf(invoice_id, pdf_data, pdf_file.filename)
     flash('PDF anexado com sucesso.', 'success')
