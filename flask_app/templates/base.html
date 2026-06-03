@@ -216,24 +216,118 @@
     {% endif %}
     <script>
     (function () {
-        var MAX_PDF_BYTES = 5 * 1024 * 1024;
-        function initPdfSizeCheck(root) {
+        var CHUNK_SIZE = 3 * 1024 * 1024;   // 3 MB per chunk
+        var MAX_TOTAL  = 50 * 1024 * 1024;  // 50 MB absolute ceiling
+
+        function generateUploadId() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+                var r = Math.random() * 16 | 0;
+                return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+        }
+
+        function initPdfUpload(root) {
             root.querySelectorAll('.pdf-attach-form').forEach(function (form) {
-                var input = form.querySelector('.pdf-size-input');
-                var warning = form.querySelector('.pdf-size-warning');
-                var btn = form.querySelector('.pdf-attach-btn');
+                var input       = form.querySelector('.pdf-size-input');
+                var warning     = form.querySelector('.pdf-size-warning');
+                var btn         = form.querySelector('.pdf-attach-btn');
+                var progress    = form.querySelector('.pdf-upload-progress');
+                var progressBar = form.querySelector('.pdf-upload-bar');
+                var progressTxt = form.querySelector('.pdf-upload-text');
                 if (!input) return;
+
                 input.addEventListener('change', function () {
                     var file = input.files[0];
-                    var tooBig = file && file.size > MAX_PDF_BYTES;
+                    if (!file) return;
+                    var tooBig = file.size > MAX_TOTAL;
                     if (warning) warning.classList.toggle('d-none', !tooBig);
                     if (btn) btn.disabled = tooBig;
                 });
+
+                form.addEventListener('submit', function (e) {
+                    var file = input.files[0];
+                    if (!file || file.size <= CHUNK_SIZE) return; // normal submit for small files
+
+                    var chunkUrl    = form.dataset.chunkUrl;
+                    var finalizeUrl = form.dataset.finalizeUrl;
+                    if (!chunkUrl || !finalizeUrl) return; // fallback to normal submit
+
+                    e.preventDefault();
+
+                    var returnInput  = form.querySelector('[name="_return_url"]');
+                    var returnUrlVal = returnInput ? returnInput.value : '';
+                    var uploadId     = generateUploadId();
+                    var totalChunks  = Math.ceil(file.size / CHUNK_SIZE);
+                    var done         = 0;
+
+                    if (btn) btn.disabled = true;
+                    if (input) input.disabled = true;
+                    if (progress) progress.classList.remove('d-none');
+
+                    function setProgress(n, total) {
+                        var pct = Math.round(n / total * 100);
+                        if (progressBar) progressBar.style.width = pct + '%';
+                        if (progressTxt) progressTxt.textContent = pct + '%';
+                    }
+
+                    function uploadChunk(idx) {
+                        var start = idx * CHUNK_SIZE;
+                        var end   = Math.min(start + CHUNK_SIZE, file.size);
+                        var blob  = file.slice(start, end);
+                        var fd    = new FormData();
+                        fd.append('upload_id',    uploadId);
+                        fd.append('chunk_index',  idx);
+                        fd.append('total_chunks', totalChunks);
+                        fd.append('chunk', blob, file.name);
+                        return fetch(chunkUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function (r) {
+                                if (!r.ok) throw new Error('HTTP ' + r.status);
+                                return r.json();
+                            })
+                            .then(function (data) {
+                                if (!data.ok) throw new Error(data.error || 'Erro no chunk ' + idx);
+                                done++;
+                                setProgress(done, totalChunks);
+                            });
+                    }
+
+                    // Upload chunks sequentially
+                    var chain = Promise.resolve();
+                    for (var i = 0; i < totalChunks; i++) {
+                        (function (idx) {
+                            chain = chain.then(function () { return uploadChunk(idx); });
+                        })(i);
+                    }
+
+                    chain.then(function () {
+                        if (progressTxt) progressTxt.textContent = 'A finalizar…';
+                        var fd = new FormData();
+                        fd.append('upload_id',    uploadId);
+                        fd.append('total_chunks', totalChunks);
+                        fd.append('filename',     file.name);
+                        fd.append('_return_url',  returnUrlVal);
+                        return fetch(finalizeUrl, { method: 'POST', body: fd, credentials: 'same-origin' })
+                            .then(function (r) {
+                                if (!r.ok) throw new Error('HTTP ' + r.status);
+                                return r.json();
+                            })
+                            .then(function (data) {
+                                if (!data.ok) throw new Error(data.error || 'Erro ao finalizar upload');
+                                window.location.href = data.redirect;
+                            });
+                    }).catch(function (err) {
+                        if (progress) progress.classList.add('d-none');
+                        if (btn) btn.disabled = false;
+                        if (input) input.disabled = false;
+                        alert('Erro no upload: ' + err.message);
+                    });
+                });
             });
         }
-        document.addEventListener('DOMContentLoaded', function () { initPdfSizeCheck(document); });
+
+        document.addEventListener('DOMContentLoaded', function () { initPdfUpload(document); });
         document.addEventListener('scoopy:panel-loaded', function (e) {
-            if (e.detail && e.detail.root) initPdfSizeCheck(e.detail.root);
+            if (e.detail && e.detail.root) initPdfUpload(e.detail.root);
         });
     })();
     </script>

@@ -185,7 +185,7 @@
 {% block scripts %}
 <script>
 (function () {
-    var MAX_PDF_BYTES = 5 * 1024 * 1024;
+    var MAX_PDF_BYTES = 3 * 1024 * 1024; // single-POST limit; for larger PDFs use the panel attach flow
 
     var pdfInput = document.getElementById('pdf_file_upload');
     var pdfWarning = document.getElementById('pdf_size_warning');

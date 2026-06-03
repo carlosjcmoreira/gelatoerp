@@ -112,7 +112,7 @@ def create_app():
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 30
-    app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5 MB — conservative Replit proxy limit
+    app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024  # 4 MB — max single chunk for chunked PDF upload
 
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
