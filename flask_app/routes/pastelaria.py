@@ -36,10 +36,11 @@ TABS = [
 ]
 
 def _tabs_with_urls():
-    from db.tiles import get_tile_visibility
+    from db.tiles import get_tile_visibility, get_tile_labels
     visibility = get_tile_visibility('pastelaria')
+    labels = get_tile_labels('pastelaria')
     return [
-        {'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['endpoint'])}
+        {'id': t['id'], 'label': labels.get(t['id']) or t['label'], 'icon': t['icon'], 'url': url_for(t['endpoint'])}
         for t in TABS
         if visibility.get(t['id'], True)
     ]
@@ -58,10 +59,11 @@ def _parse_int(val_str, default=0):
 @pastelaria_bp.route('/')
 @perm_required('acesso_pastelaria')
 def index():
-    from db.tiles import get_tile_visibility
+    from db.tiles import get_tile_visibility, get_tile_labels
     visibility = get_tile_visibility('pastelaria')
+    labels = get_tile_labels('pastelaria')
     items = [
-        {'icon': t['icon'], 'label': t['label'], 'url': url_for(t['endpoint'])}
+        {'icon': t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['endpoint'])}
         for t in TABS
         if visibility.get(t['id'], True)
     ]

@@ -82,8 +82,9 @@ def _get_user_loja():
 
 
 def _build_tabs(active_id, loja_id=None):
-    from db.tiles import get_tile_visibility
+    from db.tiles import get_tile_visibility, get_tile_labels
     visibility = get_tile_visibility('vendas')
+    labels = get_tile_labels('vendas')
 
     user = session.get('user', {})
     is_gestor = bool(user.get('acesso_gestor'))
@@ -117,7 +118,7 @@ def _build_tabs(active_id, loja_id=None):
             kwargs['loja_id'] = loja_id
         tabs.append({
             'id': t['id'],
-            'label': t['label'],
+            'label': labels.get(t['id']) or t['label'],
             'icon': t['icon'],
             'url': url_for(t['endpoint'], **kwargs),
             'active': t['id'] == active_id,

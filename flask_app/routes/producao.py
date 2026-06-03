@@ -65,10 +65,11 @@ TABS = [
 ]
 
 def _tabs_with_urls():
-    from db.tiles import get_tile_visibility
+    from db.tiles import get_tile_visibility, get_tile_labels
     visibility = get_tile_visibility('producao')
+    labels = get_tile_labels('producao')
     return [
-        {'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])}
+        {'id': t['id'], 'label': labels.get(t['id']) or t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])}
         for t in TABS
         if visibility.get(t['id'], True)
     ]
@@ -107,10 +108,11 @@ def _iso_date(val):
 @producao_bp.route('/')
 @perm_required('acesso_producao')
 def index():
-    from db.tiles import get_tile_visibility
+    from db.tiles import get_tile_visibility, get_tile_labels
     visibility = get_tile_visibility('producao')
+    labels = get_tile_labels('producao')
     items = [
-        {'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])}
+        {'icon': t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['url_endpoint'])}
         for t in TABS
         if visibility.get(t['id'], True)
     ]

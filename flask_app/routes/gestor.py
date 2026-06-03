@@ -57,10 +57,11 @@ SECTION_ENDPOINT_MAP = {
 }
 
 def get_tabs():
-    from db.tiles import get_tile_visibility
+    from db.tiles import get_tile_visibility, get_tile_labels
     visibility = get_tile_visibility('gestor')
+    labels = get_tile_labels('gestor')
     return [
-        {'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])}
+        {'id': t['id'], 'label': labels.get(t['id']) or t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])}
         for t in TABS
         if visibility.get(t['id'], True)
     ]
@@ -81,9 +82,10 @@ EUROKG_CHILD_IDS = {'premio_eurokg', 'receitas_eurokg', 'alocacao_produtos'}
 @gestor_bp.route('/')
 @perm_required('acesso_gestor')
 def index():
-    from db.tiles import get_tile_visibility
+    from db.tiles import get_tile_visibility, get_tile_labels
     onedrive_configured = bool(db.get_system_config('onedrive_refresh_token'))
     visibility = get_tile_visibility('gestor')
+    labels = get_tile_labels('gestor')
     items = []
     eurokg_added = False
     for t in TABS:
@@ -94,7 +96,7 @@ def index():
                 items.append({'icon': '💶', 'label': 'Euro/kg', 'url': url_for('gestor.eurokg_index')})
                 eurokg_added = True
             continue
-        item = {'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])}
+        item = {'icon': t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['url_endpoint'])}
         if t['id'] == 'configuracoes':
             if onedrive_configured:
                 item['badge'] = {'text': 'Ligado', 'cls': 'bg-success'}

@@ -114,6 +114,18 @@ def seed_tile_config(module: str, tiles: list) -> None:
         conn.commit()
 
 
+def get_tile_labels(module: str) -> dict:
+    """Return {tile_id: label} for tiles that have a non-empty custom label in the given module."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT tile_id, label FROM tile_config WHERE module = %s AND label != ''",
+            (module,)
+        )
+        rows = cursor.fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
 def set_tile_label(module: str, tile_id: str, label: str) -> None:
     """Update only the label for a tile, preserving its current visibility."""
     with db_connection() as conn:
