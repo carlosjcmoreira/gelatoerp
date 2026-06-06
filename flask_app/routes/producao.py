@@ -768,6 +768,7 @@ def registo_producao_ordens():
 @producao_bp.route('/registo-producao/criar-ordens', methods=['POST'])
 @perm_required('acesso_producao')
 def registo_producao_criar_ordens():
+    import psycopg2
     username = session.get('user', {}).get('username', 'system')
     data_str = request.form.get('data', str(date.today()))
     try:
@@ -777,33 +778,44 @@ def registo_producao_criar_ordens():
 
     ordens = 0
     avisos = []
-    for key, val in request.form.items():
-        if not key.startswith('ordem_'):
-            continue
-        parts = key[len('ordem_'):].split('_', 1)
-        if len(parts) != 2:
-            continue
-        loja, sabor = parts
-        qty = _parse_decimal(val)
-        if qty <= 0:
-            continue
-        if loja not in ('Bolhão', 'Mouzinho'):
-            continue
-        disponivel = get_stock_producao(data_prod, sabor, loja)
-        if disponivel <= 0:
-            avisos.append(f"{sabor} ({loja}): sem stock disponível, ordem ignorada.")
-            continue
-        if qty > disponivel:
-            avisos.append(
-                f"{sabor} ({loja}): pedido {qty:.3f} kg mas disponível {disponivel:.3f} kg — ordem criada para o disponível."
+    try:
+        for key, val in request.form.items():
+            if not key.startswith('ordem_'):
+                continue
+            parts = key[len('ordem_'):].split('_', 1)
+            if len(parts) != 2:
+                continue
+            loja, sabor = parts
+            qty = _parse_decimal(val)
+            if qty <= 0:
+                continue
+            if loja not in ('Bolhão', 'Mouzinho'):
+                continue
+            disponivel = get_stock_producao(data_prod, sabor, loja)
+            if disponivel <= 0:
+                avisos.append(f"{sabor} ({loja}): sem stock disponível, ordem ignorada.")
+                continue
+            if qty > disponivel:
+                avisos.append(
+                    f"{sabor} ({loja}): pedido {qty:.3f} kg mas disponível {disponivel:.3f} kg — ordem criada para o disponível."
+                )
+                qty = disponivel
+            reduzir_stock_producao(data_prod, sabor, loja, qty)
+            criar_ordem_transferencia(
+                data_prod, 'Gelado', sabor, qty, 'kg', loja,
+                sabor=sabor, criado_por=username, data_prevista=data_prod,
             )
-            qty = disponivel
-        reduzir_stock_producao(data_prod, sabor, loja, qty)
-        criar_ordem_transferencia(
-            data_prod, 'Gelado', sabor, qty, 'kg', loja,
-            sabor=sabor, criado_por=username, data_prevista=data_prod,
-        )
-        ordens += 1
+            ordens += 1
+    except psycopg2.DatabaseError:
+        raise
+    except ValueError as exc:
+        logger.warning("Erro de validação ao criar ordens: %s", exc)
+        flash(f"Dados inválidos: {exc}. Verifique os valores e tente novamente.", "warning")
+        return redirect(url_for('producao.por_sabor'))
+    except Exception as exc:
+        logger.error("Erro inesperado ao criar ordens de transferência: %s", exc, exc_info=True)
+        flash("Não foi possível criar as ordens — erro inesperado. Tente novamente.", "danger")
+        return redirect(url_for('producao.por_sabor'))
 
     session.pop('producao_ordens_pendentes', None)
 
@@ -994,6 +1006,7 @@ def transferir():
     today = date.today()
 
     if request.method == 'POST':
+        import psycopg2
         ordens_count = 0
         username = session.get('user', {}).get('username', '')
         data_prevista_str = request.form.get('data_prevista', '')
@@ -1008,41 +1021,52 @@ def transferir():
         active_store_names = {s['name'] for s in get_active_venda_stores()}
         if loja_destino not in active_store_names:
             loja_destino = 'Bolhão'
-        batch_id = get_or_create_pending_batch(today, 'Gelado', loja_destino)
-        import re as _re
-        form_pairs = []
-        for key in request.form:
-            m = _re.match(r'^produto_(\d+)$', key)
-            if m:
-                n = int(m.group(1))
-                form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
-        for _, sabor, qty_str in sorted(form_pairs, key=lambda x: x[0]):
-            if not sabor:
-                continue
-            qty = _parse_decimal(qty_str)
-            if qty <= 0:
-                continue
+        try:
+            batch_id = get_or_create_pending_batch(today, 'Gelado', loja_destino)
+            import re as _re
+            form_pairs = []
+            for key in request.form:
+                m = _re.match(r'^produto_(\d+)$', key)
+                if m:
+                    n = int(m.group(1))
+                    form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
+            for _, sabor, qty_str in sorted(form_pairs, key=lambda x: x[0]):
+                if not sabor:
+                    continue
+                qty = _parse_decimal(qty_str)
+                if qty <= 0:
+                    continue
 
-            stock_disponivel = get_stock_producao(today, sabor, loja_destino)
-            other_loja = 'Matosinhos' if loja_destino == 'Bolhão' else 'Bolhão'
+                stock_disponivel = get_stock_producao(today, sabor, loja_destino)
+                other_loja = 'Matosinhos' if loja_destino == 'Bolhão' else 'Bolhão'
 
-            if qty > stock_disponivel:
-                deficit = qty - stock_disponivel
-                stock_other = get_stock_producao(today, sabor, other_loja)
-                transferir_de_other = min(deficit, stock_other)
-                if transferir_de_other > 0:
-                    reduzir_stock_producao(today, sabor, other_loja, transferir_de_other)
-                    add_stock_producao(today, sabor, loja_destino, transferir_de_other)
-                    stock_disponivel += transferir_de_other
+                if qty > stock_disponivel:
+                    deficit = qty - stock_disponivel
+                    stock_other = get_stock_producao(today, sabor, other_loja)
+                    transferir_de_other = min(deficit, stock_other)
+                    if transferir_de_other > 0:
+                        reduzir_stock_producao(today, sabor, other_loja, transferir_de_other)
+                        add_stock_producao(today, sabor, loja_destino, transferir_de_other)
+                        stock_disponivel += transferir_de_other
 
-            if qty > stock_disponivel:
-                qty = stock_disponivel
-            if qty > 0:
-                reduced = reduzir_stock_producao(today, sabor, loja_destino, qty)
-                if reduced:
-                    add_transferencia(today, sabor, loja_destino, qty)
-                    criar_ordem_transferencia(today, 'Gelado', sabor, qty, 'kg', loja_destino, sabor=sabor, criado_por=username, data_prevista=data_prevista, batch_id=batch_id)
-                    ordens_count += 1
+                if qty > stock_disponivel:
+                    qty = stock_disponivel
+                if qty > 0:
+                    reduced = reduzir_stock_producao(today, sabor, loja_destino, qty)
+                    if reduced:
+                        add_transferencia(today, sabor, loja_destino, qty)
+                        criar_ordem_transferencia(today, 'Gelado', sabor, qty, 'kg', loja_destino, sabor=sabor, criado_por=username, data_prevista=data_prevista, batch_id=batch_id)
+                        ordens_count += 1
+        except psycopg2.DatabaseError:
+            raise
+        except ValueError as exc:
+            logger.warning("Erro de validação na transferência: %s", exc)
+            flash(f"Dados inválidos: {exc}. Verifique os valores e tente novamente.", "warning")
+            return redirect(url_for('producao.transferir'))
+        except Exception as exc:
+            logger.error("Erro inesperado na transferência: %s", exc, exc_info=True)
+            flash("Não foi possível registar a transferência — erro inesperado. Tente novamente.", "danger")
+            return redirect(url_for('producao.transferir'))
         if ordens_count > 0:
             flash(f"{ordens_count} ordem(ns) de transferência criada(s)!", "success")
         else:
