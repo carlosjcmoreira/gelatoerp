@@ -3628,6 +3628,42 @@ def run_migrations_quantidade_kg_to_numeric():
                 pass
 
 
+def run_migrations_loja_origem():
+    """Add loja_origem column to ordens_transferencia (idempotent, advisory lock 202620).
+
+    This column is set when a retail store initiates an outgoing gelado transfer
+    (as opposed to production-initiated orders which leave it NULL).  The stock-
+    movement ledger uses it as the canonical outbound source once populated.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(202620)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_loja_origem: lock held by another worker, skipping")
+                return
+            cursor.execute("""
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'ordens_transferencia' AND column_name = 'loja_origem'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("ALTER TABLE ordens_transferencia ADD COLUMN loja_origem VARCHAR(100)")
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_ordens_loja_origem "
+                    "ON ordens_transferencia (loja_origem) WHERE loja_origem IS NOT NULL"
+                )
+                logger.info("run_migrations_loja_origem: loja_origem column added")
+            else:
+                logger.info("run_migrations_loja_origem: loja_origem already present")
+            conn.commit()
+        except Exception as exc:
+            logger.error("run_migrations_loja_origem failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_invoice_centros_custo():
     """Idempotent: create invoice_centros_custo junction table for multi-CC allocation.
 

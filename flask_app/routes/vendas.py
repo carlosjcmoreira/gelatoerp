@@ -22,13 +22,14 @@ from database import (
 
 import flask_app.services.vendas as vendas_svc
 from flask_app.services import ServiceError
-from db.plano import get_ordem_transferencia_by_id
+from db.plano import get_ordem_transferencia_by_id, criar_transferencia_entre_lojas, get_latest_pesagem_por_sabor
 
 vendas_bp = Blueprint('vendas', __name__)
 
 TAB_DEFS = [
     {'id': 'dashboard', 'label': 'Resumo Diário', 'icon': '📊', 'endpoint': 'vendas.dashboard'},
     {'id': 'transferencias', 'label': 'Receção de Mercadoria', 'icon': '📦', 'endpoint': 'vendas.transferencias'},
+    {'id': 'transferir_gelado', 'label': 'Transferir Gelado', 'icon': '📤', 'endpoint': 'vendas.transferir_gelado'},
     {'id': 'quebras', 'label': 'Registar Quebras', 'icon': '⚠️', 'endpoint': 'vendas.quebras'},
     {'id': 'pesagem', 'label': 'Pesagem Fim de Dia', 'icon': '⚖️', 'endpoint': 'vendas.pesagem'},
     {'id': 'fecho_caixa', 'label': 'Fecho de Caixa', 'icon': '💵', 'endpoint': 'vendas.fecho_caixa'},
@@ -99,7 +100,7 @@ def _build_tabs(active_id, loja_id=None):
             requires_eod = store.get('requires_eod_weighing', True)
 
     # Tab visibility rules by store profile
-    _loja_only = {'transferencias'}  # retail-store specific tabs (dashboard is available to all vendas stores)
+    _loja_only = {'transferencias', 'transferir_gelado'}  # retail-store specific tabs (dashboard is available to all vendas stores)
     _eod_only   = {'pesagem'}        # requires end-of-day weighing
 
     tabs = []
@@ -668,6 +669,94 @@ def transferencias():
                            grupos_pendentes=grupos_pendentes,
                            pendentes=pendentes,
                            confirmadas=confirmadas)
+
+
+@vendas_bp.route('/transferir-gelado', methods=['GET', 'POST'])
+@login_required
+def transferir_gelado():
+    if not _check_vendas_access():
+        return redirect(url_for('home.index'))
+
+    loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'loja_only'):
+        return redirect(url_for('vendas.index', loja_id=loja_id))
+
+    if request.method == 'POST':
+        sabor = request.form.get('sabor', '').strip()
+        loja_destino = request.form.get('loja_destino', '').strip()
+        username = session.get('user', {}).get('username', 'system')
+
+        try:
+            quantidade_kg = round(float(request.form.get('quantidade', '0').replace(',', '.')), 3)
+        except (ValueError, TypeError):
+            quantidade_kg = 0.0
+
+        if not sabor:
+            flash('Seleccione um sabor.', 'error')
+            return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+        if quantidade_kg <= 0:
+            flash('A quantidade deve ser superior a zero.', 'error')
+            return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+        if not loja_destino:
+            flash('Seleccione uma loja de destino.', 'error')
+            return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+        if loja_destino == loja_nome:
+            flash('A loja de destino não pode ser a mesma que a loja de origem.', 'error')
+            return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+
+        pesagens = get_latest_pesagem_por_sabor(loja_nome)
+        stock_disponivel = pesagens.get(sabor, {}).get('kg', 0.0)
+        if quantidade_kg > stock_disponivel:
+            flash(
+                f'Quantidade ({quantidade_kg:.3f} kg) superior ao stock disponível '
+                f'({stock_disponivel:.3f} kg de {sabor}).', 'error'
+            )
+            return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+
+        try:
+            ordem_id = criar_transferencia_entre_lojas(
+                data=date.today(),
+                sabor=sabor,
+                loja_origem=loja_nome,
+                loja_destino=loja_destino,
+                quantidade_kg=quantidade_kg,
+                criado_por=username,
+            )
+            flash(
+                f'Transferência de {quantidade_kg:.3f} kg de {sabor} para {loja_destino} '
+                f'criada com sucesso (ordem #{ordem_id}).', 'success'
+            )
+        except Exception:
+            logger.exception(
+                'Erro ao criar transferência loja_origem=%s sabor=%s', loja_nome, sabor
+            )
+            flash('Erro interno ao criar a transferência. Tente novamente.', 'danger')
+
+        return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+
+    pesagens = get_latest_pesagem_por_sabor(loja_nome)
+    sabores_com_stock = sorted(
+        [
+            {'sabor': s, 'kg': v['kg'], 'data': v['data']}
+            for s, v in pesagens.items()
+            if v['kg'] > 0
+        ],
+        key=lambda x: x['sabor'],
+    )
+
+    all_lojas = get_active_venda_stores()
+    lojas_destino = [l for l in all_lojas if l['name'] != loja_nome]
+
+    return render_template(
+        'vendas/transferir_gelado.html',
+        active_tab='transferir_gelado',
+        tabs=_build_tabs('transferir_gelado', loja_id),
+        loja_nome=loja_nome,
+        loja_id=loja_id,
+        sabores_com_stock=sabores_com_stock,
+        lojas_destino=lojas_destino,
+        today=str(date.today()),
+    )
 
 
 @vendas_bp.route('/fecho-caixa/ocr', methods=['POST'])

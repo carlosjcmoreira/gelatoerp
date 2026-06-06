@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-2">🛒 Vendas {{ loja_nome }}</h5>
+    <h6 class="mb-1">📤 Transferir Gelado</h6>
+    <p class="text-muted small mb-3">
+        Envie gelado desta loja para outra. O stock é descontado imediatamente e a loja
+        de destino confirma a receção no seu módulo de Vendas.
+    </p>
+
+    {% include "components/flash_messages.html" ignore missing %}
+
+    {% if not sabores_com_stock %}
+    <div class="alert alert-warning">
+        <strong>Sem stock disponível.</strong> Não existem sabores com pesagem registada para {{ loja_nome }}.
+    </div>
+    {% else %}
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="post" id="form-transferir">
+                <div class="mb-3">
+                    <label for="sabor" class="form-label fw-semibold">Sabor</label>
+                    <select class="form-select" id="sabor" name="sabor" required onchange="atualizarStock()">
+                        <option value="">— seleccionar —</option>
+                        {% for s in sabores_com_stock %}
+                        <option value="{{ s.sabor }}" data-kg="{{ '%.3f'|format(s.kg) }}">
+                            {{ s.sabor }} — {{ '%.3f'|format(s.kg) }} kg
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div id="stock-info" class="form-text text-muted mt-1" style="display:none;">
+                        Stock disponível (pesagem): <strong id="stock-valor">0.000</strong> kg
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="quantidade" class="form-label fw-semibold">Quantidade (kg)</label>
+                    <input type="number" class="form-control" id="quantidade" name="quantidade"
+                           step="0.001" min="0.001" placeholder="Ex: 5.000" required>
+                    <div id="qty-warning" class="form-text text-danger" style="display:none;">
+                        Quantidade superior ao stock disponível.
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label for="loja_destino" class="form-label fw-semibold">Loja de destino</label>
+                    {% if lojas_destino %}
+                    <select class="form-select" id="loja_destino" name="loja_destino" required>
+                        <option value="">— seleccionar —</option>
+                        {% for loja in lojas_destino %}
+                        <option value="{{ loja.name }}">{{ loja.name }}</option>
+                        {% endfor %}
+                    </select>
+                    {% else %}
+                    <p class="text-muted small">Nenhuma outra loja activa disponível.</p>
+                    {% endif %}
+                </div>
+
+                {% if lojas_destino %}
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary btn-lg" id="btn-enviar">
+                        📤 Enviar Transferência
+                    </button>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <p class="text-muted small">
+        <strong>Nota:</strong> O stock é baseado na pesagem mais recente de cada sabor.
+        Transferências pendentes podem não estar reflectidas neste valor.
+    </p>
+
+    {% endif %}
+</div>
+
+<script>
+function atualizarStock() {
+    const sel = document.getElementById('sabor');
+    const opt = sel.options[sel.selectedIndex];
+    const info = document.getElementById('stock-info');
+    const valor = document.getElementById('stock-valor');
+    if (opt && opt.dataset.kg) {
+        info.style.display = '';
+        valor.textContent = opt.dataset.kg;
+    } else {
+        info.style.display = 'none';
+    }
+    validarQuantidade();
+}
+
+function validarQuantidade() {
+    const sel = document.getElementById('sabor');
+    const opt = sel.options[sel.selectedIndex];
+    const qtyInput = document.getElementById('quantidade');
+    const warning = document.getElementById('qty-warning');
+    const btn = document.getElementById('btn-enviar');
+    if (!opt || !opt.dataset.kg) return;
+    const stockKg = parseFloat(opt.dataset.kg) || 0;
+    const qty = parseFloat(qtyInput.value) || 0;
+    if (qty > stockKg) {
+        warning.style.display = '';
+        if (btn) btn.disabled = true;
+    } else {
+        warning.style.display = 'none';
+        if (btn) btn.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    const qtyInput = document.getElementById('quantidade');
+    if (qtyInput) qtyInput.addEventListener('input', validarQuantidade);
+});
+</script>
+{% endblock %}

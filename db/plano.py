@@ -738,6 +738,41 @@ def rejeitar_ordem_transferencia(ordem_id: int, confirmado_por: str, motivo: str
     return updated
 
 
+def criar_transferencia_entre_lojas(
+    data: date, sabor: str, loja_origem: str, loja_destino: str,
+    quantidade_kg: float, criado_por: str, data_prevista: date = None
+) -> int:
+    """Create a store-to-store gelado transfer order.
+
+    Atomically:
+    1. Inserts a negative rececao_mercadoria entry (lote='transferencia_saida')
+       on the source store so the stock-movement ledger deducts the exit.
+    2. Inserts an ordens_transferencia row with loja_origem set, status='pendente'.
+    3. Records a 'criado' audit event in transferencias_eventos.
+
+    Returns the new order ID.  Raises on any DB error (caller should handle).
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        qty = abs(float(quantidade_kg))
+        cursor.execute("""
+            INSERT INTO rececao_mercadoria
+                (data, loja, tipo_produto, produto, sabor, lote, quantidade, unidade)
+            VALUES (%s, %s, 'gelado', %s, %s, 'transferencia_saida', %s, 'kg')
+        """, (data, loja_origem, sabor, sabor, -qty))
+        cursor.execute("""
+            INSERT INTO ordens_transferencia
+                (data, area_origem, produto, sabor, quantidade, unidade,
+                 loja_destino, loja_origem, status, criado_por, data_prevista)
+            VALUES (%s, 'Gelado', %s, %s, %s, 'kg', %s, %s, 'pendente', %s, %s)
+            RETURNING id
+        """, (data, sabor, sabor, qty, loja_destino, loja_origem, criado_por, data_prevista or data))
+        order_id = cursor.fetchone()[0]
+        _insert_evento(cursor, order_id, 'criado', criado_por)
+        conn.commit()
+    return order_id
+
+
 def get_stock_producao_by_loja(loja: str) -> list:
     """Return all active production stock rows for a specific loja.
 
