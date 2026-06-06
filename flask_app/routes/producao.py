@@ -28,6 +28,7 @@ from database import (
     update_stock_gelado, get_producao_history_by_day,
     delete_producao_record, get_pesagens_loja_3dias,
     add_stock_gelado,
+    get_movimentos_stock_gelado,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -62,6 +63,7 @@ TABS = [
     {'id': 'dashboard', 'label': 'Dashboard Produção', 'icon': '📊', 'url_endpoint': 'producao.dashboard'},
     {'id': 'receitas', 'label': 'Receitas de Gelado', 'icon': '📖', 'url_endpoint': 'producao.receitas'},
     {'id': 'sabores_ativos', 'label': 'Sabores Ativos', 'icon': '✅', 'url_endpoint': 'producao.sabores_ativos'},
+    {'id': 'movimentos_stock', 'label': 'Movimentos de Stock', 'icon': '📦', 'url_endpoint': 'producao.movimentos_stock'},
 ]
 
 def _tabs_with_urls():
@@ -1228,3 +1230,50 @@ def sabores_ativos():
     return render_template('producao/sabores_ativos.html',
                            active_tab='sabores_ativos', tabs=_tabs_with_urls(),
                            receitas=receitas_list)
+
+
+@producao_bp.route('/movimentos-stock')
+@perm_required('acesso_producao')
+def movimentos_stock():
+    today = date.today()
+    data_fim_str = request.args.get('data_fim', str(today))
+    data_inicio_str = request.args.get('data_inicio', str(today - timedelta(days=14)))
+    sabor_filtro = request.args.get('sabor', '').strip() or None
+    loja_param = request.args.get('loja', '').strip()
+
+    try:
+        data_fim = date.fromisoformat(data_fim_str)
+    except ValueError:
+        data_fim = today
+    try:
+        data_inicio = date.fromisoformat(data_inicio_str)
+    except ValueError:
+        data_inicio = today - timedelta(days=14)
+
+    active_stores = get_active_venda_stores()
+    loja_names = [s['name'] for s in active_stores]
+    if loja_param not in loja_names:
+        loja_param = loja_names[0] if loja_names else 'Bolhão'
+
+    all_sabores = get_sabores_list()
+
+    try:
+        ledger = get_movimentos_stock_gelado(loja_param, data_inicio, data_fim, sabor_filtro)
+    except Exception:
+        logger.exception('Erro ao obter movimentos de stock para loja=%s', loja_param)
+        ledger = {}
+
+    ledger_items = sorted(ledger.items(), key=lambda x: x[0])
+
+    return render_template(
+        'producao/movimentos_stock.html',
+        active_tab='movimentos_stock',
+        tabs=_tabs_with_urls(),
+        loja=loja_param,
+        lojas=loja_names,
+        data_inicio=data_inicio_str,
+        data_fim=data_fim_str,
+        sabor_filtro=sabor_filtro or '',
+        all_sabores=all_sabores,
+        ledger_items=ledger_items,
+    )

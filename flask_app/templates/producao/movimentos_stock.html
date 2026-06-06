@@ -1,0 +1,170 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <span class="fs-4">📦</span>
+  <h5 class="mb-0 fw-bold">Movimentos de Stock de Gelado</h5>
+</div>
+
+<form method="get" class="card card-body bg-body-secondary border-0 mb-4 p-3">
+  <div class="row g-2 align-items-end">
+    <div class="col-6 col-md-3">
+      <label class="form-label small fw-semibold mb-1">Loja</label>
+      <select name="loja" class="form-select form-select-sm">
+        {% for l in lojas %}
+        <option value="{{ l }}" {% if l == loja %}selected{% endif %}>{{ l }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">De</label>
+      <input type="date" name="data_inicio" value="{{ data_inicio }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-6 col-md-2">
+      <label class="form-label small fw-semibold mb-1">Até</label>
+      <input type="date" name="data_fim" value="{{ data_fim }}" class="form-control form-control-sm">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label small fw-semibold mb-1">Sabor (opcional)</label>
+      <select name="sabor" class="form-select form-select-sm">
+        <option value="">— Todos os sabores —</option>
+        {% for s in all_sabores %}
+        <option value="{{ s }}" {% if s == sabor_filtro %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-md-2">
+      <button type="submit" class="btn btn-primary btn-sm w-100">Filtrar</button>
+    </div>
+  </div>
+</form>
+
+{% if not ledger_items %}
+<div class="alert alert-info d-flex align-items-center gap-2">
+  <span class="fs-5">📭</span>
+  <div>Sem pesagens registadas para <strong>{{ loja }}</strong> no período seleccionado.</div>
+</div>
+{% else %}
+
+<p class="text-body-secondary small mb-3">
+  Baseline = pesagem mais recente até <strong>{{ data_fim }}</strong>.
+  Movimentos registados estritamente após essa pesagem.
+</p>
+
+{% for sabor, info in ledger_items %}
+{% set baseline = info.baseline %}
+{% set movimentos = info.movimentos %}
+{% set saldo = info.saldo_calculado %}
+{% set posterior = info.pesagem_posterior %}
+{% set delta = (saldo - posterior.kg) | round(3) if posterior else None %}
+
+<div class="card mb-3 shadow-sm">
+  <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2 py-2">
+    <span class="fw-bold">{{ sabor }}</span>
+    <span class="badge bg-secondary text-white small">
+      ⚖️ Pesagem {{ baseline.data.strftime('%d/%m/%Y') }} — {{ '%.3f'|format(baseline.kg) }} kg
+    </span>
+  </div>
+
+  {% if movimentos %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Data</th>
+          <th>Tipo</th>
+          <th class="text-end">Qty (kg)</th>
+          <th class="d-none d-sm-table-cell">Descrição</th>
+          <th class="d-none d-md-table-cell pe-3">Referência</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="table-light text-body-secondary">
+          <td class="ps-3"><small>{{ baseline.data.strftime('%d/%m') }}</small></td>
+          <td><span class="badge bg-secondary">Pesagem</span></td>
+          <td class="text-end fw-semibold">{{ '%.3f'|format(baseline.kg) }}</td>
+          <td class="d-none d-sm-table-cell"><small>Baseline (fonte de verdade)</small></td>
+          <td class="d-none d-md-table-cell pe-3"></td>
+        </tr>
+        {% for m in movimentos %}
+        <tr>
+          <td class="ps-3"><small>{{ m.data.strftime('%d/%m') }}</small></td>
+          <td>
+            {% if m.tipo == 'entrada' %}
+            <span class="badge bg-success">↑ Entrada</span>
+            {% else %}
+            <span class="badge bg-danger">↓ Saída</span>
+            {% endif %}
+          </td>
+          <td class="text-end fw-semibold {% if m.quantidade_kg >= 0 %}text-success{% else %}text-danger{% endif %}">
+            {% if m.quantidade_kg >= 0 %}+{% endif %}{{ '%.3f'|format(m.quantidade_kg) }}
+          </td>
+          <td class="d-none d-sm-table-cell"><small>{{ m.descricao }}</small></td>
+          <td class="d-none d-md-table-cell pe-3"><small class="text-body-secondary">{{ m.referencia }}</small></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light fw-bold">
+        <tr>
+          <td colspan="2" class="ps-3">Saldo calculado</td>
+          <td class="text-end {% if saldo >= baseline.kg %}text-success{% else %}text-danger{% endif %}">
+            {{ '%.3f'|format(saldo) }} kg
+          </td>
+          <td colspan="2" class="pe-3 d-none d-sm-table-cell">
+            {% if posterior %}
+              {% if delta is not none %}
+                {% if delta | abs < 0.001 %}
+                  <span class="badge bg-success">✓ Alinhado com pesagem {{ posterior.data.strftime('%d/%m') }}</span>
+                {% elif delta > 0 %}
+                  <span class="badge bg-warning text-dark">Δ +{{ '%.3f'|format(delta) }} kg vs pesagem {{ posterior.data.strftime('%d/%m') }} ({{ '%.3f'|format(posterior.kg) }} kg)</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark">Δ {{ '%.3f'|format(delta) }} kg vs pesagem {{ posterior.data.strftime('%d/%m') }} ({{ '%.3f'|format(posterior.kg) }} kg)</span>
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  {% if posterior %}
+  <div class="card-footer py-2 d-sm-none">
+    <small class="text-body-secondary">
+      {% if delta is not none %}
+        {% if delta | abs < 0.001 %}
+          <span class="badge bg-success">✓ Alinhado</span>
+        {% else %}
+          Δ {{ '%.3f'|format(delta) }} kg vs pesagem {{ posterior.data.strftime('%d/%m') }} ({{ '%.3f'|format(posterior.kg) }} kg)
+        {% endif %}
+      {% endif %}
+    </small>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="card-body py-2">
+    <div class="d-flex align-items-center gap-2">
+      <span class="badge bg-secondary fs-6">⚖️ {{ '%.3f'|format(baseline.kg) }} kg</span>
+      <small class="text-body-secondary">Sem movimentos após a pesagem de {{ baseline.data.strftime('%d/%m/%Y') }}.</small>
+    </div>
+    {% if posterior %}
+    <div class="mt-2">
+      <small>
+        {% if delta is not none %}
+          {% if delta | abs < 0.001 %}
+            <span class="badge bg-success">✓ Pesagem {{ posterior.data.strftime('%d/%m') }} ({{ '%.3f'|format(posterior.kg) }} kg) — alinhada</span>
+          {% else %}
+            <span class="badge bg-warning text-dark">Δ {{ '%.3f'|format(delta) }} kg — pesagem {{ posterior.data.strftime('%d/%m') }}: {{ '%.3f'|format(posterior.kg) }} kg</span>
+          {% endif %}
+        {% endif %}
+      </small>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+{% endif %}
+{% endblock %}

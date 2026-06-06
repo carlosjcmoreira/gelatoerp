@@ -938,6 +938,112 @@ def get_pesagens_loja_3dias(loja_nome: str) -> dict:
     return {'dates': dates, 'date_labels': date_labels, 'dates_iso': dates_iso, 'rows': result_rows}
 
 
+def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sabor_filtro: str = None) -> dict:
+    """Return a per-sabor stock-movement ledger for *loja*.
+
+    Baseline = the most-recent pesagem (stock_gelado row) per sabor up to
+    *data_fim*.  Movements are rececao_mercadoria rows with tipo_produto='gelado'
+    that fall strictly after each sabor's baseline date and up to *data_fim*.
+
+    Returns
+    -------
+    {
+      sabor: {
+        'baseline':          {'kg': float, 'data': date},
+        'movimentos':        [{'data', 'tipo', 'quantidade_kg', 'descricao', 'referencia'}, …],
+        'saldo_calculado':   float,
+        'pesagem_posterior': {'kg': float, 'data': date} | None,
+      }
+    }
+    Robust to loja_origem being NULL in ordens_transferencia (not yet populated
+    before Task #417 lands).
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+
+        sabor_cond = "AND sabor = %s" if sabor_filtro else ""
+        params_base = [loja, data_fim]
+        if sabor_filtro:
+            params_base.append(sabor_filtro)
+
+        cursor.execute(f"""
+            SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
+            FROM stock_gelado
+            WHERE loja = %s AND data <= %s {sabor_cond}
+            ORDER BY sabor, data DESC, id DESC
+        """, params_base)
+        baseline_rows = cursor.fetchall()
+
+        if not baseline_rows:
+            return {}
+
+        result = {}
+        sabores = []
+        for sabor, kg_b, dt_b in baseline_rows:
+            result[sabor] = {
+                'baseline': {'kg': float(kg_b), 'data': dt_b},
+                'movimentos': [],
+                'saldo_calculado': float(kg_b),
+                'pesagem_posterior': None,
+            }
+            sabores.append(sabor)
+
+        min_baseline_date = min(r['baseline']['data'] for r in result.values())
+
+        cursor.execute("""
+            SELECT sabor, data, quantidade::float, lote, produto
+            FROM rececao_mercadoria
+            WHERE loja = %s AND tipo_produto = 'gelado'
+              AND sabor = ANY(%s)
+              AND data > %s AND data <= %s
+            ORDER BY data, id
+        """, (loja, sabores, min_baseline_date, data_fim))
+        rececao_rows = cursor.fetchall()
+
+        for sabor_r, data_r, qty, lote, produto in rececao_rows:
+            if sabor_r not in result:
+                continue
+            if data_r <= result[sabor_r]['baseline']['data']:
+                continue
+            qty_f = float(qty)
+            if qty_f >= 0:
+                tipo = 'entrada'
+                descricao = 'Transferência recebida' if (lote or '') == '' else 'Receção'
+            else:
+                tipo = 'saida'
+                descricao = 'Transferência enviada'
+            result[sabor_r]['movimentos'].append({
+                'data': data_r,
+                'tipo': tipo,
+                'quantidade_kg': qty_f,
+                'descricao': descricao,
+                'referencia': lote or '—',
+            })
+            result[sabor_r]['saldo_calculado'] = result[sabor_r]['saldo_calculado'] + qty_f
+
+        for sabor in sabores:
+            baseline_dt = result[sabor]['baseline']['data']
+            cursor.execute("""
+                SELECT quantidade_kg::float, data
+                FROM stock_gelado
+                WHERE loja = %s AND sabor = %s AND data > %s AND data <= %s
+                ORDER BY data DESC, id DESC
+                LIMIT 1
+            """, (loja, sabor, baseline_dt, data_fim))
+            post_row = cursor.fetchone()
+            if post_row:
+                result[sabor]['pesagem_posterior'] = {
+                    'kg': float(post_row[0]),
+                    'data': post_row[1],
+                }
+
+        for sabor in result:
+            result[sabor]['movimentos'].sort(key=lambda m: m['data'])
+            result[sabor]['saldo_calculado'] = round(result[sabor]['saldo_calculado'], 4)
+
+        return result
+
+
 def set_stock_producao(sabor: str, loja: str, quantidade_kg: float):
     """Overwrite the total production stock for a sabor+loja combination.
 
