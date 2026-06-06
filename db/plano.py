@@ -438,19 +438,19 @@ def reduzir_stock_producao(data: date, sabor: str, loja: str, quantidade_kg: flo
             ORDER BY data ASC
         """, (sabor, loja))
         rows = cursor.fetchall()
-        remaining = round(float(quantidade_kg), 4)
+        remaining = float(quantidade_kg)
         updated = False
         for row_id, row_qty in rows:
             if remaining <= 0:
                 break
-            subtract = round(min(remaining, float(row_qty)), 4)
+            subtract = min(remaining, float(row_qty))
             cursor.execute("""
                 UPDATE stock_producao
-                SET quantidade_kg = GREATEST(ROUND((quantidade_kg - %s)::numeric, 4)::real, 0),
+                SET quantidade_kg = GREATEST(quantidade_kg - %s, 0),
                     updated_at = NOW()
                 WHERE id = %s
             """, (subtract, row_id))
-            remaining = round(remaining - subtract, 4)
+            remaining -= subtract
             updated = True
         conn.commit()
     return updated

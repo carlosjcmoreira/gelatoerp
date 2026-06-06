@@ -491,7 +491,7 @@ def init_database():
                 data DATE NOT NULL,
                 loja VARCHAR(100) NOT NULL,
                 sabor VARCHAR(255) NOT NULL,
-                quantidade_kg REAL NOT NULL,
+                quantidade_kg NUMERIC(10,4) NOT NULL,
                 tipo VARCHAR(50) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -736,7 +736,7 @@ def run_migrations():
                 data DATE NOT NULL,
                 sabor VARCHAR(255) NOT NULL,
                 loja VARCHAR(100) NOT NULL,
-                quantidade_kg REAL NOT NULL DEFAULT 0,
+                quantidade_kg NUMERIC(10,4) NOT NULL DEFAULT 0,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(data, sabor, loja)
             )
@@ -748,7 +748,7 @@ def run_migrations():
                 data DATE NOT NULL,
                 sabor VARCHAR(255) NOT NULL,
                 loja_destino VARCHAR(100) NOT NULL,
-                quantidade_kg REAL NOT NULL,
+                quantidade_kg NUMERIC(10,4) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -3564,6 +3564,64 @@ def run_migrations_normalise_producao_sabores():
             )
         except Exception as exc:
             logger.error("run_migrations_normalise_producao_sabores failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
+_LOCK_QUANTIDADE_KG_TO_NUMERIC = 202660
+
+
+def run_migrations_quantidade_kg_to_numeric():
+    """Idempotent: migrate quantidade_kg columns from REAL to NUMERIC(10,4).
+
+    REAL (single-precision float, 4 bytes) accumulates floating-point errors
+    that caused underflow bugs in stock subtraction operations.  NUMERIC(10,4)
+    provides exact fixed-point arithmetic — no rounding workarounds required.
+
+    Affected tables: stock_producao, stock_gelado, transferencias.
+    Advisory lock 202660.
+    """
+    target_tables = ["stock_producao", "stock_gelado", "transferencias"]
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_QUANTIDADE_KG_TO_NUMERIC,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_quantidade_kg_to_numeric: lock held by another worker, skipping")
+                return
+
+            for table in target_tables:
+                cursor.execute("""
+                    SELECT data_type FROM information_schema.columns
+                    WHERE table_name = %s AND column_name = 'quantidade_kg'
+                """, (table,))
+                row = cursor.fetchone()
+                if row is None:
+                    logger.info(
+                        "run_migrations_quantidade_kg_to_numeric: %s.quantidade_kg not found, skipping",
+                        table,
+                    )
+                    continue
+                if row[0].lower() == 'real':
+                    cursor.execute(
+                        f"ALTER TABLE {table} ALTER COLUMN quantidade_kg TYPE NUMERIC(10,4) USING quantidade_kg::numeric(10,4)"
+                    )
+                    logger.info(
+                        "run_migrations_quantidade_kg_to_numeric: %s.quantidade_kg converted REAL → NUMERIC(10,4)",
+                        table,
+                    )
+                else:
+                    logger.info(
+                        "run_migrations_quantidade_kg_to_numeric: %s.quantidade_kg already %s, skipping",
+                        table, row[0],
+                    )
+
+            conn.commit()
+            logger.info("run_migrations_quantidade_kg_to_numeric: done")
+        except Exception as exc:
+            logger.error("run_migrations_quantidade_kg_to_numeric failed: %s", exc)
             try:
                 conn.rollback()
             except Exception:
