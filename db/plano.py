@@ -479,6 +479,58 @@ def get_latest_pesagem_por_sabor(loja: str) -> dict:
     return {r[0]: {'kg': float(r[1]), 'data': r[2]} for r in rows}
 
 
+def get_effective_stock_por_sabor(loja: str) -> dict:
+    """Return effective available stock per sabor for a store.
+
+    Computes: latest pesagem kg minus the sum of pending outgoing
+    ordens_transferencia (loja_origem = loja, status = 'pendente', area_origem = 'Gelado')
+    whose data is on or after that sabor's latest pesagem date.
+
+    Orders predating the pesagem are already reflected in the pesagem reading
+    and must NOT be subtracted again.
+
+    Returns the same shape as get_latest_pesagem_por_sabor:
+      {sabor: {'kg': float, 'data': date, 'pendente_kg': float}}
+    where 'kg' is the effective available quantity (floored at 0)
+    and 'pendente_kg' is the total already committed in pending orders
+    since the pesagem date.
+    """
+    pesagens = get_latest_pesagem_por_sabor(loja)
+    if not pesagens:
+        return {}
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sabor, data, SUM(quantidade) AS total_pendente
+            FROM ordens_transferencia
+            WHERE loja_origem = %s
+              AND status = 'pendente'
+              AND area_origem = 'Gelado'
+            GROUP BY sabor, data
+        """, (loja,))
+        pending_rows = cursor.fetchall()
+
+    pending_by_sabor: dict[str, float] = {}
+    for sabor, order_date, qty in pending_rows:
+        pesagem_info = pesagens.get(sabor)
+        if pesagem_info is None:
+            continue
+        if order_date >= pesagem_info['data']:
+            pending_by_sabor[sabor] = pending_by_sabor.get(sabor, 0.0) + float(qty)
+
+    result = {}
+    for sabor, info in pesagens.items():
+        pendente_kg = pending_by_sabor.get(sabor, 0.0)
+        effective_kg = max(0.0, info['kg'] - pendente_kg)
+        result[sabor] = {
+            'kg': effective_kg,
+            'data': info['data'],
+            'pendente_kg': pendente_kg,
+        }
+    return result
+
+
 def _insert_evento(cursor, ordem_id: int, event_type: str, utilizador: str | None, motivo: str | None = None):
     """Insert an audit event into transferencias_eventos within the caller's transaction.
 

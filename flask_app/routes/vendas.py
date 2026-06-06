@@ -22,7 +22,7 @@ from database import (
 
 import flask_app.services.vendas as vendas_svc
 from flask_app.services import ServiceError
-from db.plano import get_ordem_transferencia_by_id, criar_transferencia_entre_lojas, get_latest_pesagem_por_sabor
+from db.plano import get_ordem_transferencia_by_id, criar_transferencia_entre_lojas, get_latest_pesagem_por_sabor, get_effective_stock_por_sabor
 
 vendas_bp = Blueprint('vendas', __name__)
 
@@ -704,13 +704,18 @@ def transferir_gelado():
             flash('A loja de destino não pode ser a mesma que a loja de origem.', 'error')
             return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
 
-        pesagens = get_latest_pesagem_por_sabor(loja_nome)
-        stock_disponivel = pesagens.get(sabor, {}).get('kg', 0.0)
+        stock_efectivo = get_effective_stock_por_sabor(loja_nome)
+        stock_disponivel = stock_efectivo.get(sabor, {}).get('kg', 0.0)
         if quantidade_kg > stock_disponivel:
-            flash(
+            pendente_kg = stock_efectivo.get(sabor, {}).get('pendente_kg', 0.0)
+            pesagem_kg = stock_disponivel + pendente_kg
+            msg = (
                 f'Quantidade ({quantidade_kg:.3f} kg) superior ao stock disponível '
-                f'({stock_disponivel:.3f} kg de {sabor}).', 'error'
+                f'({stock_disponivel:.3f} kg de {sabor})'
             )
+            if pendente_kg > 0:
+                msg += f' — pesagem: {pesagem_kg:.3f} kg, já em ordens pendentes: {pendente_kg:.3f} kg'
+            flash(msg + '.', 'error')
             return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
 
         try:
@@ -734,12 +739,12 @@ def transferir_gelado():
 
         return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
 
-    pesagens = get_latest_pesagem_por_sabor(loja_nome)
+    stock_efectivo = get_effective_stock_por_sabor(loja_nome)
     sabores_com_stock = sorted(
         [
-            {'sabor': s, 'kg': v['kg'], 'data': v['data']}
-            for s, v in pesagens.items()
-            if v['kg'] > 0
+            {'sabor': s, 'kg': v['kg'], 'data': v['data'], 'pendente_kg': v.get('pendente_kg', 0.0)}
+            for s, v in stock_efectivo.items()
+            if v['kg'] > 0 or v.get('pendente_kg', 0.0) > 0
         ],
         key=lambda x: x['sabor'],
     )
