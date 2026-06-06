@@ -1054,45 +1054,48 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
             })
             result[sabor_r]['saldo_calculado'] += float(qty)
 
-        # ── 3. Direct receptions (lote != '') + outgoing exits (qty < 0) ─────
-        # Exclude lote='' entries — those are always inserted by
-        # confirmar_ordem_transferencia and are already counted via source 2 above.
+        # ── 3. Direct positive receptions: lote!='' AND qty>0 ───────────────
+        # lote='' entries are always written by confirmar_ordem_transferencia;
+        # they are already captured via source 2 (ordens_transferencia) above.
+        # lote='transferencia_saida' entries are outgoing exits handled in source 4.
+        # Only positive quantities here to avoid any overlap with outbound logic.
         cursor.execute("""
-            SELECT sabor, data, quantidade::float, lote, produto
+            SELECT sabor, data, quantidade::float, lote
             FROM rececao_mercadoria
             WHERE loja = %s AND tipo_produto = 'gelado'
               AND sabor = ANY(%s)
               AND data > %s AND data <= %s
-              AND (lote IS NOT NULL AND lote != '')
+              AND lote IS NOT NULL AND lote != ''
+              AND quantidade > 0
             ORDER BY data, id
         """, (loja, sabores, min_baseline_date, data_fim))
-        for sabor_r, data_r, qty, lote, produto in cursor.fetchall():
+        for sabor_r, data_r, qty, lote in cursor.fetchall():
             if sabor_r not in result:
                 continue
             if data_r <= result[sabor_r]['baseline']['data']:
                 continue
-            qty_f = float(qty)
-            if qty_f >= 0:
-                tipo = 'entrada'
-                descricao = 'Receção'
-            else:
-                tipo = 'saida'
-                descricao = 'Transferência enviada'
             result[sabor_r]['movimentos'].append({
                 'data': data_r,
-                'tipo': tipo,
-                'quantidade_kg': qty_f,
-                'descricao': descricao,
+                'tipo': 'entrada',
+                'quantidade_kg': float(qty),
+                'descricao': 'Receção',
                 'referencia': lote,
             })
-            result[sabor_r]['saldo_calculado'] += qty_f
+            result[sabor_r]['saldo_calculado'] += float(qty)
 
-        # ── 4. Outbound via loja_origem (Task #417 — safe no-op if column absent) ─
+        # ── 4. Outbound: deterministic source selection (no double-counting) ─
+        # Check once whether loja_origem column exists (added by Task #417).
         cursor.execute("""
             SELECT 1 FROM information_schema.columns
             WHERE table_name = 'ordens_transferencia' AND column_name = 'loja_origem'
         """)
-        if cursor.fetchone():
+        has_loja_origem = cursor.fetchone() is not None
+
+        if has_loja_origem:
+            # Column present → use ordens_transferencia as the sole outbound source.
+            # rececao_mercadoria negative rows are NOT read to avoid double-counting,
+            # since Task #417 writes both the order's loja_origem and the negative
+            # rececao_mercadoria entry for the same movement.
             cursor.execute("""
                 SELECT sabor, data, quantidade::float, id, loja_destino
                 FROM ordens_transferencia
@@ -1114,6 +1117,33 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
                     'referencia': f'#{ordem_id}',
                 })
                 result[sabor_r]['saldo_calculado'] -= abs(float(qty))
+        else:
+            # Column absent → fall back to rececao_mercadoria transfer-exit marker.
+            # Only rows explicitly marked lote='transferencia_saida' are counted as
+            # outgoing transfers; other negative rows are ignored to avoid folding
+            # corrections or unrelated adjustments into the movement ledger.
+            cursor.execute("""
+                SELECT sabor, data, quantidade::float, lote
+                FROM rececao_mercadoria
+                WHERE loja = %s AND tipo_produto = 'gelado'
+                  AND sabor = ANY(%s)
+                  AND data > %s AND data <= %s
+                  AND lote = 'transferencia_saida' AND quantidade < 0
+                ORDER BY data, id
+            """, (loja, sabores, min_baseline_date, data_fim))
+            for sabor_r, data_r, qty, lote in cursor.fetchall():
+                if sabor_r not in result:
+                    continue
+                if data_r <= result[sabor_r]['baseline']['data']:
+                    continue
+                result[sabor_r]['movimentos'].append({
+                    'data': data_r,
+                    'tipo': 'saida',
+                    'quantidade_kg': float(qty),  # already negative
+                    'descricao': 'Transferência enviada',
+                    'referencia': lote,
+                })
+                result[sabor_r]['saldo_calculado'] += float(qty)  # subtracts
 
         # ── 5. Find pesagem_posterior for each sabor (comparison) ────────────
         for sabor in sabores:
