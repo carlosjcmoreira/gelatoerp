@@ -1089,23 +1089,33 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
             })
             result[sabor_r]['saldo_calculado'] += float(qty)
 
-        # ── 4. Outbound: deterministic source selection (no double-counting) ─
-        # Check once whether loja_origem column exists (added by Task #417).
+        # ── 4. Outbound: two-source merge with explicit deduplication ────────
+        # Source A: ordens_transferencia WHERE loja_origem=loja (non-NULL).
+        #   Available only when the column exists (Task #417). Provides order ID
+        #   and destination for the description.
+        # Source B: rececao_mercadoria WHERE lote='transferencia_saida' AND qty<0.
+        #   Fallback for rows where loja_origem is NULL (mixed/transition data) or
+        #   where the column does not yet exist.
+        # Deduplication: if an order from Source A and a rececao row from Source B
+        #   share the same (sabor, date, |qty| within 0.01 kg), only the order entry
+        #   is kept. This prevents double-counting when Task #417 writes both records
+        #   for the same confirmed outbound movement.
+
         cursor.execute("""
             SELECT 1 FROM information_schema.columns
             WHERE table_name = 'ordens_transferencia' AND column_name = 'loja_origem'
         """)
         has_loja_origem = cursor.fetchone() is not None
 
+        # Keys already counted via orders — (sabor, date, rounded_qty)
+        outbound_order_keys: set = set()
+
         if has_loja_origem:
-            # Column present → use ordens_transferencia as the sole outbound source.
-            # rececao_mercadoria negative rows are NOT read to avoid double-counting,
-            # since Task #417 writes both the order's loja_origem and the negative
-            # rececao_mercadoria entry for the same movement.
             cursor.execute("""
                 SELECT sabor, data, quantidade::float, id, loja_destino
                 FROM ordens_transferencia
-                WHERE loja_origem = %s AND area_origem = 'Gelado'
+                WHERE loja_origem = %s AND loja_origem IS NOT NULL
+                  AND area_origem = 'Gelado'
                   AND status IN ('pendente', 'confirmada') AND sabor = ANY(%s)
                   AND data > %s AND data <= %s
                 ORDER BY data, id
@@ -1115,41 +1125,46 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
                     continue
                 if data_r <= result[sabor_r]['baseline']['data']:
                     continue
+                qty_abs = round(abs(float(qty)), 2)
+                outbound_order_keys.add((sabor_r, data_r, qty_abs))
                 result[sabor_r]['movimentos'].append({
                     'data': data_r,
                     'tipo': 'saida',
-                    'quantidade_kg': -abs(float(qty)),
+                    'quantidade_kg': -qty_abs,
                     'descricao': f'Enviado para {loja_dest}',
                     'referencia': f'#{ordem_id}',
                 })
-                result[sabor_r]['saldo_calculado'] -= abs(float(qty))
-        else:
-            # Column absent → fall back to rececao_mercadoria transfer-exit marker.
-            # Only rows explicitly marked lote='transferencia_saida' are counted as
-            # outgoing transfers; other negative rows are ignored to avoid folding
-            # corrections or unrelated adjustments into the movement ledger.
-            cursor.execute("""
-                SELECT sabor, data, quantidade::float, lote
-                FROM rececao_mercadoria
-                WHERE loja = %s AND tipo_produto = 'gelado'
-                  AND sabor = ANY(%s)
-                  AND data > %s AND data <= %s
-                  AND lote = 'transferencia_saida' AND quantidade < 0
-                ORDER BY data, id
-            """, (loja, sabores, min_baseline_date, data_fim))
-            for sabor_r, data_r, qty, lote in cursor.fetchall():
-                if sabor_r not in result:
-                    continue
-                if data_r <= result[sabor_r]['baseline']['data']:
-                    continue
-                result[sabor_r]['movimentos'].append({
-                    'data': data_r,
-                    'tipo': 'saida',
-                    'quantidade_kg': float(qty),  # already negative
-                    'descricao': 'Transferência enviada',
-                    'referencia': lote,
-                })
-                result[sabor_r]['saldo_calculado'] += float(qty)  # subtracts
+                result[sabor_r]['saldo_calculado'] -= qty_abs
+
+        # Source B: rececao_mercadoria transfer-exit marker — covers NULL loja_origem
+        # rows (transition data) and the pre-Task-#417 state (column absent).
+        # Only rows explicitly marked lote='transferencia_saida' are considered;
+        # other negative rows (corrections, adjustments) are ignored per spec.
+        cursor.execute("""
+            SELECT sabor, data, quantidade::float, lote
+            FROM rececao_mercadoria
+            WHERE loja = %s AND tipo_produto = 'gelado'
+              AND sabor = ANY(%s)
+              AND data > %s AND data <= %s
+              AND lote = 'transferencia_saida' AND quantidade < 0
+            ORDER BY data, id
+        """, (loja, sabores, min_baseline_date, data_fim))
+        for sabor_r, data_r, qty, lote in cursor.fetchall():
+            if sabor_r not in result:
+                continue
+            if data_r <= result[sabor_r]['baseline']['data']:
+                continue
+            qty_abs = round(abs(float(qty)), 2)
+            if (sabor_r, data_r, qty_abs) in outbound_order_keys:
+                continue  # already captured by Source A — skip to avoid double-count
+            result[sabor_r]['movimentos'].append({
+                'data': data_r,
+                'tipo': 'saida',
+                'quantidade_kg': -qty_abs,
+                'descricao': 'Transferência enviada',
+                'referencia': lote,
+            })
+            result[sabor_r]['saldo_calculado'] -= qty_abs
 
         # ── 5. Find pesagem_posterior for each sabor (comparison) ────────────
         for sabor in sabores:
