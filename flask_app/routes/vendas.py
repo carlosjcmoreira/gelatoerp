@@ -747,6 +747,9 @@ def transferir_gelado():
     all_lojas = get_active_venda_stores()
     lojas_destino = [l for l in all_lojas if l['name'] != loja_nome]
 
+    from db.plano import get_ordens_transferencia as _get_ordens
+    saidas = _get_ordens(loja_origem=loja_nome, limit=50)
+
     return render_template(
         'vendas/transferir_gelado.html',
         active_tab='transferir_gelado',
@@ -756,6 +759,7 @@ def transferir_gelado():
         sabores_com_stock=sabores_com_stock,
         lojas_destino=lojas_destino,
         today=str(date.today()),
+        saidas=saidas,
     )
 
 

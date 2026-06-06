@@ -539,11 +539,11 @@ def get_ordem_transferencia_by_id(ordem_id: int):
     return dict(row) if row else None
 
 
-def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_origem: str = None, data: date = None, data_prevista: date = None) -> list:
+def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_origem: str = None, data: date = None, data_prevista: date = None, loja_origem: str = None, limit: int = None) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         query = """
-            SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista, motivo_rejeicao, batch_id
+            SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista, motivo_rejeicao, batch_id, loja_origem
             FROM ordens_transferencia WHERE 1=1
         """
         params = []
@@ -562,14 +562,20 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
         if data_prevista:
             query += " AND data_prevista = %s"
             params.append(data_prevista)
+        if loja_origem:
+            query += " AND loja_origem = %s"
+            params.append(loja_origem)
         query += " ORDER BY created_at DESC"
+        if limit:
+            query += " LIMIT %s"
+            params.append(limit)
         cursor.execute(query, params)
         rows = cursor.fetchall()
     return [{
         'id': r[0], 'data': r[1], 'area_origem': r[2], 'produto': r[3], 'sabor': r[4],
         'quantidade': float(r[5]), 'unidade': r[6], 'loja_destino': r[7], 'status': r[8],
         'criado_por': r[9], 'confirmado_por': r[10], 'confirmado_em': r[11], 'created_at': r[12],
-        'data_prevista': r[13], 'motivo_rejeicao': r[14], 'batch_id': r[15]
+        'data_prevista': r[13], 'motivo_rejeicao': r[14], 'batch_id': r[15], 'loja_origem': r[16]
     } for r in rows]
 
 

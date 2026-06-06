@@ -76,6 +76,46 @@
     </p>
 
     {% endif %}
+
+    <h6 class="mt-4 mb-2">📋 Histórico de saídas</h6>
+    {% if saidas %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Sabor</th>
+                    <th class="text-end">Qtd (kg)</th>
+                    <th>Destino</th>
+                    <th>Data</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for o in saidas %}
+                <tr>
+                    <td>{{ o.sabor }}</td>
+                    <td class="text-end">{{ '%.3f'|format(o.quantidade) }}</td>
+                    <td>{{ o.loja_destino }}</td>
+                    <td class="text-nowrap">{{ o.data }}</td>
+                    <td>
+                        {% if o.status == 'pendente' %}
+                        <span class="badge bg-warning text-dark">pendente</span>
+                        {% elif o.status == 'confirmado' %}
+                        <span class="badge bg-success">confirmado</span>
+                        {% elif o.status == 'rejeitado' %}
+                        <span class="badge bg-danger">rejeitado</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ o.status }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-muted small">Sem transferências enviadas para mostrar.</p>
+    {% endif %}
 </div>
 
 <script>
