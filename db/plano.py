@@ -1006,15 +1006,21 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
             """, params_pre)
             pre_period = {r[0]: (float(r[1]), r[2], True) for r in cursor.fetchall()}
         else:
-            # Supplemental pre-period lookup for sabores not found in-period
-            in_sabores = list(in_period.keys())
-            cursor.execute("""
-                SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
-                FROM stock_gelado
-                WHERE loja = %s AND data < %s AND sabor != ALL(%s)
-                ORDER BY sabor, data DESC, id DESC
-            """, [loja, data_inicio, in_sabores])
-            pre_period = {r[0]: (float(r[1]), r[2], True) for r in cursor.fetchall()}
+            if sabor_filtro:
+                # Specific sabor was requested and found in-period — no pre-period
+                # lookup needed and we must NOT query other sabores.
+                pre_period = {}
+            else:
+                # No sabor filter: supplement with pre-period baselines for any
+                # sabores that have pesagens before data_inicio but not within it.
+                in_sabores = list(in_period.keys())
+                cursor.execute("""
+                    SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
+                    FROM stock_gelado
+                    WHERE loja = %s AND data < %s AND sabor != ALL(%s)
+                    ORDER BY sabor, data DESC, id DESC
+                """, [loja, data_inicio, in_sabores])
+                pre_period = {r[0]: (float(r[1]), r[2], True) for r in cursor.fetchall()}
 
         baselines = {**pre_period, **in_period}  # in_period wins on conflict
         if not baselines:

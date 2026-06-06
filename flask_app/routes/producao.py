@@ -1248,7 +1248,7 @@ def movimentos_stock():
     try:
         data_inicio = date.fromisoformat(data_inicio_str)
     except ValueError:
-        data_inicio = today - timedelta(days=14)
+        data_inicio = today - timedelta(days=7)
 
     active_stores = get_active_venda_stores()
     loja_names = [s['name'] for s in active_stores]
