@@ -61,8 +61,9 @@
 <div class="card mb-3 shadow-sm">
   <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2 py-2">
     <span class="fw-bold">{{ sabor }}</span>
-    <span class="badge bg-secondary text-white small">
+    <span class="badge {% if baseline.out_of_period %}bg-warning text-dark{% else %}bg-secondary text-white{% endif %} small">
       ⚖️ Pesagem {{ baseline.data.strftime('%d/%m/%Y') }} — {{ '%.3f'|format(baseline.kg) }} kg
+      {% if baseline.out_of_period %}<span class="ms-1">(anterior ao período)</span>{% endif %}
     </span>
   </div>
 

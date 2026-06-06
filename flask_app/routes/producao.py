@@ -1237,7 +1237,7 @@ def sabores_ativos():
 def movimentos_stock():
     today = date.today()
     data_fim_str = request.args.get('data_fim', str(today))
-    data_inicio_str = request.args.get('data_inicio', str(today - timedelta(days=14)))
+    data_inicio_str = request.args.get('data_inicio', str(today - timedelta(days=7)))
     sabor_filtro = request.args.get('sabor', '').strip() or None
     loja_param = request.args.get('loja', '').strip()
 

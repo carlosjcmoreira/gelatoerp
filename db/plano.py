@@ -939,68 +939,134 @@ def get_pesagens_loja_3dias(loja_nome: str) -> dict:
 
 
 def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sabor_filtro: str = None) -> dict:
-    """Return a per-sabor stock-movement ledger for *loja*.
+    """Return a per-sabor stock-movement ledger for *loja* in [data_inicio, data_fim].
 
-    Baseline = the most-recent pesagem (stock_gelado row) per sabor up to
-    *data_fim*.  Movements are rececao_mercadoria rows with tipo_produto='gelado'
-    that fall strictly after each sabor's baseline date and up to *data_fim*.
+    Baseline
+    --------
+    Most-recent pesagem (stock_gelado) **within** [data_inicio, data_fim].
+    If none exists in the window, falls back to the most-recent pesagem before
+    data_inicio (flagged with 'out_of_period': True so the UI can show a notice).
+
+    Movement sources (no double-counting)
+    --------------------------------------
+    1. ``ordens_transferencia`` WHERE loja_destino=loja AND area_origem='Gelado'
+       AND status='confirmada' → confirmed inbound transfers (with order ID reference).
+    2. ``rececao_mercadoria`` WHERE tipo_produto='gelado' AND lote != ''
+       → direct physical receptions (OCR / manual; lote='' entries are always written
+       by confirmar_ordem_transferencia and are captured via source 1 above).
+    3. ``rececao_mercadoria`` WHERE tipo_produto='gelado' AND quantidade < 0
+       → outgoing exits written by store-initiated transfers (Task #417).
+    4. ``ordens_transferencia`` WHERE loja_origem=loja (column added by Task #417)
+       → explicit outbound transfers when the column is present; safe no-op otherwise.
 
     Returns
     -------
     {
       sabor: {
-        'baseline':          {'kg': float, 'data': date},
+        'baseline':          {'kg': float, 'data': date, 'out_of_period': bool},
         'movimentos':        [{'data', 'tipo', 'quantidade_kg', 'descricao', 'referencia'}, …],
         'saldo_calculado':   float,
         'pesagem_posterior': {'kg': float, 'data': date} | None,
       }
     }
-    Robust to loja_origem being NULL in ordens_transferencia (not yet populated
-    before Task #417 lands).
     """
     with db_connection() as conn:
         cursor = conn.cursor()
 
         sabor_cond = "AND sabor = %s" if sabor_filtro else ""
-        params_base = [loja, data_fim]
-        if sabor_filtro:
-            params_base.append(sabor_filtro)
 
+        # ── 1. Find baseline pesagem within [data_inicio, data_fim] ──────────
+        params_in = [loja, data_inicio, data_fim]
+        if sabor_filtro:
+            params_in.append(sabor_filtro)
         cursor.execute(f"""
             SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
             FROM stock_gelado
-            WHERE loja = %s AND data <= %s {sabor_cond}
+            WHERE loja = %s AND data BETWEEN %s AND %s {sabor_cond}
             ORDER BY sabor, data DESC, id DESC
-        """, params_base)
-        baseline_rows = cursor.fetchall()
+        """, params_in)
+        in_period = {r[0]: (float(r[1]), r[2], False) for r in cursor.fetchall()}
 
-        if not baseline_rows:
+        # Sabores without an in-period baseline → look before data_inicio
+        if sabor_filtro:
+            missing_sabores = [] if sabor_filtro in in_period else [sabor_filtro]
+        else:
+            missing_sabores = None  # resolved below after all-sabores query
+
+        if not in_period:
+            # No baselines at all in the period; look pre-period for all sabores
+            params_pre = [loja, data_inicio]
+            if sabor_filtro:
+                params_pre.append(sabor_filtro)
+            cursor.execute(f"""
+                SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
+                FROM stock_gelado
+                WHERE loja = %s AND data < %s {sabor_cond}
+                ORDER BY sabor, data DESC, id DESC
+            """, params_pre)
+            pre_period = {r[0]: (float(r[1]), r[2], True) for r in cursor.fetchall()}
+        else:
+            # Supplemental pre-period lookup for sabores not found in-period
+            in_sabores = list(in_period.keys())
+            cursor.execute("""
+                SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
+                FROM stock_gelado
+                WHERE loja = %s AND data < %s AND sabor != ALL(%s)
+                ORDER BY sabor, data DESC, id DESC
+            """, [loja, data_inicio, in_sabores])
+            pre_period = {r[0]: (float(r[1]), r[2], True) for r in cursor.fetchall()}
+
+        baselines = {**pre_period, **in_period}  # in_period wins on conflict
+        if not baselines:
             return {}
 
         result = {}
-        sabores = []
-        for sabor, kg_b, dt_b in baseline_rows:
+        sabores = list(baselines.keys())
+        for sabor, (kg_b, dt_b, oop) in baselines.items():
             result[sabor] = {
-                'baseline': {'kg': float(kg_b), 'data': dt_b},
+                'baseline': {'kg': float(kg_b), 'data': dt_b, 'out_of_period': oop},
                 'movimentos': [],
                 'saldo_calculado': float(kg_b),
                 'pesagem_posterior': None,
             }
-            sabores.append(sabor)
 
-        min_baseline_date = min(r['baseline']['data'] for r in result.values())
+        # ── 2. Confirmed inbound transfers from ordens_transferencia ─────────
+        min_baseline_date = min(v['baseline']['data'] for v in result.values())
+        cursor.execute("""
+            SELECT sabor, confirmado_em::date, quantidade::float, id
+            FROM ordens_transferencia
+            WHERE loja_destino = %s AND area_origem = 'Gelado'
+              AND status = 'confirmada' AND sabor = ANY(%s)
+              AND confirmado_em::date > %s AND confirmado_em::date <= %s
+            ORDER BY confirmado_em, id
+        """, (loja, sabores, min_baseline_date, data_fim))
+        for sabor_r, data_r, qty, ordem_id in cursor.fetchall():
+            if sabor_r not in result:
+                continue
+            if data_r <= result[sabor_r]['baseline']['data']:
+                continue
+            result[sabor_r]['movimentos'].append({
+                'data': data_r,
+                'tipo': 'entrada',
+                'quantidade_kg': float(qty),
+                'descricao': 'Transferência recebida',
+                'referencia': f'#{ordem_id}',
+            })
+            result[sabor_r]['saldo_calculado'] += float(qty)
 
+        # ── 3. Direct receptions (lote != '') + outgoing exits (qty < 0) ─────
+        # Exclude lote='' entries — those are always inserted by
+        # confirmar_ordem_transferencia and are already counted via source 2 above.
         cursor.execute("""
             SELECT sabor, data, quantidade::float, lote, produto
             FROM rececao_mercadoria
             WHERE loja = %s AND tipo_produto = 'gelado'
               AND sabor = ANY(%s)
               AND data > %s AND data <= %s
+              AND (lote IS NOT NULL AND lote != '')
             ORDER BY data, id
         """, (loja, sabores, min_baseline_date, data_fim))
-        rececao_rows = cursor.fetchall()
-
-        for sabor_r, data_r, qty, lote, produto in rececao_rows:
+        for sabor_r, data_r, qty, lote, produto in cursor.fetchall():
             if sabor_r not in result:
                 continue
             if data_r <= result[sabor_r]['baseline']['data']:
@@ -1008,7 +1074,7 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
             qty_f = float(qty)
             if qty_f >= 0:
                 tipo = 'entrada'
-                descricao = 'Transferência recebida' if (lote or '') == '' else 'Receção'
+                descricao = 'Receção'
             else:
                 tipo = 'saida'
                 descricao = 'Transferência enviada'
@@ -1017,10 +1083,39 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
                 'tipo': tipo,
                 'quantidade_kg': qty_f,
                 'descricao': descricao,
-                'referencia': lote or '—',
+                'referencia': lote,
             })
-            result[sabor_r]['saldo_calculado'] = result[sabor_r]['saldo_calculado'] + qty_f
+            result[sabor_r]['saldo_calculado'] += qty_f
 
+        # ── 4. Outbound via loja_origem (Task #417 — safe no-op if column absent) ─
+        cursor.execute("""
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'ordens_transferencia' AND column_name = 'loja_origem'
+        """)
+        if cursor.fetchone():
+            cursor.execute("""
+                SELECT sabor, data, quantidade::float, id, loja_destino
+                FROM ordens_transferencia
+                WHERE loja_origem = %s AND area_origem = 'Gelado'
+                  AND status IN ('pendente', 'confirmada') AND sabor = ANY(%s)
+                  AND data > %s AND data <= %s
+                ORDER BY data, id
+            """, (loja, sabores, min_baseline_date, data_fim))
+            for sabor_r, data_r, qty, ordem_id, loja_dest in cursor.fetchall():
+                if sabor_r not in result:
+                    continue
+                if data_r <= result[sabor_r]['baseline']['data']:
+                    continue
+                result[sabor_r]['movimentos'].append({
+                    'data': data_r,
+                    'tipo': 'saida',
+                    'quantidade_kg': -abs(float(qty)),
+                    'descricao': f'Enviado para {loja_dest}',
+                    'referencia': f'#{ordem_id}',
+                })
+                result[sabor_r]['saldo_calculado'] -= abs(float(qty))
+
+        # ── 5. Find pesagem_posterior for each sabor (comparison) ────────────
         for sabor in sabores:
             baseline_dt = result[sabor]['baseline']['data']
             cursor.execute("""
