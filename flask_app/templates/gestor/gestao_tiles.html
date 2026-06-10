@@ -12,22 +12,41 @@
     <div class="alert alert-info">Nenhum tile registado ainda.</div>
     {% else %}
 
-    {% set module_labels = {
-        'producao':  '🍦 Produção',
-        'pastelaria':'🥐 Pastelaria',
-        'vendas':    '🛍️ Vendas',
-        'gestor':    '⚙️ Gestor',
-        'financeiro':'💰 Financeiro'
-    } %}
-
     {% for module_id, tiles in modules.items() %}
+    {% set mod_emoji = module_emojis.get(module_id, '') %}
+    {% set mod_default = module_defaults.get(module_id, module_id) %}
+    {% set mod_label = module_custom_labels.get(module_id, mod_default) %}
     <div class="card mb-4" style="max-width:700px;">
-        <div class="card-header fw-semibold">
-            {{ module_labels.get(module_id, module_id) }}
+        <div class="card-header py-2">
+            <div class="d-flex align-items-center gap-2 tile-rename-row">
+                <span class="fs-5 flex-shrink-0" style="width:1.6rem;text-align:center;">{{ mod_emoji }}</span>
+                <input type="text"
+                       class="form-control form-control-sm tile-label-input flex-grow-1 fw-semibold"
+                       value="{{ mod_label }}"
+                       data-module="{{ module_id }}"
+                       data-tile-id="_module_label"
+                       data-original="{{ mod_label }}"
+                       data-default="{{ mod_default }}"
+                       maxlength="80"
+                       aria-label="Nome do módulo {{ module_id }}">
+                <button type="button"
+                        class="btn btn-outline-primary btn-sm tile-rename-btn flex-shrink-0"
+                        data-module="{{ module_id }}"
+                        data-tile-id="_module_label"
+                        title="Guardar nome do módulo"
+                        style="min-width:2.2rem;">💾</button>
+                <button type="button"
+                        class="btn btn-outline-secondary btn-sm tile-reset-btn flex-shrink-0"
+                        data-module="{{ module_id }}"
+                        data-tile-id="_module_label"
+                        data-default="{{ mod_default }}"
+                        title="Repor nome original ({{ mod_default }})"
+                        style="min-width:2.2rem;">↺</button>
+            </div>
         </div>
         <div class="list-group list-group-flush">
             {% for tile in tiles %}
-            <div class="list-group-item px-3 py-2">
+            <div class="list-group-item px-3 py-2 tile-rename-row">
                 <div class="d-flex align-items-center gap-2">
                     <span class="fs-5 flex-shrink-0" style="width:1.6rem;text-align:center;">{{ tile.icon }}</span>
                     <input type="text"
@@ -36,6 +55,7 @@
                            data-module="{{ module_id }}"
                            data-tile-id="{{ tile.tile_id }}"
                            data-original="{{ tile.label }}"
+                           data-default="{{ tile.default_label }}"
                            maxlength="80"
                            aria-label="Nome do tile {{ tile.tile_id }}">
                     <button type="button"
@@ -44,6 +64,13 @@
                             data-tile-id="{{ tile.tile_id }}"
                             title="Guardar nome"
                             style="min-width:2.2rem;">💾</button>
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm tile-reset-btn flex-shrink-0"
+                            data-module="{{ module_id }}"
+                            data-tile-id="{{ tile.tile_id }}"
+                            data-default="{{ tile.default_label }}"
+                            title="Repor nome original ({{ tile.default_label }})"
+                            style="min-width:2.2rem;">↺</button>
                     <button type="button"
                             class="btn btn-sm tile-toggle flex-shrink-0 {% if tile.visible %}btn-success{% else %}btn-outline-secondary{% endif %}"
                             data-module="{{ module_id }}"
@@ -93,6 +120,22 @@
         return fetch(url, {method: 'POST', body: fd}).then(r => r.json());
     }
 
+    function doRename(module, tileId, label, input, btn) {
+        btn.disabled = true;
+        postForm(RENAME_URL, {module, tile_id: tileId, label})
+            .then(data => {
+                if (data.ok) {
+                    input.dataset.original = data.label;
+                    input.value = data.label;
+                    showToast('Nome guardado', true);
+                } else {
+                    showToast(data.error || 'Erro ao guardar', false);
+                }
+            })
+            .catch(() => showToast('Erro de rede', false))
+            .finally(() => { btn.disabled = false; });
+    }
+
     document.querySelectorAll('.tile-toggle').forEach(btn => {
         btn.addEventListener('click', function () {
             const module = this.dataset.module;
@@ -122,23 +165,27 @@
         btn.addEventListener('click', function () {
             const module = this.dataset.module;
             const tileId = this.dataset.tileId;
-            const row = this.closest('.list-group-item');
+            const row = this.closest('.tile-rename-row');
             const input = row.querySelector('.tile-label-input');
             const label = input.value.trim();
-            if (!label) { showToast('O nome não pode estar vazio', false); return; }
-            btn.disabled = true;
-            postForm(RENAME_URL, {module, tile_id: tileId, label})
-                .then(data => {
-                    if (data.ok) {
-                        input.dataset.original = data.label;
-                        input.value = data.label;
-                        showToast('Nome guardado', true);
-                    } else {
-                        showToast(data.error || 'Erro ao guardar', false);
-                    }
-                })
-                .catch(() => showToast('Erro de rede', false))
-                .finally(() => { btn.disabled = false; });
+            if (!label) {
+                showToast('O nome não pode estar vazio — use ↺ para repor o original', false);
+                return;
+            }
+            doRename(module, tileId, label, input, this);
+        });
+    });
+
+    document.querySelectorAll('.tile-reset-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            const module = this.dataset.module;
+            const tileId = this.dataset.tileId;
+            const defaultLabel = this.dataset.default;
+            const row = this.closest('.tile-rename-row');
+            const input = row.querySelector('.tile-label-input');
+            input.value = defaultLabel;
+            const saveBtn = row.querySelector('.tile-rename-btn');
+            doRename(module, tileId, defaultLabel, input, saveBtn);
         });
     });
 
@@ -146,7 +193,7 @@
         input.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                this.closest('.list-group-item').querySelector('.tile-rename-btn').click();
+                this.closest('.tile-rename-row').querySelector('.tile-rename-btn').click();
             }
             if (e.key === 'Escape') {
                 this.value = this.dataset.original;

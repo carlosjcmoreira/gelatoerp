@@ -1777,12 +1777,30 @@ _TILE_MASTER = {
 }
 
 
+_MODULE_DEFAULTS = {
+    'producao':  'Produção',
+    'pastelaria': 'Pastelaria',
+    'vendas':    'Vendas',
+    'gestor':    'Gestor',
+    'financeiro': 'Financeiro',
+}
+
+_MODULE_EMOJIS = {
+    'producao':  '🍦',
+    'pastelaria': '🥐',
+    'vendas':    '🛍️',
+    'gestor':    '⚙️',
+    'financeiro': '💰',
+}
+
+
 @gestor_bp.route('/gestao-tiles', methods=['GET'])
 @perm_required('acesso_gestor')
 def gestao_tiles():
-    from db.tiles import get_all_tile_config
+    from db.tiles import get_all_tile_config, get_module_labels
 
     db_state = {(r['module'], r['tile_id']): r for r in get_all_tile_config()}
+    module_custom_labels = get_module_labels()
 
     _ORDER = ['producao', 'pastelaria', 'vendas', 'gestor', 'financeiro']
     modules = {}
@@ -1807,6 +1825,9 @@ def gestao_tiles():
         'gestor/gestao_tiles.html',
         active_tab='gestao_tiles',
         modules=modules,
+        module_custom_labels=module_custom_labels,
+        module_defaults=_MODULE_DEFAULTS,
+        module_emojis=_MODULE_EMOJIS,
         back_url=url_for('gestor.index'),
     )
 

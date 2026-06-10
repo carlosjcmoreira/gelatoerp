@@ -140,6 +140,23 @@ def set_tile_label(module: str, tile_id: str, label: str) -> None:
         conn.commit()
 
 
+def get_module_labels() -> dict:
+    """Return {module: label} for modules that have a custom label set.
+
+    Module labels are stored with tile_id='_module_label' so they share the
+    existing tile_config table without a schema change.  Modules not in the
+    result have no custom label and should fall back to their built-in default.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT module, label FROM tile_config"
+            " WHERE tile_id = '_module_label' AND label != ''",
+        )
+        rows = cursor.fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
 def get_all_tile_config() -> list:
     """Return all tile_config rows ordered by module, tile_id.
 
