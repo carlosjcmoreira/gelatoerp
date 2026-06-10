@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-    <h5 class="mb-4">💰 Financeiro</h5>
+    <h5 class="mb-4">{{ module_title | default('💰 Financeiro') }}</h5>
 
     {% for group in groups %}
     <h6 class="text-muted fw-semibold mb-2 mt-3" style="font-size:0.78rem;letter-spacing:.04em;text-transform:uppercase;">{{ group.label }}</h6>

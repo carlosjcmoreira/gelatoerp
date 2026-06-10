@@ -110,16 +110,17 @@ def _iso_date(val):
 @producao_bp.route('/')
 @perm_required('acesso_producao')
 def index():
-    from db.tiles import get_tile_visibility, get_tile_labels
+    from db.tiles import get_tile_visibility, get_tile_labels, get_module_labels
     visibility = get_tile_visibility('producao')
     labels = get_tile_labels('producao')
+    custom_mod = get_module_labels().get('producao')
     items = [
         {'icon': t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['url_endpoint'])}
         for t in TABS
         if visibility.get(t['id'], True)
     ]
     return render_template('components/section_menu.html', items=items,
-                           menu_title='🍦 Produção Gelado')
+                           menu_title=f'🍦 {custom_mod}' if custom_mod else '🍦 Produção Gelado')
 
 
 @producao_bp.route('/dashboard')

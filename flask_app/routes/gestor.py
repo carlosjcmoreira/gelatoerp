@@ -82,10 +82,11 @@ EUROKG_CHILD_IDS = {'premio_eurokg', 'receitas_eurokg', 'alocacao_produtos'}
 @gestor_bp.route('/')
 @perm_required('acesso_gestor')
 def index():
-    from db.tiles import get_tile_visibility, get_tile_labels
+    from db.tiles import get_tile_visibility, get_tile_labels, get_module_labels
     onedrive_configured = bool(db.get_system_config('onedrive_refresh_token'))
     visibility = get_tile_visibility('gestor')
     labels = get_tile_labels('gestor')
+    custom_mod = get_module_labels().get('gestor')
     items = []
     eurokg_added = False
     for t in TABS:
@@ -104,7 +105,7 @@ def index():
                 item['badge'] = {'text': 'Por configurar', 'cls': 'bg-secondary'}
         items.append(item)
     return render_template('components/section_menu.html', items=items,
-                           menu_title='👔 Gestor')
+                           menu_title=f'👔 {custom_mod}' if custom_mod else '👔 Gestor')
 
 
 @gestor_bp.route('/eurokg/')

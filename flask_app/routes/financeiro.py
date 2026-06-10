@@ -57,11 +57,12 @@ def _get_username():
 @financeiro_bp.route('/')
 @perm_required('acesso_gestor')
 def index():
-    from db.tiles import get_tile_visibility, seed_tile_config, get_tile_labels
+    from db.tiles import get_tile_visibility, seed_tile_config, get_tile_labels, get_module_labels
     all_tiles = [{'id': m['key'], 'label': m['label']} for g in FINANCEIRO_GROUPS for m in g['modules']]
     seed_tile_config('financeiro', all_tiles)
     visibility = get_tile_visibility('financeiro')
     labels = get_tile_labels('financeiro')
+    custom_mod = get_module_labels().get('financeiro')
     groups = []
     for g in FINANCEIRO_GROUPS:
         resolved = []
@@ -77,7 +78,8 @@ def index():
             resolved.append(entry)
         if resolved:
             groups.append({'label': g['label'], 'modules': resolved})
-    return render_template('financeiro/index.html', groups=groups)
+    module_title = f'💰 {custom_mod}' if custom_mod else '💰 Financeiro'
+    return render_template('financeiro/index.html', groups=groups, module_title=module_title)
 
 
 @financeiro_bp.route('/contas-fornecedor')

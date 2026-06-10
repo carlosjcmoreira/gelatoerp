@@ -173,10 +173,13 @@ def index():
     if not _check_vendas_access():
         return redirect(url_for('home.index'))
     loja_id, loja_nome = _get_user_loja()
+    from db.tiles import get_module_labels
+    custom_mod = get_module_labels().get('vendas')
     tabs = _build_tabs(None, loja_id)
     items = [{'icon': t['icon'], 'label': t['label'], 'url': t['url']} for t in tabs]
+    mod_text = custom_mod if custom_mod else 'Vendas'
     return render_template('components/section_menu.html', items=items,
-                           menu_title=f'🛍️ Vendas {loja_nome}')
+                           menu_title=f'🛍️ {mod_text} — {loja_nome}')
 
 
 @vendas_bp.route('/dashboard')
