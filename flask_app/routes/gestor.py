@@ -199,7 +199,7 @@ def _handle_manual_producao():
     try:
         data_prod = datetime.strptime(data_str, '%Y-%m-%d').date()
         if qtd > 0:
-            db.add_producao(data_prod, loja, qtd)
+            db.add_producao(data_prod, loja, qtd, tipo='gestor-manual')
             flash(f'Produção de {qtd:.2f}kg registada para {loja}!', 'success')
         else:
             flash('Por favor, insira uma quantidade válida.', 'warning')

@@ -29,6 +29,7 @@ from database import (
     delete_producao_record, get_pesagens_loja_3dias,
     add_stock_gelado,
     get_movimentos_stock_gelado,
+    add_producao,
 )
 from datetime import date, timedelta
 import pandas as pd
@@ -682,6 +683,10 @@ def registo_producao_guardar():
                     sabores_form[sabor]['pesagem_mat_explicit'] = val.strip() != ''
                 break
 
+    ocr_session = session.get('ocr_producao_data', {})
+    manual_entry = ocr_session.get('manual_entry', True)
+    tipo_registo = 'manual' if manual_entry else 'ocr'
+
     saved = 0
     sabores_para_ordens = {}
     for sabor, vals in sabores_form.items():
@@ -712,6 +717,7 @@ def registo_producao_guardar():
                           ('Mouzinho', prod_mou), ('B2B', prod_b2b)):
             if qty > 0:
                 add_stock_producao(data_prod, sabor, loja, qty)
+                add_producao(data_prod, loja, qty, tipo=tipo_registo, sabor=sabor)
 
         for loja, qty in (('Bolhão', prod_bol), ('Mouzinho', prod_mou)):
             if qty > 0:

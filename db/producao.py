@@ -1138,7 +1138,7 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
         min_date = min(all_dates)
         max_date = max(all_dates)
         cursor.execute(
-            "SELECT id, data, sabor, quantidade_kg FROM producao WHERE loja = %s AND tipo = 'producao' AND data >= %s AND data <= %s",
+            "SELECT id, data, sabor, quantidade_kg FROM producao WHERE loja = %s AND tipo IN ('producao', 'balança') AND data >= %s AND data <= %s",
             (loja, min_date, max_date)
         )
         existing_map = {}
@@ -1173,7 +1173,7 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
                     existing_map[key] = (existing_id, quantidade)
                     updated += 1
             else:
-                inserts.append((data, loja, quantidade, 'producao', sabor))
+                inserts.append((data, loja, quantidade, 'balança', sabor))
                 existing_map[key] = (None, quantidade)
                 imported += 1
 
@@ -1282,14 +1282,18 @@ def get_producao_history_by_day(n_days: int = 30) -> list:
     """Return production records grouped by day for the last n_days.
 
     Returns a list of dicts ordered by data DESC:
-      [{'data': date, 'total_kg': float, 'linhas': [{'id': int, 'sabor': str, 'quantidade_kg': float}, ...]}, ...]
+      [{'data': date, 'total_kg': float, 'tipos': list[str],
+        'linhas': [{'id': int, 'sabor': str, 'quantidade_kg': float}, ...]}, ...]
+
+    ``tipos`` is the set of distinct ``tipo`` values for the day, which indicates
+    how the production was registered (e.g. 'ocr', 'manual', 'balança', 'producao').
     """
     from db.connection import db_connection
     from psycopg2.extras import RealDictCursor
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
-            SELECT id, data, sabor, ROUND(quantidade_kg::numeric, 3) AS quantidade_kg
+            SELECT id, data, sabor, ROUND(quantidade_kg::numeric, 3) AS quantidade_kg, tipo
             FROM producao
             WHERE data >= CURRENT_DATE - %s::interval
               AND sabor IS NOT NULL
@@ -1301,21 +1305,27 @@ def get_producao_history_by_day(n_days: int = 30) -> list:
     days = []
     current_date = None
     current_linhas = []
+    current_tipos: set = set()
     for row in rows:
         if row['data'] != current_date:
             if current_date is not None:
                 days.append({
                     'data': current_date,
                     'total_kg': round(sum(float(l['quantidade_kg']) for l in current_linhas), 3),
+                    'tipos': sorted(current_tipos),
                     'linhas': current_linhas,
                 })
             current_date = row['data']
             current_linhas = []
+            current_tipos = set()
         current_linhas.append({'id': row['id'], 'sabor': row['sabor'], 'quantidade_kg': float(row['quantidade_kg'])})
+        if row.get('tipo'):
+            current_tipos.add(row['tipo'])
     if current_date is not None:
         days.append({
             'data': current_date,
             'total_kg': round(sum(float(l['quantidade_kg']) for l in current_linhas), 3),
+            'tipos': sorted(current_tipos),
             'linhas': current_linhas,
         })
     return days

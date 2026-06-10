@@ -79,7 +79,12 @@
                 <span class="me-auto fw-semibold">
                     {{ dia.data.strftime('%d/%m/%Y') if dia.data else dia.data }}
                 </span>
-                <span class="badge bg-secondary ms-3">{{ '%.1f'|format(dia.total_kg) }} kg</span>
+                <span class="ms-2 d-flex align-items-center gap-1">
+                    {% if 'ocr' in (dia.tipos or []) %}<span class="badge bg-info text-dark" title="Registado por OCR">🤖 OCR</span>{% endif %}
+                    {% if 'manual' in (dia.tipos or []) %}<span class="badge bg-light border text-dark" title="Registado manualmente pela equipa">✏️ Manual</span>{% endif %}
+                    {% if 'balança' in (dia.tipos or []) or 'gestor-manual' in (dia.tipos or []) %}<span class="badge bg-warning text-dark" title="Upload do sistema de produção">⚖️ Balança</span>{% endif %}
+                </span>
+                <span class="badge bg-secondary ms-2">{{ '%.1f'|format(dia.total_kg) }} kg</span>
             </button>
         </h2>
         <div id="cd{{ loop.index }}" class="accordion-collapse collapse"
