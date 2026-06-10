@@ -19,6 +19,17 @@ def add_producao(data: date, loja: str, quantidade_kg: float, tipo: str = 'produ
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
+            SELECT id FROM producao
+            WHERE data = %s AND loja = %s AND sabor IS NOT DISTINCT FROM %s AND tipo = %s
+              AND created_at >= NOW() - INTERVAL '15 seconds'
+            LIMIT 1
+        ''', (data, loja, sabor, tipo))
+        if cursor.fetchone():
+            logger.warning(
+                "add_producao: registo duplicado ignorado (data=%s loja=%s sabor=%s tipo=%s)",
+                data, loja, sabor, tipo)
+            return
+        cursor.execute('''
             INSERT INTO producao (data, loja, quantidade_kg, tipo, sabor, store_id)
             VALUES (%s, %s, %s, %s, %s, %s)
         ''', (data, loja, quantidade_kg, tipo, sabor, store_id))
