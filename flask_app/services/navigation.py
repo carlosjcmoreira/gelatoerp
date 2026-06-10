@@ -35,6 +35,13 @@ def compute_nav_pages(user: dict) -> list:
 
     Must be called inside a Flask request/application context (url_for).
     """
+    try:
+        from db.tiles import get_module_labels
+        module_labels = get_module_labels()
+    except Exception as exc:
+        logger.warning("compute_nav_pages: failed to load module_labels: %s", exc)
+        module_labels = {}
+
     pages = []
 
     pages.append({
@@ -45,8 +52,12 @@ def compute_nav_pages(user: dict) -> list:
 
     for perm, icon, label, short_label, route, prefix in _PAGE_DEFS:
         if user.get(perm) or user.get('acesso_gestor'):
+            module_key = prefix.lstrip('/')
+            custom = module_labels.get(module_key)
             pages.append({
-                'icon': icon, 'label': label, 'short_label': short_label,
+                'icon': icon,
+                'label': custom if custom else label,
+                'short_label': custom[:7] if custom else short_label,
                 'url': url_for(route), 'prefix': prefix,
             })
 
@@ -54,12 +65,14 @@ def compute_nav_pages(user: dict) -> list:
         venda_stores = db.get_vendas_module_stores()
         is_gestor = user.get('acesso_gestor')
         vendas_store_ids = set(user.get('vendas_store_ids') or [])
+        custom_vendas = module_labels.get('vendas')
         for s in venda_stores:
             if is_gestor or s['id'] in vendas_store_ids:
                 sname = s['name']
+                label_v = f'{custom_vendas} {sname}' if custom_vendas else f'Vendas {sname}'
                 pages.append({
                     'icon': '🛒',
-                    'label': f'Vendas {sname}',
+                    'label': label_v,
                     'short_label': sname[:7],
                     'url': url_for('vendas.index', loja_id=s['id']),
                     'prefix': '/vendas',
@@ -82,10 +95,11 @@ def compute_nav_pages(user: dict) -> list:
             logger.warning("compute_nav_pages: failed to load landing stores: %s", exc)
 
     if user.get('acesso_eventos') or user.get('acesso_gestor'):
+        custom_eventos = module_labels.get('eventos')
         pages.append({
             'icon': '🎪',
-            'label': 'Eventos',
-            'short_label': 'Eventos',
+            'label': custom_eventos if custom_eventos else 'Eventos',
+            'short_label': (custom_eventos[:7] if custom_eventos else 'Eventos'),
             'url': url_for('eventos.index'),
             'prefix': '/eventos',
         })

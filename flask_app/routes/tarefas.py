@@ -52,6 +52,13 @@ def index():
     abertura = [t for t in tarefas if t['tipo'] == 'abertura']
     fecho = [t for t in tarefas if t['tipo'] == 'fecho']
 
+    from db.tiles import get_module_labels
+    try:
+        custom_mod = get_module_labels().get('tarefas')
+    except Exception:
+        custom_mod = None
+    module_title = f'✅ {custom_mod}' if custom_mod else '✅ Tarefas'
+
     return render_template(
         'tarefas/index.html',
         abertura=abertura,
@@ -63,6 +70,7 @@ def index():
         is_gestor=is_gestor,
         stores=stores,
         all_users=all_users,
+        module_title=module_title,
         filter_loja_id=filter_loja_id,
         filter_utilizador_id=filter_utilizador_id,
         filter_frequencia=filter_frequencia or '',

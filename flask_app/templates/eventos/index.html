@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-    <h5 class="mb-4">🎪 Eventos</h5>
+    <h5 class="mb-4">{{ menu_title | default('🎪 Eventos') }}</h5>
     <div class="nav-grid nav-grid-fill" data-items="{{ tiles|length }}">
         {% for tile in tiles %}
         <a href="{{ tile.url }}" class="nav-card">

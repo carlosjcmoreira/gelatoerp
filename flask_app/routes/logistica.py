@@ -20,9 +20,11 @@ TABS = [
 @logistica_bp.route('/')
 @perm_required('acesso_administrativo')
 def index():
+    from db.tiles import get_module_labels
+    custom_mod = get_module_labels().get('logistica')
     items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])} for t in TABS]
     return render_template('components/section_menu.html', items=items,
-                           menu_title='🚚 Logística')
+                           menu_title=f'🚚 {custom_mod}' if custom_mod else '🚚 Logística')
 
 
 # ── Transferências (unified: Ativas + Histórico) ────────────────────────────────

@@ -18,6 +18,12 @@ def _build_widgets(user: dict) -> list:
 
     Each widget dict has: id, icon, label, url, stats (list of {label, value, cls}).
     """
+    from db.tiles import get_module_labels
+    try:
+        ml = get_module_labels()
+    except Exception:
+        ml = {}
+
     widgets = []
     is_gestor = bool(user.get('acesso_gestor'))
 
@@ -36,7 +42,7 @@ def _build_widgets(user: dict) -> list:
                 cls = 'text-warning' if dias and dias > 7 else ''
                 stats.append({'label': 'Última pesagem', 'value': data['ultima_pesagem'].strftime('%d/%m/%Y'), 'cls': cls})
         widgets.append({
-            'id': 'eurokg', 'icon': '📊', 'label': 'Euro/kg',
+            'id': 'eurokg', 'icon': '📊', 'label': ml.get('eurokg') or 'Euro/kg',
             'url': url_for('eurokg.index'), 'stats': stats,
         })
 
@@ -52,7 +58,7 @@ def _build_widgets(user: dict) -> list:
             if data['ultima_producao']:
                 stats.append({'label': 'Última produção', 'value': data['ultima_producao'].strftime('%d/%m/%Y'), 'cls': ''})
         widgets.append({
-            'id': 'producao', 'icon': '🍨', 'label': 'Produção Gelado',
+            'id': 'producao', 'icon': '🍨', 'label': ml.get('producao') or 'Produção Gelado',
             'url': url_for('producao.index'), 'stats': stats,
         })
 
@@ -68,7 +74,7 @@ def _build_widgets(user: dict) -> list:
             cls2 = 'text-warning' if n > 0 else 'text-muted'
             stats.append({'label': 'Transferências pendentes', 'value': str(n), 'cls': cls2})
         widgets.append({
-            'id': 'pastelaria', 'icon': '🍡', 'label': 'Produção Pastelaria',
+            'id': 'pastelaria', 'icon': '🍡', 'label': ml.get('pastelaria') or 'Produção Pastelaria',
             'url': url_for('pastelaria.index'), 'stats': stats,
         })
 
@@ -82,7 +88,7 @@ def _build_widgets(user: dict) -> list:
             stats.append({'label': 'Itens hoje', 'value': str(data['itens_hoje']), 'cls': cls})
             stats.append({'label': 'Stock acumulado', 'value': str(data['stock_total']), 'cls': ''})
         widgets.append({
-            'id': 'confeitaria', 'icon': '🍪', 'label': 'Produção Confeitaria',
+            'id': 'confeitaria', 'icon': '🍪', 'label': ml.get('confeitaria') or 'Produção Confeitaria',
             'url': url_for('confeitaria.index'), 'stats': stats,
         })
 
@@ -98,7 +104,7 @@ def _build_widgets(user: dict) -> list:
             stats.append({'label': 'Agendadas / vencidas', 'value': f"{data['agendadas']} / {data['vencidas']}", 'cls': cls2})
             stats.append({'label': 'Pagas este mês', 'value': str(data['pagas_mes']), 'cls': 'text-muted'})
         widgets.append({
-            'id': 'faturas', 'icon': '🛍️', 'label': 'Compras e Faturas',
+            'id': 'faturas', 'icon': '🛍️', 'label': ml.get('compras') or 'Compras e Faturas',
             'url': url_for('compras.index'), 'stats': stats,
         })
 
@@ -111,7 +117,7 @@ def _build_widgets(user: dict) -> list:
             stats2.append({'label': 'Pendentes', 'value': str(data2['pendentes']), 'cls': cls})
             stats2.append({'label': 'Em curso', 'value': str(data2['em_curso']), 'cls': ''})
         widgets.append({
-            'id': 'logistica', 'icon': '🚚', 'label': 'Logística',
+            'id': 'logistica', 'icon': '🚚', 'label': ml.get('logistica') or 'Logística',
             'url': url_for('logistica.index'), 'stats': stats2,
         })
 
@@ -125,7 +131,7 @@ def _build_widgets(user: dict) -> list:
             if data.get('ultimo_login'):
                 stats.append({'label': 'Último login', 'value': data['ultimo_login'].strftime('%d/%m/%Y %H:%M'), 'cls': ''})
         widgets.append({
-            'id': 'gestor', 'icon': '👔', 'label': 'Gestor',
+            'id': 'gestor', 'icon': '👔', 'label': ml.get('gestor') or 'Gestor',
             'url': url_for('gestor.index'), 'stats': stats,
         })
 
@@ -141,7 +147,7 @@ def _build_widgets(user: dict) -> list:
             else:
                 stats.append({'label': 'Confirming ativos', 'value': str(data['confirming']), 'cls': 'text-muted'})
         widgets.append({
-            'id': 'financeiro', 'icon': '💰', 'label': 'Financeiro',
+            'id': 'financeiro', 'icon': '💰', 'label': ml.get('financeiro') or 'Financeiro',
             'url': url_for('financeiro.index'), 'stats': stats,
         })
 
@@ -169,9 +175,10 @@ def _build_widgets(user: dict) -> list:
                             stats.append({'label': 'Vendas hoje', 'value': 'Não registado', 'cls': 'text-muted'})
                     if data['ultima_data']:
                         stats.append({'label': 'Último registo', 'value': data['ultima_data'].strftime('%d/%m/%Y'), 'cls': ''})
+                _vendas_prefix = ml.get('vendas') or 'Vendas'
                 widgets.append({
                     'id': f"vendas_{s['id']}", 'icon': '🛒',
-                    'label': f"Vendas {s['name']}", 'url': url_for('vendas.index', loja_id=s['id']),
+                    'label': f"{_vendas_prefix} {s['name']}", 'url': url_for('vendas.index', loja_id=s['id']),
                     'stats': stats,
                 })
     except Exception as exc:
@@ -190,7 +197,7 @@ def _build_widgets(user: dict) -> list:
             if data['leads_pendentes']:
                 stats.append({'label': 'Leads pendentes', 'value': str(data['leads_pendentes']), 'cls': 'text-warning'})
         widgets.append({
-            'id': 'eventos', 'icon': '🎪', 'label': 'Eventos',
+            'id': 'eventos', 'icon': '🎪', 'label': ml.get('eventos') or 'Eventos',
             'url': url_for('eventos.index'), 'stats': stats,
         })
 

@@ -71,9 +71,11 @@ def _get_username():
 @compras_bp.route('/')
 @perm_required('acesso_administrativo')
 def index():
+    from db.tiles import get_module_labels
+    custom_mod = get_module_labels().get('compras')
     items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])} for t in TABS]
     return render_template('components/section_menu.html', items=items,
-                           menu_title='🛒 Compras e Faturas')
+                           menu_title=f'🛒 {custom_mod}' if custom_mod else '🛒 Compras e Faturas')
 
 
 @compras_bp.route('/faturas')

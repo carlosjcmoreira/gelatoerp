@@ -3,7 +3,7 @@
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-4">
   <div class="d-flex align-items-center justify-content-between mb-1 flex-wrap gap-2">
-    <h5 class="mb-0">✅ Tarefas</h5>
+    <h5 class="mb-0">{{ module_title | default('✅ Tarefas') }}</h5>
     <a href="{{ url_for('tarefas.historico') }}" class="btn btn-sm btn-outline-secondary">📋 Histórico</a>
   </div>
   <p class="text-muted small mb-3">{{ hoje.strftime('%d/%m/%Y') }}</p>

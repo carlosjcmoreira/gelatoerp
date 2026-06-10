@@ -105,6 +105,9 @@ def _parse_decimal(s):
 @eventos_bp.route('/')
 @login_required
 def index():
+    from db.tiles import get_module_labels
+    custom_mod = get_module_labels().get('eventos')
+    menu_title = f'🎪 {custom_mod}' if custom_mod else '🎪 Eventos'
     tiles = [
         {'icon': '📊', 'label': 'Dashboard',          'url': url_for('eventos.dashboard')},
         {'icon': '📋', 'label': 'Pipeline',            'url': url_for('eventos.pipeline')},
@@ -113,7 +116,7 @@ def index():
         {'icon': '🏷️', 'label': 'Artigos',             'url': url_for('eventos.artigos')},
         {'icon': '💶', 'label': 'Recebimentos',        'url': url_for('eventos.recebimentos')},
     ]
-    return render_template('eventos/index.html', tiles=tiles)
+    return render_template('eventos/index.html', tiles=tiles, menu_title=menu_title)
 
 
 # ── Dashboard ──────────────────────────────────────────────────────────────────

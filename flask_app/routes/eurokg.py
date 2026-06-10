@@ -51,15 +51,17 @@ def _build_tabs(loja_filter, is_gestor, active):
 @eurokg_bp.route('/')
 @perm_required('acesso_eurokg')
 def index():
+    from db.tiles import get_module_labels
     user = session.get('user', {})
     is_gestor = user.get('acesso_gestor', False)
+    custom_mod = get_module_labels().get('eurokg')
     items = [
         {'icon': m['icon'], 'label': m['label'], 'url': url_for(m['url_endpoint'])}
         for m in MENU_ITEMS
         if not m.get('gestor_only') or is_gestor
     ]
     return render_template('components/section_menu.html', items=items,
-                           menu_title='📊 Euro/kg')
+                           menu_title=f'📊 {custom_mod}' if custom_mod else '📊 Euro/kg')
 
 
 @eurokg_bp.route('/dashboard')

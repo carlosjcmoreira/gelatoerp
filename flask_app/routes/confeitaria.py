@@ -39,9 +39,11 @@ def _tabs_with_urls():
 @confeitaria_bp.route('/')
 @perm_required('acesso_confeitaria')
 def index():
+    from db.tiles import get_module_labels
+    custom_mod = get_module_labels().get('confeitaria')
     items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['endpoint'])} for t in TABS]
     return render_template('components/section_menu.html', items=items,
-                           menu_title='🍪 Produção Confeitaria')
+                           menu_title=f'🍪 {custom_mod}' if custom_mod else '🍪 Produção Confeitaria')
 
 
 @confeitaria_bp.route('/stock-balcao', methods=['GET', 'POST'])
