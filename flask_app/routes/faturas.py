@@ -39,7 +39,8 @@ from database import (
 
 import flask_app.services.faturas as faturas_svc
 from flask_app.services import ServiceError
-from db.faturas import get_duplicate_supplier_suggestions, ignore_supplier_pair
+from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair,
+                        get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias)
 
 logger = logging.getLogger(__name__)
 
@@ -1697,6 +1698,31 @@ def fornecedores():
                     flash(f'Nenhuma fatura sem ligação encontrada com o nome "{old_name}".', 'info')
             return redirect(url_for('faturas.fornecedores'))
 
+        elif action == 'delete_alias':
+            alias_id_str = request.form.get('alias_id', '').strip()
+            if alias_id_str.isdigit():
+                ok = delete_supplier_alias(int(alias_id_str))
+                if ok:
+                    flash('Alias eliminado.', 'success')
+                else:
+                    flash('Alias não encontrado.', 'warning')
+            else:
+                flash('ID de alias inválido.', 'warning')
+            return redirect(url_for('faturas.fornecedores'))
+
+        elif action == 'add_alias':
+            supplier_id_str = request.form.get('supplier_id', '').strip()
+            alias_name = request.form.get('alias_name', '').strip()
+            if not supplier_id_str.isdigit() or not alias_name:
+                flash('Fornecedor e nome do alias são obrigatórios.', 'warning')
+            else:
+                ok = add_supplier_alias(int(supplier_id_str), alias_name)
+                if ok:
+                    flash(f'Alias "{alias_name}" adicionado.', 'success')
+                else:
+                    flash(f'Alias "{alias_name}" já existe ou não foi possível adicionar.', 'warning')
+            return redirect(url_for('faturas.fornecedores'))
+
     suppliers = get_suppliers_with_invoice_count()
     categories = INVOICE_CATEGORIES
     unlinked_names = get_unlinked_supplier_names()
@@ -1705,6 +1731,7 @@ def fornecedores():
     except Exception as _dup_exc:
         logger.warning('get_duplicate_supplier_suggestions failed: %s', _dup_exc)
         duplicate_pairs = []
+    supplier_aliases = get_all_supplier_aliases()
     return render_template(
         'financeiro/faturas/fornecedores.html',
         suppliers=suppliers,
@@ -1714,6 +1741,7 @@ def fornecedores():
         payment_terms_labels=PAYMENT_TERMS_LABELS,
         unlinked_names=unlinked_names,
         duplicate_pairs=duplicate_pairs,
+        supplier_aliases=supplier_aliases,
     )
 
 

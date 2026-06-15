@@ -354,6 +354,84 @@ def get_supplier_by_alias(name: str, nif: str = None) -> dict:
     return None
 
 
+def get_supplier_aliases(supplier_id: int) -> list:
+    """Return all aliases for a given supplier_id. Safe to call before migration."""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, alias_name, alias_nif, source, created_at
+                FROM supplier_aliases
+                WHERE supplier_id = %s
+                ORDER BY alias_name
+            """, (supplier_id,))
+            rows = cursor.fetchall()
+        return [
+            {'id': r[0], 'alias_name': r[1], 'alias_nif': r[2],
+             'source': r[3], 'created_at': r[4]}
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+def get_all_supplier_aliases() -> dict:
+    """Return a dict of {supplier_id: [alias dicts]} for all suppliers. Safe to call before migration."""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, supplier_id, alias_name, alias_nif, source, created_at
+                FROM supplier_aliases
+                ORDER BY supplier_id, alias_name
+            """)
+            rows = cursor.fetchall()
+        result = {}
+        for r in rows:
+            sid = r[1]
+            result.setdefault(sid, []).append(
+                {'id': r[0], 'alias_name': r[2], 'alias_nif': r[3],
+                 'source': r[4], 'created_at': r[5]}
+            )
+        return result
+    except Exception:
+        return {}
+
+
+def delete_supplier_alias(alias_id: int) -> bool:
+    """Delete a single alias row by primary key. Returns True if deleted."""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM supplier_aliases WHERE id = %s", (alias_id,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+        return deleted
+    except Exception as exc:
+        logger.warning('delete_supplier_alias(%s) failed: %s', alias_id, exc)
+        return False
+
+
+def add_supplier_alias(supplier_id: int, alias_name: str, alias_nif: str = None) -> bool:
+    """Insert a manual alias for a supplier. Returns True on success, False on duplicate/error."""
+    if not alias_name or not alias_name.strip():
+        return False
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO supplier_aliases (supplier_id, alias_name, alias_nif, source)
+                VALUES (%s, %s, %s, 'manual')
+                ON CONFLICT (alias_name) DO NOTHING
+            """, (supplier_id, alias_name.strip(), alias_nif or None))
+            inserted = cursor.rowcount > 0
+            conn.commit()
+        return inserted
+    except Exception as exc:
+        logger.warning('add_supplier_alias(%s, %r) failed: %s', supplier_id, alias_name, exc)
+        return False
+
+
 def get_duplicate_supplier_suggestions(suppliers: list = None, threshold: float = 0.85) -> list:
     """Return pairs of suppliers that may be duplicates.
 

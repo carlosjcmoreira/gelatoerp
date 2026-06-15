@@ -156,6 +156,46 @@
                     </div>
                     {% if s.iban %}<div class="small text-muted">IBAN: {{ s.iban }}</div>{% endif %}
                     {% if s.notes %}<div class="small text-muted fst-italic">{{ s.notes }}</div>{% endif %}
+                    {% set aliases = supplier_aliases.get(s.id, []) %}
+                    <div class="mt-1">
+                        <button class="btn btn-link btn-sm p-0 text-muted small"
+                                type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#aliases-{{ s.id }}"
+                                aria-expanded="false"
+                                aria-controls="aliases-{{ s.id }}">
+                            🏷 Aliases ({{ aliases | length }})
+                        </button>
+                        <div class="collapse" id="aliases-{{ s.id }}">
+                            <div class="mt-1 ps-2 border-start border-secondary">
+                                {% if aliases %}
+                                <div class="d-flex flex-column gap-1 mb-2">
+                                    {% for a in aliases %}
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="small">{{ a.alias_name }}{% if a.alias_nif %} <span class="text-muted">(NIF: {{ a.alias_nif }})</span>{% endif %}
+                                            {% if a.source == 'manual' %}<span class="badge bg-secondary bg-opacity-50 ms-1" style="font-size:.65rem">manual</span>{% endif %}
+                                        </span>
+                                        <form method="post" class="d-inline" onsubmit="return confirm('Eliminar alias?')">
+                                            <input type="hidden" name="action" value="delete_alias">
+                                            <input type="hidden" name="alias_id" value="{{ a.id }}">
+                                            <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar alias" style="font-size:.8rem">✕</button>
+                                        </form>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <p class="small text-muted mb-2">Sem aliases.</p>
+                                {% endif %}
+                                <form method="post" class="d-flex gap-1 align-items-center flex-wrap">
+                                    <input type="hidden" name="action" value="add_alias">
+                                    <input type="hidden" name="supplier_id" value="{{ s.id }}">
+                                    <input type="text" name="alias_name" class="form-control form-control-sm"
+                                           style="max-width:220px" placeholder="Novo alias…" required>
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm">+ Adicionar</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="d-flex gap-1 flex-shrink-0">
                     <button class="btn btn-outline-secondary btn-sm"
