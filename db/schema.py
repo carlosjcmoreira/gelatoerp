@@ -3714,6 +3714,68 @@ def run_migrations_invoice_installments():
                 pass
 
 
+def run_migrations_supplier_aliases():
+    """Idempotent: create supplier_aliases and supplier_merge_ignored tables.
+
+    supplier_aliases stores alternate names/NIFs (variants) for a canonical
+    supplier so OCR can recognise any variant and redirect to the right record.
+    Populated automatically by merge_supplier().
+
+    supplier_merge_ignored records pairs the user has dismissed so they do not
+    reappear in the "Possíveis duplicados" suggestions.
+
+    Advisory lock 202625.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(202625)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_supplier_aliases: lock held by another worker, skipping")
+                return
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS supplier_aliases (
+                    id SERIAL PRIMARY KEY,
+                    supplier_id INTEGER NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+                    alias_name VARCHAR(255) NOT NULL,
+                    alias_nif VARCHAR(20),
+                    source VARCHAR(50) DEFAULT 'merge',
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(alias_name)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sup_alias_supplier "
+                "ON supplier_aliases(supplier_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sup_alias_name "
+                "ON supplier_aliases(LOWER(alias_name))"
+            )
+
+            # supplier_id_a is always stored as the smaller of the two IDs
+            # (enforced by the application), making (a, b) a valid PK for pair identity.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS supplier_merge_ignored (
+                    supplier_id_a INTEGER NOT NULL,
+                    supplier_id_b INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (supplier_id_a, supplier_id_b),
+                    CHECK (supplier_id_a < supplier_id_b)
+                )
+            """)
+
+            conn.commit()
+            logger.info("run_migrations_supplier_aliases: done")
+        except Exception as exc:
+            logger.error("run_migrations_supplier_aliases failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_invoice_centros_custo():
     """Idempotent: create invoice_centros_custo junction table for multi-CC allocation.
 

@@ -36,6 +36,7 @@ from db.faturas import (
     save_invoice_pdf,
     get_stores_list,
     get_distinct_supplier_names,
+    get_supplier_by_alias,
     INVOICE_STATUS_LABELS,
     INVOICE_CATEGORIES,
     ONEDRIVE_SUBFOLDERS,
@@ -464,6 +465,8 @@ def review_draft(invoice_id):
         if doc_type in {'fatura', 'nota_credito', 'nota_debito'} and not supplier_id:
             if supplier_nif_clean:
                 s = get_supplier_by_nif(supplier_nif_clean)
+                if not s:
+                    s = get_supplier_by_alias(supplier_name or '', supplier_nif_clean)
                 if s:
                     supplier_id = s['id']
                 else:
@@ -471,6 +474,8 @@ def review_draft(invoice_id):
                     _supplier_created = True
             elif supplier_name:
                 s = get_supplier_by_name(supplier_name)
+                if not s:
+                    s = get_supplier_by_alias(supplier_name)
                 if s:
                     supplier_id = s['id']
                 else:

@@ -263,6 +263,10 @@ def delete_supplier(supplier_id: int) -> bool:
 def merge_supplier(source_id: int, target_id: int) -> int:
     """Re-link all invoices from source supplier to target, then delete source.
 
+    Also saves the source supplier's name (and NIF) as an alias of the target
+    so that future OCR lookups for the old name resolve correctly.
+    Existing aliases of the source are migrated to the target.
+
     Returns the number of invoices re-linked, or raises ValueError if the
     source or target does not exist or they are the same.
     """
@@ -270,21 +274,157 @@ def merge_supplier(source_id: int, target_id: int) -> int:
         raise ValueError('source_id e target_id devem ser diferentes.')
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM suppliers WHERE id = %s", (source_id,))
-        if not cursor.fetchone():
+        cursor.execute("SELECT id, name, nif FROM suppliers WHERE id = %s", (source_id,))
+        src_row = cursor.fetchone()
+        if not src_row:
             raise ValueError(f'Fornecedor de origem {source_id} não encontrado.')
+        _, source_name, source_nif = src_row
+
         cursor.execute("SELECT id FROM suppliers WHERE id = %s", (target_id,))
         if not cursor.fetchone():
             raise ValueError(f'Fornecedor de destino {target_id} não encontrado.')
-        cursor.execute("""
-            UPDATE invoices SET supplier_id = %s
-            WHERE supplier_id = %s
-        """, (target_id, source_id))
+
+        # Migrate existing aliases from source → target
+        try:
+            cursor.execute(
+                "UPDATE supplier_aliases SET supplier_id = %s WHERE supplier_id = %s",
+                (target_id, source_id),
+            )
+            # Save source name as alias of target (ON CONFLICT = silently skip if name already aliased)
+            cursor.execute("""
+                INSERT INTO supplier_aliases (supplier_id, alias_name, alias_nif, source)
+                VALUES (%s, %s, %s, 'merge')
+                ON CONFLICT (alias_name) DO NOTHING
+            """, (target_id, source_name, source_nif))
+            # Clean up any ignored-pair records involving source
+            cursor.execute(
+                "DELETE FROM supplier_merge_ignored WHERE supplier_id_a = %s OR supplier_id_b = %s",
+                (source_id, source_id),
+            )
+        except Exception as _alias_exc:
+            logger.warning('merge_supplier: alias/ignored update skipped (table may not exist): %s', _alias_exc)
+
+        cursor.execute(
+            "UPDATE invoices SET supplier_id = %s WHERE supplier_id = %s",
+            (target_id, source_id),
+        )
         count = cursor.rowcount
         cursor.execute("DELETE FROM suppliers WHERE id = %s", (source_id,))
         conn.commit()
     logger.info('merge_supplier: %d→%d, %d invoice(s) re-linked', source_id, target_id, count)
     return count
+
+
+def get_supplier_by_alias(name: str, nif: str = None) -> dict:
+    """Look up a supplier via the alias table.
+
+    Checks alias_name (case-insensitive) or alias_nif when nif is provided.
+    Returns supplier dict or None.  Safe to call before the migration has run.
+    """
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            if nif:
+                cursor.execute("""
+                    SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+                           st.name AS store_name, s.payment_method, s.payment_terms, s.iban
+                    FROM supplier_aliases a
+                    JOIN suppliers s ON s.id = a.supplier_id
+                    LEFT JOIN stores st ON s.store_id = st.id
+                    WHERE LOWER(a.alias_name) = LOWER(%s) OR a.alias_nif = %s
+                    LIMIT 1
+                """, (name, nif))
+            else:
+                cursor.execute("""
+                    SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+                           st.name AS store_name, s.payment_method, s.payment_terms, s.iban
+                    FROM supplier_aliases a
+                    JOIN suppliers s ON s.id = a.supplier_id
+                    LEFT JOIN stores st ON s.store_id = st.id
+                    WHERE LOWER(a.alias_name) = LOWER(%s)
+                    LIMIT 1
+                """, (name,))
+            row = cursor.fetchone()
+        if row:
+            return {'id': row[0], 'name': row[1], 'nif': row[2], 'category': row[3],
+                    'store_id': row[4], 'notes': row[5], 'store_name': row[6],
+                    'payment_method': row[7], 'payment_terms': row[8], 'iban': row[9]}
+    except Exception:
+        pass  # alias table may not exist yet
+    return None
+
+
+def get_duplicate_supplier_suggestions(suppliers: list = None, threshold: float = 0.85) -> list:
+    """Return pairs of suppliers that may be duplicates.
+
+    Criteria:
+    - Critério A: same non-null NIF (should be impossible but may exist from direct inserts)
+    - Critério B: SequenceMatcher similarity >= threshold on lowercased name
+
+    Pairs in supplier_merge_ignored are excluded.
+    Returns list of dicts: {a: supplier, b: supplier, reason: str}.
+    """
+    from difflib import SequenceMatcher
+
+    if suppliers is None:
+        suppliers = get_suppliers_with_invoice_count()
+
+    ignored = set()
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT LEAST(supplier_id_a,supplier_id_b), GREATEST(supplier_id_a,supplier_id_b) "
+                "FROM supplier_merge_ignored"
+            )
+            for row in cursor.fetchall():
+                ignored.add((row[0], row[1]))
+    except Exception:
+        pass  # table may not exist yet
+
+    suggestions = []
+    seen = set()
+    for i, a in enumerate(suppliers):
+        for b in suppliers[i + 1:]:
+            pair_key = (min(a['id'], b['id']), max(a['id'], b['id']))
+            if pair_key in seen or pair_key in ignored:
+                continue
+            seen.add(pair_key)
+
+            # Critério A: same NIF
+            if a['nif'] and b['nif'] and a['nif'] == b['nif']:
+                suggestions.append({'a': a, 'b': b, 'reason': f'Mesmo NIF: {a["nif"]}'})
+                continue
+
+            # Critério B: name similarity
+            ratio = SequenceMatcher(None, a['name'].lower(), b['name'].lower()).ratio()
+            if ratio >= threshold:
+                suggestions.append({
+                    'a': a, 'b': b,
+                    'reason': f'Nomes semelhantes ({int(ratio * 100)}%)',
+                })
+
+    return suggestions
+
+
+def ignore_supplier_pair(id_a: int, id_b: int) -> None:
+    """Record that this pair should not appear in duplicate suggestions.
+
+    Always stores the smaller ID as supplier_id_a to satisfy the CHECK constraint
+    and ensure a consistent primary key regardless of argument order.
+    """
+    lo, hi = (min(id_a, id_b), max(id_a, id_b))
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO supplier_merge_ignored (supplier_id_a, supplier_id_b)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+            """, (lo, hi))
+            conn.commit()
+    except Exception as exc:
+        logger.warning('ignore_supplier_pair failed: %s', exc)
 
 
 def get_supplier_by_name(name: str) -> dict:

@@ -39,6 +39,7 @@ from database import (
 
 import flask_app.services.faturas as faturas_svc
 from flask_app.services import ServiceError
+from db.faturas import get_duplicate_supplier_suggestions, ignore_supplier_pair
 
 logger = logging.getLogger(__name__)
 
@@ -1665,6 +1666,14 @@ def fornecedores():
             )
             return redirect(url_for('faturas.fornecedores'))
 
+        elif action == 'ignore_pair':
+            id_a_raw = request.form.get('id_a', '').strip()
+            id_b_raw = request.form.get('id_b', '').strip()
+            if id_a_raw.isdigit() and id_b_raw.isdigit():
+                ignore_supplier_pair(int(id_a_raw), int(id_b_raw))
+                flash('Par ignorado — não voltará a aparecer nas sugestões.', 'info')
+            return redirect(url_for('faturas.fornecedores'))
+
         elif action == 'normalise':
             count = normalise_supplier_names()
             if count:
@@ -1691,6 +1700,11 @@ def fornecedores():
     suppliers = get_suppliers_with_invoice_count()
     categories = INVOICE_CATEGORIES
     unlinked_names = get_unlinked_supplier_names()
+    try:
+        duplicate_pairs = get_duplicate_supplier_suggestions(suppliers)
+    except Exception as _dup_exc:
+        logger.warning('get_duplicate_supplier_suggestions failed: %s', _dup_exc)
+        duplicate_pairs = []
     return render_template(
         'financeiro/faturas/fornecedores.html',
         suppliers=suppliers,
@@ -1699,6 +1713,7 @@ def fornecedores():
         payment_method_labels=PAYMENT_METHOD_LABELS,
         payment_terms_labels=PAYMENT_TERMS_LABELS,
         unlinked_names=unlinked_names,
+        duplicate_pairs=duplicate_pairs,
     )
 
 

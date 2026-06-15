@@ -78,6 +78,53 @@
     </div>
     {% endif %}
 
+    {% if duplicate_pairs %}
+    <div class="card border-warning mb-4">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center"
+             style="cursor:pointer;background:rgba(255,193,7,.12)"
+             data-bs-toggle="collapse" data-bs-target="#dupsCollapse"
+             aria-expanded="true" aria-controls="dupsCollapse">
+            <span class="fw-semibold small">⚠️ Possíveis duplicados ({{ duplicate_pairs | length }} par{{ 'es' if duplicate_pairs | length != 1 else '' }})</span>
+            <span class="text-muted small">▾ Expandir</span>
+        </div>
+        <div class="collapse show" id="dupsCollapse">
+        <div class="list-group list-group-flush">
+            {% for pair in duplicate_pairs %}
+            <div class="list-group-item py-2 px-3">
+                <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                    <div class="small">
+                        <span class="fw-semibold">{{ pair.a.name }}</span>
+                        <span class="badge bg-secondary ms-1">{{ pair.a.invoice_count }} fat.</span>
+                        {% if pair.a.nif %}<span class="text-muted ms-1">NIF: {{ pair.a.nif }}</span>{% endif %}
+                        <span class="text-muted mx-2">↔</span>
+                        <span class="fw-semibold">{{ pair.b.name }}</span>
+                        <span class="badge bg-secondary ms-1">{{ pair.b.invoice_count }} fat.</span>
+                        {% if pair.b.nif %}<span class="text-muted ms-1">NIF: {{ pair.b.nif }}</span>{% endif %}
+                        <span class="badge bg-warning text-dark ms-2">{{ pair.reason }}</span>
+                    </div>
+                    <div class="d-flex gap-1 flex-shrink-0">
+                        <button class="btn btn-warning btn-sm"
+                                onclick="openMergePreset({{ pair.a.id }}, {{ pair.b.id }})">
+                            🔀 Fundir
+                        </button>
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="ignore_pair">
+                            <input type="hidden" name="id_a" value="{{ pair.a.id }}">
+                            <input type="hidden" name="id_b" value="{{ pair.b.id }}">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm"
+                                    title="Ignorar — não voltará a aparecer">
+                                ✕ Não é duplicado
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        </div>
+    </div>
+    {% endif %}
+
     {% if suppliers %}
     <div class="list-group">
         {% for s in suppliers %}
@@ -270,6 +317,15 @@ function openMerge(sourceId, sourceName) {
     if (srcSelect) srcSelect.value = sourceId;
     // Pre-clear target so user picks intentionally
     if (tgtSelect) tgtSelect.value = '';
+    var modal = new bootstrap.Modal(document.getElementById('modalMerge'));
+    modal.show();
+}
+
+function openMergePreset(srcId, tgtId) {
+    var srcSelect = document.getElementById('mergeSourceId');
+    var tgtSelect = document.getElementById('mergeTargetId');
+    if (srcSelect) srcSelect.value = srcId;
+    if (tgtSelect) tgtSelect.value = tgtId;
     var modal = new bootstrap.Modal(document.getElementById('modalMerge'));
     modal.show();
 }

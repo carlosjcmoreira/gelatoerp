@@ -41,6 +41,7 @@ from db.schema import run_migrations_cost_center_allocation
 from db.schema import run_migrations_suppliers_nullable_nif, run_migrations_normalise_supplier_nifs
 from db.schema import run_migrations_onedrive_retry
 from db.schema import run_migrations_invoice_centros_custo, run_migrations_invoice_installments
+from db.schema import run_migrations_supplier_aliases
 from db.schema import run_migrations_normalise_producao_sabores
 from db.schema import run_migrations_quantidade_kg_to_numeric
 from db.schema import run_migrations_loja_origem
@@ -167,6 +168,7 @@ def create_app():
         run_migrations_onedrive_retry()
         run_migrations_invoice_centros_custo()
         run_migrations_invoice_installments()
+        run_migrations_supplier_aliases()
         run_migrations_normalise_producao_sabores()
         run_migrations_quantidade_kg_to_numeric()
         run_migrations_loja_origem()
