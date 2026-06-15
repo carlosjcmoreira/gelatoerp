@@ -342,8 +342,14 @@ def index():
     )
 
     # Per-type totals — single GROUP BY query, no full-list fetch
-    from db.faturas import get_invoices_type_totals
+    from db.faturas import get_invoices_type_totals, get_pending_installments
     totals_by_type = get_invoices_type_totals()
+
+    # Pending installments (show above main table regardless of filters)
+    try:
+        pending_installments = get_pending_installments()
+    except Exception:
+        pending_installments = []
 
     # Base query string without document_type so badge links preserve other filters
     _type_badge_params = []
@@ -401,6 +407,7 @@ def index():
         date_to_raw=date_to_raw,
         month_raw=month_raw,
         month_options=_month_options,
+        pending_installments=pending_installments,
     )
 
 
@@ -942,6 +949,8 @@ def detail(invoice_id: int):
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
     inv_centros_custo = get_invoice_centros_custo(invoice_id)
+    from db.faturas import get_invoice_installments
+    installments = get_invoice_installments(invoice_id)
     return render_template(
         'financeiro/faturas/detail.html',
         inv=inv,
@@ -962,6 +971,7 @@ def detail(invoice_id: int):
         cost_centers=cost_centers,
         cost_categories_tree=cost_categories_tree,
         inv_centros_custo=inv_centros_custo,
+        installments=installments,
     )
 
 
@@ -1317,11 +1327,48 @@ def confirmar(invoice_id: int):
 @faturas_bp.route('/<int:invoice_id>/pagar', methods=['POST'])
 @perm_required('acesso_gestor')
 def pagar(invoice_id: int):
+    current_user = session.get('user', {}).get('username', 'system')
+
+    # ── Installment (parcelado) mode ────────────────────────────────────────
+    if request.form.get('installment_mode') == '1':
+        montantes = request.form.getlist('inst_montante[]')
+        datas = request.form.getlist('inst_data[]')
+        if len(montantes) < 2 or len(montantes) != len(datas):
+            flash('Pagamento parcelado requer pelo menos 2 parcelas com valor e data.', 'warning')
+            return _panel_redirect(invoice_id)
+        installments = []
+        total = 0.0
+        for m_raw, d_raw in zip(montantes, datas):
+            amount = _parse_float(m_raw)
+            dt = _parse_date(d_raw)
+            if amount is None or not dt:
+                flash('Valor ou data inválidos nas parcelas.', 'warning')
+                return _panel_redirect(invoice_id)
+            total += amount
+            installments.append({'amount_eur': amount, 'due_date': dt})
+        inv = get_invoice(invoice_id)
+        if inv and inv.get('amount_eur') is not None:
+            inv_total = float(inv['amount_eur'])
+            if abs(total - inv_total) > 0.02:
+                flash(
+                    f'Atenção: total das parcelas ({total:.2f} €) difere do valor da fatura '
+                    f'({inv_total:.2f} €). Plano criado mesmo assim.',
+                    'warning',
+                )
+        try:
+            from db.faturas import create_invoice_installments
+            create_invoice_installments(invoice_id, installments, current_user)
+            flash(f'Plano parcelado criado: {len(installments)} parcelas (1ª já marcada como paga).', 'success')
+        except Exception as e:
+            logger.error('create_invoice_installments invoice=%s: %s', invoice_id, e)
+            flash('Erro ao criar parcelas. Tente novamente.', 'danger')
+        return _panel_redirect(invoice_id)
+
+    # ── Normal (full) payment ───────────────────────────────────────────────
     paid_date = _parse_date(request.form.get('paid_date', ''))
     if not paid_date:
         flash('É obrigatório indicar a data de pagamento.', 'warning')
         return _panel_redirect(invoice_id)
-    current_user = session.get('user', {}).get('username', 'system')
     payment_method = request.form.get('payment_method', '').strip() or None
     confirming_id_raw = request.form.get('confirming_contract_id', '').strip()
     confirming_id = int(confirming_id_raw) if confirming_id_raw.isdigit() else None
@@ -1349,6 +1396,27 @@ def pagar(invoice_id: int):
             except Exception as e:
                 logger.warning('create_confirming_parcela pagar invoice=%s: %s', invoice_id, e)
     flash('Fatura marcada como paga.', 'success')
+    return _panel_redirect(invoice_id)
+
+
+@faturas_bp.route('/<int:invoice_id>/installment/<int:installment_id>/pagar', methods=['POST'])
+@perm_required('acesso_gestor')
+def installment_pagar(invoice_id: int, installment_id: int):
+    paid_date = _parse_date(request.form.get('paid_date', ''))
+    if not paid_date:
+        flash('É obrigatório indicar a data de pagamento.', 'warning')
+        return _panel_redirect(invoice_id)
+    current_user = session.get('user', {}).get('username', 'system')
+    try:
+        from db.faturas import mark_installment_paid
+        all_paid = mark_installment_paid(installment_id, paid_date, current_user)
+        if all_paid:
+            flash('Todas as parcelas pagas — fatura marcada como paga.', 'success')
+        else:
+            flash('Parcela marcada como paga.', 'success')
+    except Exception as e:
+        logger.error('mark_installment_paid inst=%s: %s', installment_id, e)
+        flash('Erro ao marcar parcela como paga.', 'danger')
     return _panel_redirect(invoice_id)
 
 

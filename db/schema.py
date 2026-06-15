@@ -3664,6 +3664,56 @@ def run_migrations_loja_origem():
                 pass
 
 
+def run_migrations_invoice_installments():
+    """Idempotent: create invoice_installments table and add installment_total to invoices.
+
+    Supports splitting invoice payment into N installments, each with its own
+    amount, due date, paid date, and status.  Advisory lock 202623.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(202623)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_invoice_installments: lock held by another worker, skipping")
+                return
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS invoice_installments (
+                    id SERIAL PRIMARY KEY,
+                    invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                    installment_number INTEGER NOT NULL,
+                    total_installments INTEGER NOT NULL,
+                    amount_eur NUMERIC(10,2) NOT NULL,
+                    due_date DATE,
+                    paid_date DATE,
+                    status VARCHAR(30) NOT NULL DEFAULT 'pending_review',
+                    paid_by VARCHAR(100),
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_inv_inst_invoice "
+                "ON invoice_installments(invoice_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_inv_inst_status "
+                "ON invoice_installments(status) WHERE status != 'paid'"
+            )
+            cursor.execute(
+                "ALTER TABLE invoices ADD COLUMN IF NOT EXISTS installment_total INTEGER DEFAULT 0"
+            )
+            conn.commit()
+            logger.info("run_migrations_invoice_installments: done")
+        except Exception as exc:
+            logger.error("run_migrations_invoice_installments failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_invoice_centros_custo():
     """Idempotent: create invoice_centros_custo junction table for multi-CC allocation.
 

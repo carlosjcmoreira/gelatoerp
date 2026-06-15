@@ -596,70 +596,111 @@
                 <h6 class="modal-title">Marcar como paga</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="post" action="{{ url_for('faturas.pagar', invoice_id=inv.id) }}">
+            <form method="post" action="{{ url_for('faturas.pagar', invoice_id=inv.id) }}" id="formPagar">
+                <input type="hidden" name="installment_mode" id="pagar-inst-mode" value="0">
                 <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label small">Data efectiva de pagamento</label>
-                        <input type="date" name="paid_date" class="form-control form-control-sm"
-                               value="{{ today.isoformat() }}" required>
+
+                    <!-- Toggle parcelado -->
+                    <div class="mb-3 pb-2 border-bottom">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="pagarParceladoToggle"
+                                   onchange="toggleInstallmentMode(this.checked)">
+                            <label class="form-check-label small fw-semibold" for="pagarParceladoToggle">
+                                💳 Pagamento parcelado
+                            </label>
+                        </div>
                     </div>
-                    {% if payment_methods %}
-                    <div class="mb-2">
-                        <label class="form-label small">Método de pagamento <span class="text-muted">(opcional)</span></label>
-                        <select name="payment_method" class="form-select form-select-sm" id="pmSelectPagar"
-                                onchange="pmPagarChange()">
-                            <option value="">(não especificado)</option>
-                            {% for m in payment_methods %}
-                            <option value="{{ m.metodo }}">{{ m.label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    {% if confirming_contracts %}
-                    <div id="pmPagarDetails" style="display:none">
+
+                    <!-- Normal payment section -->
+                    <div id="pagarNormalSection">
+                        <div class="mb-3">
+                            <label class="form-label small">Data efectiva de pagamento</label>
+                            <input type="date" name="paid_date" id="pagar-paid-date" class="form-control form-control-sm"
+                                   value="{{ today.isoformat() }}">
+                        </div>
+                        {% if payment_methods %}
                         <div class="mb-2">
-                            <label class="form-label small">Contrato Confirming</label>
-                            <select name="confirming_contract_id" class="form-select form-select-sm" id="pmPagarContrato"
-                                    onchange="updatePlafondDisplay('pagar')">
-                                <option value="">— Selecionar contrato —</option>
-                                {% for cc in confirming_contracts %}
-                                <option value="{{ cc.id }}"
-                                        data-plafond="{{ cc.plafond or 0 }}"
-                                        data-disponivel="{{ cc.disponivel or 0 }}">
-                                    {{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}
-                                </option>
+                            <label class="form-label small">Método de pagamento <span class="text-muted">(opcional)</span></label>
+                            <select name="payment_method" class="form-select form-select-sm" id="pmSelectPagar"
+                                    onchange="pmPagarChange()">
+                                <option value="">(não especificado)</option>
+                                {% for m in payment_methods %}
+                                <option value="{{ m.metodo }}">{{ m.label }}</option>
                                 {% endfor %}
                             </select>
-                            <div id="plafondInfoPagar" class="small text-muted mt-1" style="display:none">
-                                Plafond: <strong id="plafondTotalPagar">–</strong> |
-                                Disponível: <strong id="plafondDispPagar" class="text-success">–</strong>
-                            </div>
                         </div>
-                        <div class="mb-1">
-                            <div class="d-flex justify-content-between align-items-center mb-1">
-                                <label class="form-label small mb-0">Parcelas de Pagamento</label>
-                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
-                                        onclick="addParcelaRow('parcelasPagar', 'pagar')">+ Parcela</button>
-                            </div>
-                            <div id="parcelasPagar">
-                                <div class="parcela-row d-flex gap-1 mb-1 align-items-center">
-                                    <input type="number" step="0.01" min="0.01" name="parcela_montante[]"
-                                           class="form-control form-control-sm parcela-amt" placeholder="Valor €"
-                                           oninput="updateParcelaTotal('pagar')" value="{{ inv.amount_eur or '' }}">
-                                    <input type="date" name="parcela_data[]"
-                                           class="form-control form-control-sm" value="{{ today.isoformat() }}">
-                                    <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2"
-                                            onclick="removeParcelaRow(this, 'pagar')">×</button>
+                        {% if confirming_contracts %}
+                        <div id="pmPagarDetails" style="display:none">
+                            <div class="mb-2">
+                                <label class="form-label small">Contrato Confirming</label>
+                                <select name="confirming_contract_id" class="form-select form-select-sm" id="pmPagarContrato"
+                                        onchange="updatePlafondDisplay('pagar')">
+                                    <option value="">— Selecionar contrato —</option>
+                                    {% for cc in confirming_contracts %}
+                                    <option value="{{ cc.id }}"
+                                            data-plafond="{{ cc.plafond or 0 }}"
+                                            data-disponivel="{{ cc.disponivel or 0 }}">
+                                        {{ cc.label }}{% if cc.banco %} ({{ cc.banco }}){% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <div id="plafondInfoPagar" class="small text-muted mt-1" style="display:none">
+                                    Plafond: <strong id="plafondTotalPagar">–</strong> |
+                                    Disponível: <strong id="plafondDispPagar" class="text-success">–</strong>
                                 </div>
                             </div>
-                            <div class="small mt-1">
-                                Total parcelas: <strong id="parcelaTotalPagar">0.00 €</strong>
-                                <span id="parcelaWarnPagar" class="text-danger ms-2 d-none">⚠ diferente do valor da fatura ({{ "%.2f €"|format(inv.amount_eur|float) }})</span>
-                                <span id="parcelaWarnPlafondPagar" class="text-danger ms-2 d-none">⚠ excede plafond disponível</span>
+                            <div class="mb-1">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label small mb-0">Parcelas de Pagamento</label>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                            onclick="addParcelaRow('parcelasPagar', 'pagar')">+ Parcela</button>
+                                </div>
+                                <div id="parcelasPagar">
+                                    <div class="parcela-row d-flex gap-1 mb-1 align-items-center">
+                                        <input type="number" step="0.01" min="0.01" name="parcela_montante[]"
+                                               class="form-control form-control-sm parcela-amt" placeholder="Valor €"
+                                               oninput="updateParcelaTotal('pagar')" value="{{ inv.amount_eur or '' }}">
+                                        <input type="date" name="parcela_data[]"
+                                               class="form-control form-control-sm" value="{{ today.isoformat() }}">
+                                        <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2"
+                                                onclick="removeParcelaRow(this, 'pagar')">×</button>
+                                    </div>
+                                </div>
+                                <div class="small mt-1">
+                                    Total parcelas: <strong id="parcelaTotalPagar">0.00 €</strong>
+                                    <span id="parcelaWarnPagar" class="text-danger ms-2 d-none">⚠ diferente do valor da fatura ({{ "%.2f €"|format(inv.amount_eur|float) }})</span>
+                                    <span id="parcelaWarnPlafondPagar" class="text-danger ms-2 d-none">⚠ excede plafond disponível</span>
+                                </div>
                             </div>
                         </div>
+                        {% endif %}
+                        {% endif %}
                     </div>
-                    {% endif %}
-                    {% endif %}
+
+                    <!-- Installment builder section (hidden until toggle) -->
+                    <div id="pagarInstSection" class="d-none">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small fw-semibold">Definir parcelas</span>
+                            <div class="d-flex gap-1">
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                        onclick="setInstallmentCount(2)">2×</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                        onclick="setInstallmentCount(3)">3×</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                        onclick="setInstallmentCount(4)">4×</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                                        onclick="addInstRow()">+ Linha</button>
+                            </div>
+                        </div>
+                        <div class="small text-muted mb-2">A 1ª parcela é marcada como paga imediatamente.</div>
+                        <div id="instRows"></div>
+                        <div class="small mt-1">
+                            Total: <strong id="instTotalDisplay">0.00 €</strong>
+                            <span id="instTotalWarn" class="text-danger ms-2 d-none">
+                                ⚠ difere do valor da fatura ({{ "%.2f €"|format(inv.amount_eur|float) }})
+                            </span>
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer py-2">
                     <button type="submit" class="btn btn-success btn-sm">Marcar paga</button>
@@ -670,9 +711,167 @@
     </div>
 </div>
 
+{% if installments %}
+<!-- Installments table -->
+<div class="card mb-3">
+    <div class="card-header py-2 d-flex align-items-center justify-content-between">
+        <span class="fw-semibold small">
+            💳 Parcelas
+            ({{ installments | selectattr('status', 'equalto', 'paid') | list | length }}/{{ installments | length }} pagas)
+        </span>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="small px-3">Parcela</th>
+                    <th class="small">Valor</th>
+                    <th class="small">Data prevista</th>
+                    <th class="small">Estado</th>
+                    <th class="small"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inst in installments %}
+                <tr>
+                    <td class="small px-3">{{ inst.installment_number }}/{{ inst.total_installments }}</td>
+                    <td class="small fw-semibold text-nowrap">{{ '%.2f €'|format(inst.amount_eur) }}</td>
+                    <td class="small text-nowrap">{{ inst.due_date.strftime('%d/%m/%Y') if inst.due_date else '—' }}</td>
+                    <td>
+                        {% if inst.status == 'paid' %}
+                        <span class="badge bg-success">Paga{% if inst.paid_date %} {{ inst.paid_date.strftime('%d/%m') }}{% endif %}</span>
+                        {% elif inst.status == 'scheduled' %}
+                        <span class="badge bg-info text-dark">Agendada</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark">Pendente</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if inst.status != 'paid' %}
+                        <button class="btn btn-sm btn-outline-success py-0 px-2"
+                                data-bs-toggle="modal"
+                                data-bs-target="#modalInstPagar{{ inst.id }}">
+                            Pagar
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% for inst in installments %}
+{% if inst.status != 'paid' %}
+<div class="modal fade" id="modalInstPagar{{ inst.id }}" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title">Pagar parcela {{ inst.installment_number }}/{{ inst.total_installments }}</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" action="{{ url_for('faturas.installment_pagar', invoice_id=inv.id, installment_id=inst.id) }}">
+                <div class="modal-body">
+                    <div class="mb-2 small text-muted">Valor: <strong class="text-danger">{{ '%.2f €'|format(inst.amount_eur) }}</strong></div>
+                    <div class="mb-2">
+                        <label class="form-label small">Data de pagamento</label>
+                        <input type="date" name="paid_date" class="form-control form-control-sm"
+                               value="{{ today.isoformat() }}" required>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-success btn-sm">Confirmar</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+{% endif %}
+
 <script>
 var _invoiceTotal = {{ inv.amount_eur|float }};
 
+/* ── Installment (parcelado) mode ──────────────────────────────────────── */
+function toggleInstallmentMode(on) {
+    document.getElementById('pagar-inst-mode').value = on ? '1' : '0';
+    document.getElementById('pagarNormalSection').classList.toggle('d-none', on);
+    document.getElementById('pagarInstSection').classList.toggle('d-none', !on);
+    var paidDateInput = document.getElementById('pagar-paid-date');
+    if (paidDateInput) paidDateInput.required = !on;
+    if (on && document.getElementById('instRows').children.length === 0) {
+        setInstallmentCount(2);
+    }
+}
+
+function addInstRow(amt, dt) {
+    var container = document.getElementById('instRows');
+    var idx = container.children.length + 1;
+    var row = document.createElement('div');
+    row.className = 'inst-row d-flex gap-1 mb-1 align-items-center';
+    var defaultAmt = amt !== undefined ? amt : '';
+    var defaultDt = dt !== undefined ? dt : '';
+    row.innerHTML =
+        '<span class="small text-muted" style="min-width:24px;">' + idx + '</span>' +
+        '<input type="number" step="0.01" min="0.01" name="inst_montante[]"' +
+        ' class="form-control form-control-sm inst-amt" placeholder="Valor €"' +
+        ' value="' + defaultAmt + '" oninput="updateInstTotal()" required>' +
+        '<input type="date" name="inst_data[]" class="form-control form-control-sm"' +
+        ' value="' + defaultDt + '" required>' +
+        '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-2"' +
+        ' onclick="removeInstRow(this)">×</button>';
+    container.appendChild(row);
+    updateInstTotal();
+}
+
+function removeInstRow(btn) {
+    var container = document.getElementById('instRows');
+    if (container.children.length > 2) {
+        btn.closest('.inst-row').remove();
+        renumberInstRows();
+    }
+    updateInstTotal();
+}
+
+function renumberInstRows() {
+    var rows = document.getElementById('instRows').querySelectorAll('.inst-row');
+    rows.forEach(function(r, i) {
+        var lbl = r.querySelector('span');
+        if (lbl) lbl.textContent = (i + 1);
+    });
+}
+
+function setInstallmentCount(n) {
+    var container = document.getElementById('instRows');
+    container.innerHTML = '';
+    var unit = (_invoiceTotal > 0) ? Math.round(_invoiceTotal / n * 100) / 100 : 0;
+    var remainder = _invoiceTotal > 0 ? Math.round((_invoiceTotal - unit * (n - 1)) * 100) / 100 : 0;
+    var today = new Date();
+    for (var i = 0; i < n; i++) {
+        var d = new Date(today);
+        d.setMonth(d.getMonth() + i);
+        var ds = d.toISOString().split('T')[0];
+        var amt = (i === n - 1 && _invoiceTotal > 0) ? remainder : unit;
+        addInstRow(amt > 0 ? amt : '', ds);
+    }
+    updateInstTotal();
+}
+
+function updateInstTotal() {
+    var total = 0;
+    document.querySelectorAll('.inst-amt').forEach(function(inp) {
+        total += parseFloat(inp.value || 0);
+    });
+    var el = document.getElementById('instTotalDisplay');
+    var warn = document.getElementById('instTotalWarn');
+    if (el) el.textContent = total.toFixed(2) + ' €';
+    if (warn) warn.classList.toggle('d-none', Math.abs(total - _invoiceTotal) < 0.02);
+}
+
+/* ── Confirming / pagar change ─────────────────────────────────────────── */
 function pmConfirmarChange() {
     var val = document.getElementById('pmSelectConfirmar').value;
     var wrap = document.getElementById('pmConfirmarDetails');

@@ -1147,6 +1147,117 @@ def suggest_onedrive_subfolder(supplier_nif: str = None, store_id: int = None,
     return 'Geral (G)'
 
 
+def get_invoice_installments(invoice_id: int) -> list:
+    """Returns all installments for an invoice, ordered by installment_number."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT id, invoice_id, installment_number, total_installments,
+                   amount_eur, due_date, paid_date, status, paid_by, notes, created_at
+            FROM invoice_installments
+            WHERE invoice_id = %s
+            ORDER BY installment_number ASC
+        """, (invoice_id,))
+        return cursor.fetchall()
+
+
+def get_pending_installments() -> list:
+    """Returns all pending/scheduled installments joined with parent invoice data."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT ii.id, ii.invoice_id, ii.installment_number, ii.total_installments,
+                   ii.amount_eur, ii.due_date, ii.paid_date, ii.status,
+                   i.supplier_name, i.supplier_nif,
+                   i.invoice_number AS parent_invoice_number,
+                   i.document_type
+            FROM invoice_installments ii
+            JOIN invoices i ON i.id = ii.invoice_id
+            WHERE ii.status IN ('pending_review', 'scheduled')
+            ORDER BY ii.due_date ASC NULLS LAST, ii.invoice_id, ii.installment_number
+        """)
+        return cursor.fetchall()
+
+
+def create_invoice_installments(invoice_id: int, installments: list, created_by: str) -> list:
+    """Creates installment records for an invoice.
+
+    installments: list of dicts with keys 'amount_eur' (float) and 'due_date' (date).
+    The first installment is marked as 'paid' immediately; the rest as 'pending_review'.
+    The parent invoice status is set to 'scheduled' and installment_total is updated.
+
+    Returns list of created installment IDs.
+    """
+    n = len(installments)
+    if n < 2:
+        raise ValueError("Pagamento parcelado requer pelo menos 2 parcelas.")
+
+    ids = []
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        for idx, inst in enumerate(installments, start=1):
+            is_first = idx == 1
+            status = 'paid' if is_first else 'pending_review'
+            paid_date = inst['due_date'] if is_first else None
+            paid_by_val = created_by if is_first else None
+            cursor.execute("""
+                INSERT INTO invoice_installments
+                    (invoice_id, installment_number, total_installments, amount_eur,
+                     due_date, paid_date, status, paid_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (invoice_id, idx, n, inst['amount_eur'], inst['due_date'],
+                  paid_date, status, paid_by_val))
+            ids.append(cursor.fetchone()[0])
+
+        cursor.execute("""
+            UPDATE invoices
+            SET installment_total = %s, status = 'scheduled', updated_at = NOW()
+            WHERE id = %s
+        """, (n, invoice_id))
+        conn.commit()
+    return ids
+
+
+def mark_installment_paid(installment_id: int, paid_date, confirmed_by: str) -> bool:
+    """Marks one installment as paid.
+
+    If all installments for the parent invoice are now paid, also marks the parent
+    invoice as paid and returns True; otherwise returns False.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE invoice_installments
+            SET status = 'paid', paid_date = %s, paid_by = %s
+            WHERE id = %s AND status != 'paid'
+            RETURNING invoice_id
+        """, (paid_date, confirmed_by, installment_id))
+        row = cursor.fetchone()
+        if not row:
+            conn.rollback()
+            return False
+        invoice_id = row[0]
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM invoice_installments
+            WHERE invoice_id = %s AND status != 'paid'
+        """, (invoice_id,))
+        remaining = cursor.fetchone()[0]
+
+        parent_paid = False
+        if remaining == 0:
+            cursor.execute("""
+                UPDATE invoices
+                SET status = 'paid', paid_date = %s, updated_at = NOW()
+                WHERE id = %s
+            """, (paid_date, invoice_id))
+            parent_paid = True
+
+        conn.commit()
+        return parent_paid
+
+
 def get_contas_por_fornecedor(status_filter: str = None) -> list:
     """
     Returns a list of all non-draft invoices and credit notes, grouped by supplier.
