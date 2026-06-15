@@ -757,6 +757,18 @@ def get_invoice_status_configs():
         return [dict(r) for r in cursor.fetchall()]
 
 
+@ttl_cache('invoice_status_labels_map', ttl=120)
+def get_invoice_status_labels_map() -> dict:
+    """Cached {key: label} map for invoice status labels. Falls back to hardcoded."""
+    try:
+        rows = get_invoice_status_configs()
+        if rows:
+            return {r['key']: r['label'] for r in rows}
+    except Exception:
+        pass
+    return dict(INVOICE_STATUS_LABELS)
+
+
 @ttl_cache('invoice_status_colors_map', ttl=120)
 def get_invoice_status_colors_map() -> dict:
     """Cached {key: bg_class} map for badge rendering. Falls back to hardcoded."""
@@ -785,7 +797,7 @@ def upsert_invoice_status_config(key: str, label: str, bg_class: str,
             (key, label, bg_class, sort_order, active),
         )
         conn.commit()
-    _cache_invalidate('invoice_status_colors_map')
+    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map')
 
 
 def delete_invoice_status_config(key: str) -> None:
@@ -800,7 +812,7 @@ def delete_invoice_status_config(key: str) -> None:
             )
         cursor.execute("DELETE FROM invoice_status_config WHERE key = %s", (key,))
         conn.commit()
-    _cache_invalidate('invoice_status_colors_map')
+    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map')
 
 
 ONEDRIVE_SUBFOLDERS = [
@@ -856,7 +868,7 @@ def _row_to_invoice(row) -> dict:
         'onedrive_web_url': row[22] if len(row) > 22 else None,
         'document_type': document_type,
         'document_type_label': DOCUMENT_TYPE_LABELS.get(document_type, document_type),
-        'status_label': INVOICE_STATUS_LABELS.get(row[14], row[14]),
+        'status_label': get_invoice_status_labels_map().get(row[14], row[14]),
         'centro_custo_id': row[24] if len(row) > 24 else None,
         'categoria_custo_id': row[25] if len(row) > 25 else None,
     }

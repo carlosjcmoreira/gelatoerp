@@ -104,13 +104,18 @@
                     <label class="form-label small mb-2">Cor do badge</label>
                     <div class="d-flex flex-wrap gap-2 mb-2" id="colorSwatches">
                         {% set swatches = [
-                            ('bg-secondary',         'Cinzento'),
-                            ('bg-primary',           'Azul primário'),
-                            ('bg-info text-dark',    'Ciano'),
-                            ('bg-success',           'Verde'),
-                            ('bg-warning text-dark', 'Amarelo'),
-                            ('bg-danger',            'Vermelho'),
-                            ('bg-dark',              'Escuro'),
+                            ('bg-secondary',                          'Cinzento'),
+                            ('bg-primary',                            'Azul'),
+                            ('bg-info text-dark',                     'Ciano'),
+                            ('bg-success',                            'Verde'),
+                            ('bg-warning text-dark',                  'Amarelo'),
+                            ('bg-danger',                             'Vermelho'),
+                            ('bg-dark',                               'Escuro'),
+                            ('bg-light text-dark border',             'Claro'),
+                            ('bg-primary-subtle text-primary-emphasis',  'Azul suave'),
+                            ('bg-success-subtle text-success-emphasis',  'Verde suave'),
+                            ('bg-danger-subtle text-danger-emphasis',    'Vermelho suave'),
+                            ('bg-warning-subtle text-warning-emphasis',  'Amarelo suave'),
                         ] %}
                         {% for cls, nome in swatches %}
                         <button type="button"
@@ -122,12 +127,24 @@
                         </button>
                         {% endfor %}
                     </div>
-                    <div class="input-group input-group-sm" style="max-width:360px">
-                        <span class="input-group-text small">Classe Bootstrap</span>
-                        <input type="text" name="bg_class" id="fBgClass" class="form-control form-control-sm font-monospace"
-                               value="bg-secondary" placeholder="ex: bg-warning text-dark"
-                               oninput="updatePreview()">
+
+                    <!-- Classe Bootstrap manual -->
+                    <div class="row g-2 align-items-end mt-1" style="max-width:520px">
+                        <div class="col">
+                            <label class="form-label small mb-1">Classe Bootstrap</label>
+                            <input type="text" name="bg_class" id="fBgClass"
+                                   class="form-control form-control-sm font-monospace"
+                                   value="bg-secondary" placeholder="ex: bg-warning text-dark"
+                                   oninput="updatePreview(); highlightSwatch(this.value.trim())">
+                        </div>
+                        <div class="col-auto">
+                            <label class="form-label small mb-1">Cor personalizada</label>
+                            <input type="color" id="fColorPicker" class="form-control form-control-color form-control-sm"
+                                   value="#6c757d" title="Selecionar cor — aplica estilo inline ao badge"
+                                   oninput="applyHexColor(this.value)">
+                        </div>
                     </div>
+                    <div class="form-text small mb-1">Escolha um swatch acima ou escreva qualquer classe Bootstrap válida (ex: <code>bg-warning text-dark</code>). O selector de cor aplica um estilo inline ao badge.</div>
                     <div class="mt-2 small text-muted">
                         Pré-visualização: <span id="badgePreview" class="badge bg-secondary ms-1">Label</span>
                     </div>
@@ -143,7 +160,10 @@
 </div>
 
 <script>
+var _hexStyle = null; // tracks if a hex color override is active
+
 function editEstado(e) {
+    _hexStyle = null;
     document.getElementById('fKey').value        = e.key        || '';
     document.getElementById('fLabel').value      = e.label      || '';
     document.getElementById('fSortOrder').value  = e.sort_order != null ? e.sort_order : 0;
@@ -156,17 +176,20 @@ function editEstado(e) {
 }
 
 function resetForm() {
+    _hexStyle = null;
     document.getElementById('fKey').value       = '';
     document.getElementById('fLabel').value     = '';
     document.getElementById('fSortOrder').value = '0';
     document.getElementById('fActive').checked  = true;
     document.getElementById('fBgClass').value   = 'bg-secondary';
+    document.getElementById('fColorPicker').value = '#6c757d';
     document.getElementById('formTitle').textContent = '➕ Adicionar / Editar Estado';
     updatePreview();
     highlightSwatch('bg-secondary');
 }
 
 function pickColor(cls) {
+    _hexStyle = null;
     document.getElementById('fBgClass').value = cls;
     updatePreview();
     highlightSwatch(cls);
@@ -180,17 +203,38 @@ function highlightSwatch(cls) {
     });
 }
 
+function applyHexColor(hex) {
+    // Store hex override; set bg_class to a descriptive value
+    _hexStyle = 'background-color:' + hex + ';color:#fff';
+    // Store as inline-style directive prefixed with "style:" so the route can detect it
+    document.getElementById('fBgClass').value = '';
+    // Deselect all swatches
+    highlightSwatch('');
+    updatePreview();
+}
+
 function updatePreview() {
-    var cls    = document.getElementById('fBgClass').value.trim() || 'bg-secondary';
-    var label  = document.getElementById('fLabel').value.trim()   || 'Label';
-    var badge  = document.getElementById('badgePreview');
-    badge.className = 'badge ms-1 ' + cls;
+    var cls   = document.getElementById('fBgClass').value.trim();
+    var label = document.getElementById('fLabel').value.trim() || 'Label';
+    var badge = document.getElementById('badgePreview');
+    if (_hexStyle) {
+        badge.className = 'badge ms-1';
+        badge.setAttribute('style', _hexStyle);
+    } else {
+        badge.removeAttribute('style');
+        badge.className = 'badge ms-1 ' + (cls || 'bg-secondary');
+    }
     badge.textContent = label;
+    // Keep bg_class in sync when hex is not active
+    if (!_hexStyle && !cls) {
+        document.getElementById('fBgClass').value = 'bg-secondary';
+        badge.className = 'badge ms-1 bg-secondary';
+    }
 }
 
 document.getElementById('fLabel').addEventListener('input', updatePreview);
 
-// Init swatch highlight based on current value
+// Init
 highlightSwatch(document.getElementById('fBgClass').value);
 </script>
 {% endblock %}

@@ -281,14 +281,16 @@ def create_app():
             except Exception as exc:
                 logger.warning("inject_globals: failed to compute nav_pages: %s", exc)
         status_colors = {}
+        status_labels = {}
         try:
-            from db.faturas import get_invoice_status_colors_map
+            from db.faturas import get_invoice_status_colors_map, get_invoice_status_labels_map
             status_colors = get_invoice_status_colors_map()
+            status_labels = get_invoice_status_labels_map()
         except Exception as exc:
-            logger.debug("inject_globals: could not load status_colors: %s", exc)
+            logger.debug("inject_globals: could not load status maps: %s", exc)
         return dict(user=user, time_slots=time_slots, event_type_options=event_type_options,
                     nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count,
-                    status_colors=status_colors)
+                    status_colors=status_colors, status_labels=status_labels)
 
     import psycopg2
 

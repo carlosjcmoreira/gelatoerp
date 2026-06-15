@@ -34,7 +34,7 @@ TABS = [
     {'id': 'premio_eurokg', 'label': 'Prémio Euro/kg', 'icon': '🏆', 'url_endpoint': 'gestor.premio_eurokg'},
     {'id': 'gestao_lojas', 'label': 'Lojas', 'icon': '🏪', 'url_endpoint': 'gestor.gestao_lojas'},
     {'id': 'metodos_pagamento', 'label': 'Métodos de Pagamento', 'icon': '💳', 'url_endpoint': 'gestor.metodos_pagamento'},
-    {'id': 'estados_fatura', 'label': 'Estados de Fatura', 'icon': '🔖', 'url_endpoint': 'gestor.estados_fatura'},
+    {'id': 'estados_fatura', 'label': 'Estados de Fatura', 'icon': '🏷️', 'url_endpoint': 'gestor.estados_fatura'},
     {'id': 'materiais', 'label': 'Catálogo de Materiais', 'icon': '🗂️', 'url_endpoint': 'gestor.materiais'},
     {'id': 'centros_custo', 'label': 'Centros de Custo', 'icon': '🏷️', 'url_endpoint': 'centros_custo.index'},
     {'id': 'categorias_custo', 'label': 'Categorias de Custo', 'icon': '📂', 'url_endpoint': 'categorias_custo.index'},
