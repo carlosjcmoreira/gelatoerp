@@ -332,10 +332,8 @@ def index():
     cost_categories_tree = get_cost_categories_tree()
     all_supplier_names = get_distinct_supplier_names()
 
-    # KPI dashboard — pending / scheduled / next VAT
-    pending_docs = [dict(r) for r in get_invoices_with_payments(status='pending_review')]
+    # KPI dashboard — scheduled / next VAT
     scheduled_docs = [dict(r) for r in get_invoices_with_payments(status='scheduled')]
-    total_pending = sum(float(i.get('amount_eur') or 0) for i in pending_docs)
     total_scheduled = sum(float(i.get('amount_eur') or 0) for i in scheduled_docs)
     vat_periods = list(get_vat_periods(limit=4))
     next_vat = next(
@@ -391,9 +389,7 @@ def index():
         categoria_custo_filter=categoria_custo_filter,
         document_type_filter=document_type_filter,
         document_type_labels=DOCUMENT_TYPE_LABELS,
-        pending_docs=pending_docs,
         scheduled_docs=scheduled_docs,
-        total_pending=total_pending,
         total_scheduled=total_scheduled,
         next_vat=next_vat,
         totals_by_type=totals_by_type,

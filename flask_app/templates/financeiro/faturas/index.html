@@ -35,19 +35,10 @@
         </div>
     </div>
 
-{% if view == 'documento' and (pending_docs is defined) %}
+{% if view == 'documento' %}
     <!-- ── KPI Dashboard ──────────────────────────────────────────────────── -->
     <div class="row g-2 mb-3">
-        <div class="col-6 col-md-3">
-            <div class="card text-center h-100 border-warning">
-                <div class="card-body py-2">
-                    <div class="fs-6 fw-bold text-warning">{{ "%.0f €"|format(total_pending) }}</div>
-                    <div class="small text-muted">Por confirmar</div>
-                    <div class="small text-muted" style="font-size:0.7rem;">({{ pending_docs|length }} doc.)</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <div class="card text-center h-100 border-info">
                 <div class="card-body py-2">
                     <div class="fs-6 fw-bold text-info">{{ "%.0f €"|format(total_scheduled) }}</div>
@@ -57,7 +48,7 @@
             </div>
         </div>
         {% if next_vat %}
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <div class="card text-center h-100 border-danger">
                 <div class="card-body py-2">
                     <div class="fs-6 fw-bold text-danger">{{ "%.0f €"|format(next_vat.vat_due_eur or next_vat.vat_due_estimated or 0) }}</div>
@@ -66,7 +57,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <div class="card text-center h-100">
                 <div class="card-body py-2">
                     <div class="fs-6 fw-bold {% if next_vat.payment_date %}text-primary{% else %}text-muted{% endif %}">
@@ -111,49 +102,6 @@
     </div>
     {% endif %}
 
-    {% if pending_docs %}
-    <div class="card mb-3">
-        <div class="card-body py-2 px-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="mb-0 small fw-semibold">⏳ Por confirmar</h6>
-                <a href="{{ url_for('faturas.index') }}?status=pending_review" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem;">Ver todos</a>
-            </div>
-            <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0" style="font-size:0.8rem;">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Fornecedor / Entidade</th>
-                            <th class="text-end">Valor</th>
-                            <th>Vencimento</th>
-                            <th>Pag. proposto</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    {% for inv in pending_docs[:8] %}
-                    <tr>
-                        <td class="fw-semibold">{{ inv.supplier_name or '—' }}</td>
-                        <td class="text-end">{{ "%.2f €"|format(inv.amount_eur|float) }}</td>
-                        <td class="{% if inv.due_date and inv.due_date < today %}text-danger fw-semibold{% endif %}">
-                            {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
-                        </td>
-                        <td class="text-muted">
-                            {% if inv.proposed_date %}{{ inv.proposed_date.strftime('%d/%m/%Y') }}{% else %}—{% endif %}
-                        </td>
-                        <td class="text-end">
-                            <a href="{{ url_for('faturas.detail', invoice_id=inv.id) }}" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:0.75rem;">Ver</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% if pending_docs|length > 8 %}
-            <div class="mt-1 small text-muted">E mais {{ pending_docs|length - 8 }} documentos…</div>
-            {% endif %}
-        </div>
-    </div>
-    {% endif %}
 {% endif %}
 
 {% if view == 'fornecedor' %}
