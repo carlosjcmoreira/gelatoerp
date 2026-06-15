@@ -10,40 +10,36 @@
 
     <!-- ── KPI cards ───────────────────────────────────────────────────────── -->
     <div class="row g-3 mb-4">
+        <!-- Total em aberto -->
+        <div class="col-6 col-md-3">
+            <div class="card h-100 border-danger text-center">
+                <div class="card-body py-3">
+                    <div class="fs-4 fw-bold text-danger mb-1">{{ "%.0f €"|format(total_em_aberto) }}</div>
+                    <div class="small fw-semibold text-muted">Total em aberto</div>
+                    <div class="small text-muted" style="font-size:0.72rem">Revisão + agendados</div>
+                    <a href="{{ url_for('faturas.index') }}" class="stretched-link"></a>
+                </div>
+            </div>
+        </div>
         <!-- Agendado -->
         <div class="col-6 col-md-3">
             <div class="card h-100 border-info text-center">
                 <div class="card-body py-3">
                     <div class="fs-4 fw-bold text-info mb-1">{{ "%.0f €"|format(total_scheduled) }}</div>
                     <div class="small fw-semibold text-muted">Agendado</div>
-                    <div class="small text-muted" style="font-size:0.72rem">{{ scheduled_docs|length }} documento{{ 's' if scheduled_docs|length != 1 }}</div>
+                    <div class="small text-muted" style="font-size:0.72rem">{{ scheduled_docs|length }} doc. confirmado{{ 's' if scheduled_docs|length != 1 }}</div>
                     <a href="{{ url_for('faturas.index', status='scheduled') }}" class="stretched-link"></a>
                 </div>
             </div>
         </div>
-        <!-- Vencido -->
+        <!-- Saldo NCs pendentes -->
         <div class="col-6 col-md-3">
-            <div class="card h-100 border-danger text-center {% if overdue_count > 0 %}border-2{% endif %}">
+            <div class="card h-100 border-success text-center">
                 <div class="card-body py-3">
-                    <div class="fs-4 fw-bold {% if overdue_count > 0 %}text-danger{% else %}text-muted{% endif %} mb-1">
-                        {{ overdue_count }}
-                    </div>
-                    <div class="small fw-semibold text-muted">Vencidos</div>
-                    <div class="small text-muted" style="font-size:0.72rem">Prazo ultrapassado</div>
-                    {% if overdue_count > 0 %}
-                    <a href="{{ url_for('faturas.index', status='scheduled') }}" class="stretched-link"></a>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-        <!-- Pendente revisão -->
-        <div class="col-6 col-md-3">
-            <div class="card h-100 border-warning text-center">
-                <div class="card-body py-3">
-                    <div class="fs-4 fw-bold text-warning mb-1">{{ pending_count }}</div>
-                    <div class="small fw-semibold text-muted">Em revisão</div>
-                    <div class="small text-muted" style="font-size:0.72rem">Aguardam confirmação</div>
-                    <a href="{{ url_for('faturas.index', status='pending_review') }}" class="stretched-link"></a>
+                    <div class="fs-4 fw-bold text-success mb-1">{{ "%.0f €"|format(saldo_nc) }}</div>
+                    <div class="small fw-semibold text-muted">Saldo NCs</div>
+                    <div class="small text-muted" style="font-size:0.72rem">Notas de crédito pendentes</div>
+                    <a href="{{ url_for('faturas.index', document_type='nota_credito') }}" class="stretched-link"></a>
                 </div>
             </div>
         </div>
@@ -58,7 +54,6 @@
                         {{ next_vat.month }}/{{ next_vat.year }}
                         {% if next_vat.payment_date %} · {{ next_vat.payment_date.strftime('%d/%m') }}{% endif %}
                     </div>
-                    <a href="{{ url_for('faturas.index') }}" class="stretched-link"></a>
                 </div>
             </div>
             {% else %}
@@ -138,6 +133,59 @@
                 <div class="card-body text-center text-muted py-4">
                     <div style="font-size:1.5rem">✅</div>
                     <p class="small mt-1 mb-0">Sem documentos agendados</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- ── Próximas 4 semanas de vencimentos ─────────────────────────── -->
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header py-2 d-flex align-items-center justify-content-between">
+                    <span class="fw-semibold small">📅 Vencimentos — próximas 4 semanas</span>
+                    <span class="text-muted small">até {{ in_4w.strftime('%d/%m/%Y') }}</span>
+                </div>
+                {% if proximos_4_semanas %}
+                <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="small ps-3">Fornecedor</th>
+                            <th class="small">Nº Doc.</th>
+                            <th class="small">Vencimento</th>
+                            <th class="small text-end pe-3">Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for inv in proximos_4_semanas %}
+                    {% set overdue = inv.get('due_date') and inv['due_date'] < today %}
+                    <tr class="{{ 'table-danger' if overdue else '' }}">
+                        <td class="small fw-semibold text-truncate ps-3" style="max-width:180px">{{ inv.supplier_name or '—' }}</td>
+                        <td class="small text-muted">{{ inv.invoice_number or '—' }}</td>
+                        <td class="small text-nowrap {% if overdue %}text-danger fw-bold{% endif %}">
+                            {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                            {% if overdue %}<span class="badge bg-danger ms-1" style="font-size:0.65rem">Vencido</span>{% endif %}
+                        </td>
+                        <td class="small fw-semibold text-end pe-3 text-nowrap text-danger">
+                            -{{ '%.2f €'|format(inv.amount_eur) if inv.amount_eur is not none else '—' }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot class="table-light">
+                        <tr>
+                            <td colspan="3" class="small text-end fw-semibold pe-2">Total:</td>
+                            <td class="small fw-bold text-danger pe-3 text-nowrap text-end">
+                                -{{ '%.2f €'|format(proximos_4_semanas | sum(attribute='amount_eur') | float) }}
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+                </div>
+                {% else %}
+                <div class="card-body text-center text-muted py-4">
+                    <div style="font-size:1.5rem">🎉</div>
+                    <p class="small mt-1 mb-0">Nenhum vencimento nas próximas 4 semanas</p>
                 </div>
                 {% endif %}
             </div>

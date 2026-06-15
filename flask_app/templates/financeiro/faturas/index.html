@@ -358,7 +358,18 @@
     <!-- ── Filter Bar ──────────────────────────────────────────────────────── -->
     <div class="fbar mb-3">
 
+        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter else 0) + (1 if document_type_filter else 0) + (1 if store_id else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) %}
+        <!-- Mobile toggle (only shown on xs/sm screens) -->
+        <div class="d-md-none mb-2">
+            <button class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between"
+                    type="button" data-bs-toggle="collapse" data-bs-target="#fbar-chips-wrap" aria-expanded="true">
+                <span>🔍 Filtros{% if _active_count > 0 %} <span class="badge bg-primary ms-1">{{ _active_count }} activo{{ 's' if _active_count != 1 }}</span>{% endif %}</span>
+                <span class="small text-muted">▼</span>
+            </button>
+        </div>
+
         <!-- Active filter chips -->
+        <div class="collapse d-md-block" id="fbar-chips-wrap">
         <div class="d-flex flex-wrap gap-2 align-items-center mb-2" id="fbar-chips">
             {% if default_filter_active %}
             <span class="fbar-chip fbar-chip-muted" title="A mostrar documentos em aberto">📋 Em aberto</span>
@@ -438,6 +449,7 @@
             {% endif %}
         </div>
         {% endif %}
+        </div><!-- /#fbar-chips-wrap -->
 
         <!-- Action bar: + Filtro · limpar · ver todas / em aberto · contador -->
         <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -577,7 +589,7 @@
         </div>
 
         <!-- Sortable table — column menus via ⋯ trigger filter bar -->
-        {% macro col_th(col, label, ob, od, fqs, classes='', fkey='') %}
+        {% macro col_th(col, label, ob, od, fqs, classes='', fkey='', show_estados=false) %}
         {% set nd = 'desc' if (ob == col and od == 'asc') else 'asc' %}
         <th class="{{ classes }} col-th" style="vertical-align:middle">
             <div class="d-flex align-items-center gap-1">
@@ -593,12 +605,17 @@
                 <div class="dropdown">
                     <button class="col-menu-btn" type="button" data-bs-toggle="dropdown"
                             aria-expanded="false" title="Opções da coluna">⋯</button>
-                    <ul class="dropdown-menu dropdown-menu-sm shadow py-1" style="min-width:155px">
+                    <ul class="dropdown-menu dropdown-menu-sm shadow py-1" style="min-width:165px">
                         <li><a class="dropdown-item small py-1" href="{{ fqs }}&order_by={{ col }}&order_dir=asc">↑ A → Z</a></li>
                         <li><a class="dropdown-item small py-1" href="{{ fqs }}&order_by={{ col }}&order_dir=desc">↓ Z → A</a></li>
                         {% if fkey %}
                         <li><hr class="dropdown-divider my-1"></li>
                         <li><button class="dropdown-item small py-1" type="button" onclick="openFbarPanel('{{ fkey }}')">🔍 Filtrar</button></li>
+                        {% endif %}
+                        {% if show_estados %}
+                        <li><hr class="dropdown-divider my-1"></li>
+                        <li><button class="dropdown-item small py-1" type="button"
+                                    data-bs-toggle="modal" data-bs-target="#modal-estados">📋 Ver estados</button></li>
                         {% endif %}
                     </ul>
                 </div>
@@ -620,7 +637,7 @@
                     {{ col_th('issue_date', 'Emissão', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'issue_date') }}
                     {{ col_th('due_date', 'Vencimento', order_by, order_dir, filter_qs, '', 'due_date') }}
                     {{ col_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
-                    {{ col_th('status', 'Estado', order_by, order_dir, filter_qs, '', 'status') }}
+                    {{ col_th('status', 'Estado', order_by, order_dir, filter_qs, '', 'status', show_estados=true) }}
                     <th class="d-none d-lg-table-cell text-nowrap small" style="vertical-align:middle">Data pag.</th>
                 </tr>
             </thead>
@@ -1387,4 +1404,50 @@ function ScoopyDatePicker(container) {
 }
 </script>
 {% endif %}
+
+<!-- ── Modal: Ver estados ──────────────────────────────────────────────────── -->
+<div class="modal fade" id="modal-estados" tabindex="-1" aria-labelledby="modal-estados-label" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="modal-estados-label">📋 Estados de documentos</h6>
+                <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body py-3 px-4">
+                <p class="text-muted small mb-3">Os documentos passam pelos seguintes estados ao longo do seu ciclo de vida:</p>
+                <dl class="row g-2 mb-0">
+                    <dt class="col-4 d-flex align-items-center gap-1">
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">🕐 Em revisão</span>
+                    </dt>
+                    <dd class="col-8 small text-muted mb-0">Documento registado mas aguarda confirmação dos dados antes de ser agendado para pagamento.</dd>
+
+                    <dt class="col-4 d-flex align-items-center gap-1">
+                        <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">🗓 Agendado</span>
+                    </dt>
+                    <dd class="col-8 small text-muted mb-0">Dados confirmados, pagamento programado para a data de vencimento. Se ultrapassada, passa a aparecer como <strong>Vencido</strong>.</dd>
+
+                    <dt class="col-4 d-flex align-items-center gap-1">
+                        <span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle">⚠️ Vencido</span>
+                    </dt>
+                    <dd class="col-8 small text-muted mb-0">Documento agendado cuja data de vencimento já passou sem registo de pagamento.</dd>
+
+                    <dt class="col-4 d-flex align-items-center gap-1">
+                        <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle">✅ Pago</span>
+                    </dt>
+                    <dd class="col-8 small text-muted mb-0">Pagamento efectuado e registado com data e método de pagamento.</dd>
+
+                    <dt class="col-4 d-flex align-items-center gap-1">
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle">🚫 Cancelado</span>
+                    </dt>
+                    <dd class="col-8 small text-muted mb-0">Documento cancelado ou rejeitado, não sujeito a pagamento.</dd>
+                </dl>
+            </div>
+            <div class="modal-footer py-2">
+                <a href="{{ url_for('faturas.index') }}?status=pending_review" class="btn btn-outline-warning btn-sm" data-bs-dismiss="modal">🕐 Ver em revisão</a>
+                <a href="{{ url_for('faturas.index') }}?status=scheduled" class="btn btn-outline-info btn-sm" data-bs-dismiss="modal">🗓 Ver agendados</a>
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Fechar</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

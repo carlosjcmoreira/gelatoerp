@@ -97,12 +97,26 @@ def dashboard():
         vat_periods[0] if vat_periods else None,
     )
     totals_by_type = get_invoices_type_totals()
-    # Status counts (from recent invoices)
+    # Status counts & financial KPIs
     all_inv = get_invoices()
     overdue_count = sum(1 for i in all_inv if i['status'] == 'scheduled' and i.get('due_date') and i['due_date'] < today)
     pending_count = sum(1 for i in all_inv if i['status'] == 'pending_review')
     scheduled_count = len(scheduled_docs)
     paid_count = sum(1 for i in all_inv if i['status'] == 'paid')
+    # Total em aberto = pending_review + scheduled amounts
+    total_em_aberto = sum(
+        float(i.get('amount_eur') or 0) for i in all_inv
+        if i['status'] in ('pending_review', 'scheduled')
+    )
+    # Saldo NCs pendentes (not paid)
+    saldo_nc = totals_by_type.get('nota_credito', {}).get('total', 0.0)
+    # Próximas 4 semanas de vencimentos
+    from datetime import timedelta
+    in_4w = today + timedelta(weeks=4)
+    proximos_4_semanas = sorted(
+        [i for i in all_inv if i['status'] == 'scheduled' and i.get('due_date') and i['due_date'] <= in_4w],
+        key=lambda x: x['due_date']
+    )
     pending_installments = get_pending_installments()
     return render_template(
         'financeiro/faturas/dashboard.html',
@@ -118,6 +132,10 @@ def dashboard():
         paid_count=paid_count,
         pending_installments=pending_installments,
         status_labels=INVOICE_STATUS_LABELS,
+        total_em_aberto=total_em_aberto,
+        saldo_nc=saldo_nc,
+        proximos_4_semanas=proximos_4_semanas,
+        in_4w=in_4w,
     )
 
 
