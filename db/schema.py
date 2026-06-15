@@ -3813,3 +3813,56 @@ def run_migrations_invoice_centros_custo():
                 conn.rollback()
             except Exception:
                 pass
+
+
+_LOCK_INVOICE_STATUS_CONFIG = 202659
+
+_STATUS_CONFIG_DEFAULTS = [
+    ('draft',          'Rascunho',          'bg-secondary',         0, True),
+    ('pending_review', 'Pendente revisão',  'bg-warning text-dark', 1, True),
+    ('scheduled',      'Agendada',          'bg-info text-dark',    2, True),
+    ('paid',           'Paga',              'bg-success',           3, True),
+    ('overdue',        'Vencida',           'bg-danger',            4, True),
+    ('cancelled',      'Cancelada',         'bg-secondary',         5, True),
+]
+
+
+def run_migrations_invoice_status_config():
+    """Create invoice_status_config table and seed default statuses if empty.
+
+    Advisory lock 202659 ensures only one worker runs the DDL.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_INVOICE_STATUS_CONFIG,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_invoice_status_config: lock held by another worker, skipping")
+                return
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS invoice_status_config (
+                    key        TEXT PRIMARY KEY,
+                    label      TEXT NOT NULL,
+                    bg_class   TEXT NOT NULL DEFAULT 'bg-secondary',
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    active     BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("SELECT COUNT(*) FROM invoice_status_config")
+            if cursor.fetchone()[0] == 0:
+                for key, label, bg_class, sort_order, active in _STATUS_CONFIG_DEFAULTS:
+                    cursor.execute(
+                        """INSERT INTO invoice_status_config (key, label, bg_class, sort_order, active)
+                           VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+                        (key, label, bg_class, sort_order, active),
+                    )
+            conn.commit()
+            logger.info("run_migrations_invoice_status_config: complete")
+        except Exception as exc:
+            logger.error("run_migrations_invoice_status_config failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass

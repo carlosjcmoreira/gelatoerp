@@ -3,6 +3,7 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger
+from db.cache import ttl_cache, invalidate as _cache_invalidate
 import json
 import os
 
@@ -734,6 +735,73 @@ INVOICE_STATUS_LABELS = {
     'overdue': 'Vencida',
     'cancelled': 'Cancelada',
 }
+
+_STATUS_COLORS_FALLBACK = {
+    'draft':          'bg-secondary',
+    'pending_review': 'bg-warning text-dark',
+    'scheduled':      'bg-info text-dark',
+    'paid':           'bg-success',
+    'overdue':        'bg-danger',
+    'cancelled':      'bg-secondary',
+}
+
+
+def get_invoice_status_configs():
+    """Return all rows from invoice_status_config ordered by sort_order (no cache)."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT key, label, bg_class, sort_order, active "
+            "FROM invoice_status_config ORDER BY sort_order, key"
+        )
+        return [dict(r) for r in cursor.fetchall()]
+
+
+@ttl_cache('invoice_status_colors_map', ttl=120)
+def get_invoice_status_colors_map() -> dict:
+    """Cached {key: bg_class} map for badge rendering. Falls back to hardcoded."""
+    try:
+        rows = get_invoice_status_configs()
+        if rows:
+            return {r['key']: r['bg_class'] for r in rows}
+    except Exception:
+        pass
+    return dict(_STATUS_COLORS_FALLBACK)
+
+
+def upsert_invoice_status_config(key: str, label: str, bg_class: str,
+                                  sort_order: int, active: bool) -> None:
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO invoice_status_config (key, label, bg_class, sort_order, active, updated_at)
+               VALUES (%s, %s, %s, %s, %s, NOW())
+               ON CONFLICT (key) DO UPDATE SET
+                   label      = EXCLUDED.label,
+                   bg_class   = EXCLUDED.bg_class,
+                   sort_order = EXCLUDED.sort_order,
+                   active     = EXCLUDED.active,
+                   updated_at = NOW()""",
+            (key, label, bg_class, sort_order, active),
+        )
+        conn.commit()
+    _cache_invalidate('invoice_status_colors_map')
+
+
+def delete_invoice_status_config(key: str) -> None:
+    """Delete a status config row. Raises ValueError if invoices use this status."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM invoices WHERE status = %s", (key,))
+        count = cursor.fetchone()[0]
+        if count > 0:
+            raise ValueError(
+                f"Existem {count} fatura(s) com este estado. Não é possível eliminar."
+            )
+        cursor.execute("DELETE FROM invoice_status_config WHERE key = %s", (key,))
+        conn.commit()
+    _cache_invalidate('invoice_status_colors_map')
+
 
 ONEDRIVE_SUBFOLDERS = [
     'Bolhão (B)', 'Distribuição (D)', 'Eventos (E)', 'Faturas partilhadas (FP)',

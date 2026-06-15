@@ -533,6 +533,23 @@ def _safe_return_url(raw: str) -> str:
 
 _BULK_ALLOWED_STATUSES = {'pending_review', 'scheduled', 'paid', 'cancelled'}
 _BULK_DATE_REQUIRED = {'scheduled', 'paid'}
+_NON_BULK_STATUSES = {'draft', 'overdue'}
+
+
+def _get_bulk_allowed_statuses() -> set:
+    """Return the set of statuses allowed in bulk status changes.
+
+    Loads from DB (cached) and excludes non-actionable statuses; falls back to
+    the hardcoded constant when the DB table is not yet available.
+    """
+    try:
+        from db.faturas import get_invoice_status_configs
+        rows = get_invoice_status_configs()
+        if rows:
+            return {r['key'] for r in rows if r['active'] and r['key'] not in _NON_BULK_STATUSES}
+    except Exception:
+        pass
+    return _BULK_ALLOWED_STATUSES
 
 
 @faturas_bp.route('/bulk', methods=['POST'])
@@ -548,7 +565,7 @@ def bulk_action():
         return redirect(return_url)
 
     if action == 'change_status' and new_status:
-        if new_status not in _BULK_ALLOWED_STATUSES:
+        if new_status not in _get_bulk_allowed_statuses():
             flash('Estado inválido.', 'warning')
             return redirect(return_url)
 

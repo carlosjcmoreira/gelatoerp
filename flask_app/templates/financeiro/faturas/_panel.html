@@ -16,13 +16,7 @@
             {% else %}
             <span class="badge bg-light text-dark border">Fatura</span>
             {% endif %}
-            <span class="badge
-                {% if overdue %}bg-danger
-                {% elif inv.status == 'pending_review' %}bg-warning text-dark
-                {% elif inv.status == 'scheduled' %}bg-info text-dark
-                {% elif inv.status == 'paid' %}bg-success
-                {% elif inv.status == 'cancelled' %}bg-secondary
-                {% else %}bg-secondary{% endif %}">
+            <span class="badge {{ status_colors.get('overdue' if overdue else inv.status, 'bg-secondary') }}">
                 {{ 'Vencida' if overdue else inv.status_label }}
             </span>
         </div>

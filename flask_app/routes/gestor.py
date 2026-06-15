@@ -34,6 +34,7 @@ TABS = [
     {'id': 'premio_eurokg', 'label': 'Prémio Euro/kg', 'icon': '🏆', 'url_endpoint': 'gestor.premio_eurokg'},
     {'id': 'gestao_lojas', 'label': 'Lojas', 'icon': '🏪', 'url_endpoint': 'gestor.gestao_lojas'},
     {'id': 'metodos_pagamento', 'label': 'Métodos de Pagamento', 'icon': '💳', 'url_endpoint': 'gestor.metodos_pagamento'},
+    {'id': 'estados_fatura', 'label': 'Estados de Fatura', 'icon': '🔖', 'url_endpoint': 'gestor.estados_fatura'},
     {'id': 'materiais', 'label': 'Catálogo de Materiais', 'icon': '🗂️', 'url_endpoint': 'gestor.materiais'},
     {'id': 'centros_custo', 'label': 'Centros de Custo', 'icon': '🏷️', 'url_endpoint': 'centros_custo.index'},
     {'id': 'categorias_custo', 'label': 'Categorias de Custo', 'icon': '📂', 'url_endpoint': 'categorias_custo.index'},
@@ -1289,6 +1290,48 @@ def metodos_pagamento():
 
     metodos = get_payment_methods_config()
     return render_template('gestor/metodos_pagamento.html', metodos=metodos)
+
+
+@gestor_bp.route('/estados-fatura', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def estados_fatura():
+    from db.faturas import (get_invoice_status_configs, upsert_invoice_status_config,
+                             delete_invoice_status_config)
+
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        key = request.form.get('key', '').strip().lower()
+        label = request.form.get('label', '').strip()
+        bg_class = request.form.get('bg_class', 'bg-secondary').strip()
+        try:
+            sort_order = int(request.form.get('sort_order', 0) or 0)
+        except ValueError:
+            sort_order = 0
+        active = request.form.get('active') == 'on'
+
+        if action == 'save':
+            if not key or not label:
+                flash('Código e label são obrigatórios.', 'warning')
+            else:
+                try:
+                    upsert_invoice_status_config(key, label, bg_class, sort_order, active)
+                    flash(f'Estado «{label}» guardado com sucesso.', 'success')
+                except Exception as exc:
+                    logger.error('Erro ao guardar estado fatura: %s', exc)
+                    flash('Não foi possível guardar. Tente novamente.', 'error')
+        elif action == 'delete':
+            try:
+                delete_invoice_status_config(key)
+                flash(f'Estado «{key}» eliminado.', 'success')
+            except ValueError as exc:
+                flash(str(exc), 'warning')
+            except Exception as exc:
+                logger.error('Erro ao eliminar estado fatura: %s', exc)
+                flash('Não foi possível eliminar. Tente novamente.', 'error')
+        return redirect(url_for('gestor.estados_fatura'))
+
+    estados = get_invoice_status_configs()
+    return render_template('gestor/estados_fatura.html', estados=estados)
 
 
 @gestor_bp.route('/configuracoes', methods=['GET', 'POST'])

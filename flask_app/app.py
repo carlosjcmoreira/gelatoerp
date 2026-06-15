@@ -45,6 +45,7 @@ from db.schema import run_migrations_supplier_aliases
 from db.schema import run_migrations_normalise_producao_sabores
 from db.schema import run_migrations_quantidade_kg_to_numeric
 from db.schema import run_migrations_loja_origem
+from db.schema import run_migrations_invoice_status_config
 
 
 def _start_sheets_sync_scheduler():
@@ -172,6 +173,7 @@ def create_app():
         run_migrations_normalise_producao_sabores()
         run_migrations_quantidade_kg_to_numeric()
         run_migrations_loja_origem()
+        run_migrations_invoice_status_config()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()
@@ -278,8 +280,15 @@ def create_app():
                 mobile_nav_primary_count = MOBILE_NAV_PRIMARY_COUNT
             except Exception as exc:
                 logger.warning("inject_globals: failed to compute nav_pages: %s", exc)
+        status_colors = {}
+        try:
+            from db.faturas import get_invoice_status_colors_map
+            status_colors = get_invoice_status_colors_map()
+        except Exception as exc:
+            logger.debug("inject_globals: could not load status_colors: %s", exc)
         return dict(user=user, time_slots=time_slots, event_type_options=event_type_options,
-                    nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count)
+                    nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count,
+                    status_colors=status_colors)
 
     import psycopg2
 
