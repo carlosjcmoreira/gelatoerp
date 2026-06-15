@@ -481,6 +481,45 @@
             <span class="badge bg-primary">{{ statuses_filter|length }} estado(s)</span>
             {% endif %}
         </div>
+
+        <!-- Date filter row -->
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <select name="date_field" id="date-field-select" class="form-select form-select-sm" style="width:auto;min-width:130px"
+                    onchange="dateFieldChanged()">
+                <option value="due_date" {% if date_field == 'due_date' %}selected{% endif %}>📅 Vencimento</option>
+                <option value="issue_date" {% if date_field == 'issue_date' %}selected{% endif %}>📄 Emissão</option>
+                <option value="paid_date" {% if date_field == 'paid_date' %}selected{% endif %}>✅ Pagamento</option>
+            </select>
+
+            <!-- Month pills — each button sets month-hidden and submits form -->
+            {% for mo in month_options %}
+            <button type="button"
+                    class="btn btn-sm py-0 px-2 {% if month_raw == mo.value %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+                    style="font-size:0.75rem;white-space:nowrap"
+                    onclick="selectMonth('{{ mo.value }}')">
+                {{ mo.label }}
+            </button>
+            {% endfor %}
+
+            <!-- Custom range (alternative to month pills) -->
+            <span class="small text-muted ms-1">ou:</span>
+            <input type="date" name="date_from" id="date-from-input" class="form-control form-control-sm" style="width:auto"
+                   value="{{ date_from_raw }}" onchange="clearMonthParam()">
+            <span class="small text-muted">—</span>
+            <input type="date" name="date_to" id="date-to-input" class="form-control form-control-sm" style="width:auto"
+                   value="{{ date_to_raw }}" onchange="clearMonthParam()">
+
+            <!-- Active date filter badge -->
+            {% if month_raw or date_from_raw or date_to_raw %}
+            <span class="badge bg-info text-dark" style="font-size:0.72rem;">
+                {% if date_field == 'paid_date' %}✅ Pago{% elif date_field == 'due_date' %}📅 Vence{% else %}📄 Emitido{% endif %}
+                {% if month_raw %}{{ month_options | selectattr('value', 'equalto', month_raw) | map(attribute='label') | first | default(month_raw) }}{% elif date_from_raw and date_to_raw %}{{ date_from_raw[8:] }}/{{ date_from_raw[5:7] }} – {{ date_to_raw[8:] }}/{{ date_to_raw[5:7] }}{% elif date_from_raw %}≥ {{ date_from_raw[8:] }}/{{ date_from_raw[5:7] }}{% else %}≤ {{ date_to_raw[8:] }}/{{ date_to_raw[5:7] }}{% endif %}
+            </span>
+            {% endif %}
+
+            <!-- hidden month field submitted with form -->
+            <input type="hidden" name="month" id="month-hidden" value="{{ month_raw }}">
+        </div>
     </form>
 
     {% if invoices %}
@@ -1143,5 +1182,24 @@ document.addEventListener('DOMContentLoaded', function() {
         new bootstrap.Tooltip(el, { trigger: 'hover', placement: 'top' });
     });
 });
+
+function selectMonth(val) {
+    const df = document.getElementById('date-from-input');
+    const dt = document.getElementById('date-to-input');
+    const mh = document.getElementById('month-hidden');
+    if (df) df.value = '';
+    if (dt) dt.value = '';
+    if (mh) mh.value = val;
+    document.getElementById('filter-form').submit();
+}
+
+function clearMonthParam() {
+    const mh = document.getElementById('month-hidden');
+    if (mh) mh.value = '';
+}
+
+function dateFieldChanged() {
+    document.getElementById('filter-form').submit();
+}
 </script>
 {% endblock %}

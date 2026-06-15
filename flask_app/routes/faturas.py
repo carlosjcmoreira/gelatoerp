@@ -224,6 +224,11 @@ def index():
             document_type_labels=DOCUMENT_TYPE_LABELS,
         )
 
+    import calendar as _calendar
+
+    _MONTH_PT = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+                 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
     statuses_filter = [s for s in request.args.getlist('status') if s]
     show_all = request.args.get('all', '') == '1'
     order_by = request.args.get('order_by', 'due_date')
@@ -238,6 +243,36 @@ def index():
     if document_type_filter not in DOCUMENT_TYPE_LABELS:
         document_type_filter = ''
     supplier_name_filter = request.args.get('supplier_name', '').strip()
+
+    # Date filters
+    date_field = request.args.get('date_field', 'due_date').strip()
+    if date_field not in ('issue_date', 'due_date', 'paid_date'):
+        date_field = 'due_date'
+    date_from_raw = request.args.get('date_from', '').strip()
+    date_to_raw = request.args.get('date_to', '').strip()
+    month_raw = request.args.get('month', '').strip()  # YYYY-MM shortcut
+
+    # month shortcut → expand to date_from/date_to (only when no explicit range given)
+    if month_raw and not date_from_raw and not date_to_raw:
+        try:
+            _my, _mm = int(month_raw[:4]), int(month_raw[5:7])
+            _, _last = _calendar.monthrange(_my, _mm)
+            date_from_raw = f'{_my:04d}-{_mm:02d}-01'
+            date_to_raw = f'{_my:04d}-{_mm:02d}-{_last:02d}'
+        except (ValueError, IndexError):
+            month_raw = ''
+
+    date_from = _parse_date(date_from_raw)
+    date_to = _parse_date(date_to_raw)
+
+    # Month picker options: 12 past months (inclusive current) + 3 future
+    _month_options = []
+    for _i in range(-11, 4):
+        _total = today.month - 1 + _i
+        _y = today.year + _total // 12
+        _m = _total % 12 + 1
+        _val = f'{_y:04d}-{_m:02d}'
+        _month_options.append({'value': _val, 'label': f'{_MONTH_PT[_m]} {_y}'})
 
     # Default filter: active when no status/all param set — exclude paid and draft
     default_filter_active = not statuses_filter and not show_all
@@ -259,6 +294,9 @@ def index():
         categoria_custo_id=categoria_custo_filter,
         document_type=document_type_filter or None,
         supplier_name=supplier_name_filter or None,
+        date_from=date_from,
+        date_to=date_to,
+        date_field=date_field,
     )
 
     for inv in invoices:
@@ -279,6 +317,14 @@ def index():
                  ('document_type', document_type_filter), ('supplier_name', supplier_name_filter)]:
         if v:
             _filter_params.append((k, v))
+    if date_from_raw:
+        _filter_params.append(('date_from', date_from_raw))
+    if date_to_raw:
+        _filter_params.append(('date_to', date_to_raw))
+    if month_raw:
+        _filter_params.append(('month', month_raw))
+    if date_field != 'due_date':
+        _filter_params.append(('date_field', date_field))
     filter_qs = ('?' + urlencode(_filter_params)) if _filter_params else '?'
 
     stores = get_stores_list()
@@ -312,6 +358,14 @@ def index():
                  ('supplier_name', supplier_name_filter)]:
         if v:
             _type_badge_params.append((k, v))
+    if date_from_raw:
+        _type_badge_params.append(('date_from', date_from_raw))
+    if date_to_raw:
+        _type_badge_params.append(('date_to', date_to_raw))
+    if month_raw:
+        _type_badge_params.append(('month', month_raw))
+    if date_field != 'due_date':
+        _type_badge_params.append(('date_field', date_field))
     type_badge_base_qs = urlencode(_type_badge_params)
 
     return render_template(
@@ -346,6 +400,11 @@ def index():
         type_badge_base_qs=type_badge_base_qs,
         all_supplier_names=all_supplier_names,
         supplier_name_filter=supplier_name_filter,
+        date_field=date_field,
+        date_from_raw=date_from_raw,
+        date_to_raw=date_to_raw,
+        month_raw=month_raw,
+        month_options=_month_options,
     )
 
 

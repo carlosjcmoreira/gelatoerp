@@ -685,7 +685,12 @@ def _build_invoice_where(status: str = None, statuses: list = None,
     if document_type and document_type in DOCUMENT_TYPE_LABELS:
         where.append("i.document_type = %s")
         params.append(document_type)
-    _date_col = 'i.due_date' if date_field == 'due_date' else 'i.issue_date'
+    if date_field == 'paid_date':
+        _date_col = 'i.paid_date'
+    elif date_field == 'due_date':
+        _date_col = 'i.due_date'
+    else:
+        _date_col = 'i.issue_date'
     if date_from:
         where.append(f"{_date_col} >= %s")
         params.append(date_from)
