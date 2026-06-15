@@ -37,9 +37,19 @@
         </button>
         {% endif %}
         {% if inv.status in ['pending_review', 'scheduled'] or overdue %}
-        <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#modalPagar">
-            💰 Marcar como paga
-        </button>
+            {% if inv.installment_total and inv.installment_total > 0 %}
+                {% set inst_paid = inv.installment_paid_count or 0 %}
+                {% set inst_total = inv.installment_total %}
+                {% if inst_paid < inst_total %}
+                <span class="badge bg-info text-dark py-2 px-3">
+                    💳 Parcelado — {{ inst_paid }}/{{ inst_total }} paga(s)
+                </span>
+                {% endif %}
+            {% else %}
+            <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#modalPagar">
+                💰 Marcar como paga
+            </button>
+            {% endif %}
         {% endif %}
         {% if inv.pdf_filename %}
         <a href="{{ url_for('static', filename='pdfjs-viewer.html') }}?file={{ url_for('faturas.download_pdf', invoice_id=inv.id) | urlencode }}"

@@ -725,6 +725,12 @@
                             title="{% if overdue %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
                             {{ 'Vencida' if overdue else inv.status_label }}
                         </span>
+                        {% if inv.installment_total and inv.installment_total > 0 %}
+                        <span class="badge bg-primary-subtle text-primary-emphasis ms-1"
+                              title="Pagamento parcelado: {{ inv.installment_paid_count }}/{{ inv.installment_total }} parcela(s) paga(s)">
+                            💳 {{ inv.installment_paid_count }}/{{ inv.installment_total }}
+                        </span>
+                        {% endif %}
                     </td>
                     <td class="d-none d-lg-table-cell text-muted small text-nowrap">
                         {% set sched_date = inv.payment_confirmed_date or inv.cfo_confirmed_date %}

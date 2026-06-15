@@ -754,10 +754,18 @@ def get_invoices(status: str = None, statuses: list = None,
                    i.centro_custo_id,
                    i.categoria_custo_id,
                    ip.confirmed_date AS payment_confirmed_date,
-                   i.payment_method
+                   i.payment_method,
+                   COALESCE(i.installment_total, 0) AS installment_total,
+                   COALESCE(ii_stats.paid_count, 0) AS installment_paid_count
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
+            LEFT JOIN (
+                SELECT invoice_id,
+                       COUNT(*) FILTER (WHERE status = 'paid') AS paid_count
+                FROM invoice_installments
+                GROUP BY invoice_id
+            ) ii_stats ON ii_stats.invoice_id = i.id
             {where_clause}
             ORDER BY {order_col} {direction} NULLS LAST, i.created_at DESC
             {limit_sql}
@@ -768,6 +776,8 @@ def get_invoices(status: str = None, statuses: list = None,
         inv = _row_to_invoice(r)
         inv['payment_confirmed_date'] = r[26] if len(r) > 26 else None
         inv['payment_method'] = r[27] if len(r) > 27 else None
+        inv['installment_total'] = int(r[28]) if len(r) > 28 and r[28] else 0
+        inv['installment_paid_count'] = int(r[29]) if len(r) > 29 and r[29] else 0
         result.append(inv)
     return result
 
@@ -844,7 +854,10 @@ def get_invoice(invoice_id: int) -> dict:
                    i.stock_registado_por,
                    i.payment_method,
                    i.onedrive_failed,
-                   i.onedrive_retry_at
+                   i.onedrive_retry_at,
+                   COALESCE(i.installment_total, 0) AS installment_total,
+                   (SELECT COUNT(*) FROM invoice_installments
+                    WHERE invoice_id = i.id AND status = 'paid') AS installment_paid_count
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -861,6 +874,8 @@ def get_invoice(invoice_id: int) -> dict:
     inv['payment_method'] = row[30] if len(row) > 30 else None
     inv['onedrive_failed'] = row[31] if len(row) > 31 else False
     inv['onedrive_retry_at'] = row[32] if len(row) > 32 else None
+    inv['installment_total'] = int(row[33]) if len(row) > 33 and row[33] else 0
+    inv['installment_paid_count'] = int(row[34]) if len(row) > 34 and row[34] else 0
     return inv
 
 
@@ -1219,9 +1234,10 @@ def create_invoice_installments(invoice_id: int, installments: list, created_by:
     return ids
 
 
-def mark_installment_paid(installment_id: int, paid_date, confirmed_by: str) -> bool:
+def mark_installment_paid(installment_id: int, invoice_id: int, paid_date, confirmed_by: str) -> bool:
     """Marks one installment as paid.
 
+    invoice_id is required and must match the installment's invoice_id (ownership check).
     If all installments for the parent invoice are now paid, also marks the parent
     invoice as paid and returns True; otherwise returns False.
     """
@@ -1230,9 +1246,9 @@ def mark_installment_paid(installment_id: int, paid_date, confirmed_by: str) -> 
         cursor.execute("""
             UPDATE invoice_installments
             SET status = 'paid', paid_date = %s, paid_by = %s
-            WHERE id = %s AND status != 'paid'
+            WHERE id = %s AND invoice_id = %s AND status != 'paid'
             RETURNING invoice_id
-        """, (paid_date, confirmed_by, installment_id))
+        """, (paid_date, confirmed_by, installment_id, invoice_id))
         row = cursor.fetchone()
         if not row:
             conn.rollback()

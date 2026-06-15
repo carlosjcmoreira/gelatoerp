@@ -1365,6 +1365,19 @@ def pagar(invoice_id: int):
         return _panel_redirect(invoice_id)
 
     # ── Normal (full) payment ───────────────────────────────────────────────
+    # Block if invoice has an active installment plan with unpaid installments
+    inv_check = get_invoice(invoice_id)
+    if inv_check and inv_check.get('installment_total', 0) > 0:
+        from db.faturas import get_invoice_installments
+        unpaid = [i for i in get_invoice_installments(invoice_id) if i['status'] != 'paid']
+        if unpaid:
+            flash(
+                f'Esta fatura tem {len(unpaid)} parcela(s) em aberto. '
+                'Use os botões de pagamento individuais para cada parcela.',
+                'warning',
+            )
+            return _panel_redirect(invoice_id)
+
     paid_date = _parse_date(request.form.get('paid_date', ''))
     if not paid_date:
         flash('É obrigatório indicar a data de pagamento.', 'warning')
@@ -1409,7 +1422,7 @@ def installment_pagar(invoice_id: int, installment_id: int):
     current_user = session.get('user', {}).get('username', 'system')
     try:
         from db.faturas import mark_installment_paid
-        all_paid = mark_installment_paid(installment_id, paid_date, current_user)
+        all_paid = mark_installment_paid(installment_id, invoice_id, paid_date, current_user)
         if all_paid:
             flash('Todas as parcelas pagas — fatura marcada como paga.', 'success')
         else:
