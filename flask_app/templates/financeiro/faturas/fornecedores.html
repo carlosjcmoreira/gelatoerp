@@ -147,6 +147,7 @@
             </div>
             <form method="post">
                 <input type="hidden" name="action" value="save">
+                <input type="hidden" name="supplier_id" id="sSupplierId">
                 <div class="modal-body">
                     <div class="row g-2">
                         <div class="col-12">
@@ -275,6 +276,7 @@ function openMerge(sourceId, sourceName) {
 
 function editSupplier(s) {
     document.getElementById('modalAddTitle').textContent = 'Editar Fornecedor';
+    document.getElementById('sSupplierId').value    = s.id            || '';
     document.getElementById('sName').value          = s.name          || '';
     document.getElementById('sNif').value           = s.nif           || '';
     document.getElementById('sCategory').value      = s.category      || '';
@@ -289,8 +291,9 @@ function editSupplier(s) {
 
 function prefillNew(name, nif) {
     document.getElementById('modalAddTitle').textContent = 'Novo Fornecedor';
-    document.getElementById('sName').value = name || '';
-    document.getElementById('sNif').value  = nif  || '';
+    document.getElementById('sSupplierId').value    = '';
+    document.getElementById('sName').value          = name || '';
+    document.getElementById('sNif').value           = nif  || '';
     document.getElementById('sCategory').value      = '';
     document.getElementById('sStore').value         = '';
     document.getElementById('sPaymentMethod').value = '';

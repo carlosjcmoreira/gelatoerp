@@ -125,6 +125,34 @@ def get_supplier_by_id(supplier_id: int) -> dict:
     return None
 
 
+def update_supplier(supplier_id: int, name: str, nif: str = None, category: str = None,
+                    store_id: int = None, notes: str = None,
+                    payment_method: str = None, payment_terms: str = None,
+                    iban: str = None) -> bool:
+    """Update an existing supplier by primary key. Returns True if a row was updated."""
+    nif = _normalize_nif(nif)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE suppliers
+            SET name = %s,
+                nif = %s,
+                category = %s,
+                store_id = %s,
+                notes = %s,
+                payment_method = %s,
+                payment_terms = %s,
+                iban = %s,
+                updated_at = NOW()
+            WHERE id = %s
+        """, (name, nif or None, category or None, store_id,
+              notes or None, payment_method or None, payment_terms or None,
+              iban or None, supplier_id))
+        updated = cursor.rowcount > 0
+        conn.commit()
+    return updated
+
+
 def upsert_supplier(name: str, nif: str = None, category: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,

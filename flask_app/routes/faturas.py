@@ -1603,14 +1603,22 @@ def fornecedores():
             payment_method = request.form.get('payment_method', '').strip() or None
             payment_terms = request.form.get('payment_terms', '').strip() or None
             iban = request.form.get('iban', '').strip() or None
+            supplier_id_raw = request.form.get('supplier_id', '').strip()
             if not name:
                 flash('Nome do fornecedor é obrigatório.', 'warning')
+            elif supplier_id_raw.isdigit():
+                from db.faturas import update_supplier
+                update_supplier(int(supplier_id_raw), name=name, nif=nif or None,
+                                category=category or None, store_id=store_id,
+                                notes=notes or None, payment_method=payment_method,
+                                payment_terms=payment_terms, iban=iban)
+                flash(f'Fornecedor "{name}" actualizado.', 'success')
             else:
                 upsert_supplier(name=name, nif=nif or None, category=category or None,
                                 store_id=store_id, notes=notes or None,
                                 payment_method=payment_method,
                                 payment_terms=payment_terms, iban=iban)
-                flash(f'Fornecedor "{name}" guardado.', 'success')
+                flash(f'Fornecedor "{name}" criado.', 'success')
             return redirect(url_for('faturas.fornecedores'))
 
         elif action == 'delete':
