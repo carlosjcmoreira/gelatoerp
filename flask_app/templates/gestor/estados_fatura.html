@@ -31,7 +31,8 @@
                             <td class="small fw-semibold font-monospace">{{ e.key }}</td>
                             <td class="small">{{ e.label }}</td>
                             <td>
-                                <span class="badge {{ e.bg_class }}">{{ e.label }}</span>
+                                {% set _eba = badge_attrs(e.bg_class) %}
+                                <span class="{{ _eba.css_class }}"{% if _eba.inline_style %} style="{{ _eba.inline_style }}"{% endif %}>{{ e.label }}</span>
                                 <span class="text-muted small ms-2 font-monospace">{{ e.bg_class }}</span>
                             </td>
                             <td class="text-center small">{{ e.sort_order }}</td>
@@ -204,11 +205,8 @@ function highlightSwatch(cls) {
 }
 
 function applyHexColor(hex) {
-    // Store hex override; set bg_class to a descriptive value
     _hexStyle = 'background-color:' + hex + ';color:#fff';
-    // Store as inline-style directive prefixed with "style:" so the route can detect it
-    document.getElementById('fBgClass').value = '';
-    // Deselect all swatches
+    document.getElementById('fBgClass').value = hex; // persist hex directly in bg_class field
     highlightSwatch('');
     updatePreview();
 }

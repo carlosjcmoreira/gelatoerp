@@ -171,7 +171,8 @@
                                     {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
                                 </td>
                                 <td>
-                                    <span class="badge {{ status_colors.get('overdue' if overdue else inv.status, 'bg-secondary') }}"
+                                    {% set _ba = badge_attrs(status_colors.get('overdue' if overdue else inv.status, 'bg-secondary')) %}
+                                    <span class="{{ _ba.css_class }}"{% if _ba.inline_style %} style="{{ _ba.inline_style }}"{% endif %}
                                         data-bs-toggle="tooltip"
                                         title="{% if overdue %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
                                         {{ 'Vencida' if overdue else inv.status_label }}
@@ -241,7 +242,8 @@
                         {% if _dtcc != 'fatura' and _dtcc != 'nota_credito' %}
                         <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ document_type_labels.get(_dtcc, _dtcc)|truncate(20, True, '…') }}</span>
                         {% endif %}
-                        <span class="badge {{ status_colors.get(inv.display_status, 'bg-secondary') }}"
+                        {% set _ba = badge_attrs(status_colors.get(inv.display_status, 'bg-secondary')) %}
+                        <span class="{{ _ba.css_class }}"{% if _ba.inline_style %} style="{{ _ba.inline_style }}"{% endif %}
                             data-bs-toggle="tooltip"
                             title="{% if inv.display_status == 'overdue' %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
                             {{ inv.status_label }}
@@ -301,7 +303,8 @@
                         {% if _dtcat != 'fatura' and _dtcat != 'nota_credito' %}
                         <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ document_type_labels.get(_dtcat, _dtcat)|truncate(20, True, '…') }}</span>
                         {% endif %}
-                        <span class="badge {{ status_colors.get(inv.display_status, 'bg-secondary') }}"
+                        {% set _ba = badge_attrs(status_colors.get(inv.display_status, 'bg-secondary')) %}
+                        <span class="{{ _ba.css_class }}"{% if _ba.inline_style %} style="{{ _ba.inline_style }}"{% endif %}
                             data-bs-toggle="tooltip"
                             title="{% if inv.display_status == 'overdue' %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
                             {{ inv.status_label }}
@@ -672,8 +675,9 @@
                         {% elif _dtdoc != 'fatura' %}
                         <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ document_type_labels.get(_dtdoc, _dtdoc)|truncate(20, True, '…') }}</span>
                         {% endif %}
-                        <span class="badge status-badge-edit {{ status_colors.get('overdue' if overdue else inv.status, 'bg-secondary') }}"
-                            style="cursor:pointer"
+                        {% set _badoc = badge_attrs(status_colors.get('overdue' if overdue else inv.status, 'bg-secondary')) %}
+                        <span class="{{ _badoc.css_class }} status-badge-edit"
+                            style="cursor:pointer{% if _badoc.inline_style %};{{ _badoc.inline_style }}{% endif %}"
                             title="Clique para alterar estado"
                             onclick="openStatusDropdown(event, {{ inv.id }}, '{{ inv.status }}')">
                             {{ 'Vencida' if overdue else inv.status_label }} ▾
@@ -938,12 +942,18 @@
 
     var STATUS_LABELS = {{ status_labels | tojson }};
     var _SC_RAW = {{ status_colors | tojson }};
+    var _VALID_BTN_COLORS = {'primary':1,'secondary':1,'success':1,'danger':1,'warning':1,'info':1,'light':1,'dark':1};
     var STATUS_COLORS = {};
     for (var _k in _SC_RAW) {
-        STATUS_COLORS[_k] = _SC_RAW[_k].replace('bg-', 'btn-').replace(' text-dark', '');
+        var _v = _SC_RAW[_k] || '';
+        if (_v.startsWith('#')) {
+            STATUS_COLORS[_k] = 'btn-secondary'; // hex colors → use default button style
+        } else {
+            var _btn = _v.replace(/^bg-/, 'btn-').replace(/\s.*/, ''); // first class only
+            STATUS_COLORS[_k] = _VALID_BTN_COLORS[_btn.replace('btn-', '')] ? _btn : 'btn-secondary';
+        }
     }
-    var _NON_BULK = {'draft': 1, 'overdue': 1};
-    var ALLOWED = Object.keys(_SC_RAW).filter(function(k) { return !_NON_BULK[k]; });
+    var ALLOWED = {{ status_bulk_allowed | tojson }};
     var DATE_REQUIRED = ['scheduled', 'paid'];
 
     window.openStatusDropdown = function (event, invId, currentStatus) {

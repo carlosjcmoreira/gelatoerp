@@ -781,6 +781,23 @@ def get_invoice_status_colors_map() -> dict:
     return dict(_STATUS_COLORS_FALLBACK)
 
 
+_NON_BULK_STATUS_KEYS = frozenset({'draft', 'overdue'})
+
+
+@ttl_cache('invoice_status_bulk_allowed', ttl=120)
+def get_invoice_status_bulk_allowed() -> list:
+    """Cached ordered list of active status keys valid for bulk/dropdown actions."""
+    _FALLBACK = ['pending_review', 'scheduled', 'paid', 'cancelled']
+    try:
+        rows = get_invoice_status_configs()
+        if rows:
+            return [r['key'] for r in rows
+                    if r['active'] and r['key'] not in _NON_BULK_STATUS_KEYS]
+    except Exception:
+        pass
+    return _FALLBACK
+
+
 def upsert_invoice_status_config(key: str, label: str, bg_class: str,
                                   sort_order: int, active: bool) -> None:
     with db_connection() as conn:
@@ -797,7 +814,8 @@ def upsert_invoice_status_config(key: str, label: str, bg_class: str,
             (key, label, bg_class, sort_order, active),
         )
         conn.commit()
-    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map')
+    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map',
+                      'invoice_status_bulk_allowed')
 
 
 def delete_invoice_status_config(key: str) -> None:
@@ -812,7 +830,8 @@ def delete_invoice_status_config(key: str) -> None:
             )
         cursor.execute("DELETE FROM invoice_status_config WHERE key = %s", (key,))
         conn.commit()
-    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map')
+    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map',
+                      'invoice_status_bulk_allowed')
 
 
 ONEDRIVE_SUBFOLDERS = [

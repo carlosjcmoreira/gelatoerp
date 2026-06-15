@@ -221,7 +221,8 @@
                             {{ inst.due_date.strftime('%d/%m/%Y') if inst.due_date else '—' }}
                         </td>
                         <td class="pe-3">
-                            <span class="badge {{ status_colors.get('overdue' if inst_overdue else inst.status, 'bg-secondary') }}">
+                            {% set _ba = badge_attrs(status_colors.get('overdue' if inst_overdue else inst.status, 'bg-secondary')) %}
+                            <span class="{{ _ba.css_class }}"{% if _ba.inline_style %} style="{{ _ba.inline_style }}"{% endif %}>
                                 {{ 'Vencida' if inst_overdue else status_labels.get(inst.status, inst.status) }}
                             </span>
                         </td>

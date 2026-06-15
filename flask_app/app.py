@@ -261,6 +261,18 @@ def create_app():
     def load_user():
         g.user = session.get('user')
 
+    @app.template_global()
+    def badge_attrs(bg_class_val):
+        """Return dict(css_class, inline_style) for a status badge bg_class value.
+
+        If bg_class_val starts with '#', it is treated as a hex color and rendered
+        via inline style.  Otherwise it is used as Bootstrap badge class(es).
+        """
+        val = (bg_class_val or 'bg-secondary').strip()
+        if val.startswith('#'):
+            return {'css_class': 'badge', 'inline_style': f'background-color:{val};color:#fff'}
+        return {'css_class': f'badge {val}', 'inline_style': ''}
+
     @app.context_processor
     def inject_globals():
         time_slots = ['%02d:%02d' % (h, m) for h in range(6, 24) for m in [0, 15, 30, 45]]
@@ -282,15 +294,19 @@ def create_app():
                 logger.warning("inject_globals: failed to compute nav_pages: %s", exc)
         status_colors = {}
         status_labels = {}
+        status_bulk_allowed = ['pending_review', 'scheduled', 'paid', 'cancelled']
         try:
-            from db.faturas import get_invoice_status_colors_map, get_invoice_status_labels_map
+            from db.faturas import (get_invoice_status_colors_map, get_invoice_status_labels_map,
+                                    get_invoice_status_bulk_allowed)
             status_colors = get_invoice_status_colors_map()
             status_labels = get_invoice_status_labels_map()
+            status_bulk_allowed = get_invoice_status_bulk_allowed()
         except Exception as exc:
             logger.debug("inject_globals: could not load status maps: %s", exc)
         return dict(user=user, time_slots=time_slots, event_type_options=event_type_options,
                     nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count,
-                    status_colors=status_colors, status_labels=status_labels)
+                    status_colors=status_colors, status_labels=status_labels,
+                    status_bulk_allowed=status_bulk_allowed)
 
     import psycopg2
 
