@@ -678,23 +678,24 @@
                             {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f €'|format(inv.amount_eur) }}
                         {% else %}—{% endif %}
                     </td>
-                    <td>
+                    <td onclick="event.stopPropagation()">
                         {% set _dtdoc = inv.document_type or 'fatura' %}
                         {% if _dtdoc == 'nota_credito' %}
                         <span class="badge bg-success-subtle text-success-emphasis me-1" title="Nota de Crédito">NC</span>
                         {% elif _dtdoc != 'fatura' %}
                         <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">{{ document_type_labels.get(_dtdoc, _dtdoc)|truncate(20, True, '…') }}</span>
                         {% endif %}
-                        <span class="badge
+                        <span class="badge status-badge-edit
                             {% if overdue %}bg-danger
                             {% elif inv.status == 'pending_review' %}bg-warning text-dark
                             {% elif inv.status == 'scheduled' %}bg-info text-dark
                             {% elif inv.status == 'paid' %}bg-success
                             {% elif inv.status == 'cancelled' %}bg-secondary
                             {% else %}bg-secondary{% endif %}"
-                            data-bs-toggle="tooltip"
-                            title="{% if overdue %}Prazo de pagamento ultrapassado — requer atenção imediata{% else %}{{ _sd.get(inv.status, inv.status_label) }}{% endif %}">
-                            {{ 'Vencida' if overdue else inv.status_label }}
+                            style="cursor:pointer"
+                            title="Clique para alterar estado"
+                            onclick="openStatusDropdown(event, {{ inv.id }}, '{{ inv.status }}')">
+                            {{ 'Vencida' if overdue else inv.status_label }} ▾
                         </span>
                         {% if inv.installment_total and inv.installment_total > 0 %}
                         <span class="badge bg-primary-subtle text-primary-emphasis ms-1"
@@ -719,6 +720,22 @@
         </table>
         </div>
     </form>
+
+    <!-- Inline status dropdown (shared singleton, positioned via JS) -->
+    <div id="sdrop" style="display:none;position:fixed;z-index:1055;min-width:180px"
+         class="border rounded shadow-sm bg-body p-1" onclick="event.stopPropagation()">
+        <div id="sdrop-status-list"></div>
+        <div id="sdrop-date-wrap" style="display:none" class="mt-1 px-2 pb-2">
+            <label class="form-label small mb-1 text-muted">Data</label>
+            <input type="date" id="sdrop-date" class="form-control form-control-sm mb-2">
+            <div class="d-flex gap-1">
+                <button type="button" class="btn btn-primary btn-sm flex-grow-1"
+                        onclick="sdropConfirmDate()">Confirmar</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        onclick="sdropClose()">✕</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Invoice detail offcanvas panel (slides from right) -->
     <div class="offcanvas offcanvas-end" tabindex="-1" id="inv-panel" style="width:min(480px,100vw)">
@@ -936,6 +953,144 @@
         if (!confirm('Eliminar ' + n + ' fatura(s) permanentemente?\nEsta acção não pode ser desfeita.')) return;
         submitBulk('delete');
     };
+})();
+</script>
+{% endif %}
+
+{% if view == 'documento' and invoices %}
+<script>
+// ── Inline status dropdown ────────────────────────────────────────────────────
+(function () {
+    var _sdrop = document.getElementById('sdrop');
+    var _sdropList = document.getElementById('sdrop-status-list');
+    var _sdropDateWrap = document.getElementById('sdrop-date-wrap');
+    var _sdropDateInput = document.getElementById('sdrop-date');
+    var _sdropTargetIds = [];
+    var _sdropPendingStatus = null;
+
+    var STATUS_LABELS = {{ status_labels | tojson }};
+    var STATUS_COLORS = {
+        'pending_review': 'btn-warning',
+        'scheduled':      'btn-info',
+        'paid':           'btn-success',
+        'cancelled':      'btn-secondary'
+    };
+    var ALLOWED = ['pending_review', 'scheduled', 'paid', 'cancelled'];
+    var DATE_REQUIRED = ['scheduled', 'paid'];
+    var TODAY = {{ today.isoformat() | tojson }};
+
+    window.openStatusDropdown = function (event, invId, currentStatus) {
+        event.stopPropagation();
+
+        // Determine which IDs to act on
+        var checkedIds = Array.from(document.querySelectorAll('.inv-cb:checked'))
+                              .map(function (cb) { return parseInt(cb.value, 10); });
+        if (checkedIds.indexOf(invId) !== -1) {
+            _sdropTargetIds = checkedIds;
+        } else {
+            _sdropTargetIds = [invId];
+        }
+
+        // Reset to status-list screen
+        _sdropDateWrap.style.display = 'none';
+        _sdropPendingStatus = null;
+        _sdropDateInput.value = TODAY;
+
+        // Build status buttons
+        var h = '';
+        if (_sdropTargetIds.length > 1) {
+            h += '<div class="px-2 pt-1 pb-2 small text-muted">' + _sdropTargetIds.length + ' documento(s)</div>';
+        }
+        ALLOWED.forEach(function (k) {
+            var label = STATUS_LABELS[k] || k;
+            var isCurrent = (_sdropTargetIds.length === 1 && k === currentStatus);
+            h += '<button type="button" class="btn btn-sm w-100 text-start mb-1 ' +
+                (STATUS_COLORS[k] || 'btn-secondary') +
+                (isCurrent ? ' opacity-50" disabled' : '"') +
+                ' onclick="sdropPickStatus(\'' + k + '\')">' +
+                (isCurrent ? '✓ ' : '') + label + '</button>';
+        });
+        _sdropList.innerHTML = h;
+
+        // Position dropdown near the clicked element
+        var rect = event.currentTarget.getBoundingClientRect();
+        var top = rect.bottom + 6;
+        var left = rect.left;
+        // Keep within viewport
+        if (left + 190 > window.innerWidth) { left = window.innerWidth - 196; }
+        if (top + 200 > window.innerHeight) { top = rect.top - 210; }
+        _sdrop.style.top = top + 'px';
+        _sdrop.style.left = left + 'px';
+        _sdrop.style.display = '';
+    };
+
+    window.sdropPickStatus = function (status) {
+        if (DATE_REQUIRED.indexOf(status) !== -1) {
+            // Show date input step
+            _sdropPendingStatus = status;
+            _sdropList.style.display = 'none';
+            _sdropDateWrap.style.display = '';
+        } else {
+            sdropClose();
+            _submitInlineStatus(status, null);
+        }
+    };
+
+    window.sdropConfirmDate = function () {
+        var d = _sdropDateInput.value;
+        if (!d) { alert('Indique a data.'); return; }
+        var s = _sdropPendingStatus;
+        sdropClose();
+        _submitInlineStatus(s, d);
+    };
+
+    window.sdropClose = function () {
+        _sdrop.style.display = 'none';
+        _sdropList.style.display = '';
+        _sdropDateWrap.style.display = 'none';
+        _sdropPendingStatus = null;
+    };
+
+    // Close on outside click
+    document.addEventListener('click', function (e) {
+        if (_sdrop.style.display !== 'none' && !_sdrop.contains(e.target)) {
+            sdropClose();
+        }
+    });
+
+    // Also close if offcanvas opens (row click)
+    document.addEventListener('show.bs.offcanvas', sdropClose);
+
+    function _submitInlineStatus(status, date) {
+        var form = document.getElementById('bulk-form');
+        // Uncheck all checkboxes so they don't submit as ids
+        document.querySelectorAll('.inv-cb').forEach(function (cb) { cb.checked = false; });
+        // Remove any previously injected inline id inputs
+        form.querySelectorAll('.sdrop-id-inp').forEach(function (el) { el.remove(); });
+        // Inject target ids as hidden inputs
+        _sdropTargetIds.forEach(function (id) {
+            var inp = document.createElement('input');
+            inp.type = 'hidden'; inp.name = 'ids'; inp.value = id;
+            inp.className = 'sdrop-id-inp';
+            form.appendChild(inp);
+        });
+        // Set common fields
+        document.getElementById('bulk-action-val').value = 'change_status';
+        document.getElementById('bulk-status-val').value = status;
+        document.getElementById('bulk-date-hidden').value = date || '';
+        document.getElementById('bulk-pm-hidden').value = '';
+        document.getElementById('bulk-confirming-hidden').value = '';
+        document.getElementById('bulk-nparcelas-hidden').value = '1';
+        document.getElementById('bulk-freq-hidden').value = 'none';
+
+        if (['scheduled', 'paid'].indexOf(status) !== -1) {
+            // Open payment method modal; pmConfirm() will submit bulk-form
+            _openPaymentModal('bulk-form', status);
+        } else {
+            form.requestSubmit();
+        }
+    }
+    window._sdropSubmitInline = _submitInlineStatus;
 })();
 </script>
 {% endif %}
