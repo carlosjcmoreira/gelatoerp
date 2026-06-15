@@ -818,6 +818,22 @@ def upsert_invoice_status_config(key: str, label: str, bg_class: str,
                       'invoice_status_bulk_allowed')
 
 
+def bulk_update_invoice_status_sort_order(ordered_keys: list) -> None:
+    """Update sort_order for each key based on its position in ordered_keys list."""
+    if not ordered_keys:
+        return
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        for position, key in enumerate(ordered_keys):
+            cursor.execute(
+                "UPDATE invoice_status_config SET sort_order = %s, updated_at = NOW() WHERE key = %s",
+                (position, key),
+            )
+        conn.commit()
+    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map',
+                      'invoice_status_bulk_allowed')
+
+
 def delete_invoice_status_config(key: str) -> None:
     """Delete a status config row. Raises ValueError if invoices use this status."""
     with db_connection() as conn:

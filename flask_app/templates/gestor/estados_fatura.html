@@ -10,6 +10,7 @@
     <div class="card mb-4">
         <div class="card-header py-2 d-flex justify-content-between align-items-center">
             <h6 class="mb-0">Estados Configurados</h6>
+            <span class="text-muted small">Arraste <span style="font-size:1.1em">⠿</span> para reordenar</span>
         </div>
         <div class="card-body p-0">
             {% if estados %}
@@ -17,17 +18,18 @@
                 <table class="table table-sm align-middle mb-0">
                     <thead class="table-light">
                         <tr>
+                            <th style="width:32px"></th>
                             <th style="width:120px">Código</th>
                             <th>Label</th>
                             <th>Badge</th>
-                            <th class="text-center" style="width:60px">Ordem</th>
                             <th class="text-center" style="width:70px">Ativo</th>
                             <th style="width:80px"></th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="estadosTbody">
                         {% for e in estados %}
-                        <tr>
+                        <tr data-key="{{ e.key }}">
+                            <td class="drag-handle text-center text-muted" style="cursor:grab;font-size:1.2em;user-select:none">⠿</td>
                             <td class="small fw-semibold font-monospace">{{ e.key }}</td>
                             <td class="small">{{ e.label }}</td>
                             <td>
@@ -35,7 +37,6 @@
                                 <span class="{{ _eba.css_class }}"{% if _eba.inline_style %} style="{{ _eba.inline_style }}"{% endif %}>{{ e.label }}</span>
                                 <span class="text-muted small ms-2 font-monospace">{{ e.bg_class }}</span>
                             </td>
-                            <td class="text-center small">{{ e.sort_order }}</td>
                             <td class="text-center">
                                 {% if e.active %}
                                 <span class="badge bg-success-subtle text-success-emphasis">Sim</span>
@@ -59,6 +60,7 @@
                     </tbody>
                 </table>
             </div>
+            <div id="reorderFeedback" class="px-3 py-2 small d-none"></div>
             {% else %}
             <div class="p-3 text-muted small">Nenhum estado configurado.</div>
             {% endif %}
@@ -234,5 +236,58 @@ document.getElementById('fLabel').addEventListener('input', updatePreview);
 
 // Init
 highlightSwatch(document.getElementById('fBgClass').value);
+
+// ── Drag-and-drop reordering ─────────────────────────────
+(function() {
+    var tbody = document.getElementById('estadosTbody');
+    if (!tbody) return;
+
+    var feedback = document.getElementById('reorderFeedback');
+    var reorderUrl = "{{ url_for('gestor.estados_fatura_reorder') }}";
+
+    function showFeedback(msg, type) {
+        feedback.textContent = msg;
+        feedback.className = 'px-3 py-2 small text-' + type;
+        feedback.classList.remove('d-none');
+        clearTimeout(feedback._timer);
+        feedback._timer = setTimeout(function() {
+            feedback.classList.add('d-none');
+        }, 2500);
+    }
+
+    function saveOrder() {
+        var rows = tbody.querySelectorAll('tr[data-key]');
+        var order = Array.from(rows).map(function(r) { return r.getAttribute('data-key'); });
+        fetch(reorderUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: order })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                showFeedback('✔ Ordem guardada', 'success');
+            } else {
+                showFeedback('Erro ao guardar ordem: ' + (data.error || ''), 'danger');
+            }
+        })
+        .catch(function() {
+            showFeedback('Erro de ligação ao guardar ordem.', 'danger');
+        });
+    }
+
+    // Load SortableJS from CDN, then initialise
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js';
+    script.onload = function() {
+        Sortable.create(tbody, {
+            handle: '.drag-handle',
+            animation: 150,
+            ghostClass: 'table-active',
+            onEnd: function() { saveOrder(); }
+        });
+    };
+    document.head.appendChild(script);
+})();
 </script>
 {% endblock %}

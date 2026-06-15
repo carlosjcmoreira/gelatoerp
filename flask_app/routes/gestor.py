@@ -1292,6 +1292,24 @@ def metodos_pagamento():
     return render_template('gestor/metodos_pagamento.html', metodos=metodos)
 
 
+@gestor_bp.route('/estados-fatura/reorder', methods=['POST'])
+@perm_required('acesso_gestor')
+def estados_fatura_reorder():
+    from db.faturas import bulk_update_invoice_status_sort_order
+    data = request.get_json(silent=True)
+    if not data or 'order' not in data:
+        return jsonify({'ok': False, 'error': 'Payload inválido'}), 400
+    ordered_keys = data['order']
+    if not isinstance(ordered_keys, list) or not all(isinstance(k, str) for k in ordered_keys):
+        return jsonify({'ok': False, 'error': 'Formato inválido'}), 400
+    try:
+        bulk_update_invoice_status_sort_order(ordered_keys)
+        return jsonify({'ok': True})
+    except Exception as exc:
+        logger.error('Erro ao reordenar estados fatura: %s', exc)
+        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
+
+
 @gestor_bp.route('/estados-fatura', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def estados_fatura():
