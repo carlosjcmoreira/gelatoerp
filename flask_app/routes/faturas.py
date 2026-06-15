@@ -359,12 +359,20 @@ def index():
         date_field=date_field,
     )
 
+    # Category filter (in-memory — category is a free-text field on invoices)
+    category_filter = request.args.get('category', '').strip()
+    if category_filter:
+        invoices = [i for i in invoices if i.get('category') and category_filter.lower() in i['category'].lower()]
+
     for inv in invoices:
         if inv['status'] == 'scheduled' and inv['due_date'] and inv['due_date'] < today:
             inv['display_status'] = 'overdue'
             inv['status_label'] = 'Vencida'
         else:
             inv['display_status'] = inv['status']
+
+    # Distinct categories for filter panel
+    all_categories = sorted({i['category'] for i in invoices if i.get('category')})
 
     # Build filter_qs preserving multi-select status for sort links
     _filter_params = []
@@ -374,7 +382,8 @@ def index():
         _filter_params.append(('all', '1'))
     for k, v in [('q', search), ('store_id', store_id),
                  ('centro_custo_id', centro_custo_raw), ('categoria_custo_id', categoria_custo_raw),
-                 ('document_type', document_type_filter), ('supplier_name', supplier_name_filter)]:
+                 ('document_type', document_type_filter), ('supplier_name', supplier_name_filter),
+                 ('category', category_filter)]:
         if v:
             _filter_params.append((k, v))
     if date_from_raw:
@@ -468,6 +477,8 @@ def index():
         month_raw=month_raw,
         month_options=_month_options,
         pending_installments=pending_installments,
+        category_filter=category_filter,
+        all_categories=all_categories,
     )
 
 
