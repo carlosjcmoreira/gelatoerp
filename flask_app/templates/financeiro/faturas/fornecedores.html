@@ -210,7 +210,8 @@
                 </div>
                 <div class="d-flex gap-1 flex-shrink-0">
                     <button class="btn btn-outline-secondary btn-sm"
-                            onclick="editSupplier({{ s|tojson }})">
+                            data-s='{{ s|tojson }}'
+                            onclick="editSupplier(JSON.parse(this.dataset.s))">
                         ✏️
                     </button>
                     <button class="btn btn-outline-primary btn-sm"
