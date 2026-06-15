@@ -37,7 +37,7 @@ from db.faturas import (
     get_stores_list,
     get_distinct_supplier_names,
     get_supplier_by_alias,
-    INVOICE_STATUS_LABELS,
+    get_invoice_status_labels_map,
     INVOICE_CATEGORIES,
     ONEDRIVE_SUBFOLDERS,
     DOCUMENT_TYPE_LABELS,
@@ -229,7 +229,6 @@ def faturas():
                            total_count=total_count,
                            page_size=PAGE_SIZE,
                            has_filters=has_filters,
-                           status_labels=INVOICE_STATUS_LABELS,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,
                            today=today)
@@ -255,7 +254,7 @@ def set_invoice_status(invoice_id: int):
     except Exception as e:
         logger.error('set_invoice_status error: %s', e)
         return jsonify({'ok': False, 'error': str(e) or 'Erro interno'}), 500
-    status_label = INVOICE_STATUS_LABELS.get(new_status, new_status)
+    status_label = get_invoice_status_labels_map().get(new_status, new_status)
     return jsonify({'ok': True, 'status': new_status, 'status_label': status_label})
 
 
@@ -290,7 +289,7 @@ def invoice_panel(invoice_id: int):
     today = _date.today()
     if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
         inv['display_status'] = 'overdue'
-        inv['status_label'] = 'Vencida'
+        inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
     stores = get_stores_list()
     payment_methods = get_payment_methods_config()
     linhas = get_invoice_linhas(invoice_id)
@@ -303,7 +302,6 @@ def invoice_panel(invoice_id: int):
         'compras/_panel.html',
         inv=inv,
         today=today,
-        status_labels=INVOICE_STATUS_LABELS,
         document_type_labels=DOCUMENT_TYPE_LABELS,
         stores=stores,
         categories=INVOICE_CATEGORIES,

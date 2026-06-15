@@ -61,7 +61,7 @@ def index():
 def relatorio():
     """Expense report grouped by cost center."""
     from db.centros_custo import get_despesas_por_centro_custo
-    from db.faturas import INVOICE_STATUS_LABELS
+    from db.faturas import get_invoice_status_labels_map
 
     today = date.today()
     date_from_raw = request.args.get('date_from', '').strip()
@@ -100,5 +100,5 @@ def relatorio():
         date_from_raw=date_from_raw,
         date_to_raw=date_to_raw,
         statuses=statuses,
-        status_labels=INVOICE_STATUS_LABELS,
+        status_labels=get_invoice_status_labels_map(),
     )

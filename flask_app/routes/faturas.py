@@ -22,7 +22,7 @@ from database import (
     backfill_supplier_ids, normalise_supplier_names, rename_supplier_name_variant,
     get_stores_list, update_invoice_onedrive, suggest_onedrive_subfolder,
     get_contas_por_fornecedor, get_distinct_supplier_names,
-    INVOICE_STATUS_LABELS, ONEDRIVE_SUBFOLDERS, INVOICE_CATEGORIES,
+    ONEDRIVE_SUBFOLDERS, INVOICE_CATEGORIES,
     DOCUMENT_TYPE_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_TERMS_LABELS,
     calculate_due_date,
     get_confirming_contracts, create_confirming_parcela,
@@ -40,7 +40,8 @@ from database import (
 import flask_app.services.faturas as faturas_svc
 from flask_app.services import ServiceError
 from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair,
-                        get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias)
+                        get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias,
+                        get_invoice_status_labels_map)
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,6 @@ def dashboard():
         scheduled_count=scheduled_count,
         paid_count=paid_count,
         pending_installments=pending_installments,
-        status_labels=INVOICE_STATUS_LABELS,
         total_em_aberto=total_em_aberto,
         saldo_nc=saldo_nc,
         proximos_4_semanas=proximos_4_semanas,
@@ -173,7 +173,7 @@ def index():
             for inv in grupo.get('invoices', []):
                 if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
                     inv['display_status'] = 'overdue'
-                    inv['status_label'] = 'Vencida'
+                    inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
                 else:
                     inv['display_status'] = inv['status']
         return render_template(
@@ -183,7 +183,6 @@ def index():
             grupos_cc=[],
             grupos_cat=[],
             today=today,
-            status_labels=INVOICE_STATUS_LABELS,
             invoices=[],
             confirming_contracts=confirming_contracts,
             payment_methods=payment_methods,
@@ -212,7 +211,7 @@ def index():
                     grupos_cc[key]['label'] = 'Sem centro de custo'
             if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
                 inv['display_status'] = 'overdue'
-                inv['status_label'] = 'Vencida'
+                inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
             else:
                 inv['display_status'] = inv['status']
             grupos_cc[key]['invoices'].append(inv)
@@ -230,7 +229,6 @@ def index():
             grupos_cat=[],
             invoices=[],
             today=today,
-            status_labels=INVOICE_STATUS_LABELS,
             confirming_contracts=confirming_contracts,
             payment_methods=payment_methods,
             cost_centers=get_cost_centers(ativo_only=True),
@@ -257,7 +255,7 @@ def index():
                     grupos_cat[key]['label'] = 'Sem categoria'
             if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
                 inv['display_status'] = 'overdue'
-                inv['status_label'] = 'Vencida'
+                inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
             else:
                 inv['display_status'] = inv['status']
             grupos_cat[key]['invoices'].append(inv)
@@ -274,7 +272,6 @@ def index():
             grupos_cat=sorted_grupos_cat,
             invoices=[],
             today=today,
-            status_labels=INVOICE_STATUS_LABELS,
             confirming_contracts=confirming_contracts,
             payment_methods=payment_methods,
             cost_centers=[],
@@ -364,10 +361,11 @@ def index():
     if category_filter:
         invoices = [i for i in invoices if i.get('category') and category_filter.lower() in i['category'].lower()]
 
+    _labels_map = get_invoice_status_labels_map()
     for inv in invoices:
         if inv['status'] == 'scheduled' and inv['due_date'] and inv['due_date'] < today:
             inv['display_status'] = 'overdue'
-            inv['status_label'] = 'Vencida'
+            inv['status_label'] = _labels_map.get('overdue', 'Vencida')
         else:
             inv['display_status'] = inv['status']
 
@@ -453,7 +451,6 @@ def index():
         search=search,
         store_id=store_id,
         stores=stores,
-        status_labels=INVOICE_STATUS_LABELS,
         today=today,
         filter_qs=filter_qs,
         confirming_contracts=confirming_contracts,
@@ -572,7 +569,7 @@ def bulk_action():
         # Validate and parse bulk_date for states that require it
         bulk_date = _parse_date(request.form.get('bulk_date', ''))
         if new_status in _BULK_DATE_REQUIRED and not bulk_date:
-            label = INVOICE_STATUS_LABELS.get(new_status, new_status)
+            label = get_invoice_status_labels_map().get(new_status, new_status)
             flash(f'É obrigatório indicar a data ao alterar para «{label}».', 'warning')
             return redirect(return_url)
 
@@ -584,7 +581,7 @@ def bulk_action():
         bulk_nparcelas = int(bulk_nparcelas_raw) if bulk_nparcelas_raw.isdigit() else 1
         bulk_freq = request.form.get('bulk_freq', 'none').strip()
 
-        label = INVOICE_STATUS_LABELS.get(new_status, new_status)
+        label = get_invoice_status_labels_map().get(new_status, new_status)
         current_user = session.get('user', {}).get('username', 'system')
         ok = 0
         fail = 0
@@ -1046,7 +1043,6 @@ def detail(invoice_id: int):
         subfolders=subfolders,
         categories=categories,
         suppliers=suppliers,
-        status_labels=INVOICE_STATUS_LABELS,
         document_type_labels=DOCUMENT_TYPE_LABELS,
         today=today,
         payment_methods=payment_methods,
@@ -1134,7 +1130,7 @@ def invoice_panel(invoice_id: int):
     today = date.today()
     if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
         inv['display_status'] = 'overdue'
-        inv['status_label'] = 'Vencida'
+        inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
     linhas = get_invoice_linhas(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
     stock_local_derivado = derive_local_from_store(
@@ -1143,7 +1139,6 @@ def invoice_panel(invoice_id: int):
         'financeiro/faturas/_panel.html',
         inv=inv,
         today=today,
-        status_labels=INVOICE_STATUS_LABELS,
         document_type_labels=DOCUMENT_TYPE_LABELS,
         stores=get_stores_list(),
         categories=INVOICE_CATEGORIES,
@@ -2029,7 +2024,7 @@ def _handle_excel_import(file, ext='xlsx'):
             # Status: try Portuguese map first, then direct match, else default
             status_raw = _cell_str(_get(row, 'status')).lower()
             status = STATUS_PT.get(status_raw, status_raw)
-            if status not in INVOICE_STATUS_LABELS:
+            if status not in get_invoice_status_labels_map():
                 status = 'pending_review'
 
             # Notes: combine notes column + Centro Custo (if present)
