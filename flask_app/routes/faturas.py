@@ -81,6 +81,46 @@ def _parse_float(val: str):
         return None
 
 
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+
+@faturas_bp.route('/dashboard')
+@perm_required('acesso_gestor')
+def dashboard():
+    from db.faturas import get_invoices_type_totals, get_pending_installments
+    today = date.today()
+    scheduled_docs = [dict(r) for r in get_invoices_with_payments(status='scheduled')]
+    total_scheduled = sum(float(i.get('amount_eur') or 0) for i in scheduled_docs)
+    # Next VAT period
+    vat_periods = list(get_vat_periods(limit=4))
+    next_vat = next(
+        (p for p in vat_periods if not p.get('paid')),
+        vat_periods[0] if vat_periods else None,
+    )
+    totals_by_type = get_invoices_type_totals()
+    # Status counts (from recent invoices)
+    all_inv = get_invoices()
+    overdue_count = sum(1 for i in all_inv if i['status'] == 'scheduled' and i.get('due_date') and i['due_date'] < today)
+    pending_count = sum(1 for i in all_inv if i['status'] == 'pending_review')
+    scheduled_count = len(scheduled_docs)
+    paid_count = sum(1 for i in all_inv if i['status'] == 'paid')
+    pending_installments = get_pending_installments()
+    return render_template(
+        'financeiro/faturas/dashboard.html',
+        today=today,
+        scheduled_docs=scheduled_docs,
+        total_scheduled=total_scheduled,
+        next_vat=next_vat,
+        totals_by_type=totals_by_type,
+        document_type_labels=DOCUMENT_TYPE_LABELS,
+        overdue_count=overdue_count,
+        pending_count=pending_count,
+        scheduled_count=scheduled_count,
+        paid_count=paid_count,
+        pending_installments=pending_installments,
+        status_labels=INVOICE_STATUS_LABELS,
+    )
+
+
 # ── Index ──────────────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/')

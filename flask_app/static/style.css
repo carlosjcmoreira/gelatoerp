@@ -1096,3 +1096,97 @@ body.sidebar-collapsed .sidebar-toggle {
 [data-bs-theme="dark"] .dashboard-widget-header {
     background: var(--scoopy-accent);
 }
+
+/* ── Filter Bar (Monday-style) ───────────────────────────────────────────── */
+.fbar-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.65rem;
+    border-radius: 2rem;
+    background-color: var(--scoopy-accent);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.fbar-chip-muted {
+    background-color: var(--scoopy-text-muted);
+    opacity: 0.85;
+}
+.fbar-chip-x {
+    cursor: pointer;
+    border: none;
+    background: none;
+    color: rgba(255,255,255,0.72);
+    padding: 0;
+    line-height: 1;
+    font-size: 0.72rem;
+    flex-shrink: 0;
+}
+.fbar-chip-x:hover { color: #fff; }
+
+/* ── Column header menu ──────────────────────────────────────────────────── */
+.col-th { white-space: nowrap; }
+.col-sort-link { color: inherit; }
+[data-bs-theme="dark"] .col-sort-link { color: var(--scoopy-text); }
+.col-menu-btn {
+    opacity: 0;
+    border: none;
+    background: none;
+    padding: 0 4px;
+    color: var(--scoopy-text-muted);
+    font-size: 0.85rem;
+    cursor: pointer;
+    border-radius: 3px;
+    line-height: 1.2;
+    transition: opacity 0.15s, background 0.1s;
+}
+th:hover .col-menu-btn { opacity: 0.7; }
+.col-menu-btn:hover { opacity: 1 !important; background: var(--scoopy-border); }
+
+/* ── Date Picker (ScoopyDatePicker) ──────────────────────────────────────── */
+.sdp-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    text-align: center;
+}
+.sdp-dh {
+    font-size: 0.68rem;
+    color: var(--scoopy-text-muted);
+    padding: 2px 0 5px;
+    font-weight: 600;
+}
+.sdp-day {
+    font-size: 0.82rem;
+    padding: 5px 2px;
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1.3;
+    transition: background 0.08s;
+}
+.sdp-day:hover { background: var(--scoopy-border); }
+.sdp-today { font-weight: 700; color: var(--scoopy-accent); }
+.sdp-start, .sdp-end {
+    background: var(--scoopy-accent) !important;
+    color: #fff !important;
+    font-weight: 600;
+    border-radius: 4px;
+}
+.sdp-single {
+    background: var(--scoopy-accent) !important;
+    color: #fff !important;
+    font-weight: 600;
+    border-radius: 4px;
+}
+.sdp-range {
+    background: rgba(26,122,110,0.14);
+    border-radius: 0;
+}
+.sdp-hover-range {
+    background: rgba(26,122,110,0.07);
+    border-radius: 0;
+}
+[data-bs-theme="dark"] .sdp-range { background: rgba(43,181,160,0.18); }
+[data-bs-theme="dark"] .sdp-hover-range { background: rgba(43,181,160,0.09); }

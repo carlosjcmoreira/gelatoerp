@@ -35,75 +35,6 @@
         </div>
     </div>
 
-{% if view == 'documento' %}
-    <!-- ── KPI Dashboard ──────────────────────────────────────────────────── -->
-    <div class="row g-2 mb-3">
-        <div class="col-6 col-md-4">
-            <div class="card text-center h-100 border-info">
-                <div class="card-body py-2">
-                    <div class="fs-6 fw-bold text-info">{{ "%.0f €"|format(total_scheduled) }}</div>
-                    <div class="small text-muted">Agendado</div>
-                    <div class="small text-muted" style="font-size:0.7rem;">({{ scheduled_docs|length }} doc.)</div>
-                </div>
-            </div>
-        </div>
-        {% if next_vat %}
-        <div class="col-6 col-md-4">
-            <div class="card text-center h-100 border-danger">
-                <div class="card-body py-2">
-                    <div class="fs-6 fw-bold text-danger">{{ "%.0f €"|format(next_vat.vat_due_eur or next_vat.vat_due_estimated or 0) }}</div>
-                    <div class="small text-muted">IVA a pagar</div>
-                    <div class="small text-muted" style="font-size:0.7rem;">{{ next_vat.month }}/{{ next_vat.year }}</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-4">
-            <div class="card text-center h-100">
-                <div class="card-body py-2">
-                    <div class="fs-6 fw-bold {% if next_vat.payment_date %}text-primary{% else %}text-muted{% endif %}">
-                        {% if next_vat.payment_date %}{{ next_vat.payment_date.strftime('%d/%m/%y') }}{% else %}—{% endif %}
-                    </div>
-                    <div class="small text-muted">Data pag. IVA</div>
-                    <div class="small" style="font-size:0.7rem;">&nbsp;</div>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- ── Totais por tipo de documento ──────────────────────────────────── -->
-    {% if totals_by_type is defined and totals_by_type %}
-    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
-        <span class="small text-muted fw-semibold">Por tipo:</span>
-        {% set _type_colors = {
-            'fatura': 'secondary',
-            'nota_credito': 'success',
-            'nota_debito': 'warning',
-            'nota_pagamento_imposto': 'danger',
-            'outro': 'secondary'
-        } %}
-        {% for dt, info in totals_by_type.items() %}
-        {% set _color = _type_colors.get(dt, 'secondary') %}
-        {% set _badge_qs = (type_badge_base_qs + '&' if type_badge_base_qs else '') + 'document_type=' + dt %}
-        <a href="{{ url_for('faturas.index') }}?{{ _badge_qs }}"
-           class="badge text-decoration-none bg-{{ _color }}-subtle text-{{ _color }}-emphasis border border-{{ _color }}-subtle py-1 px-2"
-           style="font-size:0.75rem; {% if document_type_filter == dt %}outline:2px solid currentColor;{% endif %}"
-           title="Filtrar por {{ document_type_labels.get(dt, dt) }} (totais globais)">
-            {{ document_type_labels.get(dt, dt) }}
-            <span class="ms-1 opacity-75">{{ "%.0f €"|format(info.total) }}</span>
-            <span class="ms-1 opacity-50">({{ info.count }})</span>
-        </a>
-        {% endfor %}
-        {% if document_type_filter %}
-        {% set _clear_qs = type_badge_base_qs %}
-        <a href="{{ url_for('faturas.index') }}{% if _clear_qs %}?{{ _clear_qs }}{% endif %}"
-           class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.75rem;">✕ Limpar filtro</a>
-        {% endif %}
-    </div>
-    {% endif %}
-
-{% endif %}
-
 {% if view == 'fornecedor' %}
     <!-- ── Por Fornecedor view ────────────────────────────────────────────── -->
     <p class="text-muted small mb-2">Todos os documentos agrupados por fornecedor.</p>
@@ -405,70 +336,146 @@
 {% else %}
     <!-- ── Por Documento view (default) ─────────────────────────────────── -->
 
-    <!-- Filter form (GET) — column-level controls use form="filter-form" to connect here -->
+    <!-- ── Filtros (Monday-style) ─────────────────────────────────────────── -->
+
+    <!-- Hidden GET form — all active filter state stored as hidden inputs -->
     <form id="filter-form" method="get" action="{{ url_for('faturas.index') }}" data-no-loading>
-        <input type="hidden" name="order_by" value="{{ order_by }}">
-        <input type="hidden" name="order_dir" value="{{ order_dir }}">
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-            <input type="text" name="q" class="form-control form-control-sm"
-                   style="flex:2 1 180px;min-width:0"
-                   placeholder="Pesquisar fornecedor, nº documento, notas…" value="{{ search }}">
-            <div class="d-flex align-items-center gap-1 flex-shrink-0">
-                <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
-                {% if default_filter_active %}
-                <a href="?all=1" class="btn btn-outline-secondary btn-sm" data-no-loading>Ver todas</a>
-                {% else %}
-                <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm" data-no-loading>✕</a>
-                {% endif %}
-            </div>
+        <input type="hidden" name="order_by" id="ff-ob" value="{{ order_by }}">
+        <input type="hidden" name="order_dir" id="ff-od" value="{{ order_dir }}">
+        <input type="hidden" name="date_field" id="ff-df" value="{{ date_field }}">
+        <input type="hidden" name="date_from" id="ff-dfrom" value="{{ date_from_raw }}">
+        <input type="hidden" name="date_to" id="ff-dto" value="{{ date_to_raw }}">
+        <input type="hidden" name="month" id="ff-month" value="">
+        {% if show_all %}<input type="hidden" name="all" value="1">{% endif %}
+        {% for s in statuses_filter %}<input type="hidden" name="status" class="ff-status" value="{{ s }}">{% endfor %}
+        {% if supplier_name_filter %}<input type="hidden" name="supplier_name" id="ff-sn" value="{{ supplier_name_filter }}">{% endif %}
+        {% if document_type_filter %}<input type="hidden" name="document_type" id="ff-dt" value="{{ document_type_filter }}">{% endif %}
+        {% if store_id %}<input type="hidden" name="store_id" id="ff-sid" value="{{ store_id }}">{% endif %}
+        {% if search %}<input type="hidden" name="q" id="ff-q" value="{{ search }}">{% endif %}
+        {% if centro_custo_filter %}<input type="hidden" name="centro_custo_id" id="ff-cc" value="{{ centro_custo_filter }}">{% endif %}
+    </form>
+
+    <!-- ── Filter Bar ──────────────────────────────────────────────────────── -->
+    <div class="fbar mb-3">
+
+        <!-- Active filter chips -->
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2" id="fbar-chips">
             {% if default_filter_active %}
-            <span class="badge bg-warning text-dark">A mostrar: em aberto</span>
-            {% elif show_all %}
-            <span class="badge bg-secondary">A mostrar: todas</span>
-            {% elif statuses_filter %}
-            <span class="badge bg-primary">{{ statuses_filter|length }} estado(s)</span>
+            <span class="fbar-chip fbar-chip-muted" title="A mostrar documentos em aberto">📋 Em aberto</span>
             {% endif %}
-        </div>
-
-        <!-- Date filter row -->
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-            <select name="date_field" id="date-field-select" class="form-select form-select-sm" style="width:auto;min-width:130px"
-                    onchange="dateFieldChanged()">
-                <option value="due_date" {% if date_field == 'due_date' %}selected{% endif %}>📅 Vencimento</option>
-                <option value="issue_date" {% if date_field == 'issue_date' %}selected{% endif %}>📄 Emissão</option>
-                <option value="paid_date" {% if date_field == 'paid_date' %}selected{% endif %}>✅ Pagamento</option>
-            </select>
-
-            <!-- Month pills — each button sets month-hidden and submits form -->
-            {% for mo in month_options %}
-            <button type="button"
-                    class="btn btn-sm py-0 px-2 {% if month_raw == mo.value %}btn-primary{% else %}btn-outline-secondary{% endif %}"
-                    style="font-size:0.75rem;white-space:nowrap"
-                    onclick="selectMonth('{{ mo.value }}')">
-                {{ mo.label }}
-            </button>
+            {% for s in statuses_filter %}
+            <span class="fbar-chip">
+                {% if s == 'pending_review' %}🕐{% elif s == 'scheduled' %}🗓{% elif s == 'paid' %}✅{% else %}🚫{% endif %}
+                {{ status_labels.get(s, s) }}
+                <button class="fbar-chip-x" type="button" onclick="removeFilter('status','{{ s }}')" title="Remover">✕</button>
+            </span>
             {% endfor %}
-
-            <!-- Custom range (alternative to month pills) -->
-            <span class="small text-muted ms-1">ou:</span>
-            <input type="date" name="date_from" id="date-from-input" class="form-control form-control-sm" style="width:auto"
-                   value="{{ date_from_raw }}" onchange="clearMonthParam()">
-            <span class="small text-muted">—</span>
-            <input type="date" name="date_to" id="date-to-input" class="form-control form-control-sm" style="width:auto"
-                   value="{{ date_to_raw }}" onchange="clearMonthParam()">
-
-            <!-- Active date filter badge -->
-            {% if month_raw or date_from_raw or date_to_raw %}
-            <span class="badge bg-info text-dark" style="font-size:0.72rem;">
-                {% if date_field == 'paid_date' %}✅ Pago{% elif date_field == 'due_date' %}📅 Vence{% else %}📄 Emitido{% endif %}
-                {% if month_raw %}{{ month_options | selectattr('value', 'equalto', month_raw) | map(attribute='label') | first | default(month_raw) }}{% elif date_from_raw and date_to_raw %}{{ date_from_raw[8:] }}/{{ date_from_raw[5:7] }} – {{ date_to_raw[8:] }}/{{ date_to_raw[5:7] }}{% elif date_from_raw %}≥ {{ date_from_raw[8:] }}/{{ date_from_raw[5:7] }}{% else %}≤ {{ date_to_raw[8:] }}/{{ date_to_raw[5:7] }}{% endif %}
+            {% if supplier_name_filter %}
+            <span class="fbar-chip">
+                👤 {{ supplier_name_filter | truncate(22, True, '…') }}
+                <button class="fbar-chip-x" type="button" onclick="removeFilter('supplier_name')" title="Remover">✕</button>
             </span>
             {% endif %}
-
-            <!-- hidden month field submitted with form -->
-            <input type="hidden" name="month" id="month-hidden" value="{{ month_raw }}">
+            {% if document_type_filter %}
+            <span class="fbar-chip">
+                📄 {{ document_type_labels.get(document_type_filter, document_type_filter) }}
+                <button class="fbar-chip-x" type="button" onclick="removeFilter('document_type')" title="Remover">✕</button>
+            </span>
+            {% endif %}
+            {% if store_id %}
+            {% set _sname = stores | selectattr('id', 'equalto', store_id | int) | map(attribute='name') | first | default(store_id | string) %}
+            <span class="fbar-chip">
+                🏪 {{ _sname }}
+                <button class="fbar-chip-x" type="button" onclick="removeFilter('store_id')" title="Remover">✕</button>
+            </span>
+            {% endif %}
+            {% if search %}
+            <span class="fbar-chip">
+                🔍 "{{ search | truncate(20, True, '…') }}"
+                <button class="fbar-chip-x" type="button" onclick="removeFilter('q')" title="Remover">✕</button>
+            </span>
+            {% endif %}
+            {% if date_from_raw or date_to_raw or month_raw %}
+            <span class="fbar-chip">
+                {% if date_field == 'paid_date' %}✅{% elif date_field == 'due_date' %}📅{% else %}📋{% endif %}
+                {% if month_raw %}
+                    {{ month_options | selectattr('value', 'equalto', month_raw) | map(attribute='label') | first | default(month_raw) }}
+                {% elif date_from_raw and date_to_raw %}
+                    {{ date_from_raw[8:] }}/{{ date_from_raw[5:7] }} — {{ date_to_raw[8:] }}/{{ date_to_raw[5:7] }}
+                {% elif date_from_raw %}≥ {{ date_from_raw[8:] }}/{{ date_from_raw[5:7] }}
+                {% else %}≤ {{ date_to_raw[8:] }}/{{ date_to_raw[5:7] }}
+                {% endif %}
+                <button class="fbar-chip-x" type="button" onclick="removeDateFilter()" title="Remover filtro de data">✕</button>
+            </span>
+            {% endif %}
+            {% if centro_custo_filter %}
+            <span class="fbar-chip">
+                📂 Centro de custo
+                <button class="fbar-chip-x" type="button" onclick="removeFilter('centro_custo_id')" title="Remover">✕</button>
+            </span>
+            {% endif %}
         </div>
-    </form>
+
+        <!-- Totais por tipo de documento (compact chips) -->
+        {% if totals_by_type %}
+        <div class="d-flex flex-wrap gap-1 align-items-center mb-2">
+            <span class="text-muted me-1" style="font-size:0.71rem;font-weight:600">Tipo:</span>
+            {% set _tc = {'fatura':'secondary','nota_credito':'success','nota_debito':'warning','nota_pagamento_imposto':'danger','outro':'secondary'} %}
+            {% for dt, info in totals_by_type.items() %}
+            {% set _c = _tc.get(dt, 'secondary') %}
+            {% set _bqs = (type_badge_base_qs + '&' if type_badge_base_qs else '') + 'document_type=' + dt %}
+            <a href="{{ url_for('faturas.index') }}?{{ _bqs }}"
+               class="badge text-decoration-none bg-{{ _c }}-subtle text-{{ _c }}-emphasis border border-{{ _c }}-subtle py-1 px-2"
+               style="font-size:0.71rem;{% if document_type_filter == dt %}outline:2px solid currentColor;{% endif %}"
+               title="{{ document_type_labels.get(dt, dt) }}: {{ '%.0f €'|format(info.total) }} · {{ info.count }} doc.">
+                {{ document_type_labels.get(dt, dt) | truncate(14, True, '…') }}
+                <span class="opacity-75 ms-1">{{ '%.0f €'|format(info.total) }}</span>
+            </a>
+            {% endfor %}
+            {% if document_type_filter %}
+            <a href="{{ url_for('faturas.index') }}{% if type_badge_base_qs %}?{{ type_badge_base_qs }}{% endif %}"
+               class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.71rem;" data-no-loading>✕</a>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Action bar: + Filtro · limpar · ver todas / em aberto · contador -->
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% set _any_f = statuses_filter or supplier_name_filter or search or document_type_filter or store_id or date_from_raw or date_to_raw or month_raw or centro_custo_filter %}
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm" type="button"
+                        data-bs-toggle="dropdown" aria-expanded="false" id="fbar-add-btn">
+                    + Filtro
+                </button>
+                <ul class="dropdown-menu shadow-sm py-1" style="min-width:195px">
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('status')">📊 Estado</button></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('supplier_name')">👤 Fornecedor</button></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('document_type')">📄 Tipo de documento</button></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('store_id')">🏪 Loja</button></li>
+                    <li><hr class="dropdown-divider my-1"></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('due_date')">📅 Vencimento</button></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('issue_date')">📋 Emissão</button></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('paid_date')">✅ Data Pagamento</button></li>
+                    <li><hr class="dropdown-divider my-1"></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('q')">🔍 Pesquisa de texto</button></li>
+                </ul>
+            </div>
+            {% if _any_f %}
+            <a href="{{ url_for('faturas.index') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0" data-no-loading>✕ Limpar filtros</a>
+            {% endif %}
+            {% if default_filter_active %}
+            <a href="?all=1" class="btn btn-outline-secondary btn-sm" data-no-loading>Ver todas</a>
+            {% endif %}
+            {% if show_all %}
+            <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm" data-no-loading>Em aberto</a>
+            {% endif %}
+            <a href="{{ url_for('faturas.dashboard') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0 ms-auto" data-no-loading>📊 Dashboard</a>
+            <span class="text-muted small">{{ invoices|length }} resultado{{ 's' if invoices|length != 1 }}</span>
+        </div>
+
+        <!-- Filter editor panel (injected by JS when + Filtro is used) -->
+        <div id="fbar-panel" class="mt-2 p-3 border rounded bg-body" style="display:none"></div>
+    </div>
 
     {% if pending_installments %}
     <!-- Pending installments section -->
@@ -569,115 +576,52 @@
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="submitBulkDelete()">Eliminar selecionadas</button>
         </div>
 
-        <!-- Sortable table with inline column filters -->
-        {% macro sort_th(col, label, ob, od, fqs, classes='') %}
+        <!-- Sortable table — column menus via ⋯ trigger filter bar -->
+        {% macro col_th(col, label, ob, od, fqs, classes='', fkey='') %}
         {% set nd = 'desc' if (ob == col and od == 'asc') else 'asc' %}
-        <th class="{{ classes }}" style="vertical-align:top">
-            <a href="{{ fqs }}&order_by={{ col }}&order_dir={{ nd }}"
-               class="text-decoration-none text-dark d-flex align-items-center gap-1 user-select-none text-nowrap">
-                {{ label }}
-                {% if ob == col %}
-                <span class="text-primary small">{{ '▼' if od == 'desc' else '▲' }}</span>
-                {% else %}
-                <span class="text-muted small opacity-50">⇅</span>
-                {% endif %}
-            </a>
+        <th class="{{ classes }} col-th" style="vertical-align:middle">
+            <div class="d-flex align-items-center gap-1">
+                <a href="{{ fqs }}&order_by={{ col }}&order_dir={{ nd }}"
+                   class="col-sort-link text-decoration-none d-flex align-items-center gap-1 user-select-none text-nowrap">
+                    {{ label }}
+                    {% if ob == col %}
+                    <span class="text-primary small">{{ '▼' if od == 'desc' else '▲' }}</span>
+                    {% else %}
+                    <span class="text-muted small opacity-50">⇅</span>
+                    {% endif %}
+                </a>
+                <div class="dropdown">
+                    <button class="col-menu-btn" type="button" data-bs-toggle="dropdown"
+                            aria-expanded="false" title="Opções da coluna">⋯</button>
+                    <ul class="dropdown-menu dropdown-menu-sm shadow py-1" style="min-width:155px">
+                        <li><a class="dropdown-item small py-1" href="{{ fqs }}&order_by={{ col }}&order_dir=asc">↑ A → Z</a></li>
+                        <li><a class="dropdown-item small py-1" href="{{ fqs }}&order_by={{ col }}&order_dir=desc">↓ Z → A</a></li>
+                        {% if fkey %}
+                        <li><hr class="dropdown-divider my-1"></li>
+                        <li><button class="dropdown-item small py-1" type="button" onclick="openFbarPanel('{{ fkey }}')">🔍 Filtrar</button></li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
         </th>
         {% endmacro %}
 
         <div class="table-responsive">
         <table class="table table-sm table-hover align-middle mb-0">
             <thead class="table-light">
-                <!-- Row 1: Sort headers -->
                 <tr>
-                    <th rowspan="2" style="width:36px;vertical-align:middle">
+                    <th style="width:36px;vertical-align:middle">
                         <input type="checkbox" id="cb-all" class="form-check-input">
                     </th>
-                    {{ sort_th('supplier_name', 'Fornecedor', order_by, order_dir, filter_qs) }}
-                    {{ sort_th('invoice_number', 'Nº Documento', order_by, order_dir, filter_qs) }}
-                    {{ sort_th('category', 'Categoria', order_by, order_dir, filter_qs, 'd-none d-md-table-cell') }}
-                    {{ sort_th('store_name', 'Loja', order_by, order_dir, filter_qs, 'd-none d-md-table-cell') }}
-                    {{ sort_th('issue_date', 'Emissão', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell') }}
-                    {{ sort_th('due_date', 'Vencimento', order_by, order_dir, filter_qs) }}
-                    {{ sort_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
-                    {{ sort_th('status', 'Estado', order_by, order_dir, filter_qs) }}
-                    <th class="d-none d-lg-table-cell text-nowrap small" style="vertical-align:top">Data pag.</th>
-                </tr>
-                <!-- Row 2: Inline column filters (form="filter-form" connects them to the GET form) -->
-                <tr class="border-top-0">
-                    <th class="p-1">
-                        <select name="supplier_name" form="filter-form"
-                                class="form-select form-select-sm" style="min-width:100px"
-                                onchange="document.getElementById('filter-form').submit()">
-                            <option value="">Todos</option>
-                            {% for sn in all_supplier_names %}
-                            <option value="{{ sn }}" {% if supplier_name_filter == sn %}selected{% endif %}>{{ sn }}</option>
-                            {% endfor %}
-                        </select>
-                    </th>
-                    <th class="p-1">
-                        <select name="document_type" form="filter-form"
-                                class="form-select form-select-sm"
-                                onchange="document.getElementById('filter-form').submit()">
-                            <option value="">Tipo</option>
-                            {% for dt, label in document_type_labels.items() %}
-                            <option value="{{ dt }}" {% if document_type_filter == dt %}selected{% endif %}>{{ label|truncate(14, True, '…') }}</option>
-                            {% endfor %}
-                        </select>
-                    </th>
-                    <th class="p-1 d-none d-md-table-cell"></th>
-                    <th class="p-1 d-none d-md-table-cell">
-                        <select name="store_id" form="filter-form"
-                                class="form-select form-select-sm"
-                                onchange="document.getElementById('filter-form').submit()">
-                            <option value="">Todas</option>
-                            {% for s in stores %}
-                            <option value="{{ s.id }}" {% if store_id|string == s.id|string %}selected{% endif %}>{{ s.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </th>
-                    <th class="p-1 d-none d-lg-table-cell"></th>
-                    <th class="p-1"></th>
-                    <th class="p-1"></th>
-                    <th class="p-1">
-                        <div class="dropdown">
-                            <button class="btn btn-sm {% if statuses_filter %}btn-primary{% else %}btn-outline-secondary{% endif %} dropdown-toggle"
-                                    type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside"
-                                    style="font-size:0.75rem;padding:2px 8px;white-space:nowrap">
-                                {% if statuses_filter %}{{ statuses_filter|length }}✓{% else %}Todos{% endif %}
-                            </button>
-                            <ul class="dropdown-menu shadow p-2" style="min-width:170px">
-                                {% for k, v in status_labels.items() %}
-                                {% if k not in ('draft', 'overdue') %}
-                                <li>
-                                    <label class="dropdown-item py-1 px-2 d-flex align-items-center gap-2"
-                                           style="cursor:pointer;font-size:0.875rem">
-                                        <input type="checkbox" name="status" value="{{ k }}"
-                                               form="filter-form"
-                                               {% if k in statuses_filter %}checked{% endif %}
-                                               class="form-check-input m-0">
-                                        {{ v }}
-                                    </label>
-                                </li>
-                                {% endif %}
-                                {% endfor %}
-                                <li><hr class="dropdown-divider my-1"></li>
-                                <li>
-                                    <button type="submit" form="filter-form"
-                                            class="btn btn-primary btn-sm w-100">Aplicar</button>
-                                </li>
-                                {% if statuses_filter %}
-                                <li class="mt-1">
-                                    <button type="button" class="btn btn-outline-secondary btn-sm w-100"
-                                            onclick="document.querySelectorAll('[name=status][form=filter-form]').forEach(function(cb){cb.checked=false});document.getElementById('filter-form').submit()">
-                                        Limpar estados
-                                    </button>
-                                </li>
-                                {% endif %}
-                            </ul>
-                        </div>
-                    </th>
-                    <th class="p-1 d-none d-lg-table-cell"></th>
+                    {{ col_th('supplier_name', 'Fornecedor', order_by, order_dir, filter_qs, '', 'supplier_name') }}
+                    {{ col_th('invoice_number', 'Nº Documento', order_by, order_dir, filter_qs) }}
+                    {{ col_th('category', 'Categoria', order_by, order_dir, filter_qs, 'd-none d-md-table-cell') }}
+                    {{ col_th('store_name', 'Loja', order_by, order_dir, filter_qs, 'd-none d-md-table-cell', 'store_id') }}
+                    {{ col_th('issue_date', 'Emissão', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'issue_date') }}
+                    {{ col_th('due_date', 'Vencimento', order_by, order_dir, filter_qs, '', 'due_date') }}
+                    {{ col_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
+                    {{ col_th('status', 'Estado', order_by, order_dir, filter_qs, '', 'status') }}
+                    <th class="d-none d-lg-table-cell text-nowrap small" style="vertical-align:middle">Data pag.</th>
                 </tr>
             </thead>
             <tbody>
@@ -1189,23 +1133,258 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// Legacy stubs (kept for safety — new UI uses filter bar)
 function selectMonth(val) {
-    const df = document.getElementById('date-from-input');
-    const dt = document.getElementById('date-to-input');
-    const mh = document.getElementById('month-hidden');
-    if (df) df.value = '';
-    if (dt) dt.value = '';
-    if (mh) mh.value = val;
-    document.getElementById('filter-form').submit();
+    document.getElementById('ff-month').value = val;
+    document.getElementById('ff-dfrom').value = '';
+    document.getElementById('ff-dto').value = '';
+    document.getElementById('filter-form').requestSubmit();
+}
+function clearMonthParam() { var m=document.getElementById('ff-month'); if(m) m.value=''; }
+function dateFieldChanged() { document.getElementById('filter-form').requestSubmit(); }
+</script>
+
+{% if view == 'documento' %}
+<script>
+// ── Data injected from server ─────────────────────────────────────────────────
+var FBAR_DATA = {
+    activeStatuses: {{ statuses_filter | tojson }},
+    activeSupplier: {{ supplier_name_filter | tojson }},
+    activeDocType: {{ document_type_filter | tojson }},
+    activeStoreId: {{ store_id | tojson }},
+    activeSearch: {{ search | tojson }},
+    activeDateField: {{ date_field | tojson }},
+    activeDateFrom: {{ date_from_raw | tojson }},
+    activeDateTo: {{ date_to_raw | tojson }},
+    statusLabels: {{ status_labels | tojson }},
+    docTypeLabels: {{ document_type_labels | tojson }},
+    stores: {{ stores | tojson }},
+    supplierNames: {{ all_supplier_names | tojson }},
+};
+
+// ── URL helpers ───────────────────────────────────────────────────────────────
+function removeFilter(param, value) {
+    var url = new URL(window.location.href);
+    if (value !== undefined) {
+        var vals = url.searchParams.getAll(param).filter(function(v){ return v !== value; });
+        url.searchParams.delete(param);
+        vals.forEach(function(v){ url.searchParams.append(param, v); });
+    } else {
+        url.searchParams.delete(param);
+    }
+    window.location.href = url.toString();
+}
+function removeDateFilter() {
+    var url = new URL(window.location.href);
+    ['date_from','date_to','month'].forEach(function(p){ url.searchParams.delete(p); });
+    window.location.href = url.toString();
 }
 
-function clearMonthParam() {
-    const mh = document.getElementById('month-hidden');
-    if (mh) mh.value = '';
+// ── Filter panel ──────────────────────────────────────────────────────────────
+function closeFbarPanel() {
+    var p = document.getElementById('fbar-panel');
+    if (p) p.style.display = 'none';
 }
 
-function dateFieldChanged() {
-    document.getElementById('filter-form').submit();
+function openFbarPanel(field) {
+    var panel = document.getElementById('fbar-panel');
+    if (!panel) return;
+
+    // Hide Bootstrap dropdown if open
+    var btn = document.getElementById('fbar-add-btn');
+    if (btn) { var dd = bootstrap.Dropdown.getInstance(btn); if (dd) dd.hide(); }
+
+    var LABELS = { status:'Estado', supplier_name:'Fornecedor', document_type:'Tipo de Documento',
+        store_id:'Loja', due_date:'Vencimento', issue_date:'Emissão', paid_date:'Data Pagamento', q:'Pesquisa de Texto' };
+    var h = '<div class="d-flex align-items-center justify-content-between mb-3">' +
+        '<span class="fw-semibold small">' + (LABELS[field]||field) + '</span>' +
+        '<button type="button" class="btn-close btn-sm" onclick="closeFbarPanel()"></button></div>';
+
+    if (field === 'status') {
+        var active = FBAR_DATA.activeStatuses;
+        h += '<div class="d-flex flex-wrap gap-2 mb-3">';
+        ['pending_review','scheduled','paid','cancelled'].forEach(function(k) {
+            if (!FBAR_DATA.statusLabels[k]) return;
+            h += '<label class="d-flex align-items-center gap-2 px-3 py-2 border rounded" style="cursor:pointer;font-size:0.875rem">' +
+                '<input type="checkbox" class="fbar-status-cb form-check-input m-0" value="' + k + '"' +
+                (active.indexOf(k)>=0?' checked':'') + '>' + FBAR_DATA.statusLabels[k] + '</label>';
+        });
+        h += '</div><div class="d-flex gap-2">' +
+            '<button type="button" class="btn btn-primary btn-sm" onclick="applyStatusFilter()">Aplicar</button>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
+
+    } else if (field === 'supplier_name') {
+        var cur = (FBAR_DATA.activeSupplier||'').replace(/"/g,'&quot;');
+        h += '<input list="fbar-snlist" id="fbar-sn-inp" type="text" class="form-control form-control-sm mb-3"' +
+            ' placeholder="Nome do fornecedor…" value="' + cur + '">' +
+            '<datalist id="fbar-snlist">' +
+            FBAR_DATA.supplierNames.map(function(n){ return '<option value="'+n.replace(/"/g,'&quot;')+'">'; }).join('') +
+            '</datalist>' +
+            '<div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applySupplierFilter()">Aplicar</button>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
+
+    } else if (field === 'document_type') {
+        var cur2 = FBAR_DATA.activeDocType || '';
+        h += '<select id="fbar-dt-sel" class="form-select form-select-sm mb-3"><option value="">— Todos os tipos —</option>';
+        Object.keys(FBAR_DATA.docTypeLabels).forEach(function(k) {
+            h += '<option value="'+k+'"'+(cur2===k?' selected':'')+'>'+FBAR_DATA.docTypeLabels[k]+'</option>';
+        });
+        h += '</select><div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applyDocTypeFilter()">Aplicar</button>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
+
+    } else if (field === 'store_id') {
+        var cur3 = String(FBAR_DATA.activeStoreId||'');
+        h += '<select id="fbar-store-sel" class="form-select form-select-sm mb-3"><option value="">— Todas as lojas —</option>';
+        FBAR_DATA.stores.forEach(function(s) {
+            h += '<option value="'+s.id+'"'+(cur3===String(s.id)?' selected':'')+'>'+s.name+'</option>';
+        });
+        h += '</select><div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applyStoreFilter()">Aplicar</button>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
+
+    } else if (['due_date','issue_date','paid_date'].indexOf(field)>=0) {
+        h += '<div class="mb-3"><label class="form-label small text-muted mb-1">Campo de data</label>' +
+            '<select id="fbar-df-sel" class="form-select form-select-sm" style="width:auto">' +
+            '<option value="due_date"'+(field==='due_date'?' selected':'')+'>📅 Vencimento</option>' +
+            '<option value="issue_date"'+(field==='issue_date'?' selected':'')+'>📋 Emissão</option>' +
+            '<option value="paid_date"'+(field==='paid_date'?' selected':'')+'>✅ Data Pagamento</option>' +
+            '</select></div><div id="sdp-root" class="mb-2"></div>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button>';
+
+    } else if (field === 'q') {
+        var curQ = (FBAR_DATA.activeSearch||'').replace(/"/g,'&quot;');
+        h += '<input id="fbar-q-inp" type="text" class="form-control form-control-sm mb-3"' +
+            ' placeholder="Pesquisar fornecedor, nº documento, notas…" value="'+curQ+'"' +
+            ' onkeydown="if(event.key===\'Enter\')applySearchFilter()">' +
+            '<div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applySearchFilter()">Aplicar</button>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
+    }
+
+    panel.innerHTML = h;
+    panel.style.display = '';
+
+    if (['due_date','issue_date','paid_date'].indexOf(field)>=0) {
+        document.getElementById('ff-df').value = field;
+        var dfSel = document.getElementById('fbar-df-sel');
+        if (dfSel) dfSel.addEventListener('change', function(){ document.getElementById('ff-df').value=this.value; });
+        window._sdp = new ScoopyDatePicker(document.getElementById('sdp-root'));
+    }
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+// ── Apply helpers ─────────────────────────────────────────────────────────────
+function applyStatusFilter() {
+    var form = document.getElementById('filter-form');
+    form.querySelectorAll('.ff-status').forEach(function(el){ el.remove(); });
+    document.querySelectorAll('.fbar-status-cb:checked').forEach(function(cb) {
+        var inp=document.createElement('input'); inp.type='hidden'; inp.name='status';
+        inp.className='ff-status'; inp.value=cb.value; form.appendChild(inp);
+    });
+    var allInp=form.querySelector('input[name="all"]'); if(allInp) allInp.remove();
+    form.requestSubmit();
+}
+function applySupplierFilter() {
+    var val=((document.getElementById('fbar-sn-inp')||{}).value||'');
+    _fbarSet('ff-sn','supplier_name',val); document.getElementById('filter-form').requestSubmit();
+}
+function applyDocTypeFilter() {
+    var val=((document.getElementById('fbar-dt-sel')||{}).value||'');
+    _fbarSet('ff-dt','document_type',val); document.getElementById('filter-form').requestSubmit();
+}
+function applyStoreFilter() {
+    var val=((document.getElementById('fbar-store-sel')||{}).value||'');
+    _fbarSet('ff-sid','store_id',val); document.getElementById('filter-form').requestSubmit();
+}
+function applySearchFilter() {
+    var val=((document.getElementById('fbar-q-inp')||{}).value||'');
+    _fbarSet('ff-q','q',val); document.getElementById('filter-form').requestSubmit();
+}
+function _fbarSet(id, name, value) {
+    var form=document.getElementById('filter-form');
+    var el=document.getElementById(id);
+    if (!el && value) { el=document.createElement('input'); el.type='hidden'; el.id=id; el.name=name; form.appendChild(el); }
+    if (el) { if(!value) el.remove(); else el.value=value; }
+}
+
+// ── ScoopyDatePicker ──────────────────────────────────────────────────────────
+function ScoopyDatePicker(container) {
+    var MONTHS=['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    var DAYS=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+    var self=this;
+    self.container=container;
+    self.selStart=_p(document.getElementById('ff-dfrom').value);
+    self.selEnd=_p(document.getElementById('ff-dto').value);
+    var now=new Date();
+    self.viewYear=(self.selStart||now).getFullYear();
+    self.viewMonth=(self.selStart||now).getMonth();
+
+    function _p(s){ if(!s) return null; var a=s.split('-'); if(a.length===3){var d=new Date(+a[0],+a[1]-1,+a[2]);return isNaN(d)?null:d;} return null; }
+    function _fmt(d){ if(!d) return ''; return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+    function _disp(d){ if(!d) return ''; return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear(); }
+    function _same(a,b){ return a&&b&&a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate(); }
+
+    self.render=function(){
+        var y=self.viewYear,m=self.viewMonth;
+        var first=new Date(y,m,1),last=new Date(y,m+1,0),tod=new Date(); tod.setHours(0,0,0,0);
+        var startDow=(first.getDay()+6)%7;
+        var h='<div class="d-flex gap-2 mb-3">' +
+            '<div style="flex:1"><label class="form-label small text-muted mb-1">De</label>' +
+            '<input id="sdp-from" type="text" class="form-control form-control-sm" placeholder="dd/mm/aaaa"' +
+            ' value="'+_disp(self.selStart)+'" oninput="window._sdp._ft(this.value,\'s\')"></div>' +
+            '<div style="flex:1"><label class="form-label small text-muted mb-1">Até</label>' +
+            '<input id="sdp-to" type="text" class="form-control form-control-sm" placeholder="dd/mm/aaaa"' +
+            ' value="'+_disp(self.selEnd)+'" oninput="window._sdp._ft(this.value,\'e\')"></div></div>' +
+            '<div class="d-flex align-items-center justify-content-between mb-2">' +
+            '<button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" onclick="window._sdp.pm()">◀</button>' +
+            '<span class="fw-semibold" style="cursor:pointer" title="Clique para selecionar o mês inteiro" onclick="window._sdp.sm()">' +
+            MONTHS[m]+' '+y+'</span>' +
+            '<button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" onclick="window._sdp.nm()">▶</button>' +
+            '</div><div class="sdp-grid mb-3">';
+        DAYS.forEach(function(d){ h+='<div class="sdp-dh">'+d+'</div>'; });
+        for(var i=0;i<startDow;i++) h+='<div></div>';
+        for(var day=1;day<=last.getDate();day++){
+            var dt=new Date(y,m,day),dtS=_fmt(dt);
+            var cls='sdp-day',isS=_same(dt,self.selStart),isE=_same(dt,self.selEnd);
+            var inR=self.selStart&&self.selEnd&&dt>self.selStart&&dt<self.selEnd;
+            if(_same(dt,tod)) cls+=' sdp-today';
+            if(isS&&isE) cls+=' sdp-single';
+            else if(isS) cls+=' sdp-start';
+            else if(isE) cls+=' sdp-end';
+            if(inR) cls+=' sdp-range';
+            h+='<div class="'+cls+'" data-d="'+dtS+'" onclick="window._sdp.cd(\''+dtS+'\')" onmouseenter="window._sdp.hd(\''+dtS+'\')">'+day+'</div>';
+        }
+        h+='</div><div class="d-flex align-items-center justify-content-between">' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="window._sdp.st()">Hoje</button>' +
+            '<div class="d-flex gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" onclick="window._sdp.cl()">Limpar</button>' +
+            '<button type="button" class="btn btn-primary btn-sm" onclick="window._sdp.ap()">Aplicar</button></div></div>';
+        container.innerHTML=h; window._sdp=self;
+    };
+    self.sm=function(){ self.selStart=new Date(self.viewYear,self.viewMonth,1); self.selEnd=new Date(self.viewYear,self.viewMonth+1,0); self.render(); };
+    self.pm=function(){ self.viewMonth--; if(self.viewMonth<0){self.viewMonth=11;self.viewYear--;} self.render(); };
+    self.nm=function(){ self.viewMonth++; if(self.viewMonth>11){self.viewMonth=0;self.viewYear++;} self.render(); };
+    self.cd=function(s){ var d=_p(s);
+        if(!self.selStart||(self.selStart&&self.selEnd)){self.selStart=d;self.selEnd=null;}
+        else{if(d<self.selStart){self.selEnd=new Date(self.selStart);self.selStart=d;}else if(_same(d,self.selStart)){self.selEnd=d;}else{self.selEnd=d;}}
+        self.render(); };
+    self.hd=function(s){ if(!self.selStart||self.selEnd) return; var hov=_p(s);
+        container.querySelectorAll('.sdp-day').forEach(function(el){
+            el.classList.remove('sdp-hover-range'); var ed=_p(el.dataset.d); if(!ed) return;
+            var lo=self.selStart<hov?self.selStart:hov,hi=self.selStart<hov?hov:self.selStart;
+            if(ed>lo&&ed<hi) el.classList.add('sdp-hover-range');
+        }); };
+    self.st=function(){ var t=new Date(); t.setHours(0,0,0,0); self.selStart=t; self.selEnd=new Date(t); self.render(); };
+    self.cl=function(){ self.selStart=null; self.selEnd=null; self.render(); };
+    self.ap=function(){
+        document.getElementById('ff-dfrom').value=_fmt(self.selStart);
+        document.getElementById('ff-dto').value=_fmt(self.selEnd);
+        var dfSel=document.getElementById('fbar-df-sel');
+        if(dfSel) document.getElementById('ff-df').value=dfSel.value;
+        document.getElementById('ff-month').value='';
+        document.getElementById('filter-form').requestSubmit();
+    };
+    self._ft=function(v,side){ var p=v.split('/'); if(p.length===3&&p[2].length===4){ var d=new Date(+p[2],+p[1]-1,+p[0]); if(!isNaN(d)){if(side==='s')self.selStart=d;else self.selEnd=d;} } };
+    self.render();
 }
 </script>
+{% endif %}
 {% endblock %}

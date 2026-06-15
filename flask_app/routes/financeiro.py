@@ -13,6 +13,7 @@ FINANCEIRO_GROUPS = [
         'label': 'Gestão de Pagamentos',
         'modules': [
             {'key': 'faturas',    'label': 'Documentos',       'icon': '📄', 'active': True,  'url': '/financeiro/faturas/'},
+            {'key': 'dashboard_faturas', 'label': 'Dashboard Faturas', 'icon': '📊', 'active': True,  'url': '/financeiro/faturas/dashboard'},
             {'key': 'credito',    'label': 'Crédito',           'icon': '💳', 'active': True,  'url': '/financeiro/credito/'},
             {'key': 'iva',        'label': 'IVA',               'icon': '📋', 'active': True,  'url': '/financeiro/pagamentos/iva'},
             {'key': 'liquidez',   'label': 'Tesouraria Previsional', 'icon': '🏦', 'active': True,  'url': '/financeiro/pagamentos/liquidez'},
