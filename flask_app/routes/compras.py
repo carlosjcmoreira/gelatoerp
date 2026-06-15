@@ -847,14 +847,27 @@ def nova_fatura():
             notes_parts.append(notes_raw)
         notes = ' | '.join(notes_parts) or None
 
-        # Upsert supplier so their preferred payment method is stored/updated
+        # Resolve supplier by NIF — check canonical suppliers table and then aliases
+        # before creating a new record, to avoid duplicating a previously merged supplier.
         supplier_id = None
         if supplier_nif and payment_method:
             try:
-                supplier_id = upsert_supplier(supplier_name, supplier_nif,
-                                              payment_method=payment_method)
+                _s = get_supplier_by_nif(supplier_nif)
+                if not _s:
+                    _s = get_supplier_by_alias(supplier_name or '', supplier_nif)
+                if _s:
+                    supplier_id = _s['id']
+                    # If the found supplier's canonical NIF matches what OCR/user provided,
+                    # run upsert to persist the payment method preference (same as before).
+                    # Skip when resolved via alias (canonical NIF differs — avoid overwriting).
+                    if _s.get('nif') == supplier_nif:
+                        upsert_supplier(supplier_name, supplier_nif,
+                                        payment_method=payment_method)
+                else:
+                    supplier_id = upsert_supplier(supplier_name, supplier_nif,
+                                                  payment_method=payment_method)
             except Exception as exc:
-                logging.warning('compras.nova_fatura: upsert_supplier failed for nif=%s: %s',
+                logging.warning('compras.nova_fatura: supplier lookup/upsert failed for nif=%s: %s',
                                 supplier_nif, exc)
 
         invoice_id = create_invoice({

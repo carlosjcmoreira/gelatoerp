@@ -280,9 +280,11 @@ def merge_supplier(source_id: int, target_id: int) -> int:
             raise ValueError(f'Fornecedor de origem {source_id} não encontrado.')
         _, source_name, source_nif = src_row
 
-        cursor.execute("SELECT id FROM suppliers WHERE id = %s", (target_id,))
-        if not cursor.fetchone():
+        cursor.execute("SELECT id, nif FROM suppliers WHERE id = %s", (target_id,))
+        tgt_row = cursor.fetchone()
+        if not tgt_row:
             raise ValueError(f'Fornecedor de destino {target_id} não encontrado.')
+        _, target_nif = tgt_row
 
         # Migrate existing aliases from source → target
         try:
@@ -296,6 +298,17 @@ def merge_supplier(source_id: int, target_id: int) -> int:
                 VALUES (%s, %s, %s, 'merge')
                 ON CONFLICT (alias_name) DO NOTHING
             """, (target_id, source_name, source_nif))
+            # Guarantee the source NIF is always preserved even when the name-based INSERT
+            # above was a no-op (conflict on alias_name with another supplier's alias).
+            # Uses a synthetic alias_name that is guaranteed unique and will never collide
+            # with a real supplier name (double-underscore prefix).
+            if source_nif and source_nif != target_nif:
+                nif_alias_key = f'__nif__{source_nif}__{source_id}'
+                cursor.execute("""
+                    INSERT INTO supplier_aliases (supplier_id, alias_name, alias_nif, source)
+                    VALUES (%s, %s, %s, 'merge')
+                    ON CONFLICT (alias_name) DO NOTHING
+                """, (target_id, nif_alias_key, source_nif))
             # Clean up any ignored-pair records involving source
             cursor.execute(
                 "DELETE FROM supplier_merge_ignored WHERE supplier_id_a = %s OR supplier_id_b = %s",

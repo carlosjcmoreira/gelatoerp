@@ -149,6 +149,13 @@
                     </div>
                     <div class="small text-muted">
                         {% if s.nif %}NIF: {{ s.nif }}{% else %}<em class="text-warning">sem NIF</em>{% endif %}
+                        {%- set _extra_nifs = supplier_aliases.get(s.id, []) | selectattr('alias_nif') | map(attribute='alias_nif') | select | list %}
+                        {%- set _extra_nifs = _extra_nifs | reject('equalto', s.nif) | list %}
+                        {%- set _extra_nifs = _extra_nifs | unique | list %}
+                        {%- for _nif in _extra_nifs %}
+                        <span class="badge bg-info bg-opacity-25 text-dark ms-1"
+                              title="NIF adicional (de fusão anterior)">+NIF: {{ _nif }}</span>
+                        {%- endfor %}
                         {% if s.category %} · {{ s.category }}{% endif %}
                         {% if s.store_name %} · {{ s.store_name }}{% endif %}
                         {% if s.payment_method %} · {{ payment_method_labels.get(s.payment_method, s.payment_method) }}{% endif %}
@@ -172,9 +179,13 @@
                                 <div class="d-flex flex-column gap-1 mb-2">
                                     {% for a in aliases %}
                                     <div class="d-flex align-items-center gap-2">
+                                        {% if a.alias_name.startswith('__nif__') %}
+                                        <span class="small text-muted fst-italic">NIF adicional: {{ a.alias_nif }}</span>
+                                        {% else %}
                                         <span class="small">{{ a.alias_name }}{% if a.alias_nif %} <span class="text-muted">(NIF: {{ a.alias_nif }})</span>{% endif %}
                                             {% if a.source == 'manual' %}<span class="badge bg-secondary bg-opacity-50 ms-1" style="font-size:.65rem">manual</span>{% endif %}
                                         </span>
+                                        {% endif %}
                                         <form method="post" class="d-inline" onsubmit="return confirm('Eliminar alias?')">
                                             <input type="hidden" name="action" value="delete_alias">
                                             <input type="hidden" name="alias_id" value="{{ a.id }}">
