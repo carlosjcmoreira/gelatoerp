@@ -1288,15 +1288,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Legacy stubs (kept for safety — new UI uses filter bar)
-function selectMonth(val) {
-    document.getElementById('ff-month').value = val;
-    document.getElementById('ff-dfrom').value = '';
-    document.getElementById('ff-dto').value = '';
-    document.getElementById('filter-form').requestSubmit();
-}
-function clearMonthParam() { var m=document.getElementById('ff-month'); if(m) m.value=''; }
-function dateFieldChanged() { document.getElementById('filter-form').requestSubmit(); }
 </script>
 
 {% if view == 'documento' %}
