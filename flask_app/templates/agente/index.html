@@ -580,11 +580,6 @@ function checkAndMarkFirstOfDay() {
     return true;
 }
 
-function isFirstOfDay() {
-    var key = 'scoopy_briefing_' + new Date().toISOString().slice(0,10);
-    return !!localStorage.getItem(key);
-}
-
 // ── Send message ─────────────────────────────────────────────────────────────
 var _sending = false;
 function sendMessage() {
