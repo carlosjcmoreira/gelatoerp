@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% set back_url = url_for("compras.index") %}
 
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<style>
+.flatpickr-input { font-size: 0.78rem !important; }
+.flatpickr-calendar { font-size: 0.82rem; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
 
@@ -99,11 +107,12 @@
                 {# Linha 2: filtros de coluna inline #}
                 <tr style="font-size:0.78rem">
                     <td>
-                        <input type="date" class="form-control form-control-sm py-0 px-1"
-                               style="font-size:0.78rem;min-width:110px"
-                               title="Data de (filtro)"
+                        <input type="text" id="filter-date-from"
+                               class="form-control form-control-sm py-0 px-1"
+                               style="font-size:0.78rem;min-width:90px;max-width:110px"
+                               placeholder="De…"
                                value="{{ date_from_raw }}"
-                               onchange="applyColFilter('date_from', this.value)">
+                               autocomplete="off">
                     </td>
                     <td>
                         <select class="form-select form-select-sm py-0 px-1"
@@ -149,11 +158,12 @@
                         </select>
                     </td>
                     <td>
-                        <input type="date" class="form-control form-control-sm py-0 px-1"
-                               style="font-size:0.78rem;min-width:110px"
-                               title="Data até (filtro)"
+                        <input type="text" id="filter-date-to"
+                               class="form-control form-control-sm py-0 px-1"
+                               style="font-size:0.78rem;min-width:90px;max-width:110px"
+                               placeholder="Até…"
                                value="{{ date_to_raw }}"
-                               onchange="applyColFilter('date_to', this.value)">
+                               autocomplete="off">
                     </td>
                     <td></td>
                     <td>
@@ -216,14 +226,16 @@
                 <td class="text-nowrap small {% if ds == 'overdue' %}text-danger fw-bold{% endif %}">
                     {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
                 </td>
-                <td onclick="event.stopPropagation()">
+                <td onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
                     {% if inv.status == 'paid' %}
-                    <input type="date"
-                           class="form-control form-control-sm border-0 py-0 px-1"
-                           style="min-width:120px;background:transparent;cursor:pointer;font-size:0.8rem"
+                    <input type="text"
+                           class="form-control form-control-sm border-0 py-0 px-1 inv-paid-date-input"
+                           style="min-width:90px;max-width:110px;background:transparent;cursor:pointer;font-size:0.8rem"
                            data-inv-id="{{ inv.id }}"
                            value="{{ inv.paid_date.strftime('%Y-%m-%d') if inv.paid_date else '' }}"
-                           onchange="setInvPaidDate(this)">
+                           onclick="event.stopPropagation()"
+                           onmousedown="event.stopPropagation()"
+                           autocomplete="off">
                     {% else %}
                     <span class="text-muted">—</span>
                     {% endif %}
@@ -574,5 +586,35 @@ function setInvStore(sel) {
         alert('Erro de ligação ao alterar loja.');
     });
 }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pt.js"></script>
+<script>
+(function() {
+    var fpOpts = {
+        locale: 'pt',
+        dateFormat: 'Y-m-d',
+        allowInput: true,
+        disableMobile: true
+    };
+
+    var fpFrom = flatpickr('#filter-date-from', Object.assign({}, fpOpts, {
+        onChange: function(sel, dateStr) { if (dateStr) applyColFilter('date_from', dateStr); },
+        onClose: function(sel, dateStr) { if (!dateStr) applyColFilter('date_from', ''); }
+    }));
+
+    var fpTo = flatpickr('#filter-date-to', Object.assign({}, fpOpts, {
+        onChange: function(sel, dateStr) { if (dateStr) applyColFilter('date_to', dateStr); },
+        onClose: function(sel, dateStr) { if (!dateStr) applyColFilter('date_to', ''); }
+    }));
+
+    document.querySelectorAll('.inv-paid-date-input').forEach(function(input) {
+        flatpickr(input, Object.assign({}, fpOpts, {
+            onChange: function(sel, dateStr, instance) {
+                setInvPaidDate(instance.element);
+            }
+        }));
+    });
+})();
 </script>
 {% endblock %}
