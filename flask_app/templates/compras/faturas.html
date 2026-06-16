@@ -21,7 +21,7 @@
                    placeholder="Fornecedor, Nº documento, notas…"
                    value="{{ q_filter }}" autocomplete="off">
             <button type="submit" class="btn btn-primary btn-sm flex-shrink-0">Filtrar</button>
-            <a href="{{ url_for('compras.faturas') }}" class="btn btn-outline-secondary btn-sm flex-shrink-0" title="Limpar filtros">✕</a>
+            <a href="{{ url_for('compras.faturas') }}?clear=1" class="btn btn-outline-secondary btn-sm flex-shrink-0" title="Limpar filtros">✕</a>
             {% if has_filters %}<span class="badge bg-secondary">Com filtros</span>{% endif %}
         </div>
         <details {% if date_from_raw or date_to_raw %}open{% endif %} class="mb-2">
@@ -97,7 +97,13 @@
                 </tr>
                 {# Linha 2: filtros de coluna inline #}
                 <tr style="font-size:0.78rem">
-                    <td></td>
+                    <td>
+                        <input type="date" class="form-control form-control-sm py-0 px-1"
+                               style="font-size:0.78rem;min-width:110px"
+                               title="Data de (filtro)"
+                               value="{{ date_from_raw }}"
+                               onchange="applyColFilter('date_from', this.value)">
+                    </td>
                     <td>
                         <select class="form-select form-select-sm py-0 px-1"
                                 style="min-width:110px;font-size:0.78rem"
@@ -123,7 +129,8 @@
                     <td>
                         <select class="form-select form-select-sm py-0 px-1"
                                 style="font-size:0.78rem"
-                                onchange="applyColFilter('status', this.value)">
+                                onchange="applyColFilter('status', this.value)"
+                                title="Estado">
                             <option value="">Todos</option>
                             <option value="pending_review" {% if status_filter == 'pending_review' %}selected{% endif %}>A rever</option>
                             <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>Agendado</option>
@@ -132,7 +139,13 @@
                             <option value="cancelled" {% if status_filter == 'cancelled' %}selected{% endif %}>Cancelado</option>
                         </select>
                     </td>
-                    <td></td>
+                    <td>
+                        <input type="date" class="form-control form-control-sm py-0 px-1"
+                               style="font-size:0.78rem;min-width:110px"
+                               title="Data até (filtro)"
+                               value="{{ date_to_raw }}"
+                               onchange="applyColFilter('date_to', this.value)">
+                    </td>
                     <td>
                         <select class="form-select form-select-sm py-0 px-1"
                                 style="font-size:0.78rem"
@@ -310,7 +323,7 @@
     <div class="text-center text-muted py-5">
         <div style="font-size:2.5rem;">🧾</div>
         <p class="mt-2">{% if has_filters %}Sem resultados para os filtros aplicados.{% else %}Sem faturas registadas.{% endif %}</p>
-        {% if has_filters %}<a href="{{ url_for('compras.faturas') }}" class="btn btn-outline-secondary btn-sm mt-1">Limpar filtros</a>{% endif %}
+        {% if has_filters %}<a href="{{ url_for('compras.faturas') }}?clear=1" class="btn btn-outline-secondary btn-sm mt-1">Limpar filtros</a>{% endif %}
     </div>
     {% endif %}
 </div>
@@ -454,6 +467,34 @@ function setInvStatus(sel) {
         sel.disabled = false;
         sel.value = origValue || sel.options[0].value;
         alert('Erro de ligação ao alterar estado.');
+    });
+}
+
+/* ── Edição inline: data de pagamento (painel) ────────────────── */
+function setPanelPaidDate(input) {
+    var id = input.dataset.invId;
+    if (!id) return;
+    var dateVal = input.value || null;
+    var statusEl = document.getElementById('paid-date-status-' + id);
+    fetch('/compras/faturas/' + id + '/set_paid_date', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({paid_date: dateVal})
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+            if (statusEl) {
+                statusEl.textContent = '✓';
+                setTimeout(function() { if (statusEl) statusEl.textContent = ''; }, 2000);
+            }
+        } else {
+            if (statusEl) statusEl.textContent = '✗';
+            alert('Erro ao guardar data: ' + (data.error || 'Erro desconhecido'));
+        }
+    }).catch(function() {
+        if (statusEl) statusEl.textContent = '✗';
+        alert('Erro de ligação ao guardar data de pagamento.');
     });
 }
 

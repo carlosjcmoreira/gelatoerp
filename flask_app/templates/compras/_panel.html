@@ -162,10 +162,17 @@
         <dt class="col-5 text-muted">Subpasta</dt>
         <dd class="col-7">{{ inv.onedrive_subfolder }}</dd>
         {% endif %}
-        {% if inv.paid_date %}
         <dt class="col-5 text-muted">Data pagamento</dt>
-        <dd class="col-7">{{ inv.paid_date.strftime('%d/%m/%Y') }}</dd>
-        {% endif %}
+        <dd class="col-7 d-flex align-items-center gap-1">
+            <input type="date"
+                   class="form-control form-control-sm border-0 p-0"
+                   style="width:auto;background:transparent;cursor:pointer;font-size:inherit;color:inherit"
+                   value="{{ inv.paid_date.strftime('%Y-%m-%d') if inv.paid_date else '' }}"
+                   data-inv-id="{{ inv.id }}"
+                   onchange="setPanelPaidDate(this)"
+                   title="Clique para alterar a data de pagamento">
+            <span class="text-muted small" id="paid-date-status-{{ inv.id }}"></span>
+        </dd>
         {% set confirm_dt = inv.payment_confirmed_date or inv.cfo_confirmed_date %}
         {% if confirm_dt %}
         <dt class="col-5 text-muted">Data confirmação</dt>

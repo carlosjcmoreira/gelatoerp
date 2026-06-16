@@ -88,6 +88,18 @@ def faturas():
     today = _date.today()
     PAGE_SIZE = 50
 
+    # Filter session persistence
+    _FILTER_KEYS = ('supplier_id', 'supplier_name', 'store_id', 'status',
+                    'date_from', 'date_to', 'date_field', 'q', 'document_type')
+    if request.args.get('clear') == '1':
+        session.pop('faturas_filters', None)
+        return redirect(url_for('compras.faturas'))
+    _has_any_filter_param = any(request.args.get(k) for k in _FILTER_KEYS)
+    if not _has_any_filter_param and 'faturas_filters' in session:
+        _saved = session['faturas_filters']
+        if _saved:
+            return redirect(url_for('compras.faturas') + '?' + urlencode(_saved))
+
     supplier_id_raw = request.args.get('supplier_id', '').strip()
     supplier_filter_id = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
     supplier_name_filter = request.args.get('supplier_name', '').strip()
@@ -173,6 +185,27 @@ def faturas():
         or status_filter or date_from_raw or date_to_raw
         or document_type_filter or q_filter
     )
+    if has_filters:
+        _filter_save = {}
+        if q_filter:
+            _filter_save['q'] = q_filter
+        if supplier_name_filter:
+            _filter_save['supplier_name'] = supplier_name_filter
+        elif supplier_filter_id:
+            _filter_save['supplier_id'] = supplier_filter_id
+        if store_id_filter:
+            _filter_save['store_id'] = store_id_filter
+        if status_filter:
+            _filter_save['status'] = status_filter
+        if document_type_filter:
+            _filter_save['document_type'] = document_type_filter
+        if date_from_raw:
+            _filter_save['date_from'] = date_from_raw
+        if date_to_raw:
+            _filter_save['date_to'] = date_to_raw
+        if date_field != 'issue_date':
+            _filter_save['date_field'] = date_field
+        session['faturas_filters'] = _filter_save
     _fqs_d = {}
     if q_filter:
         _fqs_d['q'] = q_filter
@@ -277,6 +310,27 @@ def set_invoice_store(invoice_id: int):
         logger.error('set_invoice_store error: %s', e)
         return jsonify({'ok': False, 'error': 'Erro interno'}), 500
     return jsonify({'ok': True, 'store_id': store_id, 'store_name': store_name})
+
+
+@compras_bp.route('/faturas/<int:invoice_id>/set_paid_date', methods=['POST'])
+@perm_required('acesso_administrativo')
+def set_invoice_paid_date(invoice_id: int):
+    from datetime import datetime as _datetime
+    data = request.get_json(silent=True) or {}
+    paid_date_raw = (data.get('paid_date') or '').strip()
+    paid_date = None
+    if paid_date_raw:
+        try:
+            paid_date = _datetime.strptime(paid_date_raw, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'ok': False, 'error': 'Data inválida'}), 400
+    try:
+        update_invoice(invoice_id, {'paid_date': paid_date})
+    except Exception as e:
+        logger.error('set_invoice_paid_date error: %s', e)
+        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
+    paid_date_formatted = paid_date.strftime('%d/%m/%Y') if paid_date else ''
+    return jsonify({'ok': True, 'paid_date_formatted': paid_date_formatted})
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/panel')
