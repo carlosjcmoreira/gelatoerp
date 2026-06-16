@@ -378,7 +378,10 @@
         <div class="collapse d-md-block" id="fbar-chips-wrap">
         <div class="d-flex flex-wrap gap-2 align-items-center" id="fbar-chips">
             {% if default_filter_active %}
-            <span class="fbar-chip fbar-chip-muted" title="A mostrar documentos em aberto">📋 Em aberto</span>
+            <span class="fbar-chip fbar-chip-muted" title="A mostrar documentos em aberto">
+                📋 Em aberto
+                <a href="?all=1" class="fbar-chip-x text-decoration-none" data-no-loading title="Ver todas as faturas">✕</a>
+            </span>
             {% endif %}
             {% for s in statuses_filter %}
             <span class="fbar-chip">
@@ -471,9 +474,6 @@
             </div>
             {% if _any_f %}
             <a href="{{ url_for('faturas.index') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0" data-no-loading>✕ Limpar</a>
-            {% endif %}
-            {% if default_filter_active %}
-            <a href="?all=1" class="btn btn-outline-secondary btn-sm" data-no-loading>Ver todas</a>
             {% endif %}
             {% if show_all %}
             <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm" data-no-loading>Em aberto</a>
@@ -1579,6 +1579,12 @@ function _fbarSet(id, name, value) {
             disableMobile: true,
             defaultDate: inp.value || null,
             onChange: function(selectedDates, dateStr) {
+                var altInp = inp._flatpickr && inp._flatpickr.altInput;
+                if (altInp) {
+                    altInp.style.color = dateStr ? 'inherit' : 'var(--scoopy-text-muted)';
+                    altInp.style.minWidth = dateStr ? '80px' : '48px';
+                    if (!dateStr) { altInp.placeholder = '📅 —'; }
+                }
                 var url = SET_DATE_URL_TPL.replace('SET_ID', invId);
                 fetch(url, {
                     method: 'POST',
@@ -1602,8 +1608,10 @@ function _fbarSet(id, name, value) {
                 if (wrapper) {
                     wrapper.addEventListener('click', function(e){ e.stopPropagation(); });
                     wrapper.addEventListener('mousedown', function(e){ e.stopPropagation(); });
-                    wrapper.style.cssText = 'min-width:80px;max-width:100px;background:transparent;border:none;font-size:inherit;color:inherit;cursor:pointer;padding:0 2px;';
+                    var hasDate = !!inp.value;
+                    wrapper.style.cssText = 'min-width:' + (hasDate ? '80px' : '48px') + ';max-width:120px;background:transparent;border:none;font-size:inherit;color:' + (hasDate ? 'inherit' : 'var(--scoopy-text-muted)') + ';cursor:pointer;padding:0 2px;';
                     wrapper.className = '';
+                    if (!hasDate) { wrapper.placeholder = '📅 —'; }
                 }
             }
         });
