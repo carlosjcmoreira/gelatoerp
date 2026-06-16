@@ -38,6 +38,7 @@
                 <select name="date_field" class="form-select form-select-sm" style="width:auto">
                     <option value="issue_date" {% if date_field == 'issue_date' %}selected{% endif %}>Por emissão</option>
                     <option value="due_date" {% if date_field == 'due_date' %}selected{% endif %}>Por vencimento</option>
+                    <option value="paid_date" {% if date_field == 'paid_date' %}selected{% endif %}>Por pagamento</option>
                 </select>
                 <input type="date" name="date_from" class="form-control form-control-sm" style="width:auto" value="{{ date_from_raw }}">
                 <span class="small text-muted">–</span>
@@ -131,6 +132,7 @@
                                 onchange="applyColFilter('date_field', this.value)">
                             <option value="issue_date" {% if date_field == 'issue_date' %}selected{% endif %}>Emissão</option>
                             <option value="due_date" {% if date_field == 'due_date' %}selected{% endif %}>Vencimento</option>
+                            <option value="paid_date" {% if date_field == 'paid_date' %}selected{% endif %}>Pagamento</option>
                         </select>
                     </td>
                     <td>

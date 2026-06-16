@@ -109,7 +109,7 @@ def faturas():
     date_from_raw = request.args.get('date_from', '').strip()
     date_to_raw = request.args.get('date_to', '').strip()
     date_field = request.args.get('date_field', 'issue_date').strip()
-    if date_field not in ('issue_date', 'due_date'):
+    if date_field not in ('issue_date', 'due_date', 'paid_date'):
         date_field = 'issue_date'
     q_filter = request.args.get('q', '').strip()
     order_by = request.args.get('order_by', 'issue_date').strip()
