@@ -373,9 +373,10 @@
             </button>
         </div>
 
-        <!-- Active filter chips -->
+        <!-- Single filter line: chips + action buttons -->
+        {% set _any_f = statuses_filter or supplier_name_filter or search or document_type_filter or store_id or date_from_raw or date_to_raw or month_raw or centro_custo_filter %}
         <div class="collapse d-md-block" id="fbar-chips-wrap">
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-2" id="fbar-chips">
+        <div class="d-flex flex-wrap gap-2 align-items-center" id="fbar-chips">
             {% if default_filter_active %}
             <span class="fbar-chip fbar-chip-muted" title="A mostrar documentos em aberto">📋 Em aberto</span>
             {% endif %}
@@ -437,35 +438,17 @@
                 <button class="fbar-chip-x" type="button" onclick="removeFilter('category')" title="Remover">✕</button>
             </span>
             {% endif %}
-        </div>
-
-        <!-- Totais por tipo de documento (compact chips) -->
-        {% if totals_by_type %}
-        <div class="d-flex flex-wrap gap-1 align-items-center mb-2">
-            <span class="text-muted me-1" style="font-size:0.71rem;font-weight:600">Tipo:</span>
-            {% set _tc = {'fatura':'secondary','nota_credito':'success','nota_debito':'warning','nota_pagamento_imposto':'danger','outro':'secondary'} %}
-            {% for dt, info in totals_by_type.items() %}
-            {% set _c = _tc.get(dt, 'secondary') %}
-            {% set _bqs = (type_badge_base_qs + '&' if type_badge_base_qs else '') + 'document_type=' + dt %}
-            <a href="{{ url_for('faturas.index') }}?{{ _bqs }}"
-               class="badge text-decoration-none bg-{{ _c }}-subtle text-{{ _c }}-emphasis border border-{{ _c }}-subtle py-1 px-2"
-               style="font-size:0.71rem;{% if document_type_filter == dt %}outline:2px solid currentColor;{% endif %}"
-               title="{{ document_type_labels.get(dt, dt) }}: {{ '%.0f €'|format(info.total) }} · {{ info.count }} doc.">
-                {{ document_type_labels.get(dt, dt) | truncate(14, True, '…') }}
-                <span class="opacity-75 ms-1">{{ '%.0f €'|format(info.total) }}</span>
-            </a>
-            {% endfor %}
-            {% if document_type_filter %}
-            <a href="{{ url_for('faturas.index') }}{% if type_badge_base_qs %}?{{ type_badge_base_qs }}{% endif %}"
-               class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size:0.71rem;" data-no-loading>✕</a>
+            {% if pending_installments %}
+            <button class="fbar-chip fbar-chip-warning border-0"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#parcelas-collapse"
+                    title="Ver parcelas de confirming pendentes">
+                💳 {{ pending_installments | length }} pendente{{ 's' if pending_installments | length != 1 }}
+            </button>
             {% endif %}
-        </div>
-        {% endif %}
-        </div><!-- /#fbar-chips-wrap -->
 
-        <!-- Action bar: + Filtro · limpar · ver todas / em aberto · contador -->
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-            {% set _any_f = statuses_filter or supplier_name_filter or search or document_type_filter or store_id or date_from_raw or date_to_raw or month_raw or centro_custo_filter %}
+            <!-- + Filtro dropdown -->
             <div class="dropdown">
                 <button class="btn btn-outline-secondary btn-sm" type="button"
                         data-bs-toggle="dropdown" aria-expanded="false" id="fbar-add-btn">
@@ -487,7 +470,7 @@
                 </ul>
             </div>
             {% if _any_f %}
-            <a href="{{ url_for('faturas.index') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0" data-no-loading>✕ Limpar filtros</a>
+            <a href="{{ url_for('faturas.index') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0" data-no-loading>✕ Limpar</a>
             {% endif %}
             {% if default_filter_active %}
             <a href="?all=1" class="btn btn-outline-secondary btn-sm" data-no-loading>Ver todas</a>
@@ -498,14 +481,15 @@
             <a href="{{ url_for('faturas.dashboard') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0 ms-auto" data-no-loading>📊 Dashboard</a>
             <span class="text-muted small">{{ invoices|length }} resultado{{ 's' if invoices|length != 1 }}</span>
         </div>
+        </div><!-- /#fbar-chips-wrap -->
 
         <!-- Filter editor panel (injected by JS when + Filtro is used) -->
         <div id="fbar-panel" class="mt-2 p-3 border rounded bg-body" style="display:none"></div>
     </div>
 
     {% if pending_installments %}
-    <!-- Pending installments section -->
-    <div class="card mb-3 border-warning">
+    <!-- Pending installments section (collapsed by default, toggled by chip in filter bar) -->
+    <div class="collapse card mb-3 border-warning" id="parcelas-collapse">
         <div class="card-header py-2 bg-warning-subtle d-flex align-items-center justify-content-between">
             <span class="fw-semibold small">💳 Parcelas pendentes ({{ pending_installments | length }})</span>
         </div>

@@ -1114,6 +1114,12 @@ body.sidebar-collapsed .sidebar-toggle {
     background-color: var(--scoopy-text-muted);
     opacity: 0.85;
 }
+.fbar-chip-warning {
+    background-color: #f59e0b;
+    color: #fff;
+    cursor: pointer;
+}
+.fbar-chip-warning:hover { background-color: #d97706; }
 .fbar-chip-x {
     cursor: pointer;
     border: none;
