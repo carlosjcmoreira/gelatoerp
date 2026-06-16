@@ -1364,12 +1364,17 @@ function openFbarPanel(field) {
             '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
 
     } else if (field === 'supplier_name') {
-        var cur = (FBAR_DATA.activeSupplier||'').replace(/"/g,'&quot;');
-        h += '<input list="fbar-snlist" id="fbar-sn-inp" type="text" class="form-control form-control-sm mb-3"' +
-            ' placeholder="Nome do fornecedor…" value="' + cur + '">' +
-            '<datalist id="fbar-snlist">' +
-            FBAR_DATA.supplierNames.map(function(n){ return '<option value="'+n.replace(/"/g,'&quot;')+'">'; }).join('') +
-            '</datalist>' +
+        var cur = FBAR_DATA.activeSupplier || '';
+        var snEsc = function(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+        h += '<input id="fbar-sn-inp" type="text" class="form-control form-control-sm mb-1"' +
+            ' placeholder="Pesquisar fornecedor…" value="' + snEsc(cur) + '" autocomplete="off">' +
+            '<ul id="fbar-sn-list" class="list-group mb-3" style="max-height:220px;overflow-y:auto;border-radius:0 0 .375rem .375rem">';
+        FBAR_DATA.supplierNames.forEach(function(n) {
+            var active = (n === cur);
+            h += '<li class="list-group-item list-group-item-action py-1 px-2 small' + (active ? ' active' : '') + '"' +
+                ' style="cursor:pointer" onclick="fbarSnSelect(this)">' + snEsc(n) + '</li>';
+        });
+        h += '</ul>' +
             '<div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applySupplierFilter()">Aplicar</button>' +
             '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
 
@@ -1452,6 +1457,21 @@ function openFbarPanel(field) {
         window._fpTo = flatpickr('#fbar-fp-to', Object.assign({}, fpOpts,
             { defaultDate: FBAR_DATA.activeDateTo || null }));
     }
+    if (field === 'supplier_name') {
+        var snInp = document.getElementById('fbar-sn-inp');
+        var snList = document.getElementById('fbar-sn-list');
+        if (snInp && snList) {
+            snInp.addEventListener('input', function() {
+                var q = this.value.toLowerCase();
+                snList.querySelectorAll('li').forEach(function(li) {
+                    li.style.display = li.textContent.toLowerCase().indexOf(q) >= 0 ? '' : 'none';
+                });
+            });
+            snInp.focus();
+            var activeItem = snList.querySelector('li.active');
+            if (activeItem) { activeItem.scrollIntoView({block:'nearest'}); }
+        }
+    }
     panel.scrollIntoView({behavior:'smooth', block:'nearest'});
 }
 
@@ -1481,6 +1501,13 @@ function applyStatusFilter() {
     });
     var allInp=form.querySelector('input[name="all"]'); if(allInp) allInp.remove();
     form.requestSubmit();
+}
+function fbarSnSelect(li) {
+    var list = document.getElementById('fbar-sn-list');
+    if (list) { list.querySelectorAll('li').forEach(function(el){ el.classList.remove('active'); }); }
+    li.classList.add('active');
+    var inp = document.getElementById('fbar-sn-inp');
+    if (inp) { inp.value = li.textContent.trim(); inp.dispatchEvent(new Event('input')); }
 }
 function applySupplierFilter() {
     var val=((document.getElementById('fbar-sn-inp')||{}).value||'');
