@@ -912,6 +912,7 @@ def _row_to_invoice(row) -> dict:
 _ORDER_COL_MAP = {
     'due_date': 'i.due_date',
     'issue_date': 'i.issue_date',
+    'paid_date': 'i.paid_date',
     'amount_eur': 'i.amount_eur',
     'supplier_name': 'LOWER(i.supplier_name)',
     'invoice_number': 'i.invoice_number',

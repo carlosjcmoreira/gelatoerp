@@ -113,7 +113,7 @@ def faturas():
         date_field = 'issue_date'
     q_filter = request.args.get('q', '').strip()
     order_by = request.args.get('order_by', 'issue_date').strip()
-    if order_by not in ('issue_date', 'due_date', 'amount_eur', 'supplier_name', 'invoice_number', 'status'):
+    if order_by not in ('issue_date', 'due_date', 'paid_date', 'amount_eur', 'supplier_name', 'invoice_number', 'status'):
         order_by = 'issue_date'
     order_dir = request.args.get('order_dir', 'desc').strip()
     if order_dir not in ('asc', 'desc'):

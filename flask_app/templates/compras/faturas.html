@@ -92,6 +92,7 @@
                     <th class="text-end">{{ sort_a('amount_eur', 'Valor (€)') }}</th>
                     <th>{{ sort_a('status', 'Estado') }}</th>
                     <th>{{ sort_a('due_date', 'Vencimento') }}</th>
+                    <th>{{ sort_a('paid_date', 'Pago em') }}</th>
                     <th>Loja</th>
                     <th></th>
                 </tr>
@@ -154,6 +155,7 @@
                                value="{{ date_to_raw }}"
                                onchange="applyColFilter('date_to', this.value)">
                     </td>
+                    <td></td>
                     <td>
                         <select class="form-select form-select-sm py-0 px-1"
                                 style="font-size:0.78rem"
@@ -213,6 +215,18 @@
                 </td>
                 <td class="text-nowrap small {% if ds == 'overdue' %}text-danger fw-bold{% endif %}">
                     {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                </td>
+                <td onclick="event.stopPropagation()">
+                    {% if inv.status == 'paid' %}
+                    <input type="date"
+                           class="form-control form-control-sm border-0 py-0 px-1"
+                           style="min-width:120px;background:transparent;cursor:pointer;font-size:0.8rem"
+                           data-inv-id="{{ inv.id }}"
+                           value="{{ inv.paid_date.strftime('%Y-%m-%d') if inv.paid_date else '' }}"
+                           onchange="setInvPaidDate(this)">
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
                 </td>
                 <td onclick="event.stopPropagation()">
                     <select class="form-select form-select-sm border-0 py-0 px-1"
@@ -502,6 +516,34 @@ function setPanelPaidDate(input) {
         }
     }).catch(function() {
         if (statusEl) statusEl.textContent = '✗';
+        alert('Erro de ligação ao guardar data de pagamento.');
+    });
+}
+
+/* ── Edição inline: data de pagamento (tabela) ────────────────── */
+function setInvPaidDate(input) {
+    var id = input.dataset.invId;
+    if (!id) return;
+    var dateVal = input.value || null;
+    var origValue = input.defaultValue;
+    input.disabled = true;
+    fetch('/compras/faturas/' + id + '/set_paid_date', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({paid_date: dateVal})
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        input.disabled = false;
+        if (data.ok) {
+            input.defaultValue = input.value;
+        } else {
+            input.value = origValue;
+            alert('Erro ao guardar data: ' + (data.error || 'Erro desconhecido'));
+        }
+    }).catch(function() {
+        input.disabled = false;
+        input.value = origValue;
         alert('Erro de ligação ao guardar data de pagamento.');
     });
 }
