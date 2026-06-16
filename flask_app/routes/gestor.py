@@ -1815,6 +1815,43 @@ _TILE_MASTER = {
         {'id': 'categorias',                 'icon': '📂',  'default_label': 'Categorias de Custo',           'description': 'Gerir as categorias e subcategorias usadas para classificar custos em faturas'},
         {'id': 'distribuicao_centros_custo', 'icon': '📊',  'default_label': 'Distribuição Centros de Custo', 'description': 'Configurar a distribuição percentual de custos entre os centros de custo definidos'},
     ],
+    'compras': [
+        {'id': 'faturas',       'icon': '🧾', 'default_label': 'Faturas',                       'description': 'Gerir faturas de fornecedores, pagamentos e OCR automático de documentos'},
+        {'id': 'nova_fatura',   'icon': '➕', 'default_label': 'Registar Documento',             'description': 'Registar manualmente uma nova fatura ou documento de fornecedor'},
+        {'id': 'artigos',       'icon': '📋', 'default_label': 'Artigos de Fornecimento',        'description': 'Gerir o catálogo de artigos e produtos adquiridos a fornecedores'},
+        {'id': 'fornecedores',  'icon': '🏭', 'default_label': 'Fornecedores',                   'description': 'Gerir a lista de fornecedores e respetivos dados de contacto e faturação'},
+        {'id': 'criar_ordem',   'icon': '📦', 'default_label': 'Criar Ordem de Transferência',   'description': 'Criar uma nova ordem de transferência de compras para a loja'},
+    ],
+    'logistica': [
+        {'id': 'transferencias',  'icon': '🚚', 'default_label': 'Transferências',     'description': 'Consultar e gerir ordens de transferência ativas e histórico de movimentos'},
+        {'id': 'stock_materiais', 'icon': '📦', 'default_label': 'Stock de Materiais', 'description': 'Gerir o stock de materiais e matérias-primas por localização'},
+    ],
+    'eurokg': [
+        {'id': 'dashboard',    'icon': '📊', 'default_label': 'Dashboard Euro/kg',       'description': 'Resumo visual do KPI Euro/kg por período, semana e ano'},
+        {'id': 'resumo',       'icon': '📅', 'default_label': 'Resumo Mensal',            'description': 'Tabela de resumo mensal de consumo, vendas e Euro/kg por loja'},
+        {'id': 'consumo',      'icon': '🧮', 'default_label': 'Consumo Teórico',          'description': 'Análise do consumo teórico de gelado por produto e mês'},
+        {'id': 'vendas',       'icon': '💶', 'default_label': 'Vendas por Produto',       'description': 'Detalhe de vendas mensais discriminadas por produto de gelado'},
+        {'id': 'pesagens',     'icon': '⚖️', 'default_label': 'Pesagens',                 'description': 'Consultar registos de pesagem de stock de gelado por loja e data'},
+        {'id': 'diagnostico',  'icon': '🔍', 'default_label': 'Diagnóstico de Vendas',    'description': 'Diagnóstico detalhado de vendas diárias para identificar anomalias'},
+        {'id': 'volume',       'icon': '📦', 'default_label': 'Volume por Produto',       'description': 'Análise do volume de produção e vendas por produto ao longo do tempo'},
+        {'id': 'config_preco', 'icon': '⚙️', 'default_label': 'Preço/kg Caixas Loja',    'description': 'Configurar o preço por kg das caixas vendidas em loja para o cálculo do KPI'},
+    ],
+    'confeitaria': [
+        {'id': 'stock_balcao', 'icon': '📦', 'default_label': 'Visão de Stock',           'description': 'Ver o stock atual de confeitaria disponível por loja'},
+        {'id': 'planear',      'icon': '📋', 'default_label': 'Planear Produção',          'description': 'Definir as quantidades a produzir por produto de confeitaria para o dia'},
+        {'id': 'produzir',     'icon': '▶️', 'default_label': 'Produzir',                  'description': 'Registar a produção realizada de produtos de confeitaria'},
+        {'id': 'transferir',   'icon': '🔄', 'default_label': 'Transferir para Loja',      'description': 'Enviar stock de confeitaria para a loja via ordem de transferência'},
+        {'id': 'quebra',       'icon': '⚠️', 'default_label': 'Registar Quebra',           'description': 'Registar perdas de produtos de confeitaria com motivo justificativo'},
+        {'id': 'produtos',     'icon': '🍪', 'default_label': 'Produtos',                  'description': 'Gerir o catálogo de produtos de confeitaria disponíveis para produção'},
+    ],
+    'eventos': [
+        {'id': 'dashboard',     'icon': '📊', 'default_label': 'Dashboard',               'description': 'Resumo do pipeline de eventos com indicadores de leads e adjudicações'},
+        {'id': 'pipeline',      'icon': '📋', 'default_label': 'Pipeline',                 'description': 'Gerir o pipeline de eventos por estado: lead, proposta, adjudicado, etc.'},
+        {'id': 'leads',         'icon': '📥', 'default_label': 'Leads do Formulário',      'description': 'Consultar e gerir leads recebidas via formulário e Google Sheets'},
+        {'id': 'clientes',      'icon': '👥', 'default_label': 'Clientes',                 'description': 'Gerir a base de dados de clientes associados a eventos'},
+        {'id': 'artigos',       'icon': '🏷️', 'default_label': 'Artigos',                  'description': 'Gerir os artigos e serviços disponíveis para orçamentação de eventos'},
+        {'id': 'recebimentos',  'icon': '💶', 'default_label': 'Recebimentos',             'description': 'Registar e acompanhar os recebimentos de pagamentos de eventos'},
+    ],
     'gestor': [
         {'id': 'upload_producao',        'icon': '📤',  'default_label': 'Upload Produção',        'description': 'Carregar folha de produção em imagem para extração automática de dados via OCR'},
         {'id': 'upload_pesagem',         'icon': '⚖️',  'default_label': 'Upload Pesagem',         'description': 'Carregar folha de pesagem em imagem para extração automática de quantidades via OCR'},
@@ -1840,19 +1877,29 @@ _TILE_MASTER = {
 
 
 _MODULE_DEFAULTS = {
-    'producao':  'Produção',
+    'producao':   'Produção',
     'pastelaria': 'Pastelaria',
-    'vendas':    'Vendas',
-    'gestor':    'Gestor',
+    'vendas':     'Vendas',
+    'gestor':     'Gestor',
     'financeiro': 'Financeiro',
+    'compras':    'Compras e Faturas',
+    'logistica':  'Logística',
+    'eurokg':     'Euro/kg',
+    'confeitaria': 'Produção Confeitaria',
+    'eventos':    'Eventos',
 }
 
 _MODULE_EMOJIS = {
-    'producao':  '🍦',
+    'producao':   '🍦',
     'pastelaria': '🥐',
-    'vendas':    '🛍️',
-    'gestor':    '⚙️',
+    'vendas':     '🛒',
+    'gestor':     '⚙️',
     'financeiro': '💰',
+    'compras':    '🛍️',
+    'logistica':  '🚚',
+    'eurokg':     '📊',
+    'confeitaria': '🍪',
+    'eventos':    '🎪',
 }
 
 
@@ -1864,7 +1911,7 @@ def gestao_tiles():
     db_state = {(r['module'], r['tile_id']): r for r in get_all_tile_config()}
     module_custom_labels = get_module_labels()
 
-    _ORDER = ['producao', 'pastelaria', 'vendas', 'gestor', 'financeiro']
+    _ORDER = ['producao', 'pastelaria', 'confeitaria', 'vendas', 'compras', 'logistica', 'eurokg', 'gestor', 'financeiro', 'eventos']
     modules = {}
     for module_id in _ORDER:
         tile_defs = _TILE_MASTER.get(module_id, [])
