@@ -1154,6 +1154,32 @@ def invoice_panel(invoice_id: int):
     )
 
 
+
+# ── Inline paid-date update ────────────────────────────────────────────────────
+
+@faturas_bp.route('/<int:invoice_id>/set-paid-date', methods=['POST'])
+@perm_required('acesso_gestor')
+def set_paid_date(invoice_id: int):
+    from datetime import datetime as _dt
+    inv = get_invoice(invoice_id)
+    if not inv:
+        return jsonify({'ok': False, 'error': 'Documento não encontrado'}), 404
+    data = request.get_json(silent=True) or {}
+    raw = (data.get('paid_date') or '').strip()
+    paid_date = None
+    if raw:
+        try:
+            paid_date = _dt.strptime(raw, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'ok': False, 'error': 'Data inválida'}), 400
+    try:
+        update_invoice(invoice_id, {'paid_date': paid_date})
+    except Exception as e:
+        logger.error('set_paid_date error: %s', e)
+        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
+    return jsonify({'ok': True, 'paid_date': paid_date.isoformat() if paid_date else ''})
+
+
 # ── Invoice Linhas (line items) ────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/linha', methods=['POST'])

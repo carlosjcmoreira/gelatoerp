@@ -1,6 +1,20 @@
 {% extends "base.html" %}
 {% set back_url = url_for("financeiro.index") %}
 
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<style>
+.fin-paid-date-input {
+    min-width: 80px; max-width: 100px;
+    background: transparent; border: none;
+    font-size: inherit; color: inherit;
+    cursor: pointer; padding: 0 2px;
+}
+.fin-paid-date-input:focus { outline: 1px solid var(--bs-primary); border-radius: 3px; }
+.flatpickr-calendar { font-size: 0.875rem; }
+</style>
+{% endblock %}
+
 {% block content %}
 {% set _sd = {
     'pending_review': 'Aguarda confirmação pelo responsável financeiro',
@@ -689,10 +703,18 @@
                         </span>
                         {% endif %}
                     </td>
-                    <td class="d-none d-lg-table-cell text-muted small text-nowrap">
+                    <td class="d-none d-lg-table-cell text-muted small text-nowrap"
+                        onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
                         {% set sched_date = inv.payment_confirmed_date or inv.cfo_confirmed_date %}
-                        {% if inv.status == 'paid' and inv.paid_date %}
-                            {{ inv.paid_date.strftime('%d/%m/%Y') }}
+                        {% if inv.status == 'paid' %}
+                        <input type="text"
+                               class="fin-paid-date-input"
+                               data-inv-id="{{ inv.id }}"
+                               value="{{ inv.paid_date.strftime('%Y-%m-%d') if inv.paid_date else '' }}"
+                               placeholder="—"
+                               autocomplete="off"
+                               onclick="event.stopPropagation()"
+                               onmousedown="event.stopPropagation()">
                         {% elif inv.status == 'scheduled' and sched_date %}
                             {{ sched_date.strftime('%d/%m/%Y') }}
                         {% elif overdue and sched_date %}
@@ -1400,8 +1422,18 @@ function openFbarPanel(field) {
             '<option value="due_date"'+(field==='due_date'?' selected':'')+'>📅 Vencimento</option>' +
             '<option value="issue_date"'+(field==='issue_date'?' selected':'')+'>📋 Emissão</option>' +
             '<option value="paid_date"'+(field==='paid_date'?' selected':'')+'>✅ Data Pagamento</option>' +
-            '</select></div><div id="sdp-root" class="mb-2"></div>' +
-            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button>';
+            '</select></div>' +
+            '<div class="d-flex gap-2 mb-3">' +
+            '<div style="flex:1"><label class="form-label small text-muted mb-1">De</label>' +
+            '<input id="fbar-fp-from" type="text" class="form-control form-control-sm" placeholder="dd/mm/aaaa" autocomplete="off"></div>' +
+            '<div style="flex:1"><label class="form-label small text-muted mb-1">Até</label>' +
+            '<input id="fbar-fp-to" type="text" class="form-control form-control-sm" placeholder="dd/mm/aaaa" autocomplete="off"></div>' +
+            '</div>' +
+            '<div class="d-flex gap-2">' +
+            '<button type="button" class="btn btn-primary btn-sm" onclick="applyFbarDateFilter()">Aplicar</button>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearFbarDateFilter()">Limpar</button>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button>' +
+            '</div>';
 
     } else if (field === 'categoria') {
         var curCat = (FBAR_DATA.activeCategory||'').replace(/"/g,'&quot;');
@@ -1438,9 +1470,30 @@ function openFbarPanel(field) {
         document.getElementById('ff-df').value = field;
         var dfSel = document.getElementById('fbar-df-sel');
         if (dfSel) dfSel.addEventListener('change', function(){ document.getElementById('ff-df').value=this.value; });
-        window._sdp = new ScoopyDatePicker(document.getElementById('sdp-root'));
+        var fpOpts = { locale: 'pt', dateFormat: 'Y-m-d', allowInput: true, disableMobile: true,
+            altInput: true, altFormat: 'd/m/Y' };
+        window._fpFrom = flatpickr('#fbar-fp-from', Object.assign({}, fpOpts,
+            { defaultDate: FBAR_DATA.activeDateFrom || null }));
+        window._fpTo = flatpickr('#fbar-fp-to', Object.assign({}, fpOpts,
+            { defaultDate: FBAR_DATA.activeDateTo || null }));
     }
     panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function applyFbarDateFilter() {
+    var from = window._fpFrom ? window._fpFrom.input.value : '';
+    var to   = window._fpTo   ? window._fpTo.input.value   : '';
+    document.getElementById('ff-dfrom').value = from;
+    document.getElementById('ff-dto').value   = to;
+    var dfSel = document.getElementById('fbar-df-sel');
+    if (dfSel) document.getElementById('ff-df').value = dfSel.value;
+    document.getElementById('ff-month').value = '';
+    document.getElementById('filter-form').requestSubmit();
+}
+
+function clearFbarDateFilter() {
+    if (window._fpFrom) window._fpFrom.clear();
+    if (window._fpTo)   window._fpTo.clear();
 }
 
 // ── Apply helpers ─────────────────────────────────────────────────────────────
@@ -1613,4 +1666,53 @@ function ScoopyDatePicker(container) {
         </div>
     </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pt.js"></script>
+<script>
+(function() {
+    var SET_DATE_URL_TPL = '{{ url_for("faturas.index") }}'.replace(/\/$/, '') + '/SET_ID/set-paid-date';
+
+    document.querySelectorAll('.fin-paid-date-input').forEach(function(inp) {
+        var invId = inp.dataset.invId;
+        flatpickr(inp, {
+            locale: 'pt',
+            dateFormat: 'Y-m-d',
+            altInput: true,
+            altFormat: 'd/m/Y',
+            allowInput: false,
+            disableMobile: true,
+            defaultDate: inp.value || null,
+            onChange: function(selectedDates, dateStr) {
+                var url = SET_DATE_URL_TPL.replace('SET_ID', invId);
+                fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ paid_date: dateStr })
+                })
+                .then(function(r){ return r.json(); })
+                .then(function(data){
+                    if (!data.ok) {
+                        console.error('set_paid_date error:', data.error);
+                        inp._flatpickr && inp._flatpickr.setDate(inp.dataset.origDate || '');
+                    } else {
+                        inp.dataset.origDate = dateStr;
+                    }
+                })
+                .catch(function(err){ console.error('set_paid_date network error:', err); });
+            },
+            onReady: function(sel, dateStr) {
+                inp.dataset.origDate = inp.value || '';
+                var wrapper = inp._flatpickr && inp._flatpickr.altInput;
+                if (wrapper) {
+                    wrapper.addEventListener('click', function(e){ e.stopPropagation(); });
+                    wrapper.addEventListener('mousedown', function(e){ e.stopPropagation(); });
+                    wrapper.style.cssText = 'min-width:80px;max-width:100px;background:transparent;border:none;font-size:inherit;color:inherit;cursor:pointer;padding:0 2px;';
+                    wrapper.className = '';
+                }
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}
