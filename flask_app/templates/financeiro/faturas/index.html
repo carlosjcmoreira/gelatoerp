@@ -1331,11 +1331,18 @@ function removeDateFilter() {
 }
 
 // ── Filter panel ──────────────────────────────────────────────────────────────
+var _fbarCloseListener = null;
+var _fbarInlineAnchor = null;
 function closeFbarPanel() {
     var p = document.getElementById('fbar-panel');
     if (p) p.style.display = 'none';
     var ip = document.getElementById('fbar-inline-panel');
     if (ip) ip.style.display = 'none';
+    if (_fbarCloseListener) {
+        document.removeEventListener('click', _fbarCloseListener);
+        _fbarCloseListener = null;
+    }
+    _fbarInlineAnchor = null;
 }
 
 function openFbarPanel(field, anchor) {
@@ -1347,11 +1354,22 @@ function openFbarPanel(field, anchor) {
     var panel;
     if (isInline) {
         panel = document.getElementById('fbar-inline-panel');
+        // Toggle: if already open from same anchor, close and return
+        if (panel && panel.style.display !== 'none' && _fbarInlineAnchor === anchor) {
+            closeFbarPanel();
+            return;
+        }
+        // Remove stale outside-click listener before opening new panel
+        if (_fbarCloseListener) {
+            document.removeEventListener('click', _fbarCloseListener);
+            _fbarCloseListener = null;
+        }
         if (!panel) {
             panel = document.createElement('div');
             panel.id = 'fbar-inline-panel';
             document.body.appendChild(panel);
         }
+        _fbarInlineAnchor = anchor;
         panel.className = 'p-3 border rounded bg-body shadow';
         panel.style.cssText = 'position:fixed;z-index:1060;min-width:280px;max-width:340px;display:none';
         var colToggle = anchor.closest && anchor.closest('.dropdown') &&
@@ -1365,9 +1383,14 @@ function openFbarPanel(field, anchor) {
     } else {
         panel = document.getElementById('fbar-panel');
         if (!panel) return;
-        // Hide inline panel
+        // Hide inline panel and clean up listener
         var ip = document.getElementById('fbar-inline-panel');
         if (ip) ip.style.display = 'none';
+        if (_fbarCloseListener) {
+            document.removeEventListener('click', _fbarCloseListener);
+            _fbarCloseListener = null;
+        }
+        _fbarInlineAnchor = null;
     }
 
     var LABELS = { status:'Estado', supplier_name:'Fornecedor', document_type:'Tipo de Documento',
@@ -1500,12 +1523,12 @@ function openFbarPanel(field, anchor) {
     }
     if (isInline) {
         setTimeout(function() {
-            document.addEventListener('click', function _closeInlinePanel(e) {
+            _fbarCloseListener = function(e) {
                 if (!panel.contains(e.target)) {
-                    panel.style.display = 'none';
-                    document.removeEventListener('click', _closeInlinePanel);
+                    closeFbarPanel();
                 }
-            });
+            };
+            document.addEventListener('click', _fbarCloseListener);
         }, 0);
     } else {
         panel.scrollIntoView({behavior:'smooth', block:'nearest'});
