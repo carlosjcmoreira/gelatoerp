@@ -114,7 +114,15 @@
                             {% endfor %}
                         </select>
                     </td>
-                    <td></td>
+                    <td>
+                        <select class="form-select form-select-sm py-0 px-1"
+                                style="font-size:0.78rem"
+                                title="Campo de data a filtrar"
+                                onchange="applyColFilter('date_field', this.value)">
+                            <option value="issue_date" {% if date_field == 'issue_date' %}selected{% endif %}>Emissão</option>
+                            <option value="due_date" {% if date_field == 'due_date' %}selected{% endif %}>Vencimento</option>
+                        </select>
+                    </td>
                     <td>
                         <select class="form-select form-select-sm py-0 px-1"
                                 style="font-size:0.78rem"
