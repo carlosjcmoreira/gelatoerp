@@ -100,7 +100,7 @@ def dashboard():
     totals_by_type = get_invoices_type_totals()
     # Status counts & financial KPIs
     all_inv = get_invoices()
-    overdue_count = sum(1 for i in all_inv if i['status'] == 'scheduled' and i.get('due_date') and i['due_date'] < today)
+    overdue_count = sum(1 for i in all_inv if i['status'] in ('pending_review', 'scheduled') and i.get('due_date') and i['due_date'] < today)
     pending_count = sum(1 for i in all_inv if i['status'] == 'pending_review')
     scheduled_count = len(scheduled_docs)
     paid_count = sum(1 for i in all_inv if i['status'] == 'paid')
@@ -171,7 +171,7 @@ def index():
         grupos = get_contas_por_fornecedor(status_filter=forn_status or None)
         for grupo in grupos:
             for inv in grupo.get('invoices', []):
-                if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+                if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
                     inv['display_status'] = 'overdue'
                     inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
                 else:
@@ -209,7 +209,7 @@ def index():
                     grupos_cc[key]['label'] = f"{cc['code']} — {cc['name']}"
                 else:
                     grupos_cc[key]['label'] = 'Sem centro de custo'
-            if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+            if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
                 inv['display_status'] = 'overdue'
                 inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
             else:
@@ -253,7 +253,7 @@ def index():
                     grupos_cat[key]['label'] = cat['name']
                 else:
                     grupos_cat[key]['label'] = 'Sem categoria'
-            if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+            if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
                 inv['display_status'] = 'overdue'
                 inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
             else:
@@ -363,7 +363,7 @@ def index():
 
     _labels_map = get_invoice_status_labels_map()
     for inv in invoices:
-        if inv['status'] == 'scheduled' and inv['due_date'] and inv['due_date'] < today:
+        if inv['status'] in ('pending_review', 'scheduled') and inv['due_date'] and inv['due_date'] < today:
             inv['display_status'] = 'overdue'
             inv['status_label'] = _labels_map.get('overdue', 'Vencida')
         else:
@@ -1128,7 +1128,7 @@ def invoice_panel(invoice_id: int):
     if not inv:
         return '<p class="text-danger p-3">Fatura não encontrada.</p>', 404
     today = date.today()
-    if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+    if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
         inv['display_status'] = 'overdue'
         inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
     linhas = get_invoice_linhas(invoice_id)

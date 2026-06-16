@@ -1028,7 +1028,7 @@ def _build_invoice_where(status: str = None, statuses: list = None,
         where.append("i.status = ANY(%s)")
         params.append(statuses)
     elif status == 'overdue':
-        where.append("i.status = 'scheduled' AND i.due_date < CURRENT_DATE")
+        where.append("i.status IN ('pending_review', 'scheduled') AND i.due_date < CURRENT_DATE")
     elif status:
         where.append("i.status = %s")
         params.append(status)
@@ -1667,7 +1667,7 @@ def get_contas_por_fornecedor(status_filter: str = None) -> list:
         cursor = conn.cursor()
         params = []
         if status_filter == 'overdue':
-            extra_where = "AND i.status = 'scheduled' AND i.due_date < CURRENT_DATE"
+            extra_where = "AND i.status IN ('pending_review', 'scheduled') AND i.due_date < CURRENT_DATE"
         elif status_filter:
             extra_where = "AND i.status = %s"
             params.append(status_filter)

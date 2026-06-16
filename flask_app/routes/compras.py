@@ -159,7 +159,7 @@ def faturas():
         offset=offset,
     )
     for inv in invoices:
-        if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+        if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
             inv['display_status'] = 'overdue'
         else:
             inv['display_status'] = inv['status']
@@ -287,7 +287,7 @@ def invoice_panel(invoice_id: int):
     if not inv:
         return '<p class="text-danger p-3">Fatura não encontrada.</p>', 404
     today = _date.today()
-    if inv['status'] == 'scheduled' and inv.get('due_date') and inv['due_date'] < today:
+    if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
         inv['display_status'] = 'overdue'
         inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
     stores = get_stores_list()
