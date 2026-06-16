@@ -608,7 +608,7 @@
                         <li><a class="dropdown-item small py-1" href="{{ fqs }}&order_by={{ col }}&order_dir=desc">↓ Z → A</a></li>
                         {% if fkey %}
                         <li><hr class="dropdown-divider my-1"></li>
-                        <li><button class="dropdown-item small py-1" type="button" onclick="openFbarPanel('{{ fkey }}')">🔍 Filtrar</button></li>
+                        <li><button class="dropdown-item small py-1" type="button" onclick="openFbarPanel('{{ fkey }}', this)">🔍 Filtrar</button></li>
                         {% endif %}
                         {% if show_estados %}
                         <li><hr class="dropdown-divider my-1"></li>
@@ -636,7 +636,7 @@
                     {{ col_th('due_date', 'Vencimento', order_by, order_dir, filter_qs, '', 'due_date') }}
                     {{ col_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
                     {{ col_th('status', 'Estado', order_by, order_dir, filter_qs, '', 'status', show_estados=true) }}
-                    <th class="d-none d-lg-table-cell text-nowrap small" style="vertical-align:middle">Data pag.</th>
+                    {{ col_th('paid_date', 'Data pag.', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'paid_date') }}
                 </tr>
             </thead>
             <tbody>
@@ -1334,15 +1334,41 @@ function removeDateFilter() {
 function closeFbarPanel() {
     var p = document.getElementById('fbar-panel');
     if (p) p.style.display = 'none';
+    var ip = document.getElementById('fbar-inline-panel');
+    if (ip) ip.style.display = 'none';
 }
 
-function openFbarPanel(field) {
-    var panel = document.getElementById('fbar-panel');
-    if (!panel) return;
-
+function openFbarPanel(field, anchor) {
     // Hide Bootstrap dropdown if open
     var btn = document.getElementById('fbar-add-btn');
     if (btn) { var dd = bootstrap.Dropdown.getInstance(btn); if (dd) dd.hide(); }
+
+    var isInline = !!anchor;
+    var panel;
+    if (isInline) {
+        panel = document.getElementById('fbar-inline-panel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'fbar-inline-panel';
+            document.body.appendChild(panel);
+        }
+        panel.className = 'p-3 border rounded bg-body shadow';
+        panel.style.cssText = 'position:fixed;z-index:1060;min-width:280px;max-width:340px;display:none';
+        var colToggle = anchor.closest && anchor.closest('.dropdown') &&
+            anchor.closest('.dropdown').querySelector('[data-bs-toggle="dropdown"]');
+        var rect = (colToggle || anchor).getBoundingClientRect();
+        panel.style.top = (rect.bottom + 6) + 'px';
+        panel.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - 348)) + 'px';
+        // Hide global panel
+        var gp = document.getElementById('fbar-panel');
+        if (gp) gp.style.display = 'none';
+    } else {
+        panel = document.getElementById('fbar-panel');
+        if (!panel) return;
+        // Hide inline panel
+        var ip = document.getElementById('fbar-inline-panel');
+        if (ip) ip.style.display = 'none';
+    }
 
     var LABELS = { status:'Estado', supplier_name:'Fornecedor', document_type:'Tipo de Documento',
         store_id:'Loja', due_date:'Vencimento', issue_date:'Emissão', paid_date:'Data Pagamento', q:'Pesquisa de Texto' };
@@ -1472,7 +1498,18 @@ function openFbarPanel(field) {
             if (activeItem) { activeItem.scrollIntoView({block:'nearest'}); }
         }
     }
-    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    if (isInline) {
+        setTimeout(function() {
+            document.addEventListener('click', function _closeInlinePanel(e) {
+                if (!panel.contains(e.target)) {
+                    panel.style.display = 'none';
+                    document.removeEventListener('click', _closeInlinePanel);
+                }
+            });
+        }, 0);
+    } else {
+        panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
 }
 
 function applyFbarDateFilter() {
