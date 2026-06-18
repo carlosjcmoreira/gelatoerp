@@ -1196,3 +1196,10 @@ th:hover .col-menu-btn { opacity: 0.7; }
 }
 [data-bs-theme="dark"] .sdp-range { background: rgba(43,181,160,0.18); }
 [data-bs-theme="dark"] .sdp-hover-range { background: rgba(43,181,160,0.09); }
+
+/* ── Column customization (Documentos table) ────────────────────────── */
+.col-hidden { display: none !important; }
+th.col-th[draggable="true"] { cursor: grab; }
+th.col-th[draggable="true"]:active { cursor: grabbing; }
+th.col-th.col-dragging { opacity: 0.35; background: var(--bs-table-bg, transparent) !important; }
+th.col-th.col-drag-over { box-shadow: inset 2px 0 0 var(--scoopy-accent); }

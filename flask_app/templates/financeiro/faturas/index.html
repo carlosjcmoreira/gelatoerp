@@ -589,7 +589,7 @@
         <!-- Sortable table — column menus via ⋯ trigger filter bar -->
         {% macro col_th(col, label, ob, od, fqs, classes='', fkey='', show_estados=false) %}
         {% set nd = 'desc' if (ob == col and od == 'asc') else 'asc' %}
-        <th class="{{ classes }} col-th" style="vertical-align:middle">
+        <th class="{{ classes }} col-th" style="vertical-align:middle" data-col-key="{{ col }}" draggable="true">
             <div class="d-flex align-items-center gap-1">
                 <a href="{{ fqs }}&order_by={{ col }}&order_dir={{ nd }}"
                    class="col-sort-link text-decoration-none d-flex align-items-center gap-1 user-select-none text-nowrap">
@@ -621,8 +621,17 @@
         </th>
         {% endmacro %}
 
+        <div class="d-flex justify-content-end mb-1">
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary btn-sm" type="button"
+                        data-bs-toggle="dropdown" aria-expanded="false"
+                        onclick="openColPicker()">⚙ Colunas</button>
+                <ul class="dropdown-menu dropdown-menu-end shadow py-1" id="col-vis-menu"
+                    style="min-width:210px;max-height:320px;overflow-y:auto"></ul>
+            </div>
+        </div>
         <div class="table-responsive">
-        <table class="table table-sm table-hover align-middle mb-0">
+        <table id="inv-table" class="table table-sm table-hover align-middle mb-0">
             <thead class="table-light">
                 <tr>
                     <th style="width:36px;vertical-align:middle">
@@ -637,9 +646,15 @@
                     {{ col_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
                     {{ col_th('status', 'Estado', order_by, order_dir, filter_qs, '', 'status', show_estados=true) }}
                     {{ col_th('paid_date', 'Data pag.', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'paid_date') }}
+                    <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="supplier_nif" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">NIF Fornecedor</span></div></th>
+                    <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="vat_amount_eur" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">IVA</span></div></th>
+                    <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="payment_method" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Método pag.</span></div></th>
+                    <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="cfo_confirmed_date" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Data CFO</span></div></th>
+                    <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="notes" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Notas</span></div></th>
+                    <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="created_at" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Criado em</span></div></th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="inv-table-body">
                 {% for inv in invoices %}
                 {% set overdue = inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}
                 <tr class="{{ 'table-danger' if overdue else '' }}"
@@ -650,23 +665,24 @@
                                data-amount="{{ inv.amount_eur if inv.amount_eur is not none else '' }}"
                                data-doc-type="{{ inv.document_type or 'fatura' }}">
                     </td>
-                    <td class="fw-semibold text-truncate" style="max-width:180px">{{ inv.supplier_name or '—' }}</td>
-                    <td class="text-nowrap small">{{ inv.invoice_number or '—' }}</td>
-                    <td class="d-none d-md-table-cell text-muted small">{{ inv.category or '—' }}</td>
-                    <td class="d-none d-md-table-cell text-muted small text-nowrap">{{ inv.store_name or '—' }}</td>
-                    <td class="d-none d-lg-table-cell text-muted small text-nowrap">
+                    <td class="fw-semibold text-truncate" style="max-width:180px" data-col-key="supplier_name">{{ inv.supplier_name or '—' }}</td>
+                    <td class="text-nowrap small" data-col-key="invoice_number">{{ inv.invoice_number or '—' }}</td>
+                    <td class="d-none d-md-table-cell text-muted small" data-col-key="category">{{ inv.category or '—' }}</td>
+                    <td class="d-none d-md-table-cell text-muted small text-nowrap" data-col-key="store_name">{{ inv.store_name or '—' }}</td>
+                    <td class="d-none d-lg-table-cell text-muted small text-nowrap" data-col-key="issue_date">
                         {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
                     </td>
-                    <td class="text-nowrap small {{ 'text-danger fw-bold' if overdue else '' }}">
+                    <td class="text-nowrap small {{ 'text-danger fw-bold' if overdue else '' }}" data-col-key="due_date">
                         {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
                     </td>
                     <td class="text-end text-nowrap small fw-semibold
-                        {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}">
+                        {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}"
+                        data-col-key="amount_eur">
                         {% if inv.amount_eur is not none %}
                             {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f €'|format(inv.amount_eur) }}
                         {% else %}—{% endif %}
                     </td>
-                    <td onclick="event.stopPropagation()">
+                    <td onclick="event.stopPropagation()" data-col-key="status">
                         {% set _dtdoc = inv.document_type or 'fatura' %}
                         {% if _dtdoc == 'nota_credito' %}
                         <span class="badge bg-success-subtle text-success-emphasis me-1" title="Nota de Crédito">NC</span>
@@ -687,7 +703,7 @@
                         </span>
                         {% endif %}
                     </td>
-                    <td class="d-none d-lg-table-cell text-muted small text-nowrap"
+                    <td class="d-none d-lg-table-cell text-muted small text-nowrap" data-col-key="paid_date"
                         onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
                         {% set sched_date = inv.payment_confirmed_date or inv.cfo_confirmed_date %}
                         {% if inv.status == 'paid' %}
@@ -705,6 +721,12 @@
                             {{ sched_date.strftime('%d/%m/%Y') }}
                         {% endif %}
                     </td>
+                    <td class="col-hidden text-muted small text-nowrap" data-col-key="supplier_nif">{{ inv.supplier_nif or '—' }}</td>
+                    <td class="col-hidden text-muted small text-end text-nowrap" data-col-key="vat_amount_eur">{{ '%.2f €'|format(inv.vat_amount_eur) if inv.vat_amount_eur is not none else '—' }}</td>
+                    <td class="col-hidden text-muted small text-nowrap" data-col-key="payment_method">{{ inv.payment_method or '—' }}</td>
+                    <td class="col-hidden text-muted small text-nowrap" data-col-key="cfo_confirmed_date">{{ inv.cfo_confirmed_date.strftime('%d/%m/%Y') if inv.cfo_confirmed_date else '—' }}</td>
+                    <td class="col-hidden text-muted small" data-col-key="notes" style="max-width:200px;white-space:normal">{{ inv.notes or '—' }}</td>
+                    <td class="col-hidden text-muted small text-nowrap" data-col-key="created_at">{{ inv.created_at.strftime('%d/%m/%Y') if inv.created_at else '—' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -1124,7 +1146,8 @@ function openInvPanel(id) {
     if (loading) { panelBody.appendChild(loading); loading.style.display = ''; }
     offcanvas.show();
     var url = {{ url_for('faturas.invoice_panel', invoice_id=0)|tojson }}.replace('/0/panel', '/' + id + '/panel');
-    fetch(url, { credentials: 'same-origin' })
+    var _ru = encodeURIComponent(window.location.pathname + window.location.search);
+    fetch(url + '?return_url=' + _ru, { credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
         .then(function(html) {
             panelBody.innerHTML = html;
@@ -1599,6 +1622,179 @@ function _fbarSet(id, name, value) {
     if (!el && value) { el=document.createElement('input'); el.type='hidden'; el.id=id; el.name=name; form.appendChild(el); }
     if (el) { if(!value) el.remove(); else el.value=value; }
 }
+
+// ── Column customization (drag-reorder + hide/show) ───────────────────────────
+(function() {
+var COL_LS_ORDER = 'fin-docs-col-order-v1';
+var COL_LS_VIS   = 'fin-docs-col-vis-v1';
+var COL_META = [
+    { key:'supplier_name',      label:'Fornecedor'       },
+    { key:'invoice_number',     label:'Nº Documento'     },
+    { key:'category',           label:'Categoria'        },
+    { key:'store_name',         label:'Loja'             },
+    { key:'issue_date',         label:'Emissão'          },
+    { key:'due_date',           label:'Vencimento'       },
+    { key:'amount_eur',         label:'Total'            },
+    { key:'status',             label:'Estado'           },
+    { key:'paid_date',          label:'Data pag.'        },
+    { key:'supplier_nif',       label:'NIF Fornecedor',  hidden:true },
+    { key:'vat_amount_eur',     label:'IVA',             hidden:true },
+    { key:'payment_method',     label:'Método pag.',     hidden:true },
+    { key:'cfo_confirmed_date', label:'Data CFO',        hidden:true },
+    { key:'notes',              label:'Notas',           hidden:true },
+    { key:'created_at',         label:'Criado em',       hidden:true }
+];
+var ALL_KEYS = COL_META.map(function(c){ return c.key; });
+var DEFAULT_VIS = (function(){
+    var v = {}; COL_META.forEach(function(c){ v[c.key] = !c.hidden; }); return v;
+})();
+
+function _getColOrder() {
+    try {
+        var saved = JSON.parse(localStorage.getItem(COL_LS_ORDER) || 'null');
+        if (Array.isArray(saved)) {
+            var valid = saved.filter(function(k){ return ALL_KEYS.indexOf(k) >= 0; });
+            ALL_KEYS.forEach(function(k){ if (valid.indexOf(k) < 0) valid.push(k); });
+            return valid;
+        }
+    } catch(e) {}
+    return ALL_KEYS.slice();
+}
+
+function _getColVis() {
+    var vis = {}; ALL_KEYS.forEach(function(k){ vis[k] = DEFAULT_VIS[k]; });
+    try {
+        var saved = JSON.parse(localStorage.getItem(COL_LS_VIS) || 'null');
+        if (saved && typeof saved === 'object') {
+            ALL_KEYS.forEach(function(k){ if (k in saved) vis[k] = !!saved[k]; });
+        }
+    } catch(e) {}
+    return vis;
+}
+
+function _applyColOrder(order) {
+    var headRow = document.querySelector('#inv-table thead tr');
+    if (headRow) {
+        var thMap = {};
+        headRow.querySelectorAll('th[data-col-key]').forEach(function(th){ thMap[th.dataset.colKey] = th; });
+        order.forEach(function(k){ if (thMap[k]) headRow.appendChild(thMap[k]); });
+    }
+    var tbody = document.getElementById('inv-table-body');
+    if (tbody) {
+        tbody.querySelectorAll('tr').forEach(function(tr) {
+            var tdMap = {};
+            tr.querySelectorAll('td[data-col-key]').forEach(function(td){ tdMap[td.dataset.colKey] = td; });
+            order.forEach(function(k){ if (tdMap[k]) tr.appendChild(tdMap[k]); });
+        });
+    }
+}
+
+function _applyColVis(vis) {
+    ALL_KEYS.forEach(function(key) {
+        document.querySelectorAll('[data-col-key="' + key + '"]').forEach(function(el) {
+            if (vis[key]) el.classList.remove('col-hidden');
+            else          el.classList.add('col-hidden');
+        });
+    });
+}
+
+function _saveColOrder() {
+    var headRow = document.querySelector('#inv-table thead tr');
+    if (!headRow) return;
+    var order = [];
+    headRow.querySelectorAll('th[data-col-key]').forEach(function(th){ order.push(th.dataset.colKey); });
+    localStorage.setItem(COL_LS_ORDER, JSON.stringify(order));
+}
+
+// Drag-and-drop column reorder
+var _dragSrcKey = null;
+function _initColDrag() {
+    var headRow = document.querySelector('#inv-table thead tr');
+    if (!headRow) return;
+    headRow.addEventListener('dragstart', function(e) {
+        if (e.target.closest('a, button, input, select')) { e.preventDefault(); return; }
+        var th = e.target.closest('th[data-col-key]');
+        if (!th) { e.preventDefault(); return; }
+        _dragSrcKey = th.dataset.colKey;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', _dragSrcKey);
+        setTimeout(function(){ th.classList.add('col-dragging'); }, 0);
+    });
+    headRow.addEventListener('dragend', function() {
+        headRow.querySelectorAll('.col-dragging,.col-drag-over').forEach(function(el){
+            el.classList.remove('col-dragging', 'col-drag-over');
+        });
+        _dragSrcKey = null;
+    });
+    headRow.addEventListener('dragover', function(e) {
+        var th = e.target.closest('th[data-col-key]');
+        if (!th || !_dragSrcKey || th.dataset.colKey === _dragSrcKey) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        headRow.querySelectorAll('.col-drag-over').forEach(function(el){ el.classList.remove('col-drag-over'); });
+        th.classList.add('col-drag-over');
+    });
+    headRow.addEventListener('dragleave', function(e) {
+        var th = e.target.closest('th[data-col-key]');
+        if (th) th.classList.remove('col-drag-over');
+    });
+    headRow.addEventListener('drop', function(e) {
+        var th = e.target.closest('th[data-col-key]');
+        if (!th || !_dragSrcKey || th.dataset.colKey === _dragSrcKey) return;
+        e.preventDefault();
+        var srcTh = headRow.querySelector('th[data-col-key="' + _dragSrcKey + '"]');
+        if (!srcTh) return;
+        headRow.insertBefore(srcTh, th);
+        var tbody = document.getElementById('inv-table-body');
+        if (tbody) {
+            tbody.querySelectorAll('tr').forEach(function(tr) {
+                var srcTd = tr.querySelector('td[data-col-key="' + _dragSrcKey + '"]');
+                var tgtTd = tr.querySelector('td[data-col-key="' + th.dataset.colKey + '"]');
+                if (srcTd && tgtTd) tr.insertBefore(srcTd, tgtTd);
+            });
+        }
+        _saveColOrder();
+        _dragSrcKey = null;
+    });
+}
+
+// Column visibility picker
+window.openColPicker = function() {
+    var vis = _getColVis();
+    var menu = document.getElementById('col-vis-menu');
+    if (!menu) return;
+    var h = '';
+    COL_META.forEach(function(c) {
+        h += '<li><label class="dropdown-item d-flex align-items-center gap-2 py-1 small" style="cursor:pointer">' +
+            '<input type="checkbox" class="form-check-input m-0" data-col-vis-key="' + c.key + '"' +
+            (vis[c.key] ? ' checked' : '') + '> ' + c.label + '</label></li>';
+    });
+    h += '<li><hr class="dropdown-divider my-1"></li>' +
+         '<li><button class="dropdown-item small py-1 text-danger" type="button" onclick="resetColPrefs()">↺ Repor padrão</button></li>';
+    menu.innerHTML = h;
+    menu.querySelectorAll('[data-col-vis-key]').forEach(function(cb) {
+        cb.addEventListener('change', function() {
+            var key = this.dataset.colVisKey;
+            var v = _getColVis();
+            v[key] = this.checked;
+            localStorage.setItem(COL_LS_VIS, JSON.stringify(v));
+            _applyColVis(v);
+        });
+    });
+};
+
+window.resetColPrefs = function() {
+    localStorage.removeItem(COL_LS_ORDER);
+    localStorage.removeItem(COL_LS_VIS);
+    location.reload();
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    _applyColOrder(_getColOrder());
+    _applyColVis(_getColVis());
+    _initColDrag();
+});
+})();
 
 </script>
 {% endif %}

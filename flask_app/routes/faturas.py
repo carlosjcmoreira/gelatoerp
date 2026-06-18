@@ -1135,6 +1135,7 @@ def invoice_panel(invoice_id: int):
     materiais = list_materiais(apenas_ativos=True)
     stock_local_derivado = derive_local_from_store(
         store_name=inv.get('store_name'), store_id=inv.get('store_id'))
+    panel_return_url = _safe_return_url(request.args.get('return_url', ''))
     return render_template(
         'financeiro/faturas/_panel.html',
         inv=inv,
@@ -1151,6 +1152,7 @@ def invoice_panel(invoice_id: int):
         unidades_materiais=UNIDADES_MATERIAIS,
         stock_local_derivado=stock_local_derivado,
         suppliers=get_suppliers(),
+        panel_return_url=panel_return_url,
     )
 
 
