@@ -2,6 +2,7 @@
 {% set back_url = url_for("pastelaria.index") %}
 
 {% block content %}
+{% include "components/tabs.html" %}
 <div class="container-fluid px-3 d-flex flex-column fullpage-container has-back-bar">
     <div class="nav-grid nav-grid-fill">
         <a href="{{ url_for('pastelaria.produtos') }}" class="nav-card">

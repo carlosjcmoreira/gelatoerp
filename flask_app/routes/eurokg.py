@@ -37,14 +37,17 @@ MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
 
 
 def _build_tabs(loja_filter, is_gestor, active):
+    from db.tiles import get_tile_icons, get_tile_labels
+    icons = get_tile_icons('eurokg')
+    labels = get_tile_labels('eurokg')
     tabs = [
-        {'id': 'dashboard', 'label': 'Dashboard', 'icon': '📊', 'url': url_for('eurokg.dashboard', loja=loja_filter)},
-        {'id': 'resumo', 'label': 'Resumo Mensal', 'icon': '📅', 'url': url_for('eurokg.resumo_mensal', loja=loja_filter)},
-        {'id': 'vendas', 'label': 'Vendas por Produto', 'icon': '💶', 'url': url_for('eurokg.vendas_produto', loja=loja_filter)},
-        {'id': 'pesagens', 'label': 'Pesagens', 'icon': '⚖️', 'url': url_for('eurokg.pesagens')},
+        {'id': 'dashboard', 'label': labels.get('dashboard') or 'Dashboard', 'icon': icons.get('dashboard') or '📊', 'url': url_for('eurokg.dashboard', loja=loja_filter)},
+        {'id': 'resumo', 'label': labels.get('resumo') or 'Resumo Mensal', 'icon': icons.get('resumo') or '📅', 'url': url_for('eurokg.resumo_mensal', loja=loja_filter)},
+        {'id': 'vendas', 'label': labels.get('vendas') or 'Vendas por Produto', 'icon': icons.get('vendas') or '💶', 'url': url_for('eurokg.vendas_produto', loja=loja_filter)},
+        {'id': 'pesagens', 'label': labels.get('pesagens') or 'Pesagens', 'icon': icons.get('pesagens') or '⚖️', 'url': url_for('eurokg.pesagens')},
     ]
     if is_gestor:
-        tabs.append({'id': 'consumo', 'label': 'Consumo Teórico', 'icon': '🍦', 'url': url_for('eurokg.consumo_teorico', loja=loja_filter)})
+        tabs.append({'id': 'consumo', 'label': labels.get('consumo') or 'Consumo Teórico', 'icon': icons.get('consumo') or '🍦', 'url': url_for('eurokg.consumo_teorico', loja=loja_filter)})
     return tabs
 
 
