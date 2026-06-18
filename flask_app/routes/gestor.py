@@ -1991,12 +1991,60 @@ def gestao_tiles_rename():
     return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'label': label})
 
 
+_EMOJI_ZWJ_CODEPOINTS = frozenset([
+    0x200D,  # Zero Width Joiner (used in multi-person emoji sequences)
+    0xFE0F,  # Variation Selector-16 (force emoji presentation)
+    0x20E3,  # Combining Enclosing Keycap (e.g. 1️⃣)
+    0xFE00,  # Variation Selector-1
+])
+
+
+def _is_valid_emoji(text: str) -> bool:
+    """Return True only if *text* consists entirely of emoji/symbol grapheme clusters.
+
+    Accepts:
+    - Unicode emoji symbols (categories So, Sm, Sk, Sc)
+    - Regional indicator letters (U+1F1E0–U+1F1FF) used in flag emoji
+    - Emoji modifier base + modifier sequences (U+1F3FB–U+1F3FF skin tones)
+    - Miscellaneous emoji blocks: Dingbats (U+2700–U+27BF), Misc Symbols (U+2600–U+26FF)
+    - ZWJ, variation selectors, and combining enclosing keycap (see _EMOJI_ZWJ_CODEPOINTS)
+    - Any codepoint in the Supplementary Multilingual Plane emoji blocks (U+1F000–U+1FFFF)
+
+    Rejects:
+    - Empty strings or strings exceeding 40 UTF-8 bytes
+    - ASCII letters and digits
+    - Control characters (Cc)
+    - Plain punctuation or whitespace
+    """
+    import unicodedata
+    if not text:
+        return False
+    if len(text.encode('utf-8')) > 40:
+        return False
+    for char in text:
+        cp = ord(char)
+        if cp in _EMOJI_ZWJ_CODEPOINTS:
+            continue
+        if 0x1F000 <= cp <= 0x1FFFF:
+            continue
+        if 0x1F1E0 <= cp <= 0x1F1FF:
+            continue
+        if 0x2600 <= cp <= 0x27BF:
+            continue
+        if 0x2300 <= cp <= 0x23FF:
+            continue
+        cat = unicodedata.category(char)
+        if cat in ('So', 'Sm', 'Sc', 'Sk'):
+            continue
+        return False
+    return True
+
+
 @gestor_bp.route('/gestao-tiles/icon', methods=['POST'])
 @perm_required('acesso_gestor')
 def gestao_tiles_icon():
     from db.tiles import set_tile_icon
     from flask import jsonify
-    import unicodedata
 
     module = request.form.get('module', '').strip()
     tile_id = request.form.get('tile_id', '').strip()
@@ -2005,11 +2053,8 @@ def gestao_tiles_icon():
     if not module or not tile_id:
         return jsonify({'ok': False, 'error': 'Parâmetros inválidos'}), 400
 
-    if not icon or len(icon) > 10:
-        return jsonify({'ok': False, 'error': 'Ícone inválido'}), 400
-
-    if any(c.isascii() and c.isalpha() for c in icon):
-        return jsonify({'ok': False, 'error': 'Ícone inválido'}), 400
+    if not _is_valid_emoji(icon):
+        return jsonify({'ok': False, 'error': 'Ícone inválido — apenas emojis são aceites'}), 400
 
     set_tile_icon(module, tile_id, icon)
     return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'icon': icon})

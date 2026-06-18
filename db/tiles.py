@@ -197,6 +197,22 @@ def get_module_icons() -> dict:
     return {row[0]: row[1] for row in rows}
 
 
+def get_all_tile_icons() -> dict:
+    """Return {(module, tile_id): icon} for all tiles that have a custom icon.
+
+    Includes both module-level icons (tile_id='_module_icon') and individual
+    tile icons. Tiles without a custom icon are omitted — caller falls back to
+    the hardcoded default.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT module, tile_id, icon FROM tile_config WHERE icon != ''",
+        )
+        rows = cursor.fetchall()
+    return {(row[0], row[1]): row[2] for row in rows}
+
+
 def set_tile_icon(module: str, tile_id: str, icon: str) -> None:
     """Update only the icon for a tile or module (tile_id='_module_icon').
 
