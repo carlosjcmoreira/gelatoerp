@@ -123,7 +123,7 @@
         <form method="post" action="{{ url_for('compras.attach_pdf', invoice_id=inv.id) }}" enctype="multipart/form-data" class="pdf-attach-form"
               data-chunk-url="{{ url_for('compras.upload_chunk', invoice_id=inv.id) }}"
               data-finalize-url="{{ url_for('compras.finalize_upload', invoice_id=inv.id) }}">
-            <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+            <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
             <div class="d-flex gap-2 align-items-center">
                 <input type="file" name="pdf_file" class="form-control form-control-sm pdf-size-input" accept=".pdf" required>
                 <button type="submit" class="btn btn-warning btn-sm text-nowrap pdf-attach-btn">⬆ Anexar</button>
@@ -221,7 +221,7 @@
         <div class="collapse" id="cpmEditForm{{ inv.id }}">
             <div class="card-body">
                 <form method="post" action="{{ url_for('faturas.edit', invoice_id=inv.id) }}">
-                    <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                    <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
                     <div class="row g-2">
                         <div class="col-12">
                             <label class="form-label small mb-1">Tipo de documento</label>
@@ -387,7 +387,7 @@
                                       style="display:inline">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="linha_id" value="{{ l.id }}">
-                                    <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                                    <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
                                     <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar">🗑</button>
                                 </form>
                             </td>
@@ -432,7 +432,7 @@
         <div class="card-body py-2 px-3">
             <form method="post" action="{{ url_for('faturas.eliminar', invoice_id=inv.id) }}"
                   onsubmit="return confirm('Eliminar esta fatura? Esta acção não pode ser revertida.')">
-                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
                 <button type="submit" class="btn btn-outline-danger btn-sm w-100">🗑 Eliminar fatura</button>
             </form>
         </div>
@@ -455,7 +455,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="post" action="{{ url_for('compras.marcar_paga', invoice_id=inv.id) }}">
-                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
                 <div class="modal-body">
                     <div class="mb-3">
                         <label class="form-label small">Data efectiva de pagamento</label>
@@ -492,7 +492,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="post" action="{{ url_for('faturas.arquivar_onedrive', invoice_id=inv.id) }}">
-                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
                 <div class="modal-body">
                     <label class="form-label small">Subpasta</label>
                     <select name="onedrive_subfolder" class="form-select form-select-sm">
@@ -521,7 +521,7 @@
             </div>
             <form method="post" action="{{ url_for('faturas.linha', invoice_id=inv.id) }}">
                 <input type="hidden" name="action" value="add">
-                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
                 <div class="modal-body">
                     <div class="mb-2">
                         <label class="form-label small">Material do catálogo <span class="text-muted">(opcional)</span></label>
@@ -580,7 +580,7 @@
             <form method="post" action="{{ url_for('faturas.linha', invoice_id=inv.id) }}">
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="linha_id" id="cpmEditLinhaId">
-                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
                 <div class="modal-body">
                     <div class="mb-2">
                         <label class="form-label small">Material do catálogo <span class="text-muted">(opcional)</span></label>
@@ -637,7 +637,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <form method="post" action="{{ url_for('faturas.registar_stock', invoice_id=inv.id) }}">
-                <input type="hidden" name="_return_url" value="{{ url_for('compras.faturas') }}">
+                <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
                 <div class="modal-body">
                     <div class="mb-2">
                         <label class="form-label small">Local de destino</label>

@@ -333,6 +333,15 @@ def set_invoice_paid_date(invoice_id: int):
     return jsonify({'ok': True, 'paid_date_formatted': paid_date_formatted})
 
 
+def _safe_return_url(raw: str) -> str:
+    from urllib.parse import urlparse
+    if raw:
+        parsed = urlparse(raw)
+        if not parsed.scheme and not parsed.netloc:
+            return raw
+    return url_for('compras.faturas')
+
+
 @compras_bp.route('/faturas/<int:invoice_id>/panel')
 @perm_required('acesso_administrativo')
 def invoice_panel(invoice_id: int):
@@ -344,6 +353,7 @@ def invoice_panel(invoice_id: int):
     if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
         inv['display_status'] = 'overdue'
         inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
+    panel_return_url = _safe_return_url(request.args.get('return_url', ''))
     stores = get_stores_list()
     payment_methods = get_payment_methods_config()
     linhas = get_invoice_linhas(invoice_id)
@@ -367,6 +377,7 @@ def invoice_panel(invoice_id: int):
         unidades_materiais=UNIDADES_MATERIAIS,
         stock_local_derivado=stock_local_derivado,
         suppliers=suppliers,
+        panel_return_url=panel_return_url,
     )
 
 
