@@ -402,17 +402,25 @@ def liquidez():
                   )]
 
     items_by_cat: dict = {}
+    items_meta_by_cat: dict = {}
     for w in weekly:
         for cat in w['outflows_by_category']:
             cid = cat['category_id']
             if cid not in items_by_cat:
                 items_by_cat[cid] = {}
+                items_meta_by_cat[cid] = {}
             for item in cat['items']:
                 ref = item['reference']
                 key = f"{item['description']} ({ref})" if ref else item['description']
                 if key not in items_by_cat[cid]:
                     items_by_cat[cid][key] = {}
                 items_by_cat[cid][key][w['week']] = item['amount']
+                if key not in items_meta_by_cat[cid]:
+                    items_meta_by_cat[cid][key] = {
+                        'source': item.get('source', 'scheduled'),
+                        'invoice_id': item.get('invoice_id'),
+                        'type': item.get('type', 'fatura'),
+                    }
 
     vat_items_by_week: dict = {}
     for w in weekly:
@@ -451,6 +459,8 @@ def liquidez():
 
     vat_item_totals = {k: sum(v.values()) for k, v in vat_items_by_week.items()}
 
+    cost_categories_tree = get_cost_categories_tree()
+
     return render_template(
         'pagamentos/liquidez.html',
         weekly=weekly,
@@ -458,6 +468,7 @@ def liquidez():
         overdue_info=overdue_info,
         categories=categories,
         items_by_cat=items_by_cat,
+        items_meta_by_cat=items_meta_by_cat,
         vat_items_by_week=vat_items_by_week,
         cat_totals=cat_totals,
         item_totals_by_cat=item_totals_by_cat,
@@ -471,6 +482,7 @@ def liquidez():
         b2b_manual_total=b2b_manual_total,
         pos_daily_totals=pos_daily_totals,
         pos_dow_labels=pos_dow_labels,
+        cost_categories_tree=cost_categories_tree,
     )
 
 

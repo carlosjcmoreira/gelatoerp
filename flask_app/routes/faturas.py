@@ -1582,6 +1582,29 @@ def eliminar(invoice_id: int):
     return redirect(url_for('faturas.index'))
 
 
+@faturas_bp.route('/<int:invoice_id>/set-categoria-custo', methods=['POST'])
+@perm_required('acesso_gestor')
+def set_categoria_custo(invoice_id: int):
+    """Quick-assign categoria_custo_id for an invoice (used inline from the cash-flow map)."""
+    from db.core import db_connection as _db_conn
+    data = request.get_json(silent=True) or {}
+    raw = data.get('categoria_custo_id')
+    try:
+        cat_id = int(raw) if raw not in (None, '', 'null') else None
+    except (ValueError, TypeError):
+        return jsonify({'ok': False, 'error': 'ID de categoria inválido'}), 400
+    with _db_conn() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            'UPDATE invoices SET categoria_custo_id = %s, updated_at = NOW() WHERE id = %s',
+            (cat_id, invoice_id),
+        )
+        if cur.rowcount == 0:
+            return jsonify({'ok': False, 'error': 'Fatura não encontrada'}), 404
+        conn.commit()
+    return jsonify({'ok': True, 'invoice_id': invoice_id, 'categoria_custo_id': cat_id})
+
+
 # ── PDF download / attach ───────────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/attach-pdf', methods=['POST'])

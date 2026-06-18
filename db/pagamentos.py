@@ -555,7 +555,8 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-        excl_clause = "AND ip.invoice_id != %s" if exclude_invoice_id else ""
+        excl_clause_sched = "AND ip.invoice_id != %s" if exclude_invoice_id else ""
+        excl_clause_unsched = "AND i.id != %s" if exclude_invoice_id else ""
         excl_params = [exclude_invoice_id] if exclude_invoice_id else []
         cursor.execute(f"""
             SELECT
@@ -565,15 +566,39 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
                 COALESCE(ip.amount_eur, i.amount_eur) AS amount,
                 COALESCE(ip.confirmed_date, ip.proposed_date) AS payment_date,
                 cc.id             AS category_id,
-                COALESCE(cc.name, 'Sem categoria de custo') AS category_name
+                COALESCE(cc.name, 'Sem categoria de custo') AS category_name,
+                'scheduled'       AS source
             FROM invoice_payments ip
             JOIN invoices i ON i.id = ip.invoice_id
             LEFT JOIN cost_categories cc ON cc.id = i.categoria_custo_id
             WHERE COALESCE(ip.confirmed_date, ip.proposed_date) BETWEEN %s AND %s
               AND ip.status IN ('proposed', 'confirmed')
-              {excl_clause}
-            ORDER BY cc.name NULLS LAST, i.supplier_name
-        """, [range_start, range_end] + excl_params)
+              {excl_clause_sched}
+
+            UNION ALL
+
+            SELECT
+                i.id              AS invoice_id,
+                i.supplier_name,
+                i.invoice_number,
+                i.amount_eur      AS amount,
+                i.due_date        AS payment_date,
+                cc.id             AS category_id,
+                COALESCE(cc.name, 'Sem categoria de custo') AS category_name,
+                'due_date_fallback' AS source
+            FROM invoices i
+            LEFT JOIN cost_categories cc ON cc.id = i.categoria_custo_id
+            WHERE i.due_date BETWEEN %s AND %s
+              AND i.status NOT IN ('paid', 'cancelled')
+              AND NOT EXISTS (
+                  SELECT 1 FROM invoice_payments ip2
+                  WHERE ip2.invoice_id = i.id
+                    AND ip2.status IN ('proposed', 'confirmed')
+              )
+              {excl_clause_unsched}
+
+            ORDER BY category_name NULLS LAST, supplier_name
+        """, [range_start, range_end] + excl_params + [range_start, range_end] + excl_params)
         invoice_rows = cursor.fetchall()
 
         cursor.execute("""
@@ -738,6 +763,8 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
                 'reference': ref,
                 'amount': round(amt, 2),
                 'date': pd,
+                'invoice_id': row['invoice_id'],
+                'source': row.get('source', 'scheduled'),
             })
 
         for av in avencas_ativas:

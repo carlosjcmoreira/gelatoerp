@@ -228,8 +228,21 @@
 
             {% if items_by_cat.get(cat_id) %}
             {% for item_key, week_amounts in items_by_cat[cat_id].items() %}
+            {% set item_meta = items_meta_by_cat.get(cat_id, {}).get(item_key, {}) %}
             <tr class="drill-row drill-cat-{{ css_id }} d-none bg-light" style="font-size:0.78rem">
-                <td class="ps-4 text-muted">└ {{ item_key }}</td>
+                <td class="ps-4 text-muted">
+                    └ {{ item_key }}
+                    {% if item_meta.get('source') == 'due_date_fallback' %}
+                    <span class="badge text-bg-secondary ms-1" style="font-size:0.58rem;vertical-align:middle" title="Sem pagamento agendado — incluído pelo vencimento">venc.</span>
+                    {% endif %}
+                    {% if cat_id is none and item_meta.get('type') == 'fatura' and item_meta.get('invoice_id') %}
+                    <button type="button"
+                            class="btn btn-link p-0 ms-1 categorizar-btn"
+                            style="font-size:0.7rem;vertical-align:middle;line-height:1"
+                            data-invoice-id="{{ item_meta.invoice_id }}"
+                            onclick="abrirCategorizador(this)">Categorizar →</button>
+                    {% endif %}
+                </td>
                 {% for w in weekly %}
                 <td class="text-end text-muted">
                     {% set amt = week_amounts.get(w.week, 0) %}
@@ -334,8 +347,42 @@
                 <li><strong>Vendas Eventos / B2B</strong>: Valores manuais — clique em qualquer célula para editar.</li>
                 <li><strong>Saldo bancário</strong>: Âncora do saldo acumulado. Edite no topo da página.</li>
                 <li><strong>IVA</strong>: Pagamentos de IVA com data prevista na semana</li>
+                <li><strong>Badge <span class="badge text-bg-secondary" style="font-size:0.65rem">venc.</span></strong>: fatura sem pagamento agendado — incluída pelo vencimento</li>
                 <li class="text-danger"><strong>⚠️ Semana crítica</strong>: saldo semanal negativo</li>
             </ul>
+        </div>
+    </div>
+</div>
+
+{# Modal de categorização inline #}
+<div class="modal fade" id="categorizarModal" tabindex="-1" aria-labelledby="categorizarModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="categorizarModalLabel">Atribuir categoria de custo</h6>
+                <button type="button" class="btn-close btn-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                <label class="form-label small mb-1">Categoria</label>
+                <select id="categorizarSelect" class="form-select form-select-sm">
+                    <option value="">— Seleciona —</option>
+                    {% for cat in cost_categories_tree %}
+                    {% if cat.children %}
+                    <optgroup label="{{ cat.name }}">
+                        {% for child in cat.children %}
+                        <option value="{{ child.id }}">{{ child.name }}</option>
+                        {% endfor %}
+                    </optgroup>
+                    {% else %}
+                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary btn-sm" id="categorizarGuardar">Guardar</button>
+            </div>
         </div>
     </div>
 </div>
@@ -414,5 +461,46 @@ function startEdit(cell) {
         if (e.key === 'Escape') { saved = true; location.reload(); }
     });
 }
+
+var _categorizarInvoiceId = null;
+
+function abrirCategorizador(btn) {
+    _categorizarInvoiceId = btn.getAttribute('data-invoice-id');
+    document.getElementById('categorizarSelect').value = '';
+    var modal = new bootstrap.Modal(document.getElementById('categorizarModal'));
+    modal.show();
+}
+
+document.getElementById('categorizarGuardar').addEventListener('click', function() {
+    var catId = document.getElementById('categorizarSelect').value;
+    if (!catId) { return; }
+    if (!_categorizarInvoiceId) { return; }
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = '…';
+    fetch('/financeiro/faturas/' + _categorizarInvoiceId + '/set-categoria-custo', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({categoria_custo_id: parseInt(catId)})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.ok) {
+            location.reload();
+        } else {
+            btn.disabled = false;
+            btn.textContent = 'Guardar';
+            alert('Erro: ' + (d.error || 'desconhecido'));
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Guardar';
+        alert('Erro de rede. Tenta novamente.');
+    });
+});
 </script>
 {% endblock %}
