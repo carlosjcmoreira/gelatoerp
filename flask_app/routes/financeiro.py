@@ -82,7 +82,10 @@ def index():
         if resolved:
             groups.append({'label': g['label'], 'modules': resolved})
     module_title = f'💰 {custom_mod}' if custom_mod else '💰 Financeiro'
-    return render_template('financeiro/index.html', groups=groups, module_title=module_title)
+    from db.faturas import count_invoices_sem_categoria
+    sem_categoria_count = count_invoices_sem_categoria()
+    return render_template('financeiro/index.html', groups=groups, module_title=module_title,
+                           sem_categoria_count=sem_categoria_count)
 
 
 @financeiro_bp.route('/contas-fornecedor')

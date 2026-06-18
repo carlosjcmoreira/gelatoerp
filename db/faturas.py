@@ -1188,6 +1188,19 @@ def count_invoices(status: str = None, statuses: list = None,
         return int(cursor.fetchone()[0])
 
 
+def count_invoices_sem_categoria() -> int:
+    """Return the number of active invoices (pending_review or scheduled) missing a categoria_custo_id."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM invoices i
+            WHERE i.categoria_custo_id IS NULL
+              AND i.status IN ('pending_review', 'scheduled')
+        """)
+        return int(cursor.fetchone()[0])
+
+
 def get_invoices_type_totals() -> dict:
     """Return a {document_type: {count, total}} dict for all non-draft invoices.
 

@@ -10,9 +10,17 @@
     <div class="nav-grid nav-grid-fill mb-4" data-items="{{ group.modules|length }}">
         {% for m in group.modules %}
         {% if m.active and m.url %}
-        <a href="{{ m.url }}" class="nav-card">
+        <a href="{{ m.url }}" class="nav-card position-relative">
             <span class="nav-card-icon">{{ m.icon }}</span>
             <span class="nav-card-label">{{ m.label }}</span>
+            {% if m.key == 'faturas' and sem_categoria_count > 0 %}
+            <span class="position-absolute top-0 end-0 m-1"
+               title="{{ sem_categoria_count }} fatura(s) sem categoria de custo"
+               onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/financeiro/faturas/?view=categoria_custo&sem_categoria=1';"
+               style="cursor:pointer; z-index:1;">
+                <span class="badge bg-warning text-dark" style="font-size:0.65rem;">{{ sem_categoria_count }} sem cat.</span>
+            </span>
+            {% endif %}
         </a>
         {% else %}
         <div class="nav-card opacity-50" style="cursor:default;" title="Em breve">

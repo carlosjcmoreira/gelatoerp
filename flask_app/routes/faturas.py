@@ -241,11 +241,14 @@ def index():
     if view == 'categoria_custo':
         from collections import defaultdict
         from db.centros_custo import get_cost_categories
+        sem_categoria_only = request.args.get('sem_categoria') == '1'
         all_invoices = get_invoices()
         cat_map = {c['id']: c for c in get_cost_categories(ativo_only=False)}
         grupos_cat = defaultdict(lambda: {'label': None, 'total': 0.0, 'count': 0, 'invoices': []})
         for inv in all_invoices:
             cat_id = inv.get('categoria_custo_id')
+            if sem_categoria_only and cat_id:
+                continue
             key = cat_id or 'sem_categoria'
             if grupos_cat[key]['label'] is None:
                 if cat_id and cat_id in cat_map:
@@ -278,6 +281,7 @@ def index():
             cost_categories_tree=[],
             centro_custo_filter=None,
             categoria_custo_filter=None,
+            sem_categoria_only=sem_categoria_only,
             document_type_labels=DOCUMENT_TYPE_LABELS,
         )
 
