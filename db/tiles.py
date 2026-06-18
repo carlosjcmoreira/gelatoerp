@@ -39,6 +39,11 @@ def run_migrations_tile_config():
             ADD COLUMN IF NOT EXISTS label VARCHAR(255) NOT NULL DEFAULT ''
         """)
 
+        cursor.execute("""
+            ALTER TABLE tile_config
+            ADD COLUMN IF NOT EXISTS icon VARCHAR(20) NOT NULL DEFAULT ''
+        """)
+
         _HIDDEN_DEFAULTS = [
             ('producao', 'ordem', 'Ordem de Produção'),
             ('producao', 'receitas', 'Receitas de Gelado'),
@@ -160,17 +165,50 @@ def get_module_labels() -> dict:
 def get_all_tile_config() -> list:
     """Return all tile_config rows ordered by module, tile_id.
 
-    Returns list of {'module', 'tile_id', 'label', 'visible'} dicts.
+    Returns list of {'module', 'tile_id', 'label', 'visible', 'icon'} dicts.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT module, tile_id, label, visible
+            SELECT module, tile_id, label, visible, icon
             FROM tile_config
             ORDER BY module, tile_id
         """)
         rows = cursor.fetchall()
     return [
-        {'module': r[0], 'tile_id': r[1], 'label': r[2], 'visible': bool(r[3])}
+        {'module': r[0], 'tile_id': r[1], 'label': r[2], 'visible': bool(r[3]), 'icon': r[4] or ''}
         for r in rows
     ]
+
+
+def get_module_icons() -> dict:
+    """Return {module: icon} for modules that have a custom icon set.
+
+    Module icons are stored with tile_id='_module_icon' in the icon column.
+    Modules not in the result should fall back to their built-in default.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT module, icon FROM tile_config"
+            " WHERE tile_id = '_module_icon' AND icon != ''",
+        )
+        rows = cursor.fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
+def set_tile_icon(module: str, tile_id: str, icon: str) -> None:
+    """Update only the icon for a tile or module (tile_id='_module_icon').
+
+    Preserves existing label and visible values.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO tile_config (module, tile_id, label, visible, icon, updated_at)
+            VALUES (%s, %s, '', TRUE, %s, NOW())
+            ON CONFLICT (module, tile_id) DO UPDATE
+                SET icon = EXCLUDED.icon,
+                    updated_at = NOW()
+        """, (module, tile_id, icon.strip()))
+        conn.commit()

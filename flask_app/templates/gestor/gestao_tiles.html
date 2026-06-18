@@ -4,22 +4,36 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
     <h5 class="mb-1">🔲 Gestão de Tiles</h5>
-    <p class="text-muted small mb-4">Renomeia e ativa/desativa os tiles de navegação em todos os módulos.</p>
+    <p class="text-muted small mb-4">Renomeia, ativa/desativa e altera os ícones dos tiles de navegação.</p>
 
     <div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index:1100;"></div>
+
+    <div id="icon-picker" class="border rounded shadow-sm bg-body p-2" style="display:none;position:fixed;z-index:2000;width:260px;">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <span class="small fw-semibold text-muted">Escolher ícone</span>
+            <button type="button" class="btn-close btn-close-sm" id="icon-picker-close" aria-label="Fechar"></button>
+        </div>
+        <div id="icon-grid" class="d-flex flex-wrap gap-1" style="max-height:200px;overflow-y:auto;"></div>
+    </div>
 
     {% if not modules %}
     <div class="alert alert-info">Nenhum tile registado ainda.</div>
     {% else %}
 
     {% for module_id, tiles in modules.items() %}
-    {% set mod_emoji = module_emojis.get(module_id, '') %}
+    {% set mod_emoji = module_icon_overrides.get(module_id) or module_emojis.get(module_id, '') %}
     {% set mod_default = module_defaults.get(module_id, module_id) %}
     {% set mod_label = module_custom_labels.get(module_id, mod_default) %}
     <div class="card mb-4" style="max-width:700px;">
         <div class="card-header py-2">
             <div class="d-flex align-items-center gap-2 tile-rename-row">
-                <span class="fs-5 flex-shrink-0" style="width:1.6rem;text-align:center;">{{ mod_emoji }}</span>
+                <button type="button"
+                        class="btn btn-link p-0 icon-btn flex-shrink-0"
+                        data-module="{{ module_id }}"
+                        data-tile-id="_module_icon"
+                        data-default-icon="{{ module_emojis.get(module_id, '') }}"
+                        title="Clique para alterar o ícone do módulo"
+                        style="font-size:1.2rem;width:1.8rem;text-align:center;line-height:1;text-decoration:none;">{{ mod_emoji }}</button>
                 <input type="text"
                        class="form-control form-control-sm tile-label-input flex-grow-1 fw-semibold"
                        value="{{ mod_label }}"
@@ -43,12 +57,23 @@
                         title="Repor nome original ({{ mod_default }})"
                         style="min-width:2.2rem;">↺</button>
             </div>
+            {% if module_id == 'vendas' and vendas_stores %}
+            <div class="text-muted ps-4 ms-1" style="font-size:0.72rem;margin-top:2px;">
+                Aplica-se a: {{ vendas_stores | map(attribute='name') | join(', ') }}
+            </div>
+            {% endif %}
         </div>
         <div class="list-group list-group-flush">
             {% for tile in tiles %}
             <div class="list-group-item px-3 py-2 tile-rename-row">
                 <div class="d-flex align-items-center gap-2">
-                    <span class="fs-5 flex-shrink-0" style="width:1.6rem;text-align:center;">{{ tile.icon }}</span>
+                    <button type="button"
+                            class="btn btn-link p-0 icon-btn flex-shrink-0"
+                            data-module="{{ module_id }}"
+                            data-tile-id="{{ tile.tile_id }}"
+                            data-default-icon="{{ tile.default_icon }}"
+                            title="Clique para alterar o ícone"
+                            style="font-size:1.2rem;width:1.8rem;text-align:center;line-height:1;text-decoration:none;">{{ tile.icon }}</button>
                     <input type="text"
                            class="form-control form-control-sm tile-label-input flex-grow-1"
                            value="{{ tile.label }}"
@@ -96,6 +121,133 @@
 (function () {
     const TOGGLE_URL = "{{ url_for('gestor.gestao_tiles_toggle') }}";
     const RENAME_URL = "{{ url_for('gestor.gestao_tiles_rename') }}";
+    const ICON_URL   = "{{ url_for('gestor.gestao_tiles_icon') }}";
+
+    const EMOJI_GROUPS = [
+        {label: 'Gelados & Doces', emojis: ['🍦','🍨','🍡','🍪','🍰','🎂','🍩','🍫','🍬','🍭','🥐','🧁','🥧','🍮','🍯','🍵','☕']},
+        {label: 'Operações', emojis: ['📋','📅','📆','📌','📍','🗂️','📁','📂','📊','📈','📉','📝','✏️','🖊️','🔲','🔳','⬜','🗓️','⏰','🧮']},
+        {label: 'Finanças', emojis: ['💰','💵','💶','💷','💳','🏦','🧾','💹','💱','🤑','📤','📥','💸','🏧']},
+        {label: 'Gestão & Pessoas', emojis: ['👔','👥','👤','🏆','🥇','🎖️','🎯','📣','🔔','📢','🤝','🧑‍💼']},
+        {label: 'Ferramentas', emojis: ['⚙️','🔧','🔨','🛠️','🔩','🔑','🔒','✅','❌','⚠️','🔄','🔃','🔍','🔎','🔌','💡','🗑️']},
+        {label: 'Loja & Logística', emojis: ['🛒','🏪','🏬','🚚','📦','🛍️','🏭','🏠','🏡','🏗️','🚛','🚐','📮']},
+        {label: 'Tecnologia', emojis: ['🤖','📱','💻','🖥️','🖨️','📡','🔌','💾','💿','📧','📨','🌐','⌨️']},
+        {label: 'Outros', emojis: ['🎪','⭐','🌟','🔮','🎲','🗺️','🌡️','🌤️','☀️','🌙','🎵','📸','🖼️','🎪','🎠']},
+    ];
+
+    const picker = document.getElementById('icon-picker');
+    const grid   = document.getElementById('icon-grid');
+    let activeBtnEl = null;
+
+    function buildGrid(module, tileId, defaultIcon) {
+        grid.innerHTML = '';
+        const resetBtn = document.createElement('button');
+        resetBtn.type = 'button';
+        resetBtn.className = 'btn btn-outline-secondary btn-sm w-100 mb-1';
+        resetBtn.style.fontSize = '0.75rem';
+        resetBtn.textContent = '↺ Repor ícone original (' + defaultIcon + ')';
+        resetBtn.addEventListener('click', function () {
+            doSaveIcon(module, tileId, defaultIcon);
+        });
+        grid.appendChild(resetBtn);
+
+        EMOJI_GROUPS.forEach(function (group) {
+            const lbl = document.createElement('div');
+            lbl.className = 'w-100 text-muted small mt-1 mb-0 px-1';
+            lbl.style.fontSize = '0.65rem';
+            lbl.textContent = group.label;
+            grid.appendChild(lbl);
+
+            group.emojis.forEach(function (em) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn btn-light p-0 border-0';
+                btn.style.cssText = 'font-size:1.25rem;width:2rem;height:2rem;line-height:2rem;text-align:center;cursor:pointer;';
+                btn.title = em;
+                btn.textContent = em;
+                btn.addEventListener('click', function () {
+                    doSaveIcon(module, tileId, em);
+                });
+                grid.appendChild(btn);
+            });
+        });
+    }
+
+    function doSaveIcon(module, tileId, icon) {
+        const fd = new FormData();
+        fd.append('module', module);
+        fd.append('tile_id', tileId);
+        fd.append('icon', icon);
+        fetch(ICON_URL, {method: 'POST', body: fd})
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.ok) {
+                    if (activeBtnEl) {
+                        activeBtnEl.textContent = data.icon;
+                    }
+                    closePicker();
+                    showToast('Ícone guardado', true);
+                } else {
+                    showToast(data.error || 'Erro ao guardar', false);
+                }
+            })
+            .catch(function () { showToast('Erro de rede', false); });
+    }
+
+    function openPicker(btn) {
+        activeBtnEl = btn;
+        const module   = btn.dataset.module;
+        const tileId   = btn.dataset.tileId;
+        const defIcon  = btn.dataset.defaultIcon;
+        buildGrid(module, tileId, defIcon);
+        picker.style.display = 'block';
+        positionPicker(btn);
+    }
+
+    function positionPicker(btn) {
+        const rect = btn.getBoundingClientRect();
+        const pickerW = 260;
+        const pickerH = 280;
+        let top  = rect.bottom + window.scrollY + 4;
+        let left = rect.left  + window.scrollX;
+
+        if (left + pickerW > window.innerWidth - 8) {
+            left = window.innerWidth - pickerW - 8;
+        }
+        if (top + pickerH > window.innerHeight + window.scrollY - 8) {
+            top = rect.top + window.scrollY - pickerH - 4;
+        }
+
+        picker.style.top  = top  + 'px';
+        picker.style.left = left + 'px';
+    }
+
+    function closePicker() {
+        picker.style.display = 'none';
+        activeBtnEl = null;
+    }
+
+    document.getElementById('icon-picker-close').addEventListener('click', closePicker);
+
+    document.addEventListener('click', function (e) {
+        if (!picker.contains(e.target) && !e.target.classList.contains('icon-btn')) {
+            closePicker();
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closePicker();
+    });
+
+    document.querySelectorAll('.icon-btn').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (picker.style.display !== 'none' && activeBtnEl === btn) {
+                closePicker();
+            } else {
+                openPicker(btn);
+            }
+        });
+    });
 
     function showToast(msg, ok) {
         const container = document.getElementById('toast-container');
@@ -111,19 +263,19 @@
         const el = document.getElementById(id);
         const toast = new bootstrap.Toast(el, {delay: 2000});
         toast.show();
-        el.addEventListener('hidden.bs.toast', () => el.remove());
+        el.addEventListener('hidden.bs.toast', function () { el.remove(); });
     }
 
     function postForm(url, data) {
         const fd = new FormData();
-        Object.entries(data).forEach(([k, v]) => fd.append(k, v));
-        return fetch(url, {method: 'POST', body: fd}).then(r => r.json());
+        Object.entries(data).forEach(function ([k, v]) { fd.append(k, v); });
+        return fetch(url, {method: 'POST', body: fd}).then(function (r) { return r.json(); });
     }
 
     function doRename(module, tileId, label, input, btn) {
         btn.disabled = true;
         postForm(RENAME_URL, {module, tile_id: tileId, label})
-            .then(data => {
+            .then(function (data) {
                 if (data.ok) {
                     input.dataset.original = data.label;
                     input.value = data.label;
@@ -132,11 +284,11 @@
                     showToast(data.error || 'Erro ao guardar', false);
                 }
             })
-            .catch(() => showToast('Erro de rede', false))
-            .finally(() => { btn.disabled = false; });
+            .catch(function () { showToast('Erro de rede', false); })
+            .finally(function () { btn.disabled = false; });
     }
 
-    document.querySelectorAll('.tile-toggle').forEach(btn => {
+    document.querySelectorAll('.tile-toggle').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const module = this.dataset.module;
             const tileId = this.dataset.tileId;
@@ -144,7 +296,7 @@
             const newVisible = currentVisible ? '0' : '1';
             btn.disabled = true;
             postForm(TOGGLE_URL, {module, tile_id: tileId, visible: newVisible})
-                .then(data => {
+                .then(function (data) {
                     if (data.ok) {
                         const v = data.visible;
                         btn.dataset.visible = v ? '1' : '0';
@@ -156,12 +308,12 @@
                         showToast(data.error || 'Erro ao guardar', false);
                     }
                 })
-                .catch(() => showToast('Erro de rede', false))
-                .finally(() => { btn.disabled = false; });
+                .catch(function () { showToast('Erro de rede', false); })
+                .finally(function () { btn.disabled = false; });
         });
     });
 
-    document.querySelectorAll('.tile-rename-btn').forEach(btn => {
+    document.querySelectorAll('.tile-rename-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const module = this.dataset.module;
             const tileId = this.dataset.tileId;
@@ -176,7 +328,7 @@
         });
     });
 
-    document.querySelectorAll('.tile-reset-btn').forEach(btn => {
+    document.querySelectorAll('.tile-reset-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const module = this.dataset.module;
             const tileId = this.dataset.tileId;
@@ -189,7 +341,7 @@
         });
     });
 
-    document.querySelectorAll('.tile-label-input').forEach(input => {
+    document.querySelectorAll('.tile-label-input').forEach(function (input) {
         input.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();

@@ -1877,29 +1877,29 @@ _TILE_MASTER = {
 
 
 _MODULE_DEFAULTS = {
-    'producao':   'Produção',
-    'pastelaria': 'Pastelaria',
-    'vendas':     'Vendas',
-    'gestor':     'Gestor',
-    'financeiro': 'Financeiro',
-    'compras':    'Compras e Faturas',
-    'logistica':  'Logística',
-    'eurokg':     'Euro/kg',
+    'producao':    'Produção Gelado',
+    'pastelaria':  'Produção Pastelaria',
+    'vendas':      'Vendas',
+    'gestor':      'Gestor',
+    'financeiro':  'Financeiro',
+    'compras':     'Compras e Faturas',
+    'logistica':   'Logística',
+    'eurokg':      'Euro/kg',
     'confeitaria': 'Produção Confeitaria',
-    'eventos':    'Eventos',
+    'eventos':     'Eventos',
 }
 
 _MODULE_EMOJIS = {
-    'producao':   '🍦',
-    'pastelaria': '🥐',
-    'vendas':     '🛒',
-    'gestor':     '⚙️',
-    'financeiro': '💰',
-    'compras':    '🛍️',
-    'logistica':  '🚚',
-    'eurokg':     '📊',
+    'producao':    '🍨',
+    'pastelaria':  '🍡',
+    'vendas':      '🛒',
+    'gestor':      '👔',
+    'financeiro':  '💰',
+    'compras':     '🛍️',
+    'logistica':   '🚚',
+    'eurokg':      '📊',
     'confeitaria': '🍪',
-    'eventos':    '🎪',
+    'eventos':     '🎪',
 }
 
 
@@ -1911,6 +1911,12 @@ def gestao_tiles():
     db_state = {(r['module'], r['tile_id']): r for r in get_all_tile_config()}
     module_custom_labels = get_module_labels()
 
+    module_icon_overrides = {
+        module: row['icon']
+        for (module, tile_id), row in db_state.items()
+        if tile_id == '_module_icon' and row.get('icon', '')
+    }
+
     _ORDER = ['producao', 'pastelaria', 'confeitaria', 'vendas', 'compras', 'logistica', 'eurokg', 'gestor', 'financeiro', 'eventos']
     modules = {}
     for module_id in _ORDER:
@@ -1919,9 +1925,11 @@ def gestao_tiles():
         for t in tile_defs:
             db_row = db_state.get((module_id, t['id']), {})
             db_label = db_row.get('label', '')
+            db_icon = db_row.get('icon', '')
             merged.append({
                 'tile_id': t['id'],
-                'icon': t['icon'],
+                'icon': db_icon if db_icon else t['icon'],
+                'default_icon': t['icon'],
                 'label': db_label if db_label else t['default_label'],
                 'default_label': t['default_label'],
                 'description': t['description'],
@@ -1930,6 +1938,11 @@ def gestao_tiles():
         if merged:
             modules[module_id] = merged
 
+    try:
+        vendas_stores = db.get_vendas_module_stores()
+    except Exception:
+        vendas_stores = []
+
     return render_template(
         'gestor/gestao_tiles.html',
         active_tab='gestao_tiles',
@@ -1937,6 +1950,8 @@ def gestao_tiles():
         module_custom_labels=module_custom_labels,
         module_defaults=_MODULE_DEFAULTS,
         module_emojis=_MODULE_EMOJIS,
+        module_icon_overrides=module_icon_overrides,
+        vendas_stores=vendas_stores,
         back_url=url_for('gestor.index'),
     )
 
@@ -1974,3 +1989,27 @@ def gestao_tiles_rename():
 
     set_tile_label(module, tile_id, label)
     return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'label': label})
+
+
+@gestor_bp.route('/gestao-tiles/icon', methods=['POST'])
+@perm_required('acesso_gestor')
+def gestao_tiles_icon():
+    from db.tiles import set_tile_icon
+    from flask import jsonify
+    import unicodedata
+
+    module = request.form.get('module', '').strip()
+    tile_id = request.form.get('tile_id', '').strip()
+    icon = request.form.get('icon', '').strip()
+
+    if not module or not tile_id:
+        return jsonify({'ok': False, 'error': 'Parâmetros inválidos'}), 400
+
+    if not icon or len(icon) > 10:
+        return jsonify({'ok': False, 'error': 'Ícone inválido'}), 400
+
+    if any(c.isascii() and c.isalpha() for c in icon):
+        return jsonify({'ok': False, 'error': 'Ícone inválido'}), 400
+
+    set_tile_icon(module, tile_id, icon)
+    return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'icon': icon})
