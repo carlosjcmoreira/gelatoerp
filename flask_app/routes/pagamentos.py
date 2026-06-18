@@ -410,16 +410,23 @@ def liquidez():
                 items_by_cat[cid] = {}
                 items_meta_by_cat[cid] = {}
             for item in cat['items']:
-                ref = item['reference']
-                key = f"{item['description']} ({ref})" if ref else item['description']
+                ref = item.get('reference', '')
+                base_desc = f"{item['description']} ({ref})" if ref else item['description']
+                inv_id = item.get('invoice_id')
+                # Fatura items are keyed per invoice to avoid collisions between
+                # invoices that share the same supplier name + invoice number.
+                key = (f"{base_desc}|inv:{inv_id}"
+                       if (item.get('type') == 'fatura' and inv_id)
+                       else base_desc)
                 if key not in items_by_cat[cid]:
                     items_by_cat[cid][key] = {}
                 items_by_cat[cid][key][w['week']] = item['amount']
                 if key not in items_meta_by_cat[cid]:
                     items_meta_by_cat[cid][key] = {
                         'source': item.get('source', 'scheduled'),
-                        'invoice_id': item.get('invoice_id'),
+                        'invoice_id': inv_id,
                         'type': item.get('type', 'fatura'),
+                        'display': base_desc,
                     }
 
     vat_items_by_week: dict = {}

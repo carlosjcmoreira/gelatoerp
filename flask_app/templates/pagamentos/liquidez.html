@@ -229,9 +229,10 @@
             {% if items_by_cat.get(cat_id) %}
             {% for item_key, week_amounts in items_by_cat[cat_id].items() %}
             {% set item_meta = items_meta_by_cat.get(cat_id, {}).get(item_key, {}) %}
+            {% set display_label = item_meta.get('display') or item_key %}
             <tr class="drill-row drill-cat-{{ css_id }} d-none bg-light" style="font-size:0.78rem">
                 <td class="ps-4 text-muted">
-                    └ {{ item_key }}
+                    └ {{ display_label }}
                     {% if item_meta.get('source') == 'due_date_fallback' %}
                     <span class="badge text-bg-secondary ms-1" style="font-size:0.58rem;vertical-align:middle" title="Sem pagamento agendado — incluído pelo vencimento">venc.</span>
                     {% endif %}

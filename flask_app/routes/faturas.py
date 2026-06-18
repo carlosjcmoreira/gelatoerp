@@ -1583,7 +1583,7 @@ def eliminar(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/set-categoria-custo', methods=['POST'])
-@perm_required('acesso_gestor')
+@perm_required('acesso_financeiro')
 def set_categoria_custo(invoice_id: int):
     """Quick-assign categoria_custo_id for an invoice (used inline from the cash-flow map)."""
     from db.core import db_connection as _db_conn
