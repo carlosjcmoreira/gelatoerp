@@ -20,9 +20,16 @@ TABS = [
 @logistica_bp.route('/')
 @perm_required('acesso_administrativo')
 def index():
-    from db.tiles import get_module_labels
+    from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons, get_module_labels
+    visibility = get_tile_visibility('logistica')
+    labels = get_tile_labels('logistica')
+    icons = get_tile_icons('logistica')
     custom_mod = get_module_labels().get('logistica')
-    items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['url_endpoint'])} for t in TABS]
+    items = [
+        {'icon': icons.get(t['id']) or t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['url_endpoint'])}
+        for t in TABS
+        if visibility.get(t['id'], True)
+    ]
     return render_template('components/section_menu.html', items=items,
                            menu_title=f'🚚 {custom_mod}' if custom_mod else '🚚 Logística')
 

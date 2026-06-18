@@ -82,7 +82,15 @@ TABS = [
 
 
 def _get_tabs():
-    return [{'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])} for t in TABS]
+    from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons
+    visibility = get_tile_visibility('eventos')
+    labels = get_tile_labels('eventos')
+    icons = get_tile_icons('eventos')
+    return [
+        {'id': t['id'], 'label': labels.get(t['id']) or t['label'], 'icon': icons.get(t['id']) or t['icon'], 'url': url_for(t['url_endpoint'])}
+        for t in TABS
+        if visibility.get(t['id'], True)
+    ]
 
 
 def _compute_payment_status(evento):
@@ -108,14 +116,8 @@ def index():
     from db.tiles import get_module_labels
     custom_mod = get_module_labels().get('eventos')
     menu_title = f'🎪 {custom_mod}' if custom_mod else '🎪 Eventos'
-    tiles = [
-        {'icon': '📊', 'label': 'Dashboard',          'url': url_for('eventos.dashboard')},
-        {'icon': '📋', 'label': 'Pipeline',            'url': url_for('eventos.pipeline')},
-        {'icon': '📥', 'label': 'Leads & Google Sheets','url': url_for('eventos.leads')},
-        {'icon': '👥', 'label': 'Clientes',            'url': url_for('eventos.clientes')},
-        {'icon': '🏷️', 'label': 'Artigos',             'url': url_for('eventos.artigos')},
-        {'icon': '💶', 'label': 'Recebimentos',        'url': url_for('eventos.recebimentos')},
-    ]
+    tabs = _get_tabs()
+    tiles = [{'icon': t['icon'], 'label': t['label'], 'url': t['url']} for t in tabs]
     return render_template('eventos/index.html', tiles=tiles, menu_title=menu_title)
 
 

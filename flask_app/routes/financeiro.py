@@ -58,11 +58,12 @@ def _get_username():
 @financeiro_bp.route('/')
 @perm_required('acesso_gestor')
 def index():
-    from db.tiles import get_tile_visibility, seed_tile_config, get_tile_labels, get_module_labels
+    from db.tiles import get_tile_visibility, seed_tile_config, get_tile_labels, get_tile_icons, get_module_labels
     all_tiles = [{'id': m['key'], 'label': m['label']} for g in FINANCEIRO_GROUPS for m in g['modules']]
     seed_tile_config('financeiro', all_tiles)
     visibility = get_tile_visibility('financeiro')
     labels = get_tile_labels('financeiro')
+    icons = get_tile_icons('financeiro')
     custom_mod = get_module_labels().get('financeiro')
     groups = []
     for g in FINANCEIRO_GROUPS:
@@ -72,6 +73,7 @@ def index():
                 continue
             entry = dict(m)
             entry['label'] = labels.get(m['key']) or m['label']
+            entry['icon'] = icons.get(m['key']) or m['icon']
             if entry['active'] and entry.get('url_func'):
                 entry['url'] = url_for(entry['url_func'])
             elif not entry.get('url'):

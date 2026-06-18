@@ -58,11 +58,12 @@ SECTION_ENDPOINT_MAP = {
 }
 
 def get_tabs():
-    from db.tiles import get_tile_visibility, get_tile_labels
+    from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons
     visibility = get_tile_visibility('gestor')
     labels = get_tile_labels('gestor')
+    icons = get_tile_icons('gestor')
     return [
-        {'id': t['id'], 'label': labels.get(t['id']) or t['label'], 'icon': t['icon'], 'url': url_for(t['url_endpoint'])}
+        {'id': t['id'], 'label': labels.get(t['id']) or t['label'], 'icon': icons.get(t['id']) or t['icon'], 'url': url_for(t['url_endpoint'])}
         for t in TABS
         if visibility.get(t['id'], True)
     ]
@@ -83,10 +84,11 @@ EUROKG_CHILD_IDS = {'premio_eurokg', 'receitas_eurokg', 'alocacao_produtos'}
 @gestor_bp.route('/')
 @perm_required('acesso_gestor')
 def index():
-    from db.tiles import get_tile_visibility, get_tile_labels, get_module_labels
+    from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons, get_module_labels
     onedrive_configured = bool(db.get_system_config('onedrive_refresh_token'))
     visibility = get_tile_visibility('gestor')
     labels = get_tile_labels('gestor')
+    icons = get_tile_icons('gestor')
     custom_mod = get_module_labels().get('gestor')
     items = []
     eurokg_added = False
@@ -98,7 +100,7 @@ def index():
                 items.append({'icon': '💶', 'label': 'Euro/kg', 'url': url_for('gestor.eurokg_index')})
                 eurokg_added = True
             continue
-        item = {'icon': t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['url_endpoint'])}
+        item = {'icon': icons.get(t['id']) or t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['url_endpoint'])}
         if t['id'] == 'configuracoes':
             if onedrive_configured:
                 item['badge'] = {'text': 'Ligado', 'cls': 'bg-success'}

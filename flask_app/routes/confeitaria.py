@@ -33,15 +33,30 @@ TABS = [
 ]
 
 def _tabs_with_urls():
-    return [{'id': t['id'], 'label': t['label'], 'icon': t['icon'], 'url': url_for(t['endpoint'])} for t in TABS]
+    from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons
+    visibility = get_tile_visibility('confeitaria')
+    labels = get_tile_labels('confeitaria')
+    icons = get_tile_icons('confeitaria')
+    return [
+        {'id': t['id'], 'label': labels.get(t['id']) or t['label'], 'icon': icons.get(t['id']) or t['icon'], 'url': url_for(t['endpoint'])}
+        for t in TABS
+        if visibility.get(t['id'], True)
+    ]
 
 
 @confeitaria_bp.route('/')
 @perm_required('acesso_confeitaria')
 def index():
-    from db.tiles import get_module_labels
+    from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons, get_module_labels
+    visibility = get_tile_visibility('confeitaria')
+    labels = get_tile_labels('confeitaria')
+    icons = get_tile_icons('confeitaria')
     custom_mod = get_module_labels().get('confeitaria')
-    items = [{'icon': t['icon'], 'label': t['label'], 'url': url_for(t['endpoint'])} for t in TABS]
+    items = [
+        {'icon': icons.get(t['id']) or t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['endpoint'])}
+        for t in TABS
+        if visibility.get(t['id'], True)
+    ]
     return render_template('components/section_menu.html', items=items,
                            menu_title=f'🍪 {custom_mod}' if custom_mod else '🍪 Produção Confeitaria')
 

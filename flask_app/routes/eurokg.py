@@ -22,14 +22,14 @@ eurokg_bp = Blueprint('eurokg', __name__)
 
 
 MENU_ITEMS = [
-    {'icon': '📊', 'label': 'Dashboard Euro/kg', 'url_endpoint': 'eurokg.dashboard'},
-    {'icon': '📅', 'label': 'Resumo Mensal', 'url_endpoint': 'eurokg.resumo_mensal'},
-    {'icon': '🧮', 'label': 'Consumo Teórico', 'url_endpoint': 'eurokg.consumo_teorico'},
-    {'icon': '💶', 'label': 'Vendas por Produto', 'url_endpoint': 'eurokg.vendas_produto'},
-    {'icon': '⚖️', 'label': 'Pesagens', 'url_endpoint': 'eurokg.pesagens'},
-    {'icon': '🔍', 'label': 'Diagnóstico de Vendas', 'url_endpoint': 'eurokg.diagnostico_vendas', 'gestor_only': True},
-    {'icon': '📦', 'label': 'Volume por Produto', 'url_endpoint': 'eurokg.volume_produtos', 'gestor_only': True},
-    {'icon': '⚙️', 'label': 'Preço/kg Caixas Loja', 'url_endpoint': 'eurokg.config_preco_caixa', 'gestor_only': True},
+    {'id': 'dashboard',    'icon': '📊', 'label': 'Dashboard Euro/kg', 'url_endpoint': 'eurokg.dashboard'},
+    {'id': 'resumo',       'icon': '📅', 'label': 'Resumo Mensal', 'url_endpoint': 'eurokg.resumo_mensal'},
+    {'id': 'consumo',      'icon': '🧮', 'label': 'Consumo Teórico', 'url_endpoint': 'eurokg.consumo_teorico'},
+    {'id': 'vendas',       'icon': '💶', 'label': 'Vendas por Produto', 'url_endpoint': 'eurokg.vendas_produto'},
+    {'id': 'pesagens',     'icon': '⚖️', 'label': 'Pesagens', 'url_endpoint': 'eurokg.pesagens'},
+    {'id': 'diagnostico',  'icon': '🔍', 'label': 'Diagnóstico de Vendas', 'url_endpoint': 'eurokg.diagnostico_vendas', 'gestor_only': True},
+    {'id': 'volume',       'icon': '📦', 'label': 'Volume por Produto', 'url_endpoint': 'eurokg.volume_produtos', 'gestor_only': True},
+    {'id': 'config_preco', 'icon': '⚙️', 'label': 'Preço/kg Caixas Loja', 'url_endpoint': 'eurokg.config_preco_caixa', 'gestor_only': True},
 ]
 
 MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
@@ -51,14 +51,17 @@ def _build_tabs(loja_filter, is_gestor, active):
 @eurokg_bp.route('/')
 @perm_required('acesso_eurokg')
 def index():
-    from db.tiles import get_module_labels
+    from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons, get_module_labels
     user = session.get('user', {})
     is_gestor = user.get('acesso_gestor', False)
+    visibility = get_tile_visibility('eurokg')
+    labels = get_tile_labels('eurokg')
+    icons = get_tile_icons('eurokg')
     custom_mod = get_module_labels().get('eurokg')
     items = [
-        {'icon': m['icon'], 'label': m['label'], 'url': url_for(m['url_endpoint'])}
+        {'icon': icons.get(m['id']) or m['icon'], 'label': labels.get(m['id']) or m['label'], 'url': url_for(m['url_endpoint'])}
         for m in MENU_ITEMS
-        if not m.get('gestor_only') or is_gestor
+        if (not m.get('gestor_only') or is_gestor) and visibility.get(m['id'], True)
     ]
     return render_template('components/section_menu.html', items=items,
                            menu_title=f'📊 {custom_mod}' if custom_mod else '📊 Euro/kg')
