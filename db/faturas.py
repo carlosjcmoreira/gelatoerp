@@ -906,6 +906,7 @@ def _row_to_invoice(row) -> dict:
         'status_label': get_invoice_status_labels_map().get(row[14], row[14]),
         'centro_custo_id': row[24] if len(row) > 24 else None,
         'categoria_custo_id': row[25] if len(row) > 25 else None,
+        'has_pdf': False,
     }
 
 
@@ -1131,7 +1132,8 @@ def get_invoices(status: str = None, statuses: list = None,
                    ip.confirmed_date AS payment_confirmed_date,
                    i.payment_method,
                    COALESCE(i.installment_total, 0) AS installment_total,
-                   COALESCE(ii_stats.paid_count, 0) AS installment_paid_count
+                   COALESCE(ii_stats.paid_count, 0) AS installment_paid_count,
+                   (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -1153,6 +1155,7 @@ def get_invoices(status: str = None, statuses: list = None,
         inv['payment_method'] = r[27] if len(r) > 27 else None
         inv['installment_total'] = int(r[28]) if len(r) > 28 and r[28] else 0
         inv['installment_paid_count'] = int(r[29]) if len(r) > 29 and r[29] else 0
+        inv['has_pdf'] = bool(r[30]) if len(r) > 30 else False
         result.append(inv)
     return result
 
@@ -1245,7 +1248,8 @@ def get_invoice(invoice_id: int) -> dict:
                    i.onedrive_retry_at,
                    COALESCE(i.installment_total, 0) AS installment_total,
                    (SELECT COUNT(*) FROM invoice_installments
-                    WHERE invoice_id = i.id AND status = 'paid') AS installment_paid_count
+                    WHERE invoice_id = i.id AND status = 'paid') AS installment_paid_count,
+                   (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -1264,6 +1268,7 @@ def get_invoice(invoice_id: int) -> dict:
     inv['onedrive_retry_at'] = row[32] if len(row) > 32 else None
     inv['installment_total'] = int(row[33]) if len(row) > 33 and row[33] else 0
     inv['installment_paid_count'] = int(row[34]) if len(row) > 34 and row[34] else 0
+    inv['has_pdf'] = bool(row[35]) if len(row) > 35 else inv['has_pdf']
     return inv
 
 
@@ -1698,7 +1703,8 @@ def get_contas_por_fornecedor(status_filter: str = None) -> list:
                    i.onedrive_web_url,
                    i.document_type,
                    i.centro_custo_id,
-                   i.categoria_custo_id
+                   i.categoria_custo_id,
+                   (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             WHERE i.status != 'draft' {extra_where}
@@ -1706,7 +1712,12 @@ def get_contas_por_fornecedor(status_filter: str = None) -> list:
         """, params)
         rows = cursor.fetchall()
 
-    invoices = [_row_to_invoice(r) for r in rows]
+    def _to_inv(r):
+        inv = _row_to_invoice(r)
+        inv['has_pdf'] = bool(r[26]) if len(r) > 26 else False
+        return inv
+
+    invoices = [_to_inv(r) for r in rows]
 
     from collections import defaultdict
     groups = defaultdict(lambda: {

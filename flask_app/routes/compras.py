@@ -645,7 +645,7 @@ def attach_pdf(invoice_id: int):
     if not pdf_data.startswith(b'%PDF'):
         flash('Ficheiro não é um PDF válido.', 'warning')
         return redirect(back)
-    save_invoice_pdf(invoice_id, pdf_data, pdf_file.filename)
+    save_invoice_pdf(invoice_id, pdf_data, pdf_file.filename or 'fatura.pdf')
     flash('PDF anexado com sucesso.', 'success')
     return redirect(back)
 
@@ -710,7 +710,7 @@ def finalize_upload(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:
         return jsonify({'ok': False, 'error': 'Fatura não encontrada'}), 404
-    save_invoice_pdf(invoice_id, pdf_data, filename)
+    save_invoice_pdf(invoice_id, pdf_data, filename or 'fatura.pdf')
     flash('PDF anexado com sucesso.', 'success')
     return jsonify({'ok': True, 'redirect': back})
 

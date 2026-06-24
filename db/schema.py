@@ -3827,6 +3827,32 @@ _STATUS_CONFIG_DEFAULTS = [
 ]
 
 
+def run_migrations_pdf_filename_backfill():
+    """Back-fill pdf_filename for rows where pdf_data is present but pdf_filename is NULL.
+
+    Runs once on startup; idempotent and safe to repeat.
+    """
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE invoices
+                SET pdf_filename = 'fatura.pdf'
+                WHERE pdf_data IS NOT NULL
+                  AND octet_length(pdf_data) > 0
+                  AND pdf_filename IS NULL
+            """)
+            updated = cursor.rowcount
+            conn.commit()
+            if updated:
+                logger.info(
+                    "run_migrations_pdf_filename_backfill: back-filled pdf_filename for %d row(s)",
+                    updated,
+                )
+    except Exception as exc:
+        logger.error("run_migrations_pdf_filename_backfill failed: %s", exc)
+
+
 def run_migrations_invoice_status_config():
     """Create invoice_status_config table and seed default statuses if empty.
 

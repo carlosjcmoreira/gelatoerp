@@ -36,11 +36,14 @@
             💰 Marcar como paga
         </button>
         {% endif %}
-        {% if inv.pdf_filename %}
+        {% if inv.has_pdf %}
         {% set _pdf_url = url_for('compras.download_pdf', invoice_id=inv.id) %}
         {% set _viewer_url = url_for('static', filename='pdfjs-viewer.html') + '?file=' + (_pdf_url | urlencode) %}
         <a href="{{ _viewer_url }}" target="_blank" class="btn btn-outline-secondary btn-sm" data-no-loading>
             📄 Ver PDF
+        </a>
+        <a href="{{ _pdf_url }}?dl=1" class="btn btn-outline-secondary btn-sm" download data-no-loading>
+            ⬇ Download
         </a>
         {% endif %}
         {% if inv.onedrive_path %}
@@ -53,7 +56,7 @@
               title="Falha permanente no arquivo OneDrive{% if inv.onedrive_retry_at %} — última tentativa: {{ inv.onedrive_retry_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}">
             ❌ OneDrive
         </span>
-        {% elif inv.pdf_filename %}
+        {% elif inv.has_pdf %}
         <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1"
               title="PDF presente mas ainda não arquivado no OneDrive{% if inv.onedrive_retry_at %} — a aguardar retry{% endif %}">
             ⏳ OneDrive
@@ -96,7 +99,7 @@
     </div>
 
     <!-- ── PDF preview ─────────────────────────────────────── -->
-    {% if inv.pdf_filename %}
+    {% if inv.has_pdf %}
     {% set _pdf_url = url_for('compras.download_pdf', invoice_id=inv.id) %}
     {% set _viewer_url = url_for('static', filename='pdfjs-viewer.html') + '?file=' + (_pdf_url | urlencode) %}
     <div class="mb-3">
