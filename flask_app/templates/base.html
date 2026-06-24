@@ -197,6 +197,8 @@
         document.addEventListener('focus', function(e) {
             var tag = (e.target || {}).tagName;
             if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
+            var type = (e.target.type || '').toLowerCase();
+            if (type === 'checkbox' || type === 'radio') return;
             /* iOS keyboard takes ~200 ms to animate up; wait 200 ms so the
                viewport has shrunk before we scroll the input into view. */
             setTimeout(function() {
@@ -207,6 +209,8 @@
         document.addEventListener('focusout', function(e) {
             var tag = (e.target || {}).tagName;
             if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
+            var type = (e.target.type || '').toLowerCase();
+            if (type === 'checkbox' || type === 'radio') return;
             /* iOS keyboard takes ~300 ms to animate away; wait 350 ms so the
                new viewport height is stable before we measure button positions. */
             setTimeout(ensureSubmitVisible, 350);
