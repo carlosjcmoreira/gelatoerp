@@ -1231,6 +1231,52 @@ def get_producao_total_by_date(loja: str = None) -> list:
         return [dict(r) for r in cursor.fetchall()]
 
 
+def get_producao_by_source_by_date(loja: str = None) -> list:
+    """Return production totals split by source (balança vs manual) per day.
+
+    Returns a list of dicts ordered by data DESC:
+      [{'data': date, 'balanca_kg': float, 'manual_kg': float,
+        'diff_kg': float, 'diff_pct': float|None}, ...]
+
+    ``balanca_kg`` covers tipo IN ('producao', 'balança').
+    ``manual_kg``  covers tipo = 'manual'.
+    ``diff_kg``    is balanca_kg − manual_kg (None when either is zero).
+    ``diff_pct``   is abs(diff_kg) / balanca_kg * 100 (None when balanca_kg = 0).
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        query = """
+            SELECT
+                data,
+                ROUND(SUM(CASE WHEN tipo IN ('producao', 'balança') THEN quantidade_kg ELSE 0 END)::numeric, 2) AS balanca_kg,
+                ROUND(SUM(CASE WHEN tipo = 'manual' THEN quantidade_kg ELSE 0 END)::numeric, 2) AS manual_kg
+            FROM producao
+            WHERE 1=1
+        """
+        params = []
+        if loja:
+            query += " AND loja = %s"
+            params.append(loja)
+        query += " GROUP BY data ORDER BY data DESC"
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    result = []
+    for r in rows:
+        balanca = float(r['balanca_kg'] or 0)
+        manual = float(r['manual_kg'] or 0)
+        diff_kg = round(balanca - manual, 2) if (balanca > 0 or manual > 0) else None
+        diff_pct = round(abs(diff_kg) / balanca * 100, 1) if (diff_kg is not None and balanca > 0) else None
+        result.append({
+            'data': r['data'],
+            'balanca_kg': balanca if balanca > 0 else None,
+            'manual_kg': manual if manual > 0 else None,
+            'diff_kg': diff_kg,
+            'diff_pct': diff_pct,
+        })
+    return result
+
+
 def get_vendas_produto_mensal(year: int, loja: str = None) -> dict:
     """Returns sales (€) by eligible product and month for a given year.
 

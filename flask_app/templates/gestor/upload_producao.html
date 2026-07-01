@@ -50,15 +50,57 @@
             </div>
             {% if prod_totals %}
             <div class="table-responsive">
-                <table class="table table-sm table-striped">
-                    <thead><tr><th>Data</th><th>Total (kg)</th></tr></thead>
+                <table class="table table-sm table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Data</th>
+                            <th class="text-end">🏭 Balança (kg)</th>
+                            <th class="text-end">✏️ Manual (kg)</th>
+                            <th class="text-end">Diferença</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         {% for row in prod_totals %}
-                        <tr><td>{{ row.data }}</td><td>{{ "%.2f"|format(row.total_kg) }}</td></tr>
+                        {% set _has_diff = row.diff_kg is not none and row.balanca_kg and row.manual_kg %}
+                        {% set _alert = _has_diff and row.diff_pct is not none and row.diff_pct > 10 %}
+                        <tr class="{% if _alert %}table-warning{% endif %}">
+                            <td>{{ row.data }}</td>
+                            <td class="text-end">
+                                {% if row.balanca_kg is not none %}
+                                <span class="fw-semibold">{{ "%.2f"|format(row.balanca_kg) }}</span>
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                {% if row.manual_kg is not none %}
+                                {{ "%.2f"|format(row.manual_kg) }}
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end">
+                                {% if _has_diff %}
+                                <span class="{% if _alert %}fw-semibold text-danger{% else %}text-muted small{% endif %}">
+                                    {{ "%+.2f"|format(row.diff_kg) }}
+                                    {% if row.diff_pct is not none %}
+                                    <span class="ms-1">({{ "%.0f"|format(row.diff_pct) }}%)</span>
+                                    {% endif %}
+                                </span>
+                                {% else %}
+                                <span class="text-muted small">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
+            <p class="text-muted small mt-1">
+                <strong>Balança</strong> = dados importados da CalybraBox.&nbsp;
+                <strong>Manual</strong> = registos da equipa.&nbsp;
+                Linhas a ⚠️ amarelo indicam diferença &gt;10%.
+            </p>
 
             <h6 class="mt-3">Eliminar Produção por Período</h6>
             <form method="POST">

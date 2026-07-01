@@ -127,7 +127,7 @@ def eurokg_index():
 def upload_producao():
     tabs = get_tabs()
     loja_upload = request.args.get('loja', 'Matosinhos')
-    prod_totals_list = db.get_producao_total_by_date(loja_upload)
+    prod_totals_list = db.get_producao_by_source_by_date(loja_upload)
 
     if request.method == 'POST':
         action = request.form.get('action')
