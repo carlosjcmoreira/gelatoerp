@@ -61,8 +61,8 @@
                     </thead>
                     <tbody>
                         {% for row in prod_totals %}
-                        {% set _has_diff = row.diff_kg is not none and row.balanca_kg and row.manual_kg %}
-                        {% set _alert = _has_diff and row.diff_pct is not none and row.diff_pct > 10 %}
+                        {% set _has_diff = row.diff_kg is not none %}
+                        {% set _alert = row.diff_pct is not none and row.diff_pct > 10 %}
                         <tr class="{% if _alert %}table-warning{% endif %}">
                             <td>{{ row.data }}</td>
                             <td class="text-end">

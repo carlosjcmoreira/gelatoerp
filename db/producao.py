@@ -1238,10 +1238,10 @@ def get_producao_by_source_by_date(loja: str = None) -> list:
       [{'data': date, 'balanca_kg': float, 'manual_kg': float,
         'diff_kg': float, 'diff_pct': float|None}, ...]
 
-    ``balanca_kg`` covers tipo IN ('producao', 'balança').
-    ``manual_kg``  covers tipo = 'manual'.
-    ``diff_kg``    is balanca_kg − manual_kg (None when either is zero).
-    ``diff_pct``   is abs(diff_kg) / balanca_kg * 100 (None when balanca_kg = 0).
+    ``balanca_kg`` covers tipo IN ('producao', 'balança'). None when no data.
+    ``manual_kg``  covers tipo = 'manual'. None when no data.
+    ``diff_kg``    is balanca_kg − manual_kg. None only when both sources are absent.
+    ``diff_pct``   is abs(diff_kg) / balanca_kg * 100. None when balanca_kg = 0.
     """
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
