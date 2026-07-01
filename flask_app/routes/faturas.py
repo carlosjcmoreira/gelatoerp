@@ -1718,7 +1718,9 @@ def finalize_upload(invoice_id: int):
     return jsonify({'ok': True, 'redirect': back})
 
 
-def _detect_file_mimetype(data: bytes, filename: str) -> str:
+def _detect_file_mimetype(data, filename: str) -> str:
+    if isinstance(data, memoryview):
+        data = bytes(data)
     if data.startswith(b'%PDF'):
         return 'application/pdf'
     if len(data) >= 2 and data[:2] == b'\xff\xd8':
