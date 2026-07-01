@@ -373,6 +373,23 @@ def index():
         else:
             inv['display_status'] = inv['status']
 
+    # Duplicate detection: flag invoices where same supplier has same normalised number
+    import re as _re
+    from collections import defaultdict as _defaultdict
+    def _norm_inv(n):
+        if not n:
+            return ''
+        n = n.strip().upper()
+        n = _re.sub(r'^(FT|NC|FR|RB|VD|FS|FC|FA|RC)\s+', '', n)
+        return _re.sub(r'[^A-Z0-9]', '', n)
+    _dup_groups = _defaultdict(list)
+    for inv in invoices:
+        if inv.get('invoice_number') and inv.get('supplier_id'):
+            _dup_groups[(inv['supplier_id'], _norm_inv(inv['invoice_number']))].append(inv['id'])
+    _dup_ids = {_id for _ids in _dup_groups.values() if len(_ids) > 1 for _id in _ids}
+    for inv in invoices:
+        inv['has_duplicate'] = inv['id'] in _dup_ids
+
     # Distinct categories for filter panel
     all_categories = sorted({i['category'] for i in invoices if i.get('category')})
 
@@ -1701,6 +1718,17 @@ def finalize_upload(invoice_id: int):
     return jsonify({'ok': True, 'redirect': back})
 
 
+def _detect_file_mimetype(data: bytes, filename: str) -> str:
+    if data.startswith(b'%PDF'):
+        return 'application/pdf'
+    if len(data) >= 2 and data[:2] == b'\xff\xd8':
+        return 'image/jpeg'
+    if len(data) >= 8 and data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    ext = (filename or '').lower().rsplit('.', 1)[-1]
+    return {'pdf': 'application/pdf', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png'}.get(ext, 'application/octet-stream')
+
+
 @faturas_bp.route('/<int:invoice_id>/pdf')
 @perm_required('acesso_gestor')
 def download_pdf(invoice_id: int):
@@ -1709,10 +1737,11 @@ def download_pdf(invoice_id: int):
         flash('PDF não disponível.', 'warning')
         return _panel_redirect(invoice_id)
     filename = pdf_filename or 'fatura.pdf'
+    mimetype = _detect_file_mimetype(pdf_data, filename)
     as_attachment = request.args.get('dl') == '1'
     response = send_file(
         BytesIO(pdf_data),
-        mimetype='application/pdf',
+        mimetype=mimetype,
         as_attachment=as_attachment,
         download_name=filename,
     )

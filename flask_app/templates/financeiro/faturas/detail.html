@@ -48,10 +48,14 @@
         {% endif %}
         {% if inv.has_pdf %}
         {% set _pdf_url = url_for('faturas.download_pdf', invoice_id=inv.id) %}
+        {% if inv.pdf_is_image %}
+        <a href="{{ _pdf_url }}" target="_blank" class="btn btn-outline-secondary btn-sm" data-no-loading>🖼️ Ver Imagem</a>
+        {% else %}
         <a href="{{ url_for('static', filename='pdfjs-viewer.html') }}?file={{ _pdf_url | urlencode }}"
            class="btn btn-outline-secondary btn-sm" target="_blank" data-no-loading>
             📄 Ver PDF
         </a>
+        {% endif %}
         <a href="{{ _pdf_url }}?dl=1" class="btn btn-outline-secondary btn-sm" download data-no-loading>
             ⬇ Download
         </a>

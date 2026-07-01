@@ -907,6 +907,8 @@ def _row_to_invoice(row) -> dict:
         'centro_custo_id': row[24] if len(row) > 24 else None,
         'categoria_custo_id': row[25] if len(row) > 25 else None,
         'has_pdf': False,
+        'pdf_is_image': (row[13] or '').lower().rsplit('.', 1)[-1] in ('jpg', 'jpeg', 'png', 'gif', 'webp') if row[13] else False,
+        'has_duplicate': False,
     }
 
 
