@@ -1239,7 +1239,7 @@ def get_producao_by_source_by_date(loja: str = None) -> list:
         'diff_kg': float, 'diff_pct': float|None}, ...]
 
     ``balanca_kg`` covers tipo IN ('producao', 'balança'). None when no data.
-    ``manual_kg``  covers tipo = 'manual'. None when no data.
+    ``manual_kg``  covers all tipos NOT IN ('producao','balança') — i.e. 'manual', 'gestor-manual', 'ocr', etc. None when no data.
     ``diff_kg``    is balanca_kg − manual_kg. None only when both sources are absent.
     ``diff_pct``   is abs(diff_kg) / balanca_kg * 100. None when balanca_kg = 0.
     """
@@ -1249,7 +1249,7 @@ def get_producao_by_source_by_date(loja: str = None) -> list:
             SELECT
                 data,
                 ROUND(SUM(CASE WHEN tipo IN ('producao', 'balança') THEN quantidade_kg ELSE 0 END)::numeric, 2) AS balanca_kg,
-                ROUND(SUM(CASE WHEN tipo = 'manual' THEN quantidade_kg ELSE 0 END)::numeric, 2) AS manual_kg
+                ROUND(SUM(CASE WHEN tipo NOT IN ('producao', 'balança') THEN quantidade_kg ELSE 0 END)::numeric, 2) AS manual_kg
             FROM producao
             WHERE 1=1
         """
