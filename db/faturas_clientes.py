@@ -5,6 +5,8 @@ from db.connection import db_connection
 
 logger = logging.getLogger(__name__)
 
+VALID_STATUSES = ('pendente', 'pago', 'vencido')
+
 
 def upsert_fatura(cliente_id: int, numero: str, data_fatura: date,
                   data_vencimento: date = None, documento: str = None,
@@ -48,6 +50,66 @@ def upsert_fatura(cliente_id: int, numero: str, data_fatura: date,
         return row[0], row[1]
 
 
+def update_status(fatura_id: int, status: str) -> bool:
+    """Set payment status for a single invoice. Returns True if row was found."""
+    if status not in VALID_STATUSES:
+        raise ValueError(f"Invalid status '{status}'. Must be one of {VALID_STATUSES}.")
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE faturas_clientes
+               SET status = %s, updated_at = NOW()
+             WHERE id = %s AND anulado = FALSE
+        """, (status, fatura_id))
+        updated = cur.rowcount
+        conn.commit()
+        return updated > 0
+
+
+def get_summary_totals(cliente_id: int = None, data_inicio: date = None,
+                       data_fim: date = None) -> dict:
+    """Return totals grouped by status (pendente/pago/vencido) for non-cancelled invoices.
+
+    Also auto-promotes pendente invoices past their data_vencimento to vencido
+    in the result (without writing to DB — the DB status is authoritative; this
+    just provides the display aggregate).
+    """
+    conditions = ["fc.anulado = FALSE"]
+    vals = []
+    if cliente_id:
+        conditions.append("fc.cliente_id = %s")
+        vals.append(cliente_id)
+    if data_inicio:
+        conditions.append("fc.data >= %s")
+        vals.append(data_inicio)
+    if data_fim:
+        conditions.append("fc.data <= %s")
+        vals.append(data_fim)
+    where = "WHERE " + " AND ".join(conditions)
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT
+                SUM(CASE WHEN fc.status = 'pago' THEN fc.total ELSE 0 END)       AS total_pago,
+                SUM(CASE WHEN fc.status IN ('pendente','vencido') THEN fc.total ELSE 0 END) AS total_pendente,
+                SUM(CASE WHEN fc.status = 'vencido' THEN fc.total ELSE 0 END)    AS total_vencido,
+                COUNT(*) FILTER (WHERE fc.status = 'pago')                        AS count_pago,
+                COUNT(*) FILTER (WHERE fc.status IN ('pendente','vencido'))       AS count_pendente,
+                COUNT(*) FILTER (WHERE fc.status = 'vencido')                     AS count_vencido
+            FROM faturas_clientes fc
+            {where}
+        """, vals)
+        row = cur.fetchone()
+    return {
+        'total_pago':      float(row[0] or 0),
+        'total_pendente':  float(row[1] or 0),
+        'total_vencido':   float(row[2] or 0),
+        'count_pago':      int(row[3] or 0),
+        'count_pendente':  int(row[4] or 0),
+        'count_vencido':   int(row[5] or 0),
+    }
+
+
 def list_faturas(cliente_id: int = None, data_inicio: date = None,
                  data_fim: date = None, incluir_anuladas: bool = False,
                  limit: int = 500, offset: int = 0) -> list:
@@ -75,6 +137,7 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
                    fc.numero, fc.data, fc.data_vencimento, fc.documento, fc.armazem,
                    fc.total_bruto, fc.total_liquido, fc.desconto_global,
                    fc.total_imposto, fc.total, fc.observacoes, fc.anulado,
+                   fc.status,
                    fc.criado_em, fc.updated_at
             FROM faturas_clientes fc
             JOIN clientes_b2b c ON c.id = fc.cliente_id
@@ -87,9 +150,19 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
             'numero', 'data', 'data_vencimento', 'documento', 'armazem',
             'total_bruto', 'total_liquido', 'desconto_global',
             'total_imposto', 'total', 'observacoes', 'anulado',
+            'status',
             'criado_em', 'updated_at',
         ]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    today = date.today()
+    for row in rows:
+        if (row['status'] == 'pendente'
+                and row['data_vencimento']
+                and row['data_vencimento'] < today
+                and not row['anulado']):
+            row['status'] = 'vencido'
+    return rows
 
 
 def count_faturas(cliente_id: int = None, data_inicio: date = None,

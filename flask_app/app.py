@@ -47,7 +47,7 @@ from db.schema import run_migrations_quantidade_kg_to_numeric
 from db.schema import run_migrations_loja_origem
 from db.schema import run_migrations_invoice_status_config
 from db.schema import run_migrations_pdf_filename_backfill
-from db.schema import run_migrations_b2b
+from db.schema import run_migrations_b2b, run_migrations_faturas_clientes_status
 
 
 def _start_sheets_sync_scheduler():
@@ -178,6 +178,7 @@ def create_app():
         run_migrations_invoice_status_config()
         run_migrations_pdf_filename_backfill()
         run_migrations_b2b()
+        run_migrations_faturas_clientes_status()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()

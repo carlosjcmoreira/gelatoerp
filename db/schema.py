@@ -3911,6 +3911,41 @@ def run_migrations_b2b():
                 pass
 
 
+_LOCK_FATURAS_CLIENTES_STATUS = 202671
+
+
+def run_migrations_faturas_clientes_status():
+    """Add status column (pendente/pago/vencido) to faturas_clientes.
+
+    Advisory lock 202671 ensures only one worker runs the DDL.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_FATURAS_CLIENTES_STATUS,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_faturas_clientes_status: lock held by another worker, skipping")
+                return
+            cursor.execute("""
+                ALTER TABLE faturas_clientes
+                ADD COLUMN IF NOT EXISTS status VARCHAR(20)
+                    NOT NULL DEFAULT 'pendente'
+                    CHECK (status IN ('pendente','pago','vencido'))
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_faturas_clientes_status
+                    ON faturas_clientes(status)
+            """)
+            conn.commit()
+            logger.info("run_migrations_faturas_clientes_status: complete")
+        except Exception as exc:
+            logger.error("run_migrations_faturas_clientes_status failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_invoice_status_config():
     """Create invoice_status_config table and seed default statuses if empty.
 

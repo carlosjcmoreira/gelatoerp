@@ -475,10 +475,24 @@ def clientes_b2b():
     )
 
 
+@financeiro_bp.route('/faturas-clientes/<int:fatura_id>/status', methods=['POST'])
+@perm_required('acesso_financeiro')
+def faturas_clientes_set_status(fatura_id):
+    from db.faturas_clientes import update_status
+    status = request.form.get('status', '').strip()
+    if status not in ('pendente', 'pago', 'vencido'):
+        flash('Estado inválido.', 'error')
+    else:
+        found = update_status(fatura_id, status)
+        if not found:
+            flash('Fatura não encontrada ou anulada.', 'error')
+    return redirect(request.referrer or url_for('financeiro.faturas_clientes'))
+
+
 @financeiro_bp.route('/faturas-clientes', methods=['GET'])
 @perm_required('acesso_financeiro')
 def faturas_clientes():
-    from db.faturas_clientes import list_faturas, count_faturas
+    from db.faturas_clientes import list_faturas, count_faturas, get_summary_totals
     page = max(1, int(request.args.get('page', 1)))
     per_page = 50
     offset = (page - 1) * per_page
@@ -506,6 +520,9 @@ def faturas_clientes():
         cliente_id=cliente_id, data_inicio=data_inicio, data_fim=data_fim,
         incluir_anuladas=incluir_anuladas, limit=per_page, offset=offset,
     )
+    summary = get_summary_totals(
+        cliente_id=cliente_id, data_inicio=data_inicio, data_fim=data_fim,
+    )
     from db.clientes_b2b import list_clientes
     clientes = list_clientes()
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -520,4 +537,5 @@ def faturas_clientes():
         data_inicio=data_inicio_str,
         data_fim=data_fim_str,
         incluir_anuladas=incluir_anuladas,
+        summary=summary,
     )

@@ -47,6 +47,40 @@
         </div>
     </form>
 
+    {# ── Accounts Receivable Summary ── #}
+    {% if summary %}
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3">
+            <div class="card border-0 bg-danger bg-opacity-10 text-center py-2 px-1">
+                <div class="small text-muted mb-1">Por Receber</div>
+                <div class="fw-bold fs-6 text-danger">{{ "%.2f"|format(summary.total_pendente) }} €</div>
+                <div class="text-muted" style="font-size:.7rem;">{{ summary.count_pendente }} fatura(s)</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 bg-warning bg-opacity-10 text-center py-2 px-1">
+                <div class="small text-muted mb-1">Vencido</div>
+                <div class="fw-bold fs-6 text-warning">{{ "%.2f"|format(summary.total_vencido) }} €</div>
+                <div class="text-muted" style="font-size:.7rem;">{{ summary.count_vencido }} fatura(s)</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 bg-success bg-opacity-10 text-center py-2 px-1">
+                <div class="small text-muted mb-1">Recebido</div>
+                <div class="fw-bold fs-6 text-success">{{ "%.2f"|format(summary.total_pago) }} €</div>
+                <div class="text-muted" style="font-size:.7rem;">{{ summary.count_pago }} fatura(s)</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 bg-secondary bg-opacity-10 text-center py-2 px-1">
+                <div class="small text-muted mb-1">Total (vista)</div>
+                <div class="fw-bold fs-6">{{ "%.2f"|format(summary.total_pago + summary.total_pendente) }} €</div>
+                <div class="text-muted" style="font-size:.7rem;">{{ summary.count_pago + summary.count_pendente }} fatura(s)</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <p class="text-muted small mb-2">{{ total }} fatura(s) encontrada(s).</p>
 
     {% if faturas %}
@@ -64,6 +98,7 @@
                     <th class="text-end">Desconto</th>
                     <th class="text-end">Imposto</th>
                     <th class="text-end fw-semibold">Total</th>
+                    <th class="text-center">Estado</th>
                     <th>Obs.</th>
                 </tr>
             </thead>
@@ -72,7 +107,9 @@
             <tr {% if f.anulado %}class="text-decoration-line-through text-muted"{% endif %}>
                 <td class="small">{{ f.numero }}</td>
                 <td class="small">{{ f.data.strftime('%d/%m/%Y') if f.data else '—' }}</td>
-                <td class="small text-muted">{{ f.data_vencimento.strftime('%d/%m/%Y') if f.data_vencimento else '—' }}</td>
+                <td class="small {% if f.status == 'vencido' %}text-danger fw-semibold{% else %}text-muted{% endif %}">
+                    {{ f.data_vencimento.strftime('%d/%m/%Y') if f.data_vencimento else '—' }}
+                </td>
                 <td>
                     <a href="{{ url_for('financeiro.faturas_clientes', cliente_id=f.cliente_id) }}" class="text-decoration-none small">
                         {{ f.cliente_nome }}
@@ -88,6 +125,44 @@
                 <td class="text-end small text-danger">{{ "%.2f"|format(f.desconto_global or 0) }}</td>
                 <td class="text-end small">{{ "%.2f"|format(f.total_imposto or 0) }}</td>
                 <td class="text-end fw-semibold">{{ "%.2f"|format(f.total or 0) }} €</td>
+                <td class="text-center">
+                    {% if f.anulado %}
+                    <span class="badge bg-secondary small">Anulado</span>
+                    {% else %}
+                    <div class="dropdown">
+                        <button class="btn btn-sm px-2 py-0 dropdown-toggle border-0
+                            {% if f.status == 'pago' %}btn-success
+                            {% elif f.status == 'vencido' %}btn-danger
+                            {% else %}btn-warning text-dark{% endif %}"
+                            type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                            style="font-size:.75rem;">
+                            {% if f.status == 'pago' %}✅ Pago
+                            {% elif f.status == 'vencido' %}⚠️ Vencido
+                            {% else %}🕐 Pendente{% endif %}
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:130px;">
+                            <li>
+                                <form method="POST" action="{{ url_for('financeiro.faturas_clientes_set_status', fatura_id=f.id) }}">
+                                    <input type="hidden" name="status" value="pendente">
+                                    <button class="dropdown-item small {% if f.status == 'pendente' %}fw-bold{% endif %}" type="submit">🕐 Pendente</button>
+                                </form>
+                            </li>
+                            <li>
+                                <form method="POST" action="{{ url_for('financeiro.faturas_clientes_set_status', fatura_id=f.id) }}">
+                                    <input type="hidden" name="status" value="pago">
+                                    <button class="dropdown-item small {% if f.status == 'pago' %}fw-bold{% endif %}" type="submit">✅ Pago</button>
+                                </form>
+                            </li>
+                            <li>
+                                <form method="POST" action="{{ url_for('financeiro.faturas_clientes_set_status', fatura_id=f.id) }}">
+                                    <input type="hidden" name="status" value="vencido">
+                                    <button class="dropdown-item small {% if f.status == 'vencido' %}fw-bold{% endif %}" type="submit">⚠️ Vencido</button>
+                                </form>
+                            </li>
+                        </ul>
+                    </div>
+                    {% endif %}
+                </td>
                 <td class="small text-muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ f.observacoes or '' }}">{{ f.observacoes or '' }}</td>
             </tr>
             {% endfor %}
@@ -96,7 +171,7 @@
                 <tr>
                     <td colspan="9" class="text-end fw-semibold">Total página:</td>
                     <td class="text-end fw-bold">{{ "%.2f"|format(faturas|sum(attribute='total')) }} €</td>
-                    <td></td>
+                    <td colspan="2"></td>
                 </tr>
             </tfoot>
         </table>
