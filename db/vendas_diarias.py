@@ -1278,8 +1278,11 @@ def get_dashboard_b2b(ano: int = None) -> dict:
 
     Returns:
         {
-            'monthly_b2b':    {year: {month: total}},
-            'monthly_eventos':{year: {month: total}},
+            'monthly_b2b':    {year: {month: total}},          # aggregated B2B
+            'monthly_eventos':{year: {month: total}},          # aggregated Eventos
+            'monthly_por_cliente': [                           # per-client monthly series
+                {nome, tipo, series: {year: {month: total}}}
+            ],
             'ytd_b2b':        {y2026, y2025},
             'ytd_eventos':    {y2026, y2025},
             'top_clientes':   list of {nome, tipo, y2026, y2025},
@@ -1294,8 +1297,10 @@ def get_dashboard_b2b(ano: int = None) -> dict:
     with db_connection() as conn:
         cur = conn.cursor()
         try:
+            # Per-client × year × month aggregation (used for stacked charts and totals)
             cur.execute("""
                 SELECT
+                    c.nome,
                     c.tipo,
                     EXTRACT(YEAR  FROM fc.data)::int AS ano,
                     EXTRACT(MONTH FROM fc.data)::int AS mes,
@@ -1305,8 +1310,8 @@ def get_dashboard_b2b(ano: int = None) -> dict:
                 WHERE fc.anulado = FALSE
                   AND c.incluir_mapas = TRUE
                   AND EXTRACT(YEAR FROM fc.data) IN %s
-                GROUP BY c.tipo, ano, mes
-                ORDER BY c.tipo, ano, mes
+                GROUP BY c.nome, c.tipo, ano, mes
+                ORDER BY c.tipo, c.nome, ano, mes
             """, (tuple(anos),))
             monthly_rows = cur.fetchall()
         except Exception as exc:
@@ -1314,8 +1319,7 @@ def get_dashboard_b2b(ano: int = None) -> dict:
             monthly_rows = []
 
         try:
-            cutoff_26 = today
-            cutoff_mmdd = cutoff_26.month * 100 + cutoff_26.day
+            cutoff_mmdd = today.month * 100 + today.day
             cur.execute("""
                 SELECT
                     c.tipo,
@@ -1341,11 +1345,27 @@ def get_dashboard_b2b(ano: int = None) -> dict:
             logger.warning("get_dashboard_b2b ytd failed: %s", exc)
             ytd_rows = []
 
+    # Build per-client monthly series and aggregated type totals
     monthly_b2b: dict = {}
     monthly_eventos: dict = {}
-    for tipo, ano_val, mes_val, total in monthly_rows:
-        d = monthly_b2b if tipo == 'b2b' else monthly_eventos
-        d.setdefault(ano_val, {})[mes_val] = float(total or 0)
+    # {nome: {tipo, series: {ano: {mes: total}}}}
+    _client_monthly: dict = {}
+    for nome, tipo, ano_val, mes_val, total in monthly_rows:
+        total = float(total or 0)
+        # Aggregated by tipo
+        agg = monthly_b2b if tipo == 'b2b' else monthly_eventos
+        agg.setdefault(ano_val, {})
+        agg[ano_val][mes_val] = agg[ano_val].get(mes_val, 0) + total
+        # Per-client
+        if nome not in _client_monthly:
+            _client_monthly[nome] = {'nome': nome, 'tipo': tipo, 'series': {}}
+        _client_monthly[nome]['series'].setdefault(ano_val, {})[mes_val] = \
+            _client_monthly[nome]['series'].get(ano_val, {}).get(mes_val, 0) + total
+
+    # Sort per-client series by descending current-year total for chart legend order
+    def _client_ytd(c):
+        return sum(c['series'].get(today.year, {}).values())
+    monthly_por_cliente = sorted(_client_monthly.values(), key=_client_ytd, reverse=True)
 
     ytd_b2b = {'y2026': 0.0, 'y2025': 0.0}
     ytd_eventos = {'y2026': 0.0, 'y2025': 0.0}
@@ -1367,6 +1387,7 @@ def get_dashboard_b2b(ano: int = None) -> dict:
     return {
         'monthly_b2b': monthly_b2b,
         'monthly_eventos': monthly_eventos,
+        'monthly_por_cliente': monthly_por_cliente,
         'ytd_b2b': ytd_b2b,
         'ytd_eventos': ytd_eventos,
         'top_clientes': top_clientes,

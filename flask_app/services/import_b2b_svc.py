@@ -58,7 +58,7 @@ def import_b2b_from_excel(file_obj) -> dict:
     """
     result = {
         'faturas_importadas': 0,
-        'faturas_atualizadas': 0,
+        'faturas_duplicadas': 0,   # invoices that already existed and were updated
         'faturas_anuladas_ignoradas': 0,
         'clientes_novos': 0,
         'clientes_existentes': 0,
@@ -153,7 +153,7 @@ def import_b2b_from_excel(file_obj) -> dict:
             if is_new:
                 result['faturas_importadas'] += 1
             else:
-                result['faturas_atualizadas'] += 1
+                result['faturas_duplicadas'] += 1
         except Exception as exc:
             result['erros'].append(f'Linha {row_num}: erro ao guardar fatura {numero} ({exc})')
 

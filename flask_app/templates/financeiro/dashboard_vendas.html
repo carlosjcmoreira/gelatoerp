@@ -495,37 +495,70 @@ themeObserver.observe(document.documentElement, {attributes: true, attributeFilt
     document.getElementById('b2bDeltaB2b').innerHTML = fmtDelta(ytdB2b.y2026, ytdB2b.y2025);
     document.getElementById('b2bDeltaEv').innerHTML  = fmtDelta(ytdEv.y2026, ytdEv.y2025);
 
-    // ── Monthly bar charts (B2B and Eventos) ──────────────────────────────
-    function makeMonthlyTrace(monthlyData, year, color, name) {
-        const x = [], y = [];
-        const yd = monthlyData[year] || {};
-        for (let m = 1; m <= 12; m++) {
-            x.push(MONTHS_PT[m]);
-            y.push(yd[m] || 0);
+    // ── Monthly stacked bar charts per client/tipo ────────────────────────
+    // Show top MAX_CLIENTS per tipo as stacked segments; rest collapsed to "Outros".
+    const MAX_CLIENTS = 6;
+    const PALETTE = ['#0d6efd','#198754','#dc3545','#fd7e14','#6f42c1','#20c997',
+                     '#0dcaf0','#ffc107','#e83e8c','#6c757d'];
+
+    function buildStackedTraces(tipo) {
+        const clients = (b2b.monthly_por_cliente || []).filter(c => c.tipo === tipo);
+        const top = clients.slice(0, MAX_CLIENTS);
+        const rest = clients.slice(MAX_CLIENTS);
+        const labels = Array.from({length:12}, (_,i) => MONTHS_PT[i+1]);
+        const traces = [];
+
+        top.forEach((c, idx) => {
+            const yr = c.series[currentYear] || {};
+            traces.push({
+                x: labels,
+                y: Array.from({length:12}, (_,i) => yr[i+1] || 0),
+                type: 'bar', name: c.nome,
+                marker: {color: PALETTE[idx % PALETTE.length]},
+                hovertemplate: '%{x}<br>' + c.nome + ': %{y:,.0f} €<extra></extra>',
+            });
+        });
+
+        if (rest.length) {
+            const y = Array.from({length:12}, (_,i) => {
+                return rest.reduce((s,c) => s + ((c.series[currentYear]||{})[i+1]||0), 0);
+            });
+            traces.push({
+                x: labels, y, type:'bar', name:'Outros',
+                marker:{color:'#adb5bd'},
+                hovertemplate:'%{x}<br>Outros: %{y:,.0f} €<extra></extra>',
+            });
         }
-        return {x, y, type:'bar', name, marker:{color}};
+
+        // Add previous year total as a line
+        const prevTotals = Array.from({length:12}, (_,i) => {
+            const m = i + 1;
+            return clients.reduce((s,c) => s + ((c.series[prevYear]||{})[m]||0), 0);
+        });
+        traces.push({
+            x: labels, y: prevTotals, type:'scatter', mode:'lines+markers',
+            name: String(prevYear), line:{color:'#6c757d', dash:'dot', width:1.5},
+            marker:{size:4, color:'#6c757d'},
+            hovertemplate:'%{x} ' + prevYear + ': %{y:,.0f} €<extra></extra>',
+        });
+
+        return traces;
     }
 
-    const layoutB2b = {
-        margin:{t:10,b:30,l:50,r:10}, height:200,
-        showlegend:true, legend:{orientation:'h', y:-0.25},
+    const layoutStacked = {
+        margin:{t:10,b:30,l:50,r:10}, height:220,
+        showlegend:true,
+        legend:{orientation:'h', y:-0.4, font:{size:9}},
         paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
         font:{size:11},
         yaxis:{tickformat:',.0f', tickprefix:'€'},
         xaxis:{tickfont:{size:10}},
-        barmode:'group',
+        barmode:'stack',
     };
     const config = {responsive:true, displayModeBar:false};
 
-    Plotly.newPlot('b2bChartB2b', [
-        makeMonthlyTrace(b2b.monthly_b2b, currentYear, '#0d6efd', String(currentYear)),
-        makeMonthlyTrace(b2b.monthly_b2b, prevYear,    '#6ea8fe', String(prevYear)),
-    ], layoutB2b, config);
-
-    Plotly.newPlot('b2bChartEv', [
-        makeMonthlyTrace(b2b.monthly_eventos, currentYear, '#0dcaf0', String(currentYear)),
-        makeMonthlyTrace(b2b.monthly_eventos, prevYear,    '#9eeaf9', String(prevYear)),
-    ], {...layoutB2b}, config);
+    Plotly.newPlot('b2bChartB2b', buildStackedTraces('b2b'),    layoutStacked, config);
+    Plotly.newPlot('b2bChartEv',  buildStackedTraces('eventos'), {...layoutStacked}, config);
 
     // ── Top clientes table ─────────────────────────────────────────────────
     const tbody = document.getElementById('b2bTopBody');
