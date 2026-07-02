@@ -613,8 +613,8 @@ def _handle_upload_b2b():
         flash('Nenhum ficheiro selecionado.', 'warning')
         return redirect(url_for('gestor.vendas_detalhe'))
     filename = f.filename.lower()
-    if not (filename.endswith('.xlsx') or filename.endswith('.xls')):
-        flash('Formato inválido. Usa um ficheiro .xlsx ou .xls.', 'warning')
+    if not filename.endswith('.xlsx'):
+        flash('Formato inválido. Usa um ficheiro .xlsx (Excel moderno).', 'warning')
         return redirect(url_for('gestor.vendas_detalhe'))
     try:
         from flask_app.services.import_b2b_svc import import_b2b_from_excel

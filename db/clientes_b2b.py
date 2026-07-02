@@ -5,8 +5,8 @@ from db.connection import db_connection
 logger = logging.getLogger(__name__)
 
 
-def upsert_cliente(codigo: str, nome: str, nif: str) -> int:
-    """Insert or update a client by NIF. Returns the client id."""
+def upsert_cliente(codigo: str, nome: str, nif: str) -> tuple:
+    """Insert or update a client by NIF. Returns (id, is_new)."""
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -16,11 +16,11 @@ def upsert_cliente(codigo: str, nome: str, nif: str) -> int:
                 SET codigo = EXCLUDED.codigo,
                     nome   = EXCLUDED.nome,
                     updated_at = NOW()
-            RETURNING id
+            RETURNING id, (xmax = 0) AS is_new
         """, (str(codigo).strip(), nome.strip(), str(nif).strip()))
         row = cur.fetchone()
         conn.commit()
-        return row[0]
+        return row[0], row[1]
 
 
 def list_clientes(tipo: str = None) -> list:

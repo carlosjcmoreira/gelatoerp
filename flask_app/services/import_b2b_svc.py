@@ -114,11 +114,12 @@ def import_b2b_from_excel(file_obj) -> dict:
         # Upsert client (deduplicated by NIF within this batch)
         if nif not in _client_cache:
             try:
-                cliente_id = upsert_cliente(codigo, nome, nif)
-                # Detect if it's new by checking if we just inserted
+                cliente_id, is_new = upsert_cliente(codigo, nome, nif)
                 _client_cache[nif] = cliente_id
-                # We track new vs existing by whether nif was already in cache
-                result['clientes_novos'] += 1
+                if is_new:
+                    result['clientes_novos'] += 1
+                else:
+                    result['clientes_existentes'] += 1
             except Exception as exc:
                 result['erros'].append(f'Linha {row_num}: erro ao guardar cliente ({exc})')
                 continue

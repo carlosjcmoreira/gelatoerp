@@ -263,7 +263,42 @@
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <script>
 const RAW = {{ data_json | safe }};
+const B2B_RAW = {{ b2b_json | safe }};
 const MONTHS_PT = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+// ── Merge B2B + Eventos into global RAW totals ─────────────────────────────
+// Both monthly_b2b and monthly_eventos use {year: {month: total}} structure.
+// We add them into RAW.monthly['total'] so the existing chart and YTD widgets
+// automatically reflect the full revenue including client invoices.
+(function mergeB2bIntoGlobal() {
+    if (!B2B_RAW) return;
+    function addMonthly(src) {
+        if (!src) return;
+        Object.entries(src).forEach(([yr, months]) => {
+            if (!RAW.monthly.total[yr]) RAW.monthly.total[yr] = {};
+            Object.entries(months).forEach(([mo, val]) => {
+                RAW.monthly.total[yr][mo] = (RAW.monthly.total[yr][mo] || 0) + (val || 0);
+            });
+        });
+    }
+    addMonthly(B2B_RAW.monthly_b2b);
+    addMonthly(B2B_RAW.monthly_eventos);
+
+    // Merge YTD totals
+    if (RAW.ytd && RAW.ytd.total) {
+        const b2bTot = (B2B_RAW.ytd_b2b || {});
+        const evTot  = (B2B_RAW.ytd_eventos || {});
+        const add26 = (b2bTot.y2026 || 0) + (evTot.y2026 || 0);
+        const add25 = (b2bTot.y2025 || 0) + (evTot.y2025 || 0);
+        RAW.ytd.total.y2026 = (RAW.ytd.total.y2026 || 0) + add26;
+        RAW.ytd.total.y2025 = (RAW.ytd.total.y2025 || 0) + add25;
+        if (RAW.ytd.total.y2025 && add25) {
+            const d = RAW.ytd.total.y2026 - RAW.ytd.total.y2025;
+            RAW.ytd.total.diff_eur = d;
+            RAW.ytd.total.diff_pct = parseFloat((d / RAW.ytd.total.y2025 * 100).toFixed(1));
+        }
+    }
+})();
 
 function fmt(v) {
     if (v == null || isNaN(v)) return '—';
@@ -432,10 +467,9 @@ themeObserver.observe(document.documentElement, {attributes: true, attributeFilt
 
 <script>
 (function(){
-    const b2b = {{ b2b_json | safe }};
+    const b2b = B2B_RAW;
     if (!b2b) return;
 
-    const MONTHS_PT = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
     const currentYear = new Date().getFullYear();
     const prevYear = currentYear - 1;
 
