@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">🏢 Clientes B2B & Eventos</h5>
+    <p class="text-muted small mb-3">Clientes importados via upload Excel. Podes ajustar o tipo e visibilidade nos mapas.</p>
+
+    <div class="d-flex gap-2 mb-3 flex-wrap">
+        <a href="{{ url_for('financeiro.clientes_b2b') }}" class="btn btn-sm {% if not tipo_filter %}btn-primary{% else %}btn-outline-secondary{% endif %}">Todos</a>
+        <a href="{{ url_for('financeiro.clientes_b2b', tipo='b2b') }}" class="btn btn-sm {% if tipo_filter == 'b2b' %}btn-primary{% else %}btn-outline-secondary{% endif %}">B2B</a>
+        <a href="{{ url_for('financeiro.clientes_b2b', tipo='eventos') }}" class="btn btn-sm {% if tipo_filter == 'eventos' %}btn-primary{% else %}btn-outline-secondary{% endif %}">Eventos</a>
+        <a href="{{ url_for('financeiro.faturas_clientes') }}" class="btn btn-sm btn-outline-info ms-auto">🧾 Faturas Clientes</a>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+    <div class="alert alert-{{ 'danger' if cat == 'error' else cat }} alert-dismissible py-2" role="alert">
+        {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+    {% endwith %}
+
+    {% if clientes %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Código</th>
+                    <th>Nome</th>
+                    <th>NIF</th>
+                    <th>Tipo</th>
+                    <th class="text-center">Incluir Mapas</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for c in clientes %}
+                <tr>
+                    <td class="text-muted small">{{ c.codigo or '—' }}</td>
+                    <td>
+                        <a href="{{ url_for('financeiro.faturas_clientes', cliente_id=c.id) }}" class="text-decoration-none">
+                            {{ c.nome }}
+                        </a>
+                    </td>
+                    <td class="text-muted small">{{ c.nif }}</td>
+                    <td>
+                        <span class="badge {% if c.tipo == 'eventos' %}bg-info text-dark{% else %}bg-primary{% endif %}">
+                            {{ 'Eventos' if c.tipo == 'eventos' else 'B2B' }}
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        {% if c.incluir_mapas %}
+                        <span class="badge bg-success">✔</span>
+                        {% else %}
+                        <span class="badge bg-secondary">✖</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <button class="btn btn-outline-secondary btn-sm" type="button"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#edit-{{ c.id }}">Editar</button>
+                    </td>
+                </tr>
+                <tr class="collapse" id="edit-{{ c.id }}">
+                    <td colspan="6">
+                        <form method="POST" class="d-flex flex-wrap gap-2 align-items-end p-2 bg-light rounded">
+                            <input type="hidden" name="action" value="update">
+                            <input type="hidden" name="cliente_id" value="{{ c.id }}">
+                            <div>
+                                <label class="form-label form-label-sm mb-0">Tipo</label>
+                                <select name="tipo" class="form-select form-select-sm" style="width:120px;">
+                                    <option value="b2b" {% if c.tipo == 'b2b' %}selected{% endif %}>B2B</option>
+                                    <option value="eventos" {% if c.tipo == 'eventos' %}selected{% endif %}>Eventos</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label form-label-sm mb-0">Incluir Mapas</label>
+                                <select name="incluir_mapas" class="form-select form-select-sm" style="width:90px;">
+                                    <option value="1" {% if c.incluir_mapas %}selected{% endif %}>Sim</option>
+                                    <option value="0" {% if not c.incluir_mapas %}selected{% endif %}>Não</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="text-muted small">{{ clientes|length }} cliente(s) encontrado(s).</p>
+    {% else %}
+    <div class="alert alert-info">
+        Nenhum cliente B2B registado. Faz um upload de faturas em <a href="{{ url_for('gestor.vendas_detalhe') }}">Gestor → Vendas Detalhe</a>.
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

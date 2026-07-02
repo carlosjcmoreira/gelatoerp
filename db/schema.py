@@ -3816,6 +3816,7 @@ def run_migrations_invoice_centros_custo():
 
 
 _LOCK_INVOICE_STATUS_CONFIG = 202659
+_LOCK_B2B = 202670
 
 _STATUS_CONFIG_DEFAULTS = [
     ('draft',          'Rascunho',          'bg-secondary',         0, True),
@@ -3851,6 +3852,63 @@ def run_migrations_pdf_filename_backfill():
                 )
     except Exception as exc:
         logger.error("run_migrations_pdf_filename_backfill failed: %s", exc)
+
+
+def run_migrations_b2b():
+    """Create clientes_b2b and faturas_clientes tables for B2B/Events invoicing."""
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_B2B,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_b2b: lock held by another worker, skipping")
+                return
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS clientes_b2b (
+                    id         SERIAL PRIMARY KEY,
+                    codigo     VARCHAR(100),
+                    nome       VARCHAR(255) NOT NULL,
+                    nif        VARCHAR(50)  NOT NULL UNIQUE,
+                    tipo       VARCHAR(20)  NOT NULL DEFAULT 'b2b',
+                    incluir_mapas BOOLEAN   NOT NULL DEFAULT TRUE,
+                    criado_em  TIMESTAMP    NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP    NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS faturas_clientes (
+                    id              SERIAL PRIMARY KEY,
+                    cliente_id      INTEGER NOT NULL REFERENCES clientes_b2b(id) ON DELETE CASCADE,
+                    numero          VARCHAR(100) NOT NULL UNIQUE,
+                    data            DATE NOT NULL,
+                    data_vencimento DATE,
+                    documento       VARCHAR(100),
+                    armazem         VARCHAR(100),
+                    total_bruto     NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    total_liquido   NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    desconto_global NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    total_imposto   NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    total           NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    observacoes     TEXT,
+                    anulado         BOOLEAN NOT NULL DEFAULT FALSE,
+                    criado_em       TIMESTAMP NOT NULL DEFAULT NOW(),
+                    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_faturas_clientes_data ON faturas_clientes(data)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_faturas_clientes_cliente ON faturas_clientes(cliente_id)"
+            )
+            conn.commit()
+            logger.info("run_migrations_b2b: complete")
+        except Exception as exc:
+            logger.error("run_migrations_b2b failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
 
 
 def run_migrations_invoice_status_config():

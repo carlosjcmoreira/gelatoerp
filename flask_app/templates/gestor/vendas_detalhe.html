@@ -35,6 +35,23 @@
 
     <div class="card mb-3">
         <div class="card-body">
+            <h6 class="card-title">🏢 Upload de Faturas B2B / Eventos</h6>
+            <p class="text-muted small">
+                Importa a listagem de documentos exportada do PHC/Primavera em formato <strong>.xlsx</strong>.<br>
+                Colunas esperadas: <em>Número, Data, Nome, NIF, Total</em> (entre outras). Faturas anuladas são ignoradas automaticamente.
+            </p>
+            <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="upload_b2b">
+                <div class="mb-2">
+                    <input type="file" name="b2b_file" class="form-control form-control-sm" accept=".xlsx,.xls">
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Importar Faturas B2B</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
             <h6 class="card-title">📊 Histórico de Vendas Detalhadas</h6>
             <div class="mb-2 d-flex flex-wrap gap-1 align-items-center">
                 <a href="{{ url_for('gestor.vendas_detalhe', loja_hist='Todas') }}" class="btn btn-sm {% if loja_hist == 'Todas' %}btn-primary{% else %}btn-outline-secondary{% endif %}">Todas</a>

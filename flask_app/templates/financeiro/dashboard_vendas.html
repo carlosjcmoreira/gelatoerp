@@ -193,6 +193,71 @@
             </div>
         </div>
     </div>
+
+    {# ── B2B & Eventos Section ────────────────────────────────────────────── #}
+    <hr class="my-4">
+    <h6 class="section-title mb-3">🏢 B2B & Eventos</h6>
+    <div class="row g-3 mb-3">
+        <div class="col-12 col-sm-6">
+            <div class="ytd-card h-100">
+                <div class="ytd-label">B2B — Acumulado</div>
+                <div class="ytd-val-main" id="b2bYtdB2b">—</div>
+                <div class="ytd-val-sub" id="b2bYtdB2bPrev">—</div>
+                <span id="b2bDeltaB2b"></span>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6">
+            <div class="ytd-card h-100">
+                <div class="ytd-label">Eventos — Acumulado</div>
+                <div class="ytd-val-main" id="b2bYtdEv">—</div>
+                <div class="ytd-val-sub" id="b2bYtdEvPrev">—</div>
+                <span id="b2bDeltaEv"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card">
+                <div class="card-body p-2">
+                    <p class="section-title mb-1" style="font-size:0.7rem;">B2B — Mensal</p>
+                    <div id="b2bChartB2b" style="height:200px;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card">
+                <div class="card-body p-2">
+                    <p class="section-title mb-1" style="font-size:0.7rem;">Eventos — Mensal</p>
+                    <div id="b2bChartEv" style="height:200px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body p-2">
+            <p class="section-title mb-2" style="font-size:0.7rem;">Top Clientes B2B & Eventos (acumulado)</p>
+            <div class="table-responsive">
+                <table class="table table-sm prod-table mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="prod-rank">#</th>
+                            <th>Cliente</th>
+                            <th class="text-end">2026</th>
+                            <th class="text-end">2025</th>
+                            <th class="text-end">Δ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="b2bTopBody"></tbody>
+                </table>
+            </div>
+            <div class="mt-2">
+                <a href="{{ url_for('financeiro.faturas_clientes') }}" class="btn btn-sm btn-outline-secondary">Ver Faturas Clientes →</a>
+                <a href="{{ url_for('financeiro.clientes_b2b') }}" class="btn btn-sm btn-outline-secondary ms-1">Gerir Clientes →</a>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
@@ -363,5 +428,89 @@ document.addEventListener('DOMContentLoaded', () => { applyFilter('total'); });
 
 const themeObserver = new MutationObserver(() => renderChart(currentFilter));
 themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ['data-bs-theme']});
+</script>
+
+<script>
+(function(){
+    const b2b = {{ b2b_json | safe }};
+    if (!b2b) return;
+
+    const MONTHS_PT = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    const currentYear = new Date().getFullYear();
+    const prevYear = currentYear - 1;
+
+    function fmtEur(v) {
+        if (v == null || v === 0) return '—';
+        return new Intl.NumberFormat('pt-PT', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(v);
+    }
+    function fmtDelta(y26, y25) {
+        if (!y25 || !y26) return '';
+        const pct = ((y26 - y25) / y25 * 100).toFixed(1);
+        const cls = y26 >= y25 ? 'delta-pos' : 'delta-neg';
+        const sign = y26 >= y25 ? '+' : '';
+        return `<span class="${cls}">${sign}${pct}%</span>`;
+    }
+
+    // ── YTD B2B cards ──────────────────────────────────────────────────────
+    const ytdB2b = b2b.ytd_b2b || {};
+    const ytdEv  = b2b.ytd_eventos || {};
+    document.getElementById('b2bYtdB2b').textContent     = fmtEur(ytdB2b.y2026);
+    document.getElementById('b2bYtdB2bPrev').textContent = fmtEur(ytdB2b.y2025);
+    document.getElementById('b2bYtdEv').textContent      = fmtEur(ytdEv.y2026);
+    document.getElementById('b2bYtdEvPrev').textContent  = fmtEur(ytdEv.y2025);
+    document.getElementById('b2bDeltaB2b').innerHTML = fmtDelta(ytdB2b.y2026, ytdB2b.y2025);
+    document.getElementById('b2bDeltaEv').innerHTML  = fmtDelta(ytdEv.y2026, ytdEv.y2025);
+
+    // ── Monthly bar charts (B2B and Eventos) ──────────────────────────────
+    function makeMonthlyTrace(monthlyData, year, color, name) {
+        const x = [], y = [];
+        const yd = monthlyData[year] || {};
+        for (let m = 1; m <= 12; m++) {
+            x.push(MONTHS_PT[m]);
+            y.push(yd[m] || 0);
+        }
+        return {x, y, type:'bar', name, marker:{color}};
+    }
+
+    const layoutB2b = {
+        margin:{t:10,b:30,l:50,r:10}, height:200,
+        showlegend:true, legend:{orientation:'h', y:-0.25},
+        paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
+        font:{size:11},
+        yaxis:{tickformat:',.0f', tickprefix:'€'},
+        xaxis:{tickfont:{size:10}},
+        barmode:'group',
+    };
+    const config = {responsive:true, displayModeBar:false};
+
+    Plotly.newPlot('b2bChartB2b', [
+        makeMonthlyTrace(b2b.monthly_b2b, currentYear, '#0d6efd', String(currentYear)),
+        makeMonthlyTrace(b2b.monthly_b2b, prevYear,    '#6ea8fe', String(prevYear)),
+    ], layoutB2b, config);
+
+    Plotly.newPlot('b2bChartEv', [
+        makeMonthlyTrace(b2b.monthly_eventos, currentYear, '#0dcaf0', String(currentYear)),
+        makeMonthlyTrace(b2b.monthly_eventos, prevYear,    '#9eeaf9', String(prevYear)),
+    ], {...layoutB2b}, config);
+
+    // ── Top clientes table ─────────────────────────────────────────────────
+    const tbody = document.getElementById('b2bTopBody');
+    if (b2b.top_clientes && b2b.top_clientes.length) {
+        tbody.innerHTML = b2b.top_clientes.map((c,i) => {
+            const badge = c.tipo === 'eventos'
+                ? '<span class="badge bg-info text-dark" style="font-size:0.6rem;">Ev.</span>'
+                : '<span class="badge bg-primary" style="font-size:0.6rem;">B2B</span>';
+            return `<tr>
+                <td class="prod-rank">${i+1}</td>
+                <td>${c.nome} ${badge}</td>
+                <td class="text-end">${fmtEur(c.y2026)}</td>
+                <td class="text-end text-muted">${fmtEur(c.y2025)}</td>
+                <td>${fmtDelta(c.y2026, c.y2025)}</td>
+            </tr>`;
+        }).join('');
+    } else {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Sem dados — importa faturas B2B no Gestor</td></tr>';
+    }
+})();
 </script>
 {% endblock %}

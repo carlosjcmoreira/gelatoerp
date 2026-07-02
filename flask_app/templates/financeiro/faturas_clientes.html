@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-1">🧾 Faturas Clientes</h5>
+    <p class="text-muted small mb-3">Faturas B2B & Eventos importadas. Filtra por cliente, datas ou tipo.</p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+    <div class="alert alert-{{ 'danger' if cat == 'error' else cat }} alert-dismissible py-2" role="alert">
+        {{ msg }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+    {% endwith %}
+
+    <form method="GET" class="row g-2 mb-3 align-items-end">
+        <div class="col-auto">
+            <label class="form-label form-label-sm mb-0">Cliente</label>
+            <select name="cliente_id" class="form-select form-select-sm" style="max-width:200px;">
+                <option value="">Todos</option>
+                {% for c in clientes %}
+                <option value="{{ c.id }}" {% if cliente_id == c.id %}selected{% endif %}>{{ c.nome }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label form-label-sm mb-0">Data início</label>
+            <input type="date" name="data_inicio" class="form-control form-control-sm" value="{{ data_inicio }}">
+        </div>
+        <div class="col-auto">
+            <label class="form-label form-label-sm mb-0">Data fim</label>
+            <input type="date" name="data_fim" class="form-control form-control-sm" value="{{ data_fim }}">
+        </div>
+        <div class="col-auto d-flex align-items-end">
+            <div class="form-check form-check-inline mb-0">
+                <input class="form-check-input" type="checkbox" name="incluir_anuladas" value="1" id="inclAn" {% if incluir_anuladas %}checked{% endif %}>
+                <label class="form-check-label small" for="inclAn">Incluir anuladas</label>
+            </div>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+            <a href="{{ url_for('financeiro.faturas_clientes') }}" class="btn btn-outline-secondary btn-sm">Limpar</a>
+        </div>
+        <div class="col-auto ms-auto">
+            <a href="{{ url_for('financeiro.clientes_b2b') }}" class="btn btn-outline-info btn-sm">🏢 Clientes</a>
+        </div>
+    </form>
+
+    <p class="text-muted small mb-2">{{ total }} fatura(s) encontrada(s).</p>
+
+    {% if faturas %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Número</th>
+                    <th>Data</th>
+                    <th>Vencimento</th>
+                    <th>Cliente</th>
+                    <th>Tipo</th>
+                    <th>Armazém</th>
+                    <th class="text-end">Bruto</th>
+                    <th class="text-end">Desconto</th>
+                    <th class="text-end">Imposto</th>
+                    <th class="text-end fw-semibold">Total</th>
+                    <th>Obs.</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for f in faturas %}
+            <tr {% if f.anulado %}class="text-decoration-line-through text-muted"{% endif %}>
+                <td class="small">{{ f.numero }}</td>
+                <td class="small">{{ f.data.strftime('%d/%m/%Y') if f.data else '—' }}</td>
+                <td class="small text-muted">{{ f.data_vencimento.strftime('%d/%m/%Y') if f.data_vencimento else '—' }}</td>
+                <td>
+                    <a href="{{ url_for('financeiro.faturas_clientes', cliente_id=f.cliente_id) }}" class="text-decoration-none small">
+                        {{ f.cliente_nome }}
+                    </a>
+                </td>
+                <td>
+                    <span class="badge {% if f.cliente_tipo == 'eventos' %}bg-info text-dark{% else %}bg-primary{% endif %} small">
+                        {{ 'Ev.' if f.cliente_tipo == 'eventos' else 'B2B' }}
+                    </span>
+                </td>
+                <td class="text-muted small">{{ f.armazem or '—' }}</td>
+                <td class="text-end small">{{ "%.2f"|format(f.total_bruto or 0) }}</td>
+                <td class="text-end small text-danger">{{ "%.2f"|format(f.desconto_global or 0) }}</td>
+                <td class="text-end small">{{ "%.2f"|format(f.total_imposto or 0) }}</td>
+                <td class="text-end fw-semibold">{{ "%.2f"|format(f.total or 0) }} €</td>
+                <td class="small text-muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ f.observacoes or '' }}">{{ f.observacoes or '' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+            <tfoot class="table-light">
+                <tr>
+                    <td colspan="9" class="text-end fw-semibold">Total página:</td>
+                    <td class="text-end fw-bold">{{ "%.2f"|format(faturas|sum(attribute='total')) }} €</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <nav>
+        <ul class="pagination pagination-sm justify-content-center">
+            {% if page > 1 %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for('financeiro.faturas_clientes', page=page-1, cliente_id=cliente_id or '', data_inicio=data_inicio, data_fim=data_fim, incluir_anuladas='1' if incluir_anuladas else '') }}">«</a>
+            </li>
+            {% endif %}
+            <li class="page-item disabled"><span class="page-link">{{ page }}/{{ total_pages }}</span></li>
+            {% if page < total_pages %}
+            <li class="page-item">
+                <a class="page-link" href="{{ url_for('financeiro.faturas_clientes', page=page+1, cliente_id=cliente_id or '', data_inicio=data_inicio, data_fim=data_fim, incluir_anuladas='1' if incluir_anuladas else '') }}">»</a>
+            </li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+
+    {% else %}
+    <div class="alert alert-info">
+        Nenhuma fatura encontrada com os filtros aplicados.
+        {% if not clientes %}
+        Faz um upload de faturas em <a href="{{ url_for('gestor.vendas_detalhe') }}">Gestor → Vendas Detalhe</a>.
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

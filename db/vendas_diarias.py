@@ -1269,3 +1269,105 @@ def get_dashboard_vendas() -> dict:
         'ytd': ytd,
         'produtos': produtos,
     }
+
+
+def get_dashboard_b2b(ano: int = None) -> dict:
+    """Return B2B/Events monthly revenue for the sales dashboard.
+
+    Only clients with incluir_mapas=TRUE are included.
+
+    Returns:
+        {
+            'monthly_b2b':    {year: {month: total}},
+            'monthly_eventos':{year: {month: total}},
+            'ytd_b2b':        {y2026, y2025},
+            'ytd_eventos':    {y2026, y2025},
+            'top_clientes':   list of {nome, tipo, y2026, y2025},
+        }
+    """
+    from datetime import date as _date
+    today = _date.today()
+    anos = [today.year, today.year - 1]
+    if ano and ano not in anos:
+        anos.append(ano)
+
+    with db_connection() as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT
+                    c.tipo,
+                    EXTRACT(YEAR  FROM fc.data)::int AS ano,
+                    EXTRACT(MONTH FROM fc.data)::int AS mes,
+                    SUM(fc.total) AS total
+                FROM faturas_clientes fc
+                JOIN clientes_b2b c ON c.id = fc.cliente_id
+                WHERE fc.anulado = FALSE
+                  AND c.incluir_mapas = TRUE
+                  AND EXTRACT(YEAR FROM fc.data) IN %s
+                GROUP BY c.tipo, ano, mes
+                ORDER BY c.tipo, ano, mes
+            """, (tuple(anos),))
+            monthly_rows = cur.fetchall()
+        except Exception as exc:
+            logger.warning("get_dashboard_b2b monthly failed: %s", exc)
+            monthly_rows = []
+
+        try:
+            cutoff_26 = today
+            cutoff_mmdd = cutoff_26.month * 100 + cutoff_26.day
+            cur.execute("""
+                SELECT
+                    c.tipo,
+                    c.id, c.nome,
+                    SUM(fc.total) FILTER (
+                        WHERE EXTRACT(YEAR FROM fc.data) = %s
+                    ) AS y2026,
+                    SUM(fc.total) FILTER (
+                        WHERE EXTRACT(YEAR FROM fc.data) = %s
+                          AND EXTRACT(MONTH FROM fc.data)::int * 100
+                            + EXTRACT(DAY FROM fc.data)::int <= %s
+                    ) AS y2025
+                FROM faturas_clientes fc
+                JOIN clientes_b2b c ON c.id = fc.cliente_id
+                WHERE fc.anulado = FALSE
+                  AND c.incluir_mapas = TRUE
+                  AND EXTRACT(YEAR FROM fc.data) IN (%s, %s)
+                GROUP BY c.tipo, c.id, c.nome
+                ORDER BY c.tipo, y2026 DESC NULLS LAST
+            """, (today.year, today.year - 1, cutoff_mmdd, today.year, today.year - 1))
+            ytd_rows = cur.fetchall()
+        except Exception as exc:
+            logger.warning("get_dashboard_b2b ytd failed: %s", exc)
+            ytd_rows = []
+
+    monthly_b2b: dict = {}
+    monthly_eventos: dict = {}
+    for tipo, ano_val, mes_val, total in monthly_rows:
+        d = monthly_b2b if tipo == 'b2b' else monthly_eventos
+        d.setdefault(ano_val, {})[mes_val] = float(total or 0)
+
+    ytd_b2b = {'y2026': 0.0, 'y2025': 0.0}
+    ytd_eventos = {'y2026': 0.0, 'y2025': 0.0}
+    top_clientes = []
+    for tipo, cid, nome, y26, y25 in ytd_rows:
+        y26 = float(y26 or 0)
+        y25 = float(y25 or 0)
+        if tipo == 'b2b':
+            ytd_b2b['y2026'] += y26
+            ytd_b2b['y2025'] += y25
+        else:
+            ytd_eventos['y2026'] += y26
+            ytd_eventos['y2025'] += y25
+        top_clientes.append({'nome': nome, 'tipo': tipo, 'y2026': y26, 'y2025': y25})
+
+    top_clientes.sort(key=lambda x: x['y2026'], reverse=True)
+    top_clientes = top_clientes[:10]
+
+    return {
+        'monthly_b2b': monthly_b2b,
+        'monthly_eventos': monthly_eventos,
+        'ytd_b2b': ytd_b2b,
+        'ytd_eventos': ytd_eventos,
+        'top_clientes': top_clientes,
+    }

@@ -459,6 +459,8 @@ def vendas_detalhe():
         action = request.form.get('action')
         if action == 'upload_vendas':
             return _handle_upload_vendas(loja_map_vendas)
+        elif action == 'upload_b2b':
+            return _handle_upload_b2b()
         elif action == 'delete_vendas':
             return _handle_delete_vendas()
 
@@ -601,6 +603,38 @@ def _handle_delete_vendas():
     except Exception as e:
         flash(f'Erro: {str(e)}', 'error')
 
+    return redirect(url_for('gestor.vendas_detalhe'))
+
+
+def _handle_upload_b2b():
+    """Handle POST action='upload_b2b': import B2B invoices from Excel."""
+    f = request.files.get('b2b_file')
+    if not f or not f.filename:
+        flash('Nenhum ficheiro selecionado.', 'warning')
+        return redirect(url_for('gestor.vendas_detalhe'))
+    filename = f.filename.lower()
+    if not (filename.endswith('.xlsx') or filename.endswith('.xls')):
+        flash('Formato inválido. Usa um ficheiro .xlsx ou .xls.', 'warning')
+        return redirect(url_for('gestor.vendas_detalhe'))
+    try:
+        from flask_app.services.import_b2b_svc import import_b2b_from_excel
+        result = import_b2b_from_excel(f.stream)
+        msgs = []
+        if result['faturas_importadas']:
+            msgs.append(f"{result['faturas_importadas']} faturas importadas")
+        if result['faturas_atualizadas']:
+            msgs.append(f"{result['faturas_atualizadas']} faturas atualizadas")
+        if result['faturas_anuladas_ignoradas']:
+            msgs.append(f"{result['faturas_anuladas_ignoradas']} anuladas ignoradas")
+        if msgs:
+            flash(' | '.join(msgs) + '.', 'success')
+        else:
+            flash('Nenhuma fatura nova encontrada.', 'info')
+        for err in result['erros'][:5]:
+            flash(err, 'warning')
+    except Exception as exc:
+        logger.error("_handle_upload_b2b error: %s", exc)
+        flash(f'Erro ao processar ficheiro: {exc}', 'error')
     return redirect(url_for('gestor.vendas_detalhe'))
 
 

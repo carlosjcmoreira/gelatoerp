@@ -33,6 +33,13 @@ FINANCEIRO_GROUPS = [
         ],
     },
     {
+        'label': 'B2B & Eventos',
+        'modules': [
+            {'key': 'clientes_b2b',    'label': 'Clientes',          'icon': '🏢', 'active': True,  'url_func': 'financeiro.clientes_b2b'},
+            {'key': 'faturas_clientes','label': 'Faturas Clientes',   'icon': '🧾', 'active': True,  'url_func': 'financeiro.faturas_clientes'},
+        ],
+    },
+    {
         'label': 'Configuração',
         'modules': [
             {'key': 'centros_custo',             'label': 'Centros de Custo',      'icon': '🏷️', 'active': True,  'url_func': 'centros_custo.index'},
@@ -200,12 +207,14 @@ def previsao_30dias_config():
 @financeiro_bp.route('/dashboard-vendas')
 @perm_required('acesso_gestor')
 def dashboard_vendas():
-    from db.vendas_diarias import get_dashboard_vendas
+    from db.vendas_diarias import get_dashboard_vendas, get_dashboard_b2b
     import json
     data = get_dashboard_vendas()
+    b2b_data = get_dashboard_b2b()
     return render_template(
         'financeiro/dashboard_vendas.html',
         data_json=json.dumps(data, ensure_ascii=False, default=str),
+        b2b_json=json.dumps(b2b_data, ensure_ascii=False, default=str),
         cutoff=data.get('cutoff'),
         lojas=data.get('lojas', []),
     )
@@ -439,4 +448,76 @@ def distribuicao_centros_custo():
         stores=stores,
         allocations=allocations,
         sales_split=sales_split,
+    )
+
+
+@financeiro_bp.route('/clientes-b2b', methods=['GET', 'POST'])
+@perm_required('acesso_financeiro')
+def clientes_b2b():
+    from db.clientes_b2b import list_clientes, update_cliente
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'update':
+            cliente_id = int(request.form.get('cliente_id', 0))
+            tipo = request.form.get('tipo', 'b2b')
+            incluir_mapas = request.form.get('incluir_mapas') == '1'
+            if tipo not in ('b2b', 'eventos'):
+                tipo = 'b2b'
+            update_cliente(cliente_id, tipo=tipo, incluir_mapas=incluir_mapas)
+            flash('Cliente atualizado.', 'success')
+        return redirect(url_for('financeiro.clientes_b2b'))
+    tipo_filter = request.args.get('tipo', '')
+    clientes = list_clientes(tipo=tipo_filter if tipo_filter else None)
+    return render_template(
+        'financeiro/clientes_b2b.html',
+        clientes=clientes,
+        tipo_filter=tipo_filter,
+    )
+
+
+@financeiro_bp.route('/faturas-clientes', methods=['GET'])
+@perm_required('acesso_financeiro')
+def faturas_clientes():
+    from db.faturas_clientes import list_faturas, count_faturas
+    page = max(1, int(request.args.get('page', 1)))
+    per_page = 50
+    offset = (page - 1) * per_page
+    cliente_id_str = request.args.get('cliente_id', '')
+    data_inicio_str = request.args.get('data_inicio', '')
+    data_fim_str = request.args.get('data_fim', '')
+    incluir_anuladas = request.args.get('incluir_anuladas') == '1'
+
+    cliente_id = int(cliente_id_str) if cliente_id_str.isdigit() else None
+    data_inicio = None
+    data_fim = None
+    try:
+        if data_inicio_str:
+            data_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d').date()
+        if data_fim_str:
+            data_fim = datetime.strptime(data_fim_str, '%Y-%m-%d').date()
+    except ValueError:
+        pass
+
+    total = count_faturas(
+        cliente_id=cliente_id, data_inicio=data_inicio, data_fim=data_fim,
+        incluir_anuladas=incluir_anuladas,
+    )
+    faturas = list_faturas(
+        cliente_id=cliente_id, data_inicio=data_inicio, data_fim=data_fim,
+        incluir_anuladas=incluir_anuladas, limit=per_page, offset=offset,
+    )
+    from db.clientes_b2b import list_clientes
+    clientes = list_clientes()
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    return render_template(
+        'financeiro/faturas_clientes.html',
+        faturas=faturas,
+        clientes=clientes,
+        page=page,
+        total_pages=total_pages,
+        total=total,
+        cliente_id=cliente_id,
+        data_inicio=data_inicio_str,
+        data_fim=data_fim_str,
+        incluir_anuladas=incluir_anuladas,
     )
