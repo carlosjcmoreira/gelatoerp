@@ -1,7 +1,7 @@
 modules = ["nodejs-20", "python-3.11", "postgresql-16"]
 [deployment]
-deploymentTarget = "autoscale"
-run = ["gunicorn", "--bind=0.0.0.0:5000", "--reuse-port", "--preload", "--timeout", "120", "flask_app.app:create_app()"]
+deploymentTarget = "vm"
+run = ["gunicorn", "flask_app.app:create_app()", "-c", "gunicorn.conf.py"]
 
 [nix]
 channel = "stable-25_05"
