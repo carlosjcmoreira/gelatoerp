@@ -50,17 +50,31 @@ def upsert_fatura(cliente_id: int, numero: str, data_fatura: date,
         return row[0], row[1]
 
 
-def update_status(fatura_id: int, status: str) -> bool:
-    """Set payment status for a single invoice. Returns True if row was found."""
+def update_status(fatura_id: int, status: str, data_pagamento: date = None) -> bool:
+    """Set payment status for a single invoice. Returns True if row was found.
+
+    When transitioning to 'pago', data_pagamento is set (defaults to today if not
+    provided and not already set). For other statuses, data_pagamento is left
+    untouched unless explicitly provided.
+    """
     if status not in VALID_STATUSES:
         raise ValueError(f"Invalid status '{status}'. Must be one of {VALID_STATUSES}.")
     with db_connection() as conn:
         cur = conn.cursor()
-        cur.execute("""
-            UPDATE faturas_clientes
-               SET status = %s, updated_at = NOW()
-             WHERE id = %s AND anulado = FALSE
-        """, (status, fatura_id))
+        if status == 'pago':
+            cur.execute("""
+                UPDATE faturas_clientes
+                   SET status = %s,
+                       data_pagamento = COALESCE(%s, data_pagamento, CURRENT_DATE),
+                       updated_at = NOW()
+                 WHERE id = %s AND anulado = FALSE
+            """, (status, data_pagamento, fatura_id))
+        else:
+            cur.execute("""
+                UPDATE faturas_clientes
+                   SET status = %s, updated_at = NOW()
+                 WHERE id = %s AND anulado = FALSE
+            """, (status, fatura_id))
         updated = cur.rowcount
         conn.commit()
         return updated > 0
@@ -161,7 +175,7 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
                    fc.numero, fc.data, fc.data_vencimento, fc.documento, fc.armazem,
                    fc.total_bruto, fc.total_liquido, fc.desconto_global,
                    fc.total_imposto, fc.total, fc.observacoes, fc.anulado,
-                   fc.status,
+                   fc.status, fc.data_pagamento,
                    fc.criado_em, fc.updated_at
             FROM faturas_clientes fc
             JOIN clientes_b2b c ON c.id = fc.cliente_id
@@ -174,7 +188,7 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
             'numero', 'data', 'data_vencimento', 'documento', 'armazem',
             'total_bruto', 'total_liquido', 'desconto_global',
             'total_imposto', 'total', 'observacoes', 'anulado',
-            'status',
+            'status', 'data_pagamento',
             'criado_em', 'updated_at',
         ]
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]

@@ -3946,6 +3946,35 @@ def run_migrations_faturas_clientes_status():
                 pass
 
 
+_LOCK_FATURAS_CLIENTES_DATA_PAGAMENTO = 202672
+
+
+def run_migrations_faturas_clientes_data_pagamento():
+    """Add data_pagamento column (date payment was received) to faturas_clientes.
+
+    Advisory lock 202672 ensures only one worker runs the DDL.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_FATURAS_CLIENTES_DATA_PAGAMENTO,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_faturas_clientes_data_pagamento: lock held by another worker, skipping")
+                return
+            cursor.execute("""
+                ALTER TABLE faturas_clientes
+                ADD COLUMN IF NOT EXISTS data_pagamento DATE
+            """)
+            conn.commit()
+            logger.info("run_migrations_faturas_clientes_data_pagamento: complete")
+        except Exception as exc:
+            logger.error("run_migrations_faturas_clientes_data_pagamento failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_invoice_status_config():
     """Create invoice_status_config table and seed default statuses if empty.
 

@@ -99,6 +99,7 @@
                     <th class="text-end">Imposto</th>
                     <th class="text-end fw-semibold">Total</th>
                     <th class="text-center">Estado</th>
+                    <th>Pago em</th>
                     <th>Obs.</th>
                 </tr>
             </thead>
@@ -140,7 +141,7 @@
                             {% elif f.status == 'vencido' %}⚠️ Vencido
                             {% else %}🕐 Pendente{% endif %}
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="min-width:130px;">
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm p-2" style="min-width:190px;">
                             <li>
                                 <form method="POST" action="{{ url_for('financeiro.faturas_clientes_set_status', fatura_id=f.id) }}">
                                     <input type="hidden" name="status" value="pendente">
@@ -148,9 +149,11 @@
                                 </form>
                             </li>
                             <li>
-                                <form method="POST" action="{{ url_for('financeiro.faturas_clientes_set_status', fatura_id=f.id) }}">
+                                <form method="POST" action="{{ url_for('financeiro.faturas_clientes_set_status', fatura_id=f.id) }}" class="px-2 py-1">
                                     <input type="hidden" name="status" value="pago">
-                                    <button class="dropdown-item small {% if f.status == 'pago' %}fw-bold{% endif %}" type="submit">✅ Pago</button>
+                                    <label class="form-label form-label-sm mb-1 small text-muted">Data de pagamento</label>
+                                    <input type="date" name="data_pagamento" class="form-control form-control-sm mb-2" value="{{ f.data_pagamento.strftime('%Y-%m-%d') if f.data_pagamento else '' }}">
+                                    <button class="btn btn-success btn-sm w-100 {% if f.status == 'pago' %}fw-bold{% endif %}" type="submit">✅ Marcar como Pago</button>
                                 </form>
                             </li>
                             <li>
@@ -163,6 +166,7 @@
                     </div>
                     {% endif %}
                 </td>
+                <td class="small text-muted">{{ f.data_pagamento.strftime('%d/%m/%Y') if f.data_pagamento else '—' }}</td>
                 <td class="small text-muted" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ f.observacoes or '' }}">{{ f.observacoes or '' }}</td>
             </tr>
             {% endfor %}
@@ -171,7 +175,7 @@
                 <tr>
                     <td colspan="9" class="text-end fw-semibold">Total página:</td>
                     <td class="text-end fw-bold">{{ "%.2f"|format(faturas|sum(attribute='total')) }} €</td>
-                    <td colspan="2"></td>
+                    <td colspan="3"></td>
                 </tr>
             </tfoot>
         </table>

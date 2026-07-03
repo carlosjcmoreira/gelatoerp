@@ -48,6 +48,7 @@ from db.schema import run_migrations_loja_origem
 from db.schema import run_migrations_invoice_status_config
 from db.schema import run_migrations_pdf_filename_backfill
 from db.schema import run_migrations_b2b, run_migrations_faturas_clientes_status
+from db.schema import run_migrations_faturas_clientes_data_pagamento
 from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clientes
 
 
@@ -180,6 +181,7 @@ def create_app():
         run_migrations_pdf_filename_backfill()
         run_migrations_b2b()
         run_migrations_faturas_clientes_status()
+        run_migrations_faturas_clientes_data_pagamento()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()

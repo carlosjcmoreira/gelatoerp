@@ -482,10 +482,20 @@ def faturas_clientes_set_status(fatura_id):
     status = request.form.get('status', '').strip()
     if status not in ('pendente', 'pago', 'vencido'):
         flash('Estado inválido.', 'error')
-    else:
-        found = update_status(fatura_id, status)
-        if not found:
-            flash('Fatura não encontrada ou anulada.', 'error')
+        return redirect(request.referrer or url_for('financeiro.faturas_clientes'))
+
+    data_pagamento = None
+    data_pagamento_str = request.form.get('data_pagamento', '').strip()
+    if status == 'pago' and data_pagamento_str:
+        try:
+            data_pagamento = datetime.strptime(data_pagamento_str, '%Y-%m-%d').date()
+        except ValueError:
+            flash('Data de pagamento inválida.', 'error')
+            return redirect(request.referrer or url_for('financeiro.faturas_clientes'))
+
+    found = update_status(fatura_id, status, data_pagamento=data_pagamento)
+    if not found:
+        flash('Fatura não encontrada ou anulada.', 'error')
     return redirect(request.referrer or url_for('financeiro.faturas_clientes'))
 
 
