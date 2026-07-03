@@ -170,8 +170,9 @@
         var bar = document.getElementById('backBar');
         if (!bar) return;
 
-        function ensureSubmitVisible() {
-            var submits = document.querySelectorAll(
+        function ensureSubmitVisible(scope) {
+            var root = scope || document;
+            var submits = root.querySelectorAll(
                 'button[type="submit"], input[type="submit"], ' +
                 'button:not([type]):not([data-bs-dismiss]):not([data-no-loading])'
             );
@@ -211,9 +212,14 @@
             if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
             var type = (e.target.type || '').toLowerCase();
             if (type === 'checkbox' || type === 'radio') return;
+            /* Scope the visibility check to the field's own form (falling back
+               to the whole document when the field isn't inside one) so pages
+               with several stacked forms don't jump to an unrelated button
+               far down the page. */
+            var scope = e.target.closest('form') || document;
             /* iOS keyboard takes ~300 ms to animate away; wait 350 ms so the
                new viewport height is stable before we measure button positions. */
-            setTimeout(ensureSubmitVisible, 350);
+            setTimeout(function() { ensureSubmitVisible(scope); }, 350);
         }, true);
     })();
     </script>
