@@ -8,6 +8,9 @@
     color: #fff;
     border-color: var(--bs-primary);
 }
+.dvd-filter-btn[data-role="total"] {
+    font-weight: 700;
+}
 .ytd-card {
     border-radius: 0.75rem;
     padding: 1.1rem 1.4rem;
@@ -79,78 +82,14 @@
         {% endif %}
     </div>
 
-    {# ── B2B & Eventos Section ────────────────────────────────────────────── #}
-    <h6 class="section-title mb-3">🏢 B2B & Eventos</h6>
-    <div class="row g-3 mb-3">
-        <div class="col-12 col-sm-6">
-            <div class="ytd-card h-100">
-                <div class="ytd-label">B2B — Acumulado</div>
-                <div class="ytd-val-main" id="b2bYtdB2b">—</div>
-                <div class="ytd-val-sub" id="b2bYtdB2bPrev">—</div>
-                <span id="b2bDeltaB2b"></span>
-            </div>
-        </div>
-        <div class="col-12 col-sm-6">
-            <div class="ytd-card h-100">
-                <div class="ytd-label">Eventos — Acumulado</div>
-                <div class="ytd-val-main" id="b2bYtdEv">—</div>
-                <div class="ytd-val-sub" id="b2bYtdEvPrev">—</div>
-                <span id="b2bDeltaEv"></span>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-3 mb-4">
-        <div class="col-12 col-md-6">
-            <div class="card">
-                <div class="card-body p-2">
-                    <p class="section-title mb-1" style="font-size:0.7rem;">B2B — Mensal</p>
-                    <div id="b2bChartB2b" style="height:200px;"></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-12 col-md-6">
-            <div class="card">
-                <div class="card-body p-2">
-                    <p class="section-title mb-1" style="font-size:0.7rem;">Eventos — Mensal</p>
-                    <div id="b2bChartEv" style="height:200px;"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card mb-4">
-        <div class="card-body p-2">
-            <p class="section-title mb-2" style="font-size:0.7rem;">Top Clientes B2B & Eventos (acumulado)</p>
-            <div class="table-responsive">
-                <table class="table table-sm prod-table mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="prod-rank">#</th>
-                            <th>Cliente</th>
-                            <th class="text-end">2026</th>
-                            <th class="text-end">2025</th>
-                            <th class="text-end">Δ</th>
-                        </tr>
-                    </thead>
-                    <tbody id="b2bTopBody"></tbody>
-                </table>
-            </div>
-            <div class="mt-2">
-                <a href="{{ url_for('financeiro.faturas_clientes') }}" class="btn btn-sm btn-outline-secondary">Ver Faturas Clientes →</a>
-                <a href="{{ url_for('financeiro.clientes_b2b') }}" class="btn btn-sm btn-outline-secondary ms-1">Gerir Clientes →</a>
-            </div>
-        </div>
-    </div>
-
-    <hr class="my-4">
-
-    {# ── Shared loja filter ──────────────────────────────────────────────── #}
-    <div class="btn-group mb-4" role="group" id="filterBtns">
-        <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn active" data-filter="total">Total</button>
+    {# ── Channel toggle selector ─────────────────────────────────────────── #}
+    <div class="btn-group flex-wrap mb-4" role="group" id="filterBtns">
+        <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn" data-role="total" id="btnTotal">Total</button>
         {% for loja in lojas %}
-        <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn" data-filter="{{ loja }}">{{ loja }}</button>
+        <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn" data-channel="{{ loja }}">{{ loja }}</button>
         {% endfor %}
+        <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn" data-channel="b2b">B2B</button>
+        <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn" data-channel="eventos">Eventos</button>
     </div>
 
     {# ── YTD widget ──────────────────────────────────────────────────────── #}
@@ -184,78 +123,111 @@
     </div>
 
     {# ── Product analysis tables ─────────────────────────────────────────── #}
-    <div class="row g-3 mb-2">
-        {# Top 10 mais vendidos #}
-        <div class="col-12">
-            <div class="card">
-                <div class="card-body p-3">
-                    <div class="section-title">🏆 Top 10 produtos mais vendidos — 2026 YTD</div>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover prod-table mb-0" id="tblTop10">
-                            <thead class="table-light">
-                                <tr>
-                                    <th class="prod-rank">#</th>
-                                    <th>Produto</th>
-                                    <th class="text-end">2026</th>
-                                    <th class="text-end">2025 base</th>
-                                    <th class="text-end">Var. €</th>
-                                    <th class="text-end">Var. %</th>
-                                </tr>
-                            </thead>
-                            <tbody id="bodyTop10"></tbody>
-                        </table>
+    <div id="produtosEmptyMsg" class="alert alert-secondary d-none mb-4">
+        Seleciona pelo menos uma loja (Bolhão ou Matosinhos) para ver a análise de produtos. B2B e Eventos não têm detalhe por produto.
+    </div>
+    <div id="produtosSection">
+        <div class="row g-3 mb-2">
+            {# Top 10 mais vendidos #}
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body p-3">
+                        <div class="section-title">🏆 Top 10 produtos mais vendidos — 2026 YTD</div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover prod-table mb-0" id="tblTop10">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="prod-rank">#</th>
+                                        <th>Produto</th>
+                                        <th class="text-end">2026</th>
+                                        <th class="text-end">2025 base</th>
+                                        <th class="text-end">Var. €</th>
+                                        <th class="text-end">Var. %</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bodyTop10"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            {# Top 5 maior subida #}
+            <div class="col-12 col-md-6">
+                <div class="card h-100">
+                    <div class="card-body p-3">
+                        <div class="section-title">▲ Top 5 maior crescimento</div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover prod-table mb-0" id="tblTop5">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="prod-rank">#</th>
+                                        <th>Produto</th>
+                                        <th class="text-end">2026</th>
+                                        <th class="text-end">2025 base</th>
+                                        <th class="text-end">Var. €</th>
+                                        <th class="text-end">Var. %</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bodyTop5"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# Bottom 5 maior descida #}
+            <div class="col-12 col-md-6">
+                <div class="card h-100">
+                    <div class="card-body p-3">
+                        <div class="section-title">▼ Bottom 5 maior descida</div>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover prod-table mb-0" id="tblBot5">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="prod-rank">#</th>
+                                        <th>Produto</th>
+                                        <th class="text-end">2026</th>
+                                        <th class="text-end">2025 base</th>
+                                        <th class="text-end">Var. €</th>
+                                        <th class="text-end">Var. %</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bodyBot5"></tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="row g-3">
-        {# Top 5 maior subida #}
-        <div class="col-12 col-md-6">
-            <div class="card h-100">
-                <div class="card-body p-3">
-                    <div class="section-title">▲ Top 5 maior crescimento</div>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover prod-table mb-0" id="tblTop5">
-                            <thead class="table-light">
-                                <tr>
-                                    <th class="prod-rank">#</th>
-                                    <th>Produto</th>
-                                    <th class="text-end">2026</th>
-                                    <th class="text-end">2025 base</th>
-                                    <th class="text-end">Var. €</th>
-                                    <th class="text-end">Var. %</th>
-                                </tr>
-                            </thead>
-                            <tbody id="bodyTop5"></tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
+    <hr class="my-4">
 
-        {# Bottom 5 maior descida #}
-        <div class="col-12 col-md-6">
-            <div class="card h-100">
-                <div class="card-body p-3">
-                    <div class="section-title">▼ Bottom 5 maior descida</div>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover prod-table mb-0" id="tblBot5">
-                            <thead class="table-light">
-                                <tr>
-                                    <th class="prod-rank">#</th>
-                                    <th>Produto</th>
-                                    <th class="text-end">2026</th>
-                                    <th class="text-end">2025 base</th>
-                                    <th class="text-end">Var. €</th>
-                                    <th class="text-end">Var. %</th>
-                                </tr>
-                            </thead>
-                            <tbody id="bodyBot5"></tbody>
-                        </table>
-                    </div>
-                </div>
+    {# ── Top Clientes B2B & Eventos ──────────────────────────────────────── #}
+    <h6 class="section-title mb-3">🏢 Top Clientes B2B & Eventos</h6>
+    <div class="card mb-4">
+        <div class="card-body p-2">
+            <p class="section-title mb-2" style="font-size:0.7rem;">Top Clientes B2B & Eventos (acumulado)</p>
+            <div class="table-responsive">
+                <table class="table table-sm prod-table mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="prod-rank">#</th>
+                            <th>Cliente</th>
+                            <th class="text-end">2026</th>
+                            <th class="text-end">2025</th>
+                            <th class="text-end">Δ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="b2bTopBody"></tbody>
+                </table>
+            </div>
+            <div class="mt-2">
+                <a href="{{ url_for('financeiro.faturas_clientes') }}" class="btn btn-sm btn-outline-secondary">Ver Faturas Clientes →</a>
+                <a href="{{ url_for('financeiro.clientes_b2b') }}" class="btn btn-sm btn-outline-secondary ms-1">Gerir Clientes →</a>
             </div>
         </div>
     </div>
@@ -268,39 +240,9 @@ const RAW = {{ data_json | safe }};
 const B2B_RAW = {{ b2b_json | safe }};
 const MONTHS_PT = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
-// ── Merge B2B + Eventos into global RAW totals ─────────────────────────────
-// Both monthly_b2b and monthly_eventos use {year: {month: total}} structure.
-// We add them into RAW.monthly['total'] so the existing chart and YTD widgets
-// automatically reflect the full revenue including client invoices.
-(function mergeB2bIntoGlobal() {
-    if (!B2B_RAW) return;
-    function addMonthly(src) {
-        if (!src) return;
-        Object.entries(src).forEach(([yr, months]) => {
-            if (!RAW.monthly.total[yr]) RAW.monthly.total[yr] = {};
-            Object.entries(months).forEach(([mo, val]) => {
-                RAW.monthly.total[yr][mo] = (RAW.monthly.total[yr][mo] || 0) + (val || 0);
-            });
-        });
-    }
-    addMonthly(B2B_RAW.monthly_b2b);
-    addMonthly(B2B_RAW.monthly_eventos);
-
-    // Merge YTD totals
-    if (RAW.ytd && RAW.ytd.total) {
-        const b2bTot = (B2B_RAW.ytd_b2b || {});
-        const evTot  = (B2B_RAW.ytd_eventos || {});
-        const add26 = (b2bTot.y2026 || 0) + (evTot.y2026 || 0);
-        const add25 = (b2bTot.y2025 || 0) + (evTot.y2025 || 0);
-        RAW.ytd.total.y2026 = (RAW.ytd.total.y2026 || 0) + add26;
-        RAW.ytd.total.y2025 = (RAW.ytd.total.y2025 || 0) + add25;
-        if (RAW.ytd.total.y2025 && add25) {
-            const d = RAW.ytd.total.y2026 - RAW.ytd.total.y2025;
-            RAW.ytd.total.diff_eur = d;
-            RAW.ytd.total.diff_pct = parseFloat((d / RAW.ytd.total.y2025 * 100).toFixed(1));
-        }
-    }
-})();
+const LOJAS = RAW.lojas || [];
+const CHANNELS = [...LOJAS, 'b2b', 'eventos'];
+let selectedChannels = new Set(CHANNELS);
 
 function fmt(v) {
     if (v == null || isNaN(v)) return '—';
@@ -325,26 +267,74 @@ function deltaArrow(v) {
     return v >= 0 ? '▲' : '▼';
 }
 
-function getMonthlyData(filterKey) {
-    const src = RAW.monthly[filterKey] || {};
+// ── Per-channel data accessors ─────────────────────────────────────────────
+// Store (loja) channels read from RAW; B2B/Eventos read from B2B_RAW, since
+// they are not per-product and have their own dedicated structure.
+function getChannelMonthly(key) {
+    if (key === 'b2b') return (B2B_RAW && B2B_RAW.monthly_b2b) || {};
+    if (key === 'eventos') return (B2B_RAW && B2B_RAW.monthly_eventos) || {};
+    return RAW.monthly[key] || {};
+}
+function getChannelYtd(key) {
+    if (key === 'b2b') return (B2B_RAW && B2B_RAW.ytd_b2b) || {y2026: 0, y2025: 0};
+    if (key === 'eventos') return (B2B_RAW && B2B_RAW.ytd_eventos) || {y2026: 0, y2025: 0};
+    return RAW.ytd[key] || {y2026: 0, y2025: 0};
+}
+function getChannelProdutos(key) {
+    if (key === 'b2b' || key === 'eventos') return [];
+    return (RAW.produtos && RAW.produtos[key]) ? RAW.produtos[key] : [];
+}
+
+function getMonthlyData(selectedKeys) {
     const months = Array.from({length: 12}, (_, i) => i + 1);
-    const vals2025 = months.map(m => (src[2025] && src[2025][m]) ? src[2025][m] : 0);
-    const vals2026 = months.map(m => (src[2026] && src[2026][m]) ? src[2026][m] : 0);
+    const vals2025 = months.map(() => 0);
+    const vals2026 = months.map(() => 0);
+    selectedKeys.forEach(key => {
+        const src = getChannelMonthly(key);
+        months.forEach((m, idx) => {
+            vals2025[idx] += (src[2025] && src[2025][m]) ? src[2025][m] : 0;
+            vals2026[idx] += (src[2026] && src[2026][m]) ? src[2026][m] : 0;
+        });
+    });
     return {months, vals2025, vals2026};
 }
 
-function getYtdData(filterKey) {
-    return RAW.ytd[filterKey] || {y2026: null, y2025: null, diff_eur: null, diff_pct: null};
+function getYtdData(selectedKeys) {
+    let y2026 = 0, y2025 = 0;
+    selectedKeys.forEach(key => {
+        const d = getChannelYtd(key);
+        y2026 += d.y2026 || 0;
+        y2025 += d.y2025 || 0;
+    });
+    const diff_eur = y2026 - y2025;
+    const diff_pct = y2025 ? parseFloat(((diff_eur / y2025) * 100).toFixed(1)) : null;
+    return {y2026, y2025, diff_eur, diff_pct};
 }
 
-function getProdutos(filterKey) {
-    return (RAW.produtos && RAW.produtos[filterKey]) ? RAW.produtos[filterKey] : [];
+// Returns null when no store channel is selected, since product-level
+// analysis has no equivalent in B2B/Eventos data.
+function getProdutos(selectedKeys) {
+    const storeKeys = selectedKeys.filter(k => LOJAS.includes(k));
+    if (!storeKeys.length) return null;
+    const map = {};
+    storeKeys.forEach(key => {
+        getChannelProdutos(key).forEach(p => {
+            if (!map[p.produto]) map[p.produto] = {produto: p.produto, y2026: 0, y2025: 0};
+            map[p.produto].y2026 += p.y2026;
+            map[p.produto].y2025 += p.y2025;
+        });
+    });
+    return Object.values(map).map(p => {
+        const y2026 = Math.round(p.y2026 * 100) / 100;
+        const y2025 = Math.round(p.y2025 * 100) / 100;
+        const diff_eur = Math.round((y2026 - y2025) * 100) / 100;
+        const diff_pct = y2025 ? parseFloat(((diff_eur / y2025) * 100).toFixed(1)) : null;
+        return {produto: p.produto, y2026, y2025, diff_eur, diff_pct};
+    });
 }
 
-let currentFilter = 'total';
-
-function renderChart(filterKey) {
-    const {months, vals2025, vals2026} = getMonthlyData(filterKey);
+function renderChart(selectedKeys) {
+    const {months, vals2025, vals2026} = getMonthlyData(selectedKeys);
     const labels = months.map(m => MONTHS_PT[m]);
 
     const isDark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
@@ -374,8 +364,8 @@ function renderChart(filterKey) {
     }, {responsive: true, displayModeBar: false, locale: 'pt'});
 }
 
-function renderYtd(filterKey) {
-    const d = getYtdData(filterKey);
+function renderYtd(selectedKeys) {
+    const d = getYtdData(selectedKeys);
     document.getElementById('ytdVal2026').textContent = fmt(d.y2026);
     document.getElementById('ytdVal2025').textContent = fmt(d.y2025);
 
@@ -419,8 +409,18 @@ function rowTop5(rank, p) {
     </tr>`;
 }
 
-function renderProdutos(filterKey) {
-    const prods = getProdutos(filterKey);
+function renderProdutos(selectedKeys) {
+    const prods = getProdutos(selectedKeys);
+    const section = document.getElementById('produtosSection');
+    const emptyMsg = document.getElementById('produtosEmptyMsg');
+
+    if (prods === null) {
+        section.classList.add('d-none');
+        emptyMsg.classList.remove('d-none');
+        return;
+    }
+    section.classList.remove('d-none');
+    emptyMsg.classList.add('d-none');
 
     // Top 10 by 2026 YTD value
     const top10 = [...prods].sort((a, b) => b.y2026 - a.y2026).slice(0, 10);
@@ -443,23 +443,46 @@ function renderProdutos(filterKey) {
         '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';
 }
 
-function applyFilter(filterKey) {
-    currentFilter = filterKey;
-    document.querySelectorAll('.dvd-filter-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.filter === filterKey);
+function updateButtonStates() {
+    document.querySelectorAll('.dvd-filter-btn[data-channel]').forEach(b => {
+        b.classList.toggle('active', selectedChannels.has(b.dataset.channel));
     });
-    renderChart(filterKey);
-    renderYtd(filterKey);
-    renderProdutos(filterKey);
+    document.getElementById('btnTotal').classList.toggle('active', selectedChannels.size === CHANNELS.length);
 }
 
-document.querySelectorAll('.dvd-filter-btn').forEach(b => {
-    b.addEventListener('click', () => applyFilter(b.dataset.filter));
+function render() {
+    updateButtonStates();
+    const keys = Array.from(selectedChannels);
+    renderChart(keys);
+    renderYtd(keys);
+    renderProdutos(keys);
+}
+
+function toggleChannel(key) {
+    const next = new Set(selectedChannels);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    if (next.size === 0) return; // guard: never allow an empty selection
+    selectedChannels = next;
+    render();
+}
+
+function toggleTotal() {
+    if (selectedChannels.size < CHANNELS.length) {
+        selectedChannels = new Set(CHANNELS);
+        render();
+    }
+    // If already fully selected, deselecting everything would violate the
+    // "at least one channel selected" rule, so this is a no-op.
+}
+
+document.querySelectorAll('.dvd-filter-btn[data-channel]').forEach(b => {
+    b.addEventListener('click', () => toggleChannel(b.dataset.channel));
 });
+document.getElementById('btnTotal').addEventListener('click', toggleTotal);
 
-document.addEventListener('DOMContentLoaded', () => { applyFilter('total'); });
+document.addEventListener('DOMContentLoaded', () => { render(); });
 
-const themeObserver = new MutationObserver(() => renderChart(currentFilter));
+const themeObserver = new MutationObserver(() => renderChart(Array.from(selectedChannels)));
 themeObserver.observe(document.documentElement, {attributes: true, attributeFilter: ['data-bs-theme']});
 </script>
 
@@ -467,9 +490,6 @@ themeObserver.observe(document.documentElement, {attributes: true, attributeFilt
 (function(){
     const b2b = B2B_RAW;
     if (!b2b) return;
-
-    const currentYear = new Date().getFullYear();
-    const prevYear = currentYear - 1;
 
     function fmtEur(v) {
         if (v == null || v === 0) return '—';
@@ -482,81 +502,6 @@ themeObserver.observe(document.documentElement, {attributes: true, attributeFilt
         const sign = y26 >= y25 ? '+' : '';
         return `<span class="${cls}">${sign}${pct}%</span>`;
     }
-
-    // ── YTD B2B cards ──────────────────────────────────────────────────────
-    const ytdB2b = b2b.ytd_b2b || {};
-    const ytdEv  = b2b.ytd_eventos || {};
-    document.getElementById('b2bYtdB2b').textContent     = fmtEur(ytdB2b.y2026);
-    document.getElementById('b2bYtdB2bPrev').textContent = fmtEur(ytdB2b.y2025);
-    document.getElementById('b2bYtdEv').textContent      = fmtEur(ytdEv.y2026);
-    document.getElementById('b2bYtdEvPrev').textContent  = fmtEur(ytdEv.y2025);
-    document.getElementById('b2bDeltaB2b').innerHTML = fmtDelta(ytdB2b.y2026, ytdB2b.y2025);
-    document.getElementById('b2bDeltaEv').innerHTML  = fmtDelta(ytdEv.y2026, ytdEv.y2025);
-
-    // ── Monthly stacked bar charts per client/tipo ────────────────────────
-    // Show top MAX_CLIENTS per tipo as stacked segments; rest collapsed to "Outros".
-    const MAX_CLIENTS = 6;
-    const PALETTE = ['#0d6efd','#198754','#dc3545','#fd7e14','#6f42c1','#20c997',
-                     '#0dcaf0','#ffc107','#e83e8c','#6c757d'];
-
-    function buildStackedTraces(tipo) {
-        const clients = (b2b.monthly_por_cliente || []).filter(c => c.tipo === tipo);
-        const top = clients.slice(0, MAX_CLIENTS);
-        const rest = clients.slice(MAX_CLIENTS);
-        const labels = Array.from({length:12}, (_,i) => MONTHS_PT[i+1]);
-        const traces = [];
-
-        top.forEach((c, idx) => {
-            const yr = c.series[currentYear] || {};
-            traces.push({
-                x: labels,
-                y: Array.from({length:12}, (_,i) => yr[i+1] || 0),
-                type: 'bar', name: c.nome,
-                marker: {color: PALETTE[idx % PALETTE.length]},
-                hovertemplate: '%{x}<br>' + c.nome + ': %{y:,.0f} €<extra></extra>',
-            });
-        });
-
-        if (rest.length) {
-            const y = Array.from({length:12}, (_,i) => {
-                return rest.reduce((s,c) => s + ((c.series[currentYear]||{})[i+1]||0), 0);
-            });
-            traces.push({
-                x: labels, y, type:'bar', name:'Outros',
-                marker:{color:'#adb5bd'},
-                hovertemplate:'%{x}<br>Outros: %{y:,.0f} €<extra></extra>',
-            });
-        }
-
-        // Add previous year total as a line
-        const prevTotals = Array.from({length:12}, (_,i) => {
-            const m = i + 1;
-            return clients.reduce((s,c) => s + ((c.series[prevYear]||{})[m]||0), 0);
-        });
-        traces.push({
-            x: labels, y: prevTotals, type:'scatter', mode:'lines+markers',
-            name: String(prevYear), line:{color:'#6c757d', dash:'dot', width:1.5},
-            marker:{size:4, color:'#6c757d'},
-            hovertemplate:'%{x} ' + prevYear + ': %{y:,.0f} €<extra></extra>',
-        });
-
-        return traces;
-    }
-
-    const layoutStacked = {
-        margin:{t:10,b:30,l:50,r:10}, height:220,
-        showlegend:true,
-        legend:{orientation:'h', y:-0.4, font:{size:9}},
-        paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0)',
-        font:{size:11},
-        yaxis:{tickformat:',.0f', tickprefix:'€'},
-        xaxis:{tickfont:{size:10}},
-        barmode:'stack',
-    };
-    const config = {responsive:true, displayModeBar:false};
-
-    Plotly.newPlot('b2bChartB2b', buildStackedTraces('b2b'),    layoutStacked, config);
-    Plotly.newPlot('b2bChartEv',  buildStackedTraces('eventos'), {...layoutStacked}, config);
 
     // ── Top clientes table ─────────────────────────────────────────────────
     const tbody = document.getElementById('b2bTopBody');
