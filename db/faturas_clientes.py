@@ -66,6 +66,30 @@ def update_status(fatura_id: int, status: str) -> bool:
         return updated > 0
 
 
+def promote_overdue() -> int:
+    """Bulk-update all pendente invoices past their data_vencimento to vencido.
+
+    Meant to be called on app startup (and can be safely re-run anytime,
+    e.g. from a scheduled job) so the DB status stays accurate for
+    reporting, exports, and summary cards. Returns the number of rows updated.
+    """
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE faturas_clientes
+               SET status = 'vencido', updated_at = NOW()
+             WHERE status = 'pendente'
+               AND anulado = FALSE
+               AND data_vencimento IS NOT NULL
+               AND data_vencimento < CURRENT_DATE
+        """)
+        updated = cur.rowcount
+        conn.commit()
+        if updated:
+            logger.info('promote_overdue: marked %d invoice(s) as vencido', updated)
+        return updated
+
+
 def get_summary_totals(cliente_id: int = None, data_inicio: date = None,
                        data_fim: date = None) -> dict:
     """Return totals grouped by status (pendente/pago/vencido) for non-cancelled invoices.

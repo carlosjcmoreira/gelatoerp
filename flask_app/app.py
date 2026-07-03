@@ -48,6 +48,7 @@ from db.schema import run_migrations_loja_origem
 from db.schema import run_migrations_invoice_status_config
 from db.schema import run_migrations_pdf_filename_backfill
 from db.schema import run_migrations_b2b, run_migrations_faturas_clientes_status
+from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clientes
 
 
 def _start_sheets_sync_scheduler():
@@ -184,6 +185,10 @@ def create_app():
             _backfill_suppliers()
         except Exception as _bk_exc:
             logger.warning('backfill_supplier_ids startup failed: %s', _bk_exc)
+        try:
+            _promote_overdue_faturas_clientes()
+        except Exception as _po_exc:
+            logger.warning('promote_overdue (faturas_clientes) startup failed: %s', _po_exc)
 
     from flask_app.routes.auth import auth_bp
     from flask_app.routes.home import home_bp
