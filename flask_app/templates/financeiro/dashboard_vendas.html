@@ -79,6 +79,72 @@
         {% endif %}
     </div>
 
+    {# ── B2B & Eventos Section ────────────────────────────────────────────── #}
+    <h6 class="section-title mb-3">🏢 B2B & Eventos</h6>
+    <div class="row g-3 mb-3">
+        <div class="col-12 col-sm-6">
+            <div class="ytd-card h-100">
+                <div class="ytd-label">B2B — Acumulado</div>
+                <div class="ytd-val-main" id="b2bYtdB2b">—</div>
+                <div class="ytd-val-sub" id="b2bYtdB2bPrev">—</div>
+                <span id="b2bDeltaB2b"></span>
+            </div>
+        </div>
+        <div class="col-12 col-sm-6">
+            <div class="ytd-card h-100">
+                <div class="ytd-label">Eventos — Acumulado</div>
+                <div class="ytd-val-main" id="b2bYtdEv">—</div>
+                <div class="ytd-val-sub" id="b2bYtdEvPrev">—</div>
+                <span id="b2bDeltaEv"></span>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card">
+                <div class="card-body p-2">
+                    <p class="section-title mb-1" style="font-size:0.7rem;">B2B — Mensal</p>
+                    <div id="b2bChartB2b" style="height:200px;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card">
+                <div class="card-body p-2">
+                    <p class="section-title mb-1" style="font-size:0.7rem;">Eventos — Mensal</p>
+                    <div id="b2bChartEv" style="height:200px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body p-2">
+            <p class="section-title mb-2" style="font-size:0.7rem;">Top Clientes B2B & Eventos (acumulado)</p>
+            <div class="table-responsive">
+                <table class="table table-sm prod-table mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="prod-rank">#</th>
+                            <th>Cliente</th>
+                            <th class="text-end">2026</th>
+                            <th class="text-end">2025</th>
+                            <th class="text-end">Δ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="b2bTopBody"></tbody>
+                </table>
+            </div>
+            <div class="mt-2">
+                <a href="{{ url_for('financeiro.faturas_clientes') }}" class="btn btn-sm btn-outline-secondary">Ver Faturas Clientes →</a>
+                <a href="{{ url_for('financeiro.clientes_b2b') }}" class="btn btn-sm btn-outline-secondary ms-1">Gerir Clientes →</a>
+            </div>
+        </div>
+    </div>
+
+    <hr class="my-4">
+
     {# ── Shared loja filter ──────────────────────────────────────────────── #}
     <div class="btn-group mb-4" role="group" id="filterBtns">
         <button type="button" class="btn btn-outline-primary btn-sm dvd-filter-btn active" data-filter="total">Total</button>
@@ -194,70 +260,6 @@
         </div>
     </div>
 
-    {# ── B2B & Eventos Section ────────────────────────────────────────────── #}
-    <hr class="my-4">
-    <h6 class="section-title mb-3">🏢 B2B & Eventos</h6>
-    <div class="row g-3 mb-3">
-        <div class="col-12 col-sm-6">
-            <div class="ytd-card h-100">
-                <div class="ytd-label">B2B — Acumulado</div>
-                <div class="ytd-val-main" id="b2bYtdB2b">—</div>
-                <div class="ytd-val-sub" id="b2bYtdB2bPrev">—</div>
-                <span id="b2bDeltaB2b"></span>
-            </div>
-        </div>
-        <div class="col-12 col-sm-6">
-            <div class="ytd-card h-100">
-                <div class="ytd-label">Eventos — Acumulado</div>
-                <div class="ytd-val-main" id="b2bYtdEv">—</div>
-                <div class="ytd-val-sub" id="b2bYtdEvPrev">—</div>
-                <span id="b2bDeltaEv"></span>
-            </div>
-        </div>
-    </div>
-
-    <div class="row g-3 mb-4">
-        <div class="col-12 col-md-6">
-            <div class="card">
-                <div class="card-body p-2">
-                    <p class="section-title mb-1" style="font-size:0.7rem;">B2B — Mensal</p>
-                    <div id="b2bChartB2b" style="height:200px;"></div>
-                </div>
-            </div>
-        </div>
-        <div class="col-12 col-md-6">
-            <div class="card">
-                <div class="card-body p-2">
-                    <p class="section-title mb-1" style="font-size:0.7rem;">Eventos — Mensal</p>
-                    <div id="b2bChartEv" style="height:200px;"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card mb-4">
-        <div class="card-body p-2">
-            <p class="section-title mb-2" style="font-size:0.7rem;">Top Clientes B2B & Eventos (acumulado)</p>
-            <div class="table-responsive">
-                <table class="table table-sm prod-table mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="prod-rank">#</th>
-                            <th>Cliente</th>
-                            <th class="text-end">2026</th>
-                            <th class="text-end">2025</th>
-                            <th class="text-end">Δ</th>
-                        </tr>
-                    </thead>
-                    <tbody id="b2bTopBody"></tbody>
-                </table>
-            </div>
-            <div class="mt-2">
-                <a href="{{ url_for('financeiro.faturas_clientes') }}" class="btn btn-sm btn-outline-secondary">Ver Faturas Clientes →</a>
-                <a href="{{ url_for('financeiro.clientes_b2b') }}" class="btn btn-sm btn-outline-secondary ms-1">Gerir Clientes →</a>
-            </div>
-        </div>
-    </div>
 </div>
 
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
@@ -426,20 +428,16 @@ function renderProdutos(filterKey) {
         top10.length ? top10.map((p, i) => rowTop10(i + 1, p)).join('') :
         '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';
 
-    // Top 5 biggest positive variation % (only products with 2026 sales)
+    // Top 5 biggest positive variation in € (only products with 2026 sales)
     const withPct = prods.filter(p => p.y2026 > 0 && p.diff_pct != null);
-    const top5 = [...withPct].sort((a, b) => b.diff_pct - a.diff_pct).slice(0, 5);
+    const top5 = [...withPct].sort((a, b) => b.diff_eur - a.diff_eur).slice(0, 5);
     document.getElementById('bodyTop5').innerHTML =
         top5.length ? top5.map((p, i) => rowTop5(i + 1, p)).join('') :
         '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';
 
-    // Bottom 5: lowest variation % (products that had 2025 sales or have 2026 sales)
+    // Bottom 5: biggest negative variation in € (products that had 2025 sales or have 2026 sales)
     const forBottom = prods.filter(p => p.y2025 > 0 || p.y2026 > 0);
-    // Products with no 2025 base get null diff_pct — sort those after negatives
-    const bot5 = [...forBottom].sort((a, b) => {
-        const ap = a.diff_pct ?? 9999, bp = b.diff_pct ?? 9999;
-        return ap - bp;
-    }).slice(0, 5);
+    const bot5 = [...forBottom].sort((a, b) => a.diff_eur - b.diff_eur).slice(0, 5);
     document.getElementById('bodyBot5').innerHTML =
         bot5.length ? bot5.map((p, i) => rowTop5(i + 1, p)).join('') :
         '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';

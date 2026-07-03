@@ -1225,10 +1225,20 @@ def get_dashboard_vendas() -> dict:
     # produtos[filter_key] = [{produto, y2026, y2025, diff_eur, diff_pct}, ...]
     # Accumulate per-produto totals across lojas for the 'total' key,
     # and keep per-loja lists for individual loja filter keys.
+    # Products that were renamed keep separate rows across years in the raw
+    # data (old name in 2025, new name in 2026). Map old -> current name so
+    # the Top10/Top5/Bottom5 analysis treats them as a single product.
+    _PRODUTO_RENAME = {
+        'Copo Mini': 'Copo Piccolo',
+        'Copo Pequeno': 'Copo Classico',
+        'Cone Pequeno': 'Cone Classico',
+    }
+
     _prod_total: dict = {}   # produto -> {y2026, y2025}
     _prod_loja: dict = {}    # loja -> {produto -> {y2026, y2025}}
 
     for produto, loja, y26, y25 in produto_rows:
+        produto = _PRODUTO_RENAME.get(produto, produto)
         y26, y25 = float(y26 or 0), float(y25 or 0)
         # total aggregation
         if produto not in _prod_total:
