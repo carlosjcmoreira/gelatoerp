@@ -428,16 +428,16 @@ function renderProdutos(filterKey) {
         top10.length ? top10.map((p, i) => rowTop10(i + 1, p)).join('') :
         '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';
 
-    // Top 5 biggest positive variation in € (only products with 2026 sales)
-    const withPct = prods.filter(p => p.y2026 > 0 && p.diff_pct != null);
-    const top5 = [...withPct].sort((a, b) => b.diff_eur - a.diff_eur).slice(0, 5);
+    // Top 5 biggest positive variation in € (any product with a positive € gain)
+    const withGain = prods.filter(p => p.y2026 > 0 && p.diff_eur > 0);
+    const top5 = [...withGain].sort((a, b) => b.diff_eur - a.diff_eur).slice(0, 5);
     document.getElementById('bodyTop5').innerHTML =
         top5.length ? top5.map((p, i) => rowTop5(i + 1, p)).join('') :
         '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';
 
-    // Bottom 5: biggest negative variation in € (products that had 2025 sales or have 2026 sales)
-    const forBottom = prods.filter(p => p.y2025 > 0 || p.y2026 > 0);
-    const bot5 = [...forBottom].sort((a, b) => a.diff_eur - b.diff_eur).slice(0, 5);
+    // Bottom 5: biggest negative variation in € (only products with an actual € decline)
+    const withLoss = prods.filter(p => p.diff_eur < 0);
+    const bot5 = [...withLoss].sort((a, b) => a.diff_eur - b.diff_eur).slice(0, 5);
     document.getElementById('bodyBot5').innerHTML =
         bot5.length ? bot5.map((p, i) => rowTop5(i + 1, p)).join('') :
         '<tr><td colspan="6" class="text-center text-muted py-3">Sem dados</td></tr>';
