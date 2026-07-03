@@ -1,0 +1,1 @@
+- [Deployment target decisions](deployment-target.md) — history of autoscale-vs-VM cold-start tradeoff discussions; check before re-proposing a deployment target change.
