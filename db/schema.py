@@ -3171,6 +3171,38 @@ def run_migrations_conta_vendas_diarias():
                 pass
 
 
+def run_migrations_b2b_vendas_diarias():
+    """Add b2b column to produtos_vendas_config.
+
+    Advisory lock 202626. Defaults to FALSE — marking a product as B2B is an
+    explicit opt-in via the "Filtro Vendas Diárias" tile. The classification
+    is retroactive by design: since the Dashboard de Vendas aggregation joins
+    on this column at query time (not a one-off backfill), flagging a product
+    reclassifies its full existing vendas_detalhe history (2025 and 2026)
+    into the B2B channel, not just future sales.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(202626)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_b2b_vendas_diarias: lock held by another worker, skipping")
+                return
+
+            cursor.execute("""
+                ALTER TABLE produtos_vendas_config
+                ADD COLUMN IF NOT EXISTS b2b BOOLEAN NOT NULL DEFAULT FALSE
+            """)
+            conn.commit()
+            logger.info("run_migrations_b2b_vendas_diarias: column added (or already present)")
+        except Exception as exc:
+            logger.error("run_migrations_b2b_vendas_diarias failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_stock_gelado_carapinas():
     """Idempotent: create stock_gelado_carapinas table for per-carapina weighing breakdown.
 

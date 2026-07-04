@@ -1177,6 +1177,27 @@ def update_conta_vendas_diarias_batch(updates: list):
             """, (u['conta'], u['id']))
         conn.commit()
 
+
+def update_b2b_vendas_diarias_batch(updates: list):
+    """Set b2b flag for a batch of produtos_vendas_config rows.
+
+    Each entry in *updates* must have keys: id (int), b2b (bool).
+
+    Marking a product as b2b is retroactive: the Dashboard de Vendas
+    aggregation joins on this column at query time, so all existing
+    vendas_detalhe history for the product (2025 and 2026) moves into the
+    B2B channel immediately, not just future sales.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        for u in updates:
+            cursor.execute("""
+                UPDATE produtos_vendas_config
+                SET b2b = %s
+                WHERE id = %s
+            """, (u['b2b'], u['id']))
+        conn.commit()
+
 def get_produtos_by_area(area: str) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()

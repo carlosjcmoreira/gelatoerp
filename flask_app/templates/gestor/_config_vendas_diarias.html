@@ -21,6 +21,7 @@
                             </th>
                             <th>Produto</th>
                             <th class="text-center" style="width:7rem;">Categoria</th>
+                            <th class="text-center" style="width:4rem;">B2B</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -42,6 +43,13 @@
                                 <span class="text-muted" style="font-size:0.7rem;">—</span>
                                 {% endif %}
                             </td>
+                            <td class="text-center">
+                                <input class="form-check-input b2b-chk" type="checkbox"
+                                       name="b2b_{{ p.id }}"
+                                       data-id="{{ p.id }}"
+                                       title="Contabilizar vendas deste produto no canal B2B do Dashboard de Vendas (retroativo a todo o histórico)"
+                                       {% if p.get('b2b', False) %}checked{% endif %}>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -61,6 +69,7 @@
 
 <script>
 const TOGGLE_URL = "{{ url_for('gestor.config_vendas_diarias_toggle') }}";
+const TOGGLE_B2B_URL = "{{ url_for('gestor.config_vendas_diarias_toggle_b2b') }}";
 let _saveTimer = null;
 
 function showSaved() {
@@ -91,6 +100,28 @@ async function autoToggle(chk) {
         alert('Erro de rede ao guardar.');
     }
     syncHeaderCheck();
+}
+
+async function autoToggleB2b(chk) {
+    const id = parseInt(chk.dataset.id);
+    const b2b = chk.checked;
+    try {
+        const resp = await fetch(TOGGLE_B2B_URL, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id, b2b})
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            showSaved();
+        } else {
+            chk.checked = !b2b;
+            alert('Erro ao guardar: ' + (data.error || 'desconhecido'));
+        }
+    } catch (e) {
+        chk.checked = !b2b;
+        alert('Erro de rede ao guardar.');
+    }
 }
 
 function filterTable() {
@@ -129,6 +160,9 @@ function syncHeaderCheck() {
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.prod-chk').forEach(c => {
         c.addEventListener('change', () => autoToggle(c));
+    });
+    document.querySelectorAll('.b2b-chk').forEach(c => {
+        c.addEventListener('change', () => autoToggleB2b(c));
     });
     syncHeaderCheck();
 });

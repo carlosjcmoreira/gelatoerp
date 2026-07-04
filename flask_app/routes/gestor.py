@@ -647,7 +647,12 @@ def config_vendas_diarias():
             {'id': p['id'], 'conta': request.form.get(f'conta_{p["id"]}') == 'on'}
             for p in produtos
         ]
+        b2b_updates = [
+            {'id': p['id'], 'b2b': request.form.get(f'b2b_{p["id"]}') == 'on'}
+            for p in produtos
+        ]
         db.update_conta_vendas_diarias_batch(updates)
+        db.update_b2b_vendas_diarias_batch(b2b_updates)
         flash('Filtro de Vendas Diárias guardado com sucesso!', 'success')
         return redirect(url_for('gestor.config_vendas_diarias'))
     db.sync_produtos_vendas_config()
@@ -666,6 +671,24 @@ def config_vendas_diarias_toggle():
         return jsonify({'ok': True})
     except Exception as exc:
         logger.warning("config_vendas_diarias_toggle error: %s", exc)
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@gestor_bp.route('/config-vendas-diarias/toggle-b2b', methods=['POST'])
+@perm_required('acesso_gestor')
+def config_vendas_diarias_toggle_b2b():
+    """AJAX endpoint: toggle b2b flag for a single product.
+
+    Retroactive: reclassifies the product's full existing sales history
+    (2025 and 2026) into the B2B channel of the Dashboard de Vendas.
+    """
+    try:
+        produto_id = int(request.json.get('id'))
+        b2b = bool(request.json.get('b2b'))
+        db.update_b2b_vendas_diarias_batch([{'id': produto_id, 'b2b': b2b}])
+        return jsonify({'ok': True})
+    except Exception as exc:
+        logger.warning("config_vendas_diarias_toggle_b2b error: %s", exc)
         return jsonify({'ok': False, 'error': str(exc)}), 400
 
 

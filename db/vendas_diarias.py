@@ -1118,6 +1118,7 @@ def get_dashboard_vendas() -> dict:
             ) vd
             LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
             WHERE (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+              AND (pvc.b2b IS NULL OR pvc.b2b = FALSE)
             GROUP BY vd.loja, ano, mes
             ORDER BY vd.loja, ano, mes
         """)
@@ -1154,6 +1155,7 @@ def get_dashboard_vendas() -> dict:
                 ) vd
                 LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
                 WHERE (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                  AND (pvc.b2b IS NULL OR pvc.b2b = FALSE)
                 GROUP BY vd.loja
                 ORDER BY vd.loja
             """, (cutoff, cutoff))
@@ -1174,6 +1176,7 @@ def get_dashboard_vendas() -> dict:
                 LEFT JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
                 WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
                   AND (pvc.conta_vendas_diarias IS NULL OR pvc.conta_vendas_diarias = TRUE)
+                  AND (pvc.b2b IS NULL OR pvc.b2b = FALSE)
                 GROUP BY vd.produto, vd.loja
             """, (cutoff, cutoff))
             produto_rows = cur.fetchall()
@@ -1279,6 +1282,63 @@ def get_dashboard_vendas() -> dict:
         'ytd': ytd,
         'produtos': produtos,
     }
+
+
+def get_produtos_b2b_totals() -> dict:
+    """Return monthly/YTD totals for products flagged as b2b in produtos_vendas_config.
+
+    Only vendas_detalhe is used (not sales_historico), since sales_historico
+    only has daily store totals ("Total Diário"), not per-product rows, so a
+    b2b product cannot be identified within it. This mirrors the existing
+    per-produto YTD query in get_dashboard_vendas().
+
+    The classification is retroactive: it applies across the full available
+    history (2025 and 2026), not just sales going forward.
+    """
+    with db_connection() as conn:
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT EXTRACT(YEAR FROM vd.data)::int  AS ano,
+                   EXTRACT(MONTH FROM vd.data)::int AS mes,
+                   SUM(vd.valor_euros)              AS total
+            FROM vendas_detalhe vd
+            JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+            WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
+              AND pvc.b2b = TRUE
+            GROUP BY ano, mes
+        """)
+        monthly_rows = cur.fetchall()
+
+        cur.execute("""
+            SELECT MAX(data) FROM vendas_detalhe
+            WHERE EXTRACT(YEAR FROM data) = 2026
+        """)
+        cutoff = cur.fetchone()[0]
+
+        ytd = {'y2026': 0.0, 'y2025': 0.0}
+        if cutoff:
+            cur.execute("""
+                SELECT
+                    SUM(CASE WHEN EXTRACT(YEAR FROM vd.data) = 2026 THEN vd.valor_euros ELSE 0 END) AS ytd_2026,
+                    SUM(CASE WHEN EXTRACT(YEAR FROM vd.data) = 2025
+                              AND EXTRACT(MONTH FROM vd.data) * 100 + EXTRACT(DAY FROM vd.data)
+                                  <= EXTRACT(MONTH FROM %s::date) * 100 + EXTRACT(DAY FROM %s::date)
+                             THEN vd.valor_euros ELSE 0 END) AS ytd_2025
+                FROM vendas_detalhe vd
+                JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+                WHERE EXTRACT(YEAR FROM vd.data) IN (2025, 2026)
+                  AND pvc.b2b = TRUE
+            """, (cutoff, cutoff))
+            row = cur.fetchone()
+            if row:
+                ytd = {'y2026': float(row[0] or 0), 'y2025': float(row[1] or 0)}
+
+    monthly: dict = {}
+    for ano, mes, total in monthly_rows:
+        monthly.setdefault(ano, {})[mes] = round(float(total or 0), 2)
+
+    return {'monthly': monthly, 'ytd': ytd}
 
 
 def get_dashboard_b2b(ano: int = None) -> dict:
@@ -1393,6 +1453,21 @@ def get_dashboard_b2b(ano: int = None) -> dict:
 
     top_clientes.sort(key=lambda x: x['y2026'], reverse=True)
     top_clientes = top_clientes[:10]
+
+    # ── Merge in vendas diárias products flagged as B2B ─────────────────────
+    # These come from the "Filtro Vendas Diárias" tile (Gestor), and are
+    # retroactively applied to all available history (2025 and 2026), not
+    # only sales going forward.
+    try:
+        extra = get_produtos_b2b_totals()
+        for ano_val, meses in extra['monthly'].items():
+            monthly_b2b.setdefault(ano_val, {})
+            for mes_val, total in meses.items():
+                monthly_b2b[ano_val][mes_val] = monthly_b2b[ano_val].get(mes_val, 0) + total
+        ytd_b2b['y2026'] += extra['ytd']['y2026']
+        ytd_b2b['y2025'] += extra['ytd']['y2025']
+    except Exception as exc:
+        logger.warning("get_dashboard_b2b: merging produtos b2b totals failed: %s", exc)
 
     return {
         'monthly_b2b': monthly_b2b,
