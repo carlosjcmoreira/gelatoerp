@@ -22,6 +22,7 @@ from database import (
 
 import flask_app.services.vendas as vendas_svc
 from flask_app.services import ServiceError
+from flask_app.utils.finance import parse_date as _shared_parse_date
 from db.plano import get_ordem_transferencia_by_id, criar_transferencia_entre_lojas, get_latest_pesagem_por_sabor, get_effective_stock_por_sabor
 
 vendas_bp = Blueprint('vendas', __name__)
@@ -290,11 +291,7 @@ def pesagem():
         reverse_mapping[nome_corrente] = nome_corrente
 
     def _parse_date_form(key='data'):
-        raw = request.form.get(key, '').strip()
-        try:
-            return datetime.strptime(raw, '%Y-%m-%d').date()
-        except (ValueError, TypeError):
-            return date.today()
+        return _shared_parse_date(request.form.get(key, '')) or date.today()
 
     if request.method == 'POST':
         action = request.form.get('action')

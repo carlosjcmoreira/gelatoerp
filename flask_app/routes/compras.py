@@ -44,6 +44,10 @@ from db.faturas import (
 )
 import flask_app.services.faturas as faturas_svc
 from flask_app.services import ServiceError
+from flask_app.utils.finance import (
+    parse_date as _parse_date,
+    find_duplicate_invoice_ids as _find_duplicate_invoice_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,11 +134,6 @@ def faturas():
     except ValueError:
         page = 1
 
-    def _parse_date(s):
-        try:
-            return _datetime.strptime(s, '%Y-%m-%d').date() if s else None
-        except ValueError:
-            return None
     date_from = _parse_date(date_from_raw)
     date_to = _parse_date(date_to_raw)
     document_type_filter = request.args.get('document_type', '').strip()
@@ -184,19 +183,7 @@ def faturas():
             inv['display_status'] = inv['status']
 
     # Duplicate detection: flag invoices where same supplier has same normalised document number
-    import re as _re
-    from collections import defaultdict as _defaultdict
-    def _norm_inv(n):
-        if not n:
-            return ''
-        n = n.strip().upper()
-        n = _re.sub(r'^(FT|NC|FR|RB|VD|FS|FC|FA|RC)\s+', '', n)
-        return _re.sub(r'[^A-Z0-9]', '', n)
-    _dup_groups = _defaultdict(list)
-    for inv in invoices:
-        if inv.get('invoice_number') and inv.get('supplier_id'):
-            _dup_groups[(inv['supplier_id'], _norm_inv(inv['invoice_number']))].append(inv['id'])
-    _dup_ids = {_id for _ids in _dup_groups.values() if len(_ids) > 1 for _id in _ids}
+    _dup_ids = _find_duplicate_invoice_ids(invoices)
     for inv in invoices:
         inv['has_duplicate'] = inv['id'] in _dup_ids
 

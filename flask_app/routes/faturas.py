@@ -42,6 +42,11 @@ from flask_app.services import ServiceError
 from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair,
                         get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias,
                         get_invoice_status_labels_map)
+from flask_app.utils.finance import (
+    parse_date as _parse_date,
+    parse_float as _parse_float,
+    find_duplicate_invoice_ids as _find_duplicate_invoice_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,26 +65,6 @@ def _panel_redirect(invoice_id: int):
     if back:
         return redirect(back)
     return redirect(url_for('faturas.detail', invoice_id=invoice_id))
-
-
-def _parse_date(val: str):
-    if not val:
-        return None
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
-        try:
-            return datetime.strptime(val.strip(), fmt).date()
-        except ValueError:
-            continue
-    return None
-
-
-def _parse_float(val: str):
-    if not val:
-        return None
-    try:
-        return float(str(val).replace(',', '.').strip())
-    except ValueError:
-        return None
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -374,19 +359,7 @@ def index():
             inv['display_status'] = inv['status']
 
     # Duplicate detection: flag invoices where same supplier has same normalised number
-    import re as _re
-    from collections import defaultdict as _defaultdict
-    def _norm_inv(n):
-        if not n:
-            return ''
-        n = n.strip().upper()
-        n = _re.sub(r'^(FT|NC|FR|RB|VD|FS|FC|FA|RC)\s+', '', n)
-        return _re.sub(r'[^A-Z0-9]', '', n)
-    _dup_groups = _defaultdict(list)
-    for inv in invoices:
-        if inv.get('invoice_number') and inv.get('supplier_id'):
-            _dup_groups[(inv['supplier_id'], _norm_inv(inv['invoice_number']))].append(inv['id'])
-    _dup_ids = {_id for _ids in _dup_groups.values() if len(_ids) > 1 for _id in _ids}
+    _dup_ids = _find_duplicate_invoice_ids(invoices)
     for inv in invoices:
         inv['has_duplicate'] = inv['id'] in _dup_ids
 
