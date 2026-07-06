@@ -388,22 +388,22 @@ def get_quote_items(event_id):
         cursor.execute("SELECT * FROM quote_items WHERE event_id=%s ORDER BY id", (event_id,))
         return cursor.fetchall()
 
-def add_quote_item(event_id, artigo_codigo, descricao, quantidade, preco_unitario):
+def add_quote_item(event_id, artigo_codigo, descricao, quantidade, preco_unitario, taxa_iva=None):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO quote_items (event_id, artigo_codigo, descricao, quantidade, preco_unitario)
-            VALUES (%s,%s,%s,%s,%s)
-        """, (event_id, artigo_codigo, descricao, quantidade, preco_unitario))
+            INSERT INTO quote_items (event_id, artigo_codigo, descricao, quantidade, preco_unitario, taxa_iva)
+            VALUES (%s,%s,%s,%s,%s,%s)
+        """, (event_id, artigo_codigo, descricao, quantidade, preco_unitario, taxa_iva))
         conn.commit()
 
-def update_quote_item(item_id, event_id, descricao, quantidade, preco_unitario):
+def update_quote_item(item_id, event_id, descricao, quantidade, preco_unitario, taxa_iva=None):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            UPDATE quote_items SET descricao=%s, quantidade=%s, preco_unitario=%s
+            UPDATE quote_items SET descricao=%s, quantidade=%s, preco_unitario=%s, taxa_iva=%s
             WHERE id=%s AND event_id=%s
-        """, (descricao, quantidade, preco_unitario, item_id, event_id))
+        """, (descricao, quantidade, preco_unitario, taxa_iva, item_id, event_id))
         conn.commit()
 
 def delete_quote_item(item_id, event_id):

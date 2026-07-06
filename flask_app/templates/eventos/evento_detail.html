@@ -79,6 +79,7 @@
                             <th>Descrição</th>
                             <th class="text-end">Qtd</th>
                             <th class="text-end">Preço unit.</th>
+                            <th class="text-end">IVA</th>
                             <th class="text-end">Total</th>
                             <th></th>
                         </tr>
@@ -89,9 +90,10 @@
                             <td class="item-desc">{{ item.descricao }}</td>
                             <td class="text-end">{{ item.quantidade }}</td>
                             <td class="text-end">{{ "%.2f"|format(item.preco_unitario) }}</td>
+                            <td class="text-end">{{ ((item.taxa_iva * 100)|round(0)|int) if item.taxa_iva is not none else '—' }}{{ '%' if item.taxa_iva is not none else '' }}</td>
                             <td class="text-end fw-semibold">{{ "%.2f"|format(item.total or 0) }} €</td>
                             <td class="text-end">
-                                <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1" onclick="editItem({{ item.id }}, '{{ item.descricao|replace("'","\\'")|replace('"','\\"') }}', {{ item.quantidade }}, {{ item.preco_unitario }})">✏️</button>
+                                <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1" onclick="editItem({{ item.id }}, '{{ item.descricao|replace("'","\\'")|replace('"','\\"') }}', {{ item.quantidade }}, {{ item.preco_unitario }}, {{ (item.taxa_iva * 100)|round(0)|int if item.taxa_iva is not none else 13 }})">✏️</button>
                                 <form method="post" action="{{ url_for('eventos.quote_action', event_id=event.id) }}" class="d-inline" data-no-loading>
                                     <input type="hidden" name="action" value="delete_item">
                                     <input type="hidden" name="item_id" value="{{ item.id }}">
@@ -132,6 +134,14 @@
                     <div class="col-4 col-sm-2">
                         <label class="form-label small mb-1">Preço unit.</label>
                         <input type="number" name="preco_unitario" id="item-price" class="form-control form-control-sm" value="0" step="0.01" min="0">
+                    </div>
+                    <div class="col-6 col-sm-2">
+                        <label class="form-label small mb-1">IVA</label>
+                        <select name="taxa_iva" id="item-taxa-iva" class="form-select form-select-sm">
+                            <option value="6">6%</option>
+                            <option value="13" selected>13%</option>
+                            <option value="23">23%</option>
+                        </select>
                     </div>
                     <div class="col-4 col-sm-1">
                         <button type="submit" class="btn btn-sm btn-success w-100" id="item-submit-btn">+</button>
@@ -263,6 +273,14 @@
                             <label class="form-label small">Preço unit.</label>
                             <input type="number" name="preco_unitario" id="edit-price" class="form-control form-control-sm" step="0.01" min="0">
                         </div>
+                        <div class="col-6">
+                            <label class="form-label small">IVA</label>
+                            <select name="taxa_iva" id="edit-taxa-iva" class="form-select form-select-sm">
+                                <option value="6">6%</option>
+                                <option value="13">13%</option>
+                                <option value="23">23%</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
                 <div class="modal-footer py-2">
@@ -288,11 +306,12 @@ function fillFromArtigo(sel) {
     document.getElementById('item-price').value = opt.dataset.preco || '0';
 }
 
-function editItem(id, desc, qty, price) {
+function editItem(id, desc, qty, price, taxaIva) {
     document.getElementById('edit-item-id').value = id;
     document.getElementById('edit-desc').value = desc;
     document.getElementById('edit-qty').value = qty;
     document.getElementById('edit-price').value = price;
+    document.getElementById('edit-taxa-iva').value = taxaIva || 13;
     new bootstrap.Modal(document.getElementById('editItemModal')).show();
 }
 

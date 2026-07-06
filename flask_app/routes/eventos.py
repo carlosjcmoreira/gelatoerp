@@ -10,8 +10,21 @@ from database import (
     get_all_eventos, get_evento_by_id, create_evento, update_evento, delete_evento,
     upsert_evento_items, registar_pagamento_evento, get_eventos_recebimentos,
 )
+from db.pagamentos import VAT_RATES
 
 eventos_bp = Blueprint('eventos', __name__)
+
+
+def _parse_taxa_iva(raw):
+    """Parse a per-line IVA rate submitted as a percentage (e.g. '13'). Defaults to
+    the configured events/catering estimate rate when missing or invalid."""
+    try:
+        pct = float((raw or '').replace(',', '.'))
+        if pct < 0 or pct > 100:
+            raise ValueError
+        return round(pct / 100, 4)
+    except (TypeError, ValueError):
+        return VAT_RATES['events_catering']
 
 STATUS_LABELS = {
     'lead':          'Lead',
@@ -311,13 +324,14 @@ def quote_action(event_id):
             preco_unitario = float(request.form.get('preco_unitario', '0').replace(',', '.'))
         except ValueError:
             preco_unitario = 0.0
+        taxa_iva = _parse_taxa_iva(request.form.get('taxa_iva'))
 
         if not descricao and artigo_codigo:
             artigos = {a['codigo']: a['nome'] for a in db.get_artigos_evento()}
             descricao = artigos.get(artigo_codigo, artigo_codigo)
 
         if descricao:
-            db.add_quote_item(event_id, artigo_codigo or None, descricao, quantidade, preco_unitario)
+            db.add_quote_item(event_id, artigo_codigo or None, descricao, quantidade, preco_unitario, taxa_iva)
             if event['status'] == 'won':
                 db.recalc_event_invoice(event_id)
             flash('Artigo adicionado.', 'success')
@@ -342,7 +356,8 @@ def quote_action(event_id):
             preco_unitario = float(request.form.get('preco_unitario', '0').replace(',', '.'))
         except ValueError:
             preco_unitario = 0.0
-        db.update_quote_item(item_id, event_id, descricao, quantidade, preco_unitario)
+        taxa_iva = _parse_taxa_iva(request.form.get('taxa_iva'))
+        db.update_quote_item(item_id, event_id, descricao, quantidade, preco_unitario, taxa_iva)
         if event['status'] == 'won':
             db.recalc_event_invoice(event_id)
         flash('Artigo actualizado.', 'success')

@@ -77,8 +77,9 @@
             <h6 class="card-title">⚙️ Taxas de IVA (estimativa)</h6>
             <p class="small text-muted mb-2">
                 O IVA de vendas com dados reais (coluna "Valor Total S/IVA" do ficheiro de vendas) é sempre calculado
-                a partir do valor real, nunca estimado. Estas taxas só se aplicam a vendas antigas sem esse dado e a
-                eventos/catering, que ainda não têm origem de IVA real.
+                a partir do valor real, nunca estimado. O mesmo acontece para artigos de eventos/catering com uma
+                taxa de IVA definida no orçamento. Estas taxas só se aplicam a vendas antigas sem esse dado e a
+                artigos de eventos antigos sem taxa de IVA definida.
             </p>
             <form method="post" action="{{ url_for('pagamentos.iva_config') }}" class="row g-2">
                 <div class="col-6">

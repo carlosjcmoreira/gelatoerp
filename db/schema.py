@@ -1094,6 +1094,7 @@ def run_migrations():
         cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS loss_reason TEXT")
         cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20)")
         cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20)")
+        cursor.execute("ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS taxa_iva NUMERIC(5,4)")
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS event_clients (
                 id SERIAL PRIMARY KEY,

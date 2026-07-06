@@ -456,7 +456,10 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
     before that (``valor_sem_iva_euros IS NULL``) fall back to an estimated rate
     (``rate_pos``, configurable via ``vat_config`` / the IVA settings screen).
 
-    Eventos/Catering has no per-line IVA source yet, so it always uses the
+    Eventos/Catering has REAL per-line IVA whenever the quote item was created (or
+    edited) with a ``taxa_iva`` selected on the "Orçamento" screen — the amount is
+    computed as ``total * taxa_iva`` for those lines. Older quote items created
+    before this field existed have ``taxa_iva IS NULL`` and fall back to the
     configurable estimated rate (``rate_events``).
 
     All values are written to the *_estimated columns; ``is_estimate`` tells the
@@ -480,15 +483,20 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
         vat_deductible = float(cursor.fetchone()[0])
 
         cursor.execute("""
-            SELECT COALESCE(SUM(qi.total), 0)
+            SELECT
+                COALESCE(SUM(qi.total * qi.taxa_iva) FILTER (WHERE qi.taxa_iva IS NOT NULL), 0) AS vat_events_real,
+                COALESCE(SUM(qi.total) FILTER (WHERE qi.taxa_iva IS NOT NULL), 0) AS events_base_real,
+                COALESCE(SUM(qi.total) FILTER (WHERE qi.taxa_iva IS NULL), 0) AS events_base_fallback
             FROM events e
             JOIN quote_items qi ON qi.event_id = e.id
             WHERE EXTRACT(YEAR FROM e.event_date) = %s
               AND EXTRACT(MONTH FROM e.event_date) = %s
               AND e.status = 'won'
         """, (year, month))
-        events_base = float(cursor.fetchone()[0])
-        vat_events = events_base * rate_events
+        vat_events_real, events_base_real, events_base_fallback = (float(v) for v in cursor.fetchone())
+        vat_events_fallback = events_base_fallback * rate_events
+        vat_events = vat_events_real + vat_events_fallback
+        events_base = events_base_real + events_base_fallback
 
         cursor.execute("""
             SELECT
@@ -508,7 +516,7 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
         vat_collected = vat_events + vat_pos
         vat_due = max(0, vat_collected - vat_deductible)
 
-        is_estimate = pos_base_fallback > 0.005 or events_base > 0.005
+        is_estimate = pos_base_fallback > 0.005 or events_base_fallback > 0.005
 
         return {
             'vat_collected_estimated': round(vat_collected, 2),
@@ -517,6 +525,8 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
             'rate_pos': rate_pos,
             'rate_events': rate_events,
             'events_base': round(events_base, 2),
+            'events_base_real': round(events_base_real, 2),
+            'events_base_fallback': round(events_base_fallback, 2),
             'pos_base': round(pos_base, 2),
             'pos_base_real': round(pos_base_real, 2),
             'pos_base_fallback': round(pos_base_fallback, 2),

@@ -15,12 +15,14 @@
             <strong>⚠️ Parcialmente estimado</strong> —
             {{ "%.2f €"|format(computed.pos_base_real) }} em vendas têm IVA real (do ficheiro de vendas),
             mas {{ "%.2f €"|format(computed.pos_base_fallback) }} ainda usam a taxa estimada de vendas POS
-            {% if computed.events_base > 0.005 %}e {{ "%.2f €"|format(computed.events_base) }} de eventos usam taxa estimada{% endif %}.
-            Reimporte os ficheiros de vendas em falta para obter o valor 100% real.
+            {% if computed.events_base_fallback and computed.events_base_fallback > 0.005 %}
+            e {{ "%.2f €"|format(computed.events_base_fallback) }} de eventos (artigos sem taxa de IVA definida) usam a taxa estimada
+            {% endif %}.
+            Reimporte os ficheiros de vendas em falta ou defina a taxa de IVA por artigo no orçamento do evento para obter o valor 100% real.
         </div>
         {% else %}
         <div class="alert alert-success py-2 small mb-3">
-            <strong>✅ IVA real</strong> — calculado diretamente a partir dos valores "S/IVA" do ficheiro de vendas, sem estimativa.
+            <strong>✅ IVA real</strong> — calculado diretamente a partir dos valores "S/IVA" do ficheiro de vendas e das taxas de IVA definidas por artigo nos orçamentos de eventos, sem estimativa.
         </div>
         {% endif %}
     {% endif %}
@@ -80,8 +82,9 @@
         <div class="card-body">
             <h6 class="card-title">🔄 Recalcular IVA</h6>
             <p class="small text-muted">
-                IVA de vendas já importadas com dados reais (coluna "Valor Total S/IVA") é sempre usado tal como está.
-                As taxas abaixo aplicam-se apenas às vendas sem esse dado e a eventos/catering.
+                IVA de vendas já importadas com dados reais (coluna "Valor Total S/IVA") e de artigos de eventos com
+                taxa de IVA definida no orçamento são sempre usados tal como estão. As taxas abaixo aplicam-se apenas
+                às vendas sem esse dado e a artigos de eventos sem taxa de IVA definida.
             </p>
             <form method="post" class="row g-2">
                 <input type="hidden" name="action" value="recalculate">
