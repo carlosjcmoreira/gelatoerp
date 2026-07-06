@@ -9,6 +9,22 @@
         <span class="badge bg-{{ s[1] }}-subtle text-{{ s[1] }}-emphasis fs-6">{{ s[0] }}</span>
     </div>
 
+    {% if computed %}
+        {% if computed.is_estimate %}
+        <div class="alert alert-warning py-2 small mb-3">
+            <strong>⚠️ Parcialmente estimado</strong> —
+            {{ "%.2f €"|format(computed.pos_base_real) }} em vendas têm IVA real (do ficheiro de vendas),
+            mas {{ "%.2f €"|format(computed.pos_base_fallback) }} ainda usam a taxa estimada de vendas POS
+            {% if computed.events_base > 0.005 %}e {{ "%.2f €"|format(computed.events_base) }} de eventos usam taxa estimada{% endif %}.
+            Reimporte os ficheiros de vendas em falta para obter o valor 100% real.
+        </div>
+        {% else %}
+        <div class="alert alert-success py-2 small mb-3">
+            <strong>✅ IVA real</strong> — calculado diretamente a partir dos valores "S/IVA" do ficheiro de vendas, sem estimativa.
+        </div>
+        {% endif %}
+    {% endif %}
+
     <div class="row g-3 mb-4">
         <div class="col-4">
             <div class="card text-center h-100">
@@ -62,24 +78,27 @@
     {% if period.status == 'estimated' %}
     <div class="card mb-3">
         <div class="card-body">
-            <h6 class="card-title">🔄 Recalcular IVA Estimado</h6>
-            <p class="small text-muted">Recalcula automaticamente com base nas faturas de fornecedores e vendas/eventos. Taxas configuráveis (confirmar com contabilidade).</p>
+            <h6 class="card-title">🔄 Recalcular IVA</h6>
+            <p class="small text-muted">
+                IVA de vendas já importadas com dados reais (coluna "Valor Total S/IVA") é sempre usado tal como está.
+                As taxas abaixo aplicam-se apenas às vendas sem esse dado e a eventos/catering.
+            </p>
             <form method="post" class="row g-2">
                 <input type="hidden" name="action" value="recalculate">
                 <div class="col-6">
-                    <label class="form-label small">Taxa IVA Vendas POS (%)</label>
+                    <label class="form-label small">Taxa IVA Vendas POS — estimativa (%)</label>
                     <select name="rate_pos" class="form-select form-select-sm">
-                        <option value="6" {% if (vat_rates.pos_food * 100)|int == 6 %}selected{% endif %}>6% — Alimentar (gelados)</option>
-                        <option value="13">13% — Intermédio</option>
-                        <option value="23">23% — Normal</option>
+                        <option value="6" {% if (vat_config.rate_pos_fallback * 100)|round(0)|int == 6 %}selected{% endif %}>6% — Alimentar (gelados)</option>
+                        <option value="13" {% if (vat_config.rate_pos_fallback * 100)|round(0)|int == 13 %}selected{% endif %}>13% — Intermédio</option>
+                        <option value="23" {% if (vat_config.rate_pos_fallback * 100)|round(0)|int == 23 %}selected{% endif %}>23% — Normal</option>
                     </select>
                 </div>
                 <div class="col-6">
-                    <label class="form-label small">Taxa IVA Eventos/Catering (%)</label>
+                    <label class="form-label small">Taxa IVA Eventos/Catering — estimativa (%)</label>
                     <select name="rate_events" class="form-select form-select-sm">
-                        <option value="6">6% — Alimentar</option>
-                        <option value="13" {% if (vat_rates.events_catering * 100)|int == 13 %}selected{% endif %}>13% — Restauração/Catering</option>
-                        <option value="23">23% — Normal</option>
+                        <option value="6" {% if (vat_config.rate_events_fallback * 100)|round(0)|int == 6 %}selected{% endif %}>6% — Alimentar</option>
+                        <option value="13" {% if (vat_config.rate_events_fallback * 100)|round(0)|int == 13 %}selected{% endif %}>13% — Restauração/Catering</option>
+                        <option value="23" {% if (vat_config.rate_events_fallback * 100)|round(0)|int == 23 %}selected{% endif %}>23% — Normal</option>
                     </select>
                 </div>
                 <div class="col-12">

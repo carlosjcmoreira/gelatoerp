@@ -72,13 +72,45 @@
     <div class="alert alert-info">Sem períodos de IVA registados.</div>
     {% endif %}
 
+    <div class="card mb-4">
+        <div class="card-body">
+            <h6 class="card-title">⚙️ Taxas de IVA (estimativa)</h6>
+            <p class="small text-muted mb-2">
+                O IVA de vendas com dados reais (coluna "Valor Total S/IVA" do ficheiro de vendas) é sempre calculado
+                a partir do valor real, nunca estimado. Estas taxas só se aplicam a vendas antigas sem esse dado e a
+                eventos/catering, que ainda não têm origem de IVA real.
+            </p>
+            <form method="post" action="{{ url_for('pagamentos.iva_config') }}" class="row g-2">
+                <div class="col-6">
+                    <label class="form-label small">Taxa IVA Vendas POS — fallback (%)</label>
+                    <select name="rate_pos_fallback" class="form-select form-select-sm">
+                        <option value="6" {% if (vat_config.rate_pos_fallback * 100)|round(0)|int == 6 %}selected{% endif %}>6% — Alimentar (gelados)</option>
+                        <option value="13" {% if (vat_config.rate_pos_fallback * 100)|round(0)|int == 13 %}selected{% endif %}>13% — Intermédio</option>
+                        <option value="23" {% if (vat_config.rate_pos_fallback * 100)|round(0)|int == 23 %}selected{% endif %}>23% — Normal</option>
+                    </select>
+                </div>
+                <div class="col-6">
+                    <label class="form-label small">Taxa IVA Eventos/Catering — fallback (%)</label>
+                    <select name="rate_events_fallback" class="form-select form-select-sm">
+                        <option value="6" {% if (vat_config.rate_events_fallback * 100)|round(0)|int == 6 %}selected{% endif %}>6% — Alimentar</option>
+                        <option value="13" {% if (vat_config.rate_events_fallback * 100)|round(0)|int == 13 %}selected{% endif %}>13% — Restauração/Catering</option>
+                        <option value="23" {% if (vat_config.rate_events_fallback * 100)|round(0)|int == 23 %}selected{% endif %}>23% — Normal</option>
+                    </select>
+                </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">Guardar Taxas</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div class="card">
         <div class="card-body">
             <h6 class="card-title">ℹ️ Regime Mensal (> 650.000 € faturação)</h6>
             <ul class="small text-muted mb-0">
                 <li>Declaração: dia 10 do M+2 após o período (ex: Janeiro → declaração até 10 de Março)</li>
                 <li>Pagamento: dia 25 do M+2 após o período (ex: Janeiro → pagamento até 25 de Março)</li>
-                <li>Taxas de IVA: 6%, 13%, 23% (a confirmar com contabilidade por categoria)</li>
+                <li>IVA liquidado de vendas: calculado a partir do valor real "S/IVA" do ficheiro de vendas sempre que disponível; taxa de fallback configurável acima apenas para dados antigos/eventos</li>
             </ul>
         </div>
     </div>

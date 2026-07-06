@@ -11,7 +11,6 @@ from database import (
     propose_invoice_payment,
     suggest_payment_date,
     get_vat_periods, get_vat_period, upsert_vat_period, compute_vat_period,
-    VAT_RATES,
     get_weekly_liquidity,
     get_all_stores,
     get_cost_centers,
@@ -20,7 +19,7 @@ from database import (
 from db.faturas import ONEDRIVE_SUBFOLDERS, update_invoice_onedrive
 from db.credito import get_payment_methods_config
 from db.cashflow import get_saldo_inicial_tesouraria, set_saldo_inicial_tesouraria
-from db.pagamentos import get_overdue_unscheduled_invoices, set_tesouraria_manual
+from db.pagamentos import get_overdue_unscheduled_invoices, set_tesouraria_manual, get_vat_config, update_vat_config
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +280,10 @@ def iva():
 
     existing = get_vat_period(prev_year, prev_month)
     if not existing:
-        computed = compute_vat_period(prev_year, prev_month)
+        vat_config = get_vat_config()
+        computed = compute_vat_period(prev_year, prev_month,
+                                       rate_pos=vat_config['rate_pos_fallback'],
+                                       rate_events=vat_config['rate_events_fallback'])
         upsert_vat_period(
             prev_year, prev_month,
             vat_collected_estimated=computed['vat_collected_estimated'],
@@ -295,13 +297,31 @@ def iva():
                            alerts=alerts,
                            status_map=VAT_STATUS_MAP,
                            meses=MESES_PT,
-                           vat_rates=VAT_RATES,
+                           vat_config=get_vat_config(),
                            today=today)
+
+
+@pagamentos_bp.route('/iva/config', methods=['POST'])
+@perm_required('acesso_gestor')
+def iva_config():
+    """Update the configurable VAT fallback rates (used only for sales without real IVA data)."""
+    rate_pos_str = request.form.get('rate_pos_fallback', '').replace(',', '.')
+    rate_events_str = request.form.get('rate_events_fallback', '').replace(',', '.')
+    try:
+        rate_pos_fallback = float(rate_pos_str) / 100 if rate_pos_str else None
+        rate_events_fallback = float(rate_events_str) / 100 if rate_events_str else None
+    except (ValueError, TypeError):
+        flash('Taxas inválidas.', 'warning')
+        return redirect(url_for('pagamentos.iva'))
+    update_vat_config(rate_pos_fallback=rate_pos_fallback, rate_events_fallback=rate_events_fallback)
+    flash('Taxas de IVA (estimativa) atualizadas. Recalcule os períodos afetados.', 'success')
+    return redirect(url_for('pagamentos.iva'))
 
 
 @pagamentos_bp.route('/iva/<int:year>/<int:month>', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def iva_periodo(year, month):
+    vat_config = get_vat_config()
     if request.method == 'POST':
         action = request.form.get('action')
 
@@ -309,16 +329,17 @@ def iva_periodo(year, month):
             rate_pos_str = request.form.get('rate_pos', '').replace(',', '.')
             rate_events_str = request.form.get('rate_events', '').replace(',', '.')
             try:
-                rate_pos = float(rate_pos_str) / 100 if rate_pos_str else None
-                rate_events = float(rate_events_str) / 100 if rate_events_str else None
+                rate_pos = float(rate_pos_str) / 100 if rate_pos_str else vat_config['rate_pos_fallback']
+                rate_events = float(rate_events_str) / 100 if rate_events_str else vat_config['rate_events_fallback']
             except (ValueError, TypeError):
-                rate_pos = rate_events = None
+                rate_pos = vat_config['rate_pos_fallback']
+                rate_events = vat_config['rate_events_fallback']
             computed = compute_vat_period(year, month, rate_pos=rate_pos, rate_events=rate_events)
             upsert_vat_period(year, month,
                               vat_collected_estimated=computed['vat_collected_estimated'],
                               vat_deductible_estimated=computed['vat_deductible_estimated'],
                               vat_due_estimated=computed['vat_due_estimated'])
-            flash('IVA estimado recalculado.', 'success')
+            flash('IVA recalculado.', 'success')
 
         elif action == 'declare':
             decl_date_str = request.form.get('declaration_submitted_at', str(date.today()))
@@ -355,8 +376,10 @@ def iva_periodo(year, month):
         return redirect(url_for('pagamentos.iva_periodo', year=year, month=month))
 
     period = get_vat_period(year, month)
+    computed = compute_vat_period(year, month,
+                                  rate_pos=vat_config['rate_pos_fallback'],
+                                  rate_events=vat_config['rate_events_fallback'])
     if not period:
-        computed = compute_vat_period(year, month)
         period = upsert_vat_period(year, month,
                                    vat_collected_estimated=computed['vat_collected_estimated'],
                                    vat_deductible_estimated=computed['vat_deductible_estimated'],
@@ -367,7 +390,8 @@ def iva_periodo(year, month):
                            period=period, year=year, month=month,
                            mes_nome=MESES_PT[month],
                            status_map=VAT_STATUS_MAP,
-                           vat_rates=VAT_RATES,
+                           vat_config=vat_config,
+                           computed=computed,
                            today=str(today))
 
 

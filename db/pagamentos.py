@@ -152,6 +152,32 @@ def run_migrations_m0():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_vat_periods_year_month ON vat_periods(year, month)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_vat_periods_status ON vat_periods(status)")
 
+            # Configurable VAT fallback rates — used only for sales rows imported
+            # BEFORE real per-line IVA data was captured (see valor_sem_iva_euros
+            # on vendas_detalhe). Confirmed with the user on 2026-07-05: the real
+            # Ravagnan POS export ("Evolução de Vendas por Produto") contains a
+            # "Valor Total S/IVA" column per product line, so real IVA collected
+            # should be computed directly (Valor Total - Valor Total S/IVA)
+            # instead of assumed from a fixed rate whenever that data is present.
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS vat_config (
+                    key VARCHAR(50) PRIMARY KEY,
+                    rate NUMERIC(6,4) NOT NULL,
+                    label VARCHAR(255),
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('''
+                INSERT INTO vat_config (key, rate, label) VALUES
+                    ('rate_pos_fallback', 0.06, 'Vendas POS (fallback p/ dados sem IVA real)'),
+                    ('rate_events_fallback', 0.13, 'Eventos/Catering (estimativa)')
+                ON CONFLICT (key) DO NOTHING
+            ''')
+
+            cursor.execute(
+                "ALTER TABLE vendas_detalhe ADD COLUMN IF NOT EXISTS valor_sem_iva_euros REAL"
+            )
+
             conn.commit()
         finally:
             try:
@@ -159,6 +185,37 @@ def run_migrations_m0():
                 conn.commit()
             except Exception:
                 pass
+
+
+def get_vat_config() -> dict:
+    """Return the current configurable VAT fallback rates as {key: rate}."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, rate FROM vat_config")
+        rows = cursor.fetchall()
+    config = {k: float(v) for k, v in rows}
+    config.setdefault('rate_pos_fallback', VAT_RATES['pos_food'])
+    config.setdefault('rate_events_fallback', VAT_RATES['events_catering'])
+    return config
+
+
+def update_vat_config(rate_pos_fallback: float = None, rate_events_fallback: float = None):
+    """Update the configurable VAT fallback rates (used only when real IVA data is unavailable)."""
+    updates = []
+    if rate_pos_fallback is not None:
+        updates.append(('rate_pos_fallback', rate_pos_fallback))
+    if rate_events_fallback is not None:
+        updates.append(('rate_events_fallback', rate_events_fallback))
+    if not updates:
+        return
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        for key, rate in updates:
+            cursor.execute('''
+                INSERT INTO vat_config (key, rate) VALUES (%s, %s)
+                ON CONFLICT (key) DO UPDATE SET rate = EXCLUDED.rate, updated_at = NOW()
+            ''', (key, rate))
+        conn.commit()
 
 
 def get_invoices_with_payments(status: str = None, store_id: int = None,
@@ -387,10 +444,23 @@ def upsert_vat_period(year, month,
 
 
 def compute_vat_period(year, month, rate_pos: float = None, rate_events: float = None):
-    """Compute estimated VAT collected/deductible for a given month.
+    """Compute VAT collected/deductible for a given month.
 
-    Uses configurable VAT rates (defaults from VAT_RATES config).
-    All values are estimates written to the *_estimated columns only.
+    IVA dedutível is always real (sum of ``vat_amount_eur`` recorded on paid/scheduled
+    supplier invoices).
+
+    IVA liquidado (collected) from POS sales uses REAL per-line IVA whenever it is
+    available: sales rows imported since the "Valor Total S/IVA" column was added to
+    the import (see ``valor_sem_iva_euros`` on ``vendas_detalhe``) have their exact
+    IVA amount computed as ``valor_euros - valor_sem_iva_euros``. Only rows imported
+    before that (``valor_sem_iva_euros IS NULL``) fall back to an estimated rate
+    (``rate_pos``, configurable via ``vat_config`` / the IVA settings screen).
+
+    Eventos/Catering has no per-line IVA source yet, so it always uses the
+    configurable estimated rate (``rate_events``).
+
+    All values are written to the *_estimated columns; ``is_estimate`` tells the
+    caller whether the collected figure is fully real or partially/fully estimated.
     """
     if rate_pos is None:
         rate_pos = VAT_RATES['pos_food']
@@ -421,16 +491,24 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
         vat_events = events_base * rate_events
 
         cursor.execute("""
-            SELECT COALESCE(SUM(valor_euros), 0)
+            SELECT
+                COALESCE(SUM(valor_euros - valor_sem_iva_euros)
+                         FILTER (WHERE valor_sem_iva_euros IS NOT NULL), 0) AS vat_pos_real,
+                COALESCE(SUM(valor_euros) FILTER (WHERE valor_sem_iva_euros IS NOT NULL), 0) AS base_real,
+                COALESCE(SUM(valor_euros) FILTER (WHERE valor_sem_iva_euros IS NULL), 0) AS base_fallback
             FROM vendas_detalhe
             WHERE EXTRACT(YEAR FROM data) = %s
               AND EXTRACT(MONTH FROM data) = %s
         """, (year, month))
-        pos_base = float(cursor.fetchone()[0])
-        vat_pos = pos_base * rate_pos
+        vat_pos_real, pos_base_real, pos_base_fallback = (float(v) for v in cursor.fetchone())
+        vat_pos_fallback = pos_base_fallback * rate_pos
+        vat_pos = vat_pos_real + vat_pos_fallback
+        pos_base = pos_base_real + pos_base_fallback
 
         vat_collected = vat_events + vat_pos
         vat_due = max(0, vat_collected - vat_deductible)
+
+        is_estimate = pos_base_fallback > 0.005 or events_base > 0.005
 
         return {
             'vat_collected_estimated': round(vat_collected, 2),
@@ -440,6 +518,9 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
             'rate_events': rate_events,
             'events_base': round(events_base, 2),
             'pos_base': round(pos_base, 2),
+            'pos_base_real': round(pos_base_real, 2),
+            'pos_base_fallback': round(pos_base_fallback, 2),
+            'is_estimate': is_estimate,
         }
 
 

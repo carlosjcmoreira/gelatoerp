@@ -1,1 +1,2 @@
 - [Deployment target decisions](deployment-target.md) — history of autoscale-vs-VM cold-start tradeoff discussions; check before re-proposing a deployment target change.
+- [VAT/IVA rate policy](vat-iva-policy.md) — never assume fixed VAT rates for this project; real per-line IVA must be derived from sales export "S/IVA" column, not estimated.

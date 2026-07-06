@@ -72,16 +72,25 @@ def _detect_columns(df_det):
             if 'Valor' in c:
                 valor_col = c
                 break
+    # Real IVA source: some Ravagnan exports (e.g. "Evolução de Vendas por
+    # Produto") include a net-of-VAT column alongside the gross total, letting
+    # us compute the exact IVA per line (valor - valor_sem_iva) instead of
+    # assuming a rate. Confirmed with the user on 2026-07-05.
+    valor_sem_iva_col = None
+    for c in df_det.columns:
+        if 'Valor' in c and 'S/IVA' in c.upper():
+            valor_sem_iva_col = c
+            break
     cat_col = None
     for c in df_det.columns:
         if 'Familia' in c or 'Categoria' in c or 'Família' in c:
             cat_col = c
             break
-    return date_col, prod_col, qtd_col, valor_col, cat_col
+    return date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col
 
 
 def _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col,
-                              pre_delete_pairs=None):
+                              pre_delete_pairs=None, valor_sem_iva_col=None):
     import database as db
     skipped_no_loja = 0
     batch = []
@@ -108,6 +117,10 @@ def _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat
             categoria = str(row.get(cat_col, '')).replace('/', '').strip() if cat_col else ''
             quantidade = parse_qty_value(row.get(qtd_col, 0)) if qtd_col else 0
             valor = parse_euro_value(row.get(valor_col, 0)) if valor_col else 0
+            valor_sem_iva = (
+                parse_euro_value(row.get(valor_sem_iva_col, 0))
+                if valor_sem_iva_col else None
+            )
             if produto and quantidade > 0:
                 batch.append({
                     'data': data_venda,
@@ -116,6 +129,7 @@ def _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat
                     'quantidade': int(quantidade),
                     'categoria': categoria,
                     'valor_euros': valor,
+                    'valor_sem_iva_euros': valor_sem_iva,
                 })
         except Exception:
             continue
@@ -258,9 +272,9 @@ def import_vendas_xlsx(file_stream, loja_map: dict,
         raise ServiceError('Não foram encontrados dados de vendas no ficheiro.')
 
     df_det = pd.DataFrame(all_data)
-    date_col, prod_col, qtd_col, valor_col, cat_col = _detect_columns(df_det)
+    date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col = _detect_columns(df_det)
     return _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col,
-                                    pre_delete_pairs=pre_delete_pairs)
+                                    pre_delete_pairs=pre_delete_pairs, valor_sem_iva_col=valor_sem_iva_col)
 
 
 # ── Vendas CSV import ─────────────────────────────────────────────────────────
@@ -369,5 +383,6 @@ def import_vendas_html(file_stream, loja_map: dict) -> tuple[int, int]:
         raise ServiceError('Não foram encontrados dados de vendas no ficheiro HTML.')
 
     df_det = pd.DataFrame(all_data)
-    date_col, prod_col, qtd_col, valor_col, cat_col = _detect_columns(df_det)
-    return _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col)
+    date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col = _detect_columns(df_det)
+    return _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col,
+                                    valor_sem_iva_col=valor_sem_iva_col)

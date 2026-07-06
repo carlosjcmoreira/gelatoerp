@@ -483,14 +483,15 @@ def delete_rececao_mercadoria(id: int):
         cursor.execute("DELETE FROM rececao_mercadoria WHERE id = %s", (id,))
         conn.commit()
 
-def add_venda_detalhe(data: date, loja: str, produto: str, quantidade: int, categoria: str = None, valor_euros: float = None):
+def add_venda_detalhe(data: date, loja: str, produto: str, quantidade: int, categoria: str = None,
+                       valor_euros: float = None, valor_sem_iva_euros: float = None):
     store_id = get_store_id_by_name(loja)
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO vendas_detalhe (data, loja, produto, categoria, quantidade, valor_euros, store_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        ''', (data, loja, produto, categoria, quantidade, valor_euros, store_id))
+            INSERT INTO vendas_detalhe (data, loja, produto, categoria, quantidade, valor_euros, store_id, valor_sem_iva_euros)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (data, loja, produto, categoria, quantidade, valor_euros, store_id, valor_sem_iva_euros))
         conn.commit()
 
 
@@ -498,7 +499,9 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
     """Insert multiple vendas_detalhe records in a single transaction.
 
     Each record is a dict with keys: data, loja, produto, quantidade,
-    categoria (optional), valor_euros (optional).
+    categoria (optional), valor_euros (optional), valor_sem_iva_euros (optional —
+    the real net-of-VAT amount, when the source file provides it; NULL means the
+    row's IVA is estimated rather than real, see compute_vat_period).
 
     If ``pre_delete_pairs`` is provided (list of ``(date, loja)`` tuples),
     those rows are deleted atomically before the insert so that replace
@@ -522,6 +525,7 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
             rec['quantidade'],
             rec.get('valor_euros'),
             store_id_cache[loja],
+            rec.get('valor_sem_iva_euros'),
         ))
     if pre_delete_pairs and not rows:
         raise ValueError(
@@ -542,7 +546,7 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
                 execute_values(
                     cursor,
                     '''INSERT INTO vendas_detalhe
-                       (data, loja, produto, categoria, quantidade, valor_euros, store_id)
+                       (data, loja, produto, categoria, quantidade, valor_euros, store_id, valor_sem_iva_euros)
                        VALUES %s''',
                     rows,
                     page_size=500,
