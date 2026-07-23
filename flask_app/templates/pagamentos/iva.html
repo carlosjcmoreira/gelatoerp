@@ -3,7 +3,10 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-    <h5 class="mb-3">📋 Apuramento de IVA</h5>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">📋 Apuramento de IVA</h5>
+        <a href="{{ url_for('eventos.backfill_iva') }}" class="btn btn-sm btn-outline-secondary">🧾 Backfill IVA de Eventos</a>
+    </div>
 
     {% for alert in alerts %}
     <div class="alert alert-warning py-2 mb-2">

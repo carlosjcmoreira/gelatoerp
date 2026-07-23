@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pagamentos.iva") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <h5 class="mb-3">🧾 Backfill de IVA — Eventos Adjudicados</h5>
+
+    <div class="alert alert-info small mb-3">
+        Esta página lista eventos <strong>adjudicados</strong> cujos artigos do orçamento ainda não têm taxa de IVA
+        definida, o que faz os meses históricos aparecerem como "parcialmente estimado" no IVA. Preencha a taxa
+        <strong>real</strong> com base na fatura/documento contabilístico do evento (não uma estimativa) e aplique.
+        A taxa é aplicada apenas aos artigos que ainda estão sem taxa definida — artigos já com taxa não são alterados.
+    </div>
+
+    {% if not events %}
+    <div class="alert alert-success">✅ Não há eventos adjudicados com artigos sem taxa de IVA definida.</div>
+    {% else %}
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Evento</th>
+                    <th>Data</th>
+                    <th>Cliente</th>
+                    <th class="text-end">Total Orçamento</th>
+                    <th class="text-end">Artigos sem IVA</th>
+                    <th>Taxa de IVA real (%)</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in events %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('eventos.evento_detail', event_id=e.id) }}">{{ e.event_name or ('Evento #' ~ e.id) }}</a>
+                    </td>
+                    <td>{{ e.event_date.strftime('%d/%m/%Y') if e.event_date else '—' }}</td>
+                    <td>{{ e.client_name or '—' }}</td>
+                    <td class="text-end">{{ "%.2f €"|format(e.quote_total|float) }}</td>
+                    <td class="text-end">{{ e.missing_items }} / {{ e.total_items }}</td>
+                    <td colspan="2">
+                        <form method="post" class="d-flex gap-2 align-items-center">
+                            <input type="hidden" name="event_id" value="{{ e.id }}">
+                            <select name="taxa_iva" class="form-select form-select-sm" style="max-width: 100px;" required>
+                                <option value="">— selecionar —</option>
+                                <option value="6">6%</option>
+                                <option value="13">13%</option>
+                                <option value="23">23%</option>
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-primary" onclick="return confirm('Confirma que esta é a taxa de IVA real registada na fatura/documento contabilístico deste evento?');">Aplicar</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

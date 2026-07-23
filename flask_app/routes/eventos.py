@@ -365,6 +365,36 @@ def quote_action(event_id):
     return redirect(url_for('eventos.evento_detail', event_id=event_id))
 
 
+@eventos_bp.route('/backfill-iva', methods=['GET', 'POST'])
+@perm_required('acesso_financeiro')
+def backfill_iva():
+    """Reviewed admin action to set the real taxa_iva on past 'won' events whose
+    quote_items still have taxa_iva NULL, based on real invoicing records (paper
+    invoices / accounting), so historical VAT periods stop showing as estimated."""
+    if request.method == 'POST':
+        event_id = int(request.form.get('event_id', 0))
+        raw_taxa_iva = request.form.get('taxa_iva')
+        try:
+            pct = float((raw_taxa_iva or '').replace(',', '.'))
+            if pct < 0 or pct > 100:
+                raise ValueError
+            taxa_iva = round(pct / 100, 4)
+        except (TypeError, ValueError):
+            flash('Indique uma taxa de IVA real válida (com base na fatura/documento contabilístico) — não foi aplicada nenhuma alteração.', 'error')
+            return redirect(url_for('eventos.backfill_iva'))
+
+        event = db.get_event(event_id)
+        if not event or event['status'] != 'won':
+            flash('Evento não encontrado ou não adjudicado.', 'warning')
+        else:
+            updated = db.bulk_set_taxa_iva(event_id, taxa_iva)
+            flash(f'Taxa de IVA de {round(taxa_iva * 100)}% aplicada a {updated} artigo(s) do evento "{event["event_name"]}".', 'success')
+        return redirect(url_for('eventos.backfill_iva'))
+
+    events = db.get_won_events_missing_taxa_iva()
+    return render_template('eventos/backfill_iva.html', events=events)
+
+
 # ── Leads ──────────────────────────────────────────────────────────────────────
 
 @eventos_bp.route('/leads')

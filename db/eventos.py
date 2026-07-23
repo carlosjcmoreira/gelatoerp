@@ -412,6 +412,42 @@ def delete_quote_item(item_id, event_id):
         cursor.execute("DELETE FROM quote_items WHERE id=%s AND event_id=%s", (item_id, event_id))
         conn.commit()
 
+
+def get_won_events_missing_taxa_iva():
+    """List 'won' events that still have quote_items with taxa_iva IS NULL, for
+    review and backfill against real invoicing records. Ordered oldest first so
+    older, more time-sensitive VAT periods surface first."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT
+                e.id, e.event_name, e.event_date, e.client_name,
+                COALESCE(SUM(qi.total), 0) AS quote_total,
+                COUNT(qi.id) AS total_items,
+                COUNT(qi.id) FILTER (WHERE qi.taxa_iva IS NULL) AS missing_items
+            FROM events e
+            JOIN quote_items qi ON qi.event_id = e.id
+            WHERE e.status = 'won'
+            GROUP BY e.id, e.event_name, e.event_date, e.client_name
+            HAVING COUNT(qi.id) FILTER (WHERE qi.taxa_iva IS NULL) > 0
+            ORDER BY e.event_date ASC NULLS LAST, e.id ASC
+        """)
+        return cursor.fetchall()
+
+
+def bulk_set_taxa_iva(event_id, taxa_iva):
+    """Set taxa_iva on all quote_items of an event that still have it NULL.
+    Never overwrites a rate that was already explicitly recorded per-item."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE quote_items SET taxa_iva=%s
+            WHERE event_id=%s AND taxa_iva IS NULL
+        """, (taxa_iva, event_id))
+        updated = cursor.rowcount
+        conn.commit()
+        return updated
+
 def recalc_event_invoice(event_id):
     """Recalculate and store invoice_amount_eur from quote_items (only for 'won' events)."""
     with db_connection() as conn:

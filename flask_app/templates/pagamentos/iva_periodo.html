@@ -19,6 +19,9 @@
             e {{ "%.2f €"|format(computed.events_base_fallback) }} de eventos (artigos sem taxa de IVA definida) usam a taxa estimada
             {% endif %}.
             Reimporte os ficheiros de vendas em falta ou defina a taxa de IVA por artigo no orçamento do evento para obter o valor 100% real.
+            {% if computed.events_base_fallback and computed.events_base_fallback > 0.005 %}
+            <a href="{{ url_for('eventos.backfill_iva') }}" class="alert-link">Rever eventos sem taxa de IVA →</a>
+            {% endif %}
         </div>
         {% else %}
         <div class="alert alert-success py-2 small mb-3">
