@@ -1320,7 +1320,8 @@ def get_producao_duplicados_csv_balanca(loja: str, data_inicio: date = None, dat
 
     dias = [{'data': r['data'], 'csv_kg': float(r['csv_kg']), 'balanca_kg': float(r['balanca_kg'])} for r in rows]
     total_csv_kg = round(sum(d['csv_kg'] for d in dias), 2)
-    return {'dias': dias, 'total_csv_kg': total_csv_kg}
+    total_balanca_kg = round(sum(d['balanca_kg'] for d in dias), 2)
+    return {'dias': dias, 'total_csv_kg': total_csv_kg, 'total_balanca_kg': total_balanca_kg}
 
 
 def delete_producao_csv_onde_balanca_existe(loja: str, data_inicio: date = None, data_fim: date = None) -> int:
@@ -1339,6 +1340,48 @@ def delete_producao_csv_onde_balanca_existe(loja: str, data_inicio: date = None,
               AND data IN (
                   SELECT DISTINCT data FROM producao
                   WHERE loja = %s AND tipo = 'balança'
+        """
+        params = [loja, loja]
+        if data_inicio:
+            query += " AND data >= %s"
+            params.append(data_inicio)
+        if data_fim:
+            query += " AND data <= %s"
+            params.append(data_fim)
+        query += ")"
+        if data_inicio:
+            query += " AND data >= %s"
+            params.append(data_inicio)
+        if data_fim:
+            query += " AND data <= %s"
+            params.append(data_fim)
+        cursor.execute(query, params)
+        deleted = cursor.rowcount
+        conn.commit()
+    invalidate_prefix('kpi_annual')
+    invalidate_prefix('kpi_monthly')
+    invalidate_prefix('kpi_by_day')
+    return deleted
+
+
+def delete_producao_balanca_onde_csv_existe(loja: str, data_inicio=None, data_fim=None) -> int:
+    """Delete tipo='balança' records for days where tipo='producao' (CSV) also exists.
+
+    The CSV CalybraBox export IS the balança extraction — the complete source.
+    Partial tipo='balança' entries uploaded separately for the same days are
+    duplicates that inflate the total.  This function removes them, keeping
+    only the CSV data (and any 'manual' collaborator entries).
+    Returns the number of records deleted.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        query = """
+            DELETE FROM producao
+            WHERE loja = %s
+              AND tipo = 'balança'
+              AND data IN (
+                  SELECT DISTINCT data FROM producao
+                  WHERE loja = %s AND tipo = 'producao'
         """
         params = [loja, loja]
         if data_inicio:

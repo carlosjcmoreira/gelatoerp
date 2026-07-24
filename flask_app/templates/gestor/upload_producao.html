@@ -132,14 +132,24 @@
                             </details>
                         </div>
                     </div>
-                    <form method="POST" class="flex-shrink-0">
-                        <input type="hidden" name="action" value="limpar_duplicados_csv">
-                        <input type="hidden" name="loja_dup" value="{{ loja_upload }}">
-                        <button type="submit" class="btn btn-warning btn-sm"
-                            onclick="return confirm('Remover {{ duplicados_info.dias|length }} dia(s) de registos CSV ({{ '%.2f'|format(duplicados_info.total_csv_kg) }} kg) onde já existe upload de balança para {{ loja_upload }}?')">
-                            🗑️ Remover CSV duplicados
-                        </button>
-                    </form>
+                    <div class="d-flex flex-column gap-2 flex-shrink-0">
+                        <form method="POST">
+                            <input type="hidden" name="action" value="limpar_balanca_parcial">
+                            <input type="hidden" name="loja_dup" value="{{ loja_upload }}">
+                            <button type="submit" class="btn btn-danger btn-sm w-100"
+                                onclick="return confirm('Remover {{ duplicados_info.dias|length }} dia(s) de registos de balança parcial ({{ '%.2f'|format(duplicados_info.total_balanca_kg) }} kg) onde já existe CSV CalybraBox completo para {{ loja_upload }}?\n\nEsta é a opção recomendada: o CSV é a extração completa da balança.')">
+                                🗑️ Remover balança parcial ({{ "%.2f"|format(duplicados_info.total_balanca_kg) }} kg)
+                            </button>
+                        </form>
+                        <form method="POST">
+                            <input type="hidden" name="action" value="limpar_duplicados_csv">
+                            <input type="hidden" name="loja_dup" value="{{ loja_upload }}">
+                            <button type="submit" class="btn btn-warning btn-sm w-100"
+                                onclick="return confirm('Remover {{ duplicados_info.dias|length }} dia(s) de registos CSV ({{ '%.2f'|format(duplicados_info.total_csv_kg) }} kg) onde já existe upload de balança para {{ loja_upload }}?')">
+                                🗑️ Remover CSV duplicados ({{ "%.2f"|format(duplicados_info.total_csv_kg) }} kg)
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
             {% endif %}

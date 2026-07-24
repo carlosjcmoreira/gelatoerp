@@ -141,6 +141,8 @@ def upload_producao():
             return _handle_manual_producao()
         elif action == 'limpar_duplicados_csv':
             return _handle_limpar_duplicados_csv(loja_upload)
+        elif action == 'limpar_balanca_parcial':
+            return _handle_limpar_balanca_parcial(loja_upload)
 
     return render_template('gestor/upload_producao.html',
                            active_tab='upload_producao', tabs=tabs,
@@ -212,6 +214,19 @@ def _handle_limpar_duplicados_csv(loja_upload):
             flash('Nenhum registo CSV duplicado encontrado para esta loja.', 'info')
     except Exception as e:
         flash(f'Erro ao limpar duplicados: {str(e)}', 'error')
+    return redirect(url_for('gestor.upload_producao', loja=loja))
+
+
+def _handle_limpar_balanca_parcial(loja_upload):
+    loja = request.form.get('loja_dup', loja_upload)
+    try:
+        deleted = db.delete_producao_balanca_onde_csv_existe(loja)
+        if deleted > 0:
+            flash(f'{deleted} registo(s) de balança parcial removidos para {loja} (dias onde já existe CSV CalybraBox completo).', 'success')
+        else:
+            flash('Nenhum registo de balança parcial encontrado para esta loja.', 'info')
+    except Exception as e:
+        flash(f'Erro ao limpar balança parcial: {str(e)}', 'error')
     return redirect(url_for('gestor.upload_producao', loja=loja))
 
 
