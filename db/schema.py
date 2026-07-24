@@ -3615,6 +3615,30 @@ def run_migrations_normalise_producao_sabores():
                 )
             total_updated += general_updated
 
+            # Clean up orphan receitas_gelado rows: rows where nome_corrente IS NULL
+            # and whose nome (case-insensitive, trimmed) matches an existing
+            # nome_corrente from another row.  These orphans are created when a
+            # CalybraBox upload encounters an unknown description and inserts a
+            # placeholder entry; once the description is mapped to a canonical alias,
+            # the orphan becomes a duplicate display name.  Safe to delete because
+            # producao.sabor is already normalised to nome_corrente values and
+            # nothing references the orphan row's id.
+            cursor.execute(
+                """
+                DELETE FROM receitas_gelado AS orphan
+                USING receitas_gelado AS canonical
+                WHERE orphan.nome_corrente IS NULL
+                  AND LOWER(TRIM(orphan.nome)) = LOWER(TRIM(canonical.nome_corrente))
+                  AND orphan.id != canonical.id
+                """
+            )
+            orphans_deleted = cursor.rowcount
+            if orphans_deleted > 0:
+                logger.info(
+                    "run_migrations_normalise_producao_sabores: deleted %d orphan receitas_gelado rows whose nome matched an existing nome_corrente",
+                    orphans_deleted,
+                )
+
             conn.commit()
             logger.info(
                 "run_migrations_normalise_producao_sabores: done (%d producao rows updated)",

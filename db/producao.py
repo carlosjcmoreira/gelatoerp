@@ -1251,13 +1251,26 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
                 if upper_desc in receitas_map:
                     sabor = receitas_map[upper_desc]
                 else:
+                    # Before creating an orphan entry, check whether the description
+                    # already matches an existing nome_corrente (case-insensitive).
+                    # This prevents duplicate/stale entries when the alias was added
+                    # after a previous upload had already created the orphan row.
                     cursor.execute(
-                        "INSERT INTO receitas_gelado (nome, nome_corrente, ativo, conta_eurokg) VALUES (%s, NULL, TRUE, TRUE) ON CONFLICT (nome) DO NOTHING",
+                        "SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE LOWER(TRIM(nome_corrente)) = LOWER(TRIM(%s)) AND ativo = TRUE LIMIT 1",
                         (descricao,)
                     )
-                    if cursor.rowcount > 0 and descricao not in novas_receitas:
-                        novas_receitas.append(descricao)
-                    receitas_map[upper_desc] = sabor
+                    nc_match = cursor.fetchone()
+                    if nc_match:
+                        sabor = nc_match[0]
+                        receitas_map[upper_desc] = sabor
+                    else:
+                        cursor.execute(
+                            "INSERT INTO receitas_gelado (nome, nome_corrente, ativo, conta_eurokg) VALUES (%s, NULL, TRUE, TRUE) ON CONFLICT (nome) DO NOTHING",
+                            (descricao,)
+                        )
+                        if cursor.rowcount > 0 and descricao not in novas_receitas:
+                            novas_receitas.append(descricao)
+                        receitas_map[upper_desc] = sabor
 
             key = (data, sabor)
             if key in existing_map:
