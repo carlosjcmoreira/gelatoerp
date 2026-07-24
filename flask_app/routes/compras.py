@@ -937,8 +937,9 @@ def nova_fatura():
 
         # Resolve supplier by NIF — check canonical suppliers table and then aliases
         # before creating a new record, to avoid duplicating a previously merged supplier.
+        # payment_method is NOT required for resolution; we only persist it when provided.
         supplier_id = None
-        if supplier_nif and payment_method:
+        if supplier_nif:
             try:
                 _s = get_supplier_by_nif(supplier_nif)
                 if not _s:
@@ -948,41 +949,45 @@ def nova_fatura():
                     # If the found supplier's canonical NIF matches what OCR/user provided,
                     # run upsert to persist the payment method preference (same as before).
                     # Skip when resolved via alias (canonical NIF differs — avoid overwriting).
-                    if _s.get('nif') == supplier_nif:
+                    if _s.get('nif') == supplier_nif and payment_method:
                         upsert_supplier(supplier_name, supplier_nif,
                                         payment_method=payment_method)
                 else:
                     supplier_id = upsert_supplier(supplier_name, supplier_nif,
-                                                  payment_method=payment_method)
+                                                  payment_method=payment_method or None)
             except Exception as exc:
                 logging.warning('compras.nova_fatura: supplier lookup/upsert failed for nif=%s: %s',
                                 supplier_nif, exc)
 
-        invoice_id = create_invoice({
-            'supplier_id': supplier_id,
-            'supplier_name': supplier_name,
-            'supplier_nif': supplier_nif,
-            'invoice_number': invoice_number,
-            'amount_eur': amount_eur,
-            'vat_amount_eur': vat_amount_eur,
-            'issue_date': issue_date,
-            'due_date': due_date,
-            'store_id': None,
-            'category': None,
-            'onedrive_subfolder': None,
-            'onedrive_path': None,
-            'onedrive_web_url': None,
-            'pdf_filename': None,
-            'pdf_data': None,
-            'status': 'pending_review',
-            'ocr_confidence': None,
-            'ocr_raw': None,
-            'created_by': _get_username(),
-            'notes': notes,
-            'document_type': document_type,
-            'centro_custo_id': centro_custo_id,
-            'categoria_custo_id': categoria_custo_id,
-        })
+        try:
+            invoice_id = create_invoice({
+                'supplier_id': supplier_id,
+                'supplier_name': supplier_name,
+                'supplier_nif': supplier_nif,
+                'invoice_number': invoice_number,
+                'amount_eur': amount_eur,
+                'vat_amount_eur': vat_amount_eur,
+                'issue_date': issue_date,
+                'due_date': due_date,
+                'store_id': None,
+                'category': None,
+                'onedrive_subfolder': None,
+                'onedrive_path': None,
+                'onedrive_web_url': None,
+                'pdf_filename': None,
+                'pdf_data': None,
+                'status': 'pending_review',
+                'ocr_confidence': None,
+                'ocr_raw': None,
+                'created_by': _get_username(),
+                'notes': notes,
+                'document_type': document_type,
+                'centro_custo_id': centro_custo_id,
+                'categoria_custo_id': categoria_custo_id,
+            })
+        except ValueError as exc:
+            flash(str(exc), 'warning')
+            return redirect(url_for('compras.nova_fatura'))
 
         from db.faturas import DOCUMENT_TYPE_LABELS as _DTL2
         _doc_label = _DTL2.get(document_type, 'Documento')
