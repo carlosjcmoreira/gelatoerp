@@ -1190,8 +1190,17 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
 
         min_date = min(all_dates)
         max_date = max(all_dates)
+
+        # Delete any tipo='producao' (CSV import) records for the same days/loja
+        # before inserting balança data, so they don't silently co-exist.
         cursor.execute(
-            "SELECT id, data, sabor, quantidade_kg FROM producao WHERE loja = %s AND tipo IN ('producao', 'balança') AND data >= %s AND data <= %s",
+            "DELETE FROM producao WHERE loja = %s AND tipo = 'producao' AND data >= %s AND data <= %s",
+            (loja, min_date, max_date)
+        )
+        replaced_csv = cursor.rowcount
+
+        cursor.execute(
+            "SELECT id, data, sabor, quantidade_kg FROM producao WHERE loja = %s AND tipo = 'balança' AND data >= %s AND data <= %s",
             (loja, min_date, max_date)
         )
         existing_map = {}
@@ -1243,7 +1252,7 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
     invalidate_prefix('kpi_annual')
     invalidate_prefix('kpi_monthly')
     invalidate_prefix('kpi_by_day')
-    return {'imported': imported, 'updated': updated, 'skipped': skipped, 'novas_receitas': len(novas_receitas), 'receitas_novas_nomes': novas_receitas}
+    return {'imported': imported, 'updated': updated, 'skipped': skipped, 'replaced_csv': replaced_csv, 'novas_receitas': len(novas_receitas), 'receitas_novas_nomes': novas_receitas}
 
 def delete_producao_by_date_range(data_inicio: date, data_fim: date, loja: str):
     with db_connection() as conn:

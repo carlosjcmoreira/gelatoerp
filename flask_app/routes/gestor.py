@@ -164,8 +164,11 @@ def _handle_upload_producao_csv(loja_upload):
         imported = result['imported']
         updated = result.get('updated', 0)
         skipped = result.get('skipped', 0)
+        replaced_csv = result.get('replaced_csv', 0)
         novas = result['novas_receitas']
         msg = f'{imported} registo(s) inserido(s), {updated} atualizado(s) e {skipped} ignorado(s) para {loja}.'
+        if replaced_csv > 0:
+            msg += f' ⚠️ {replaced_csv} registo(s) CSV anteriores (tipo="produção") foram automaticamente substituídos pelos dados da balança.'
         if novas > 0:
             nomes = ', '.join(result['receitas_novas_nomes'])
             msg += f' {novas} receita(s) nova(s) adicionada(s) automaticamente: {nomes}'
