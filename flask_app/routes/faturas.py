@@ -641,6 +641,25 @@ def bulk_action():
 @perm_required('acesso_gestor')
 def registar():
     """Unified document registration: manual entry, PDF upload, or photo channel."""
+
+    def _render_with_errors(field_errors, form_data):
+        """Re-render the registration form with pre-filled values and inline field errors."""
+        return render_template(
+            'financeiro/faturas/registar.html',
+            suppliers=get_suppliers(),
+            stores=get_stores_list(),
+            cost_centers=get_cost_centers(ativo_only=True),
+            cost_categories_tree=get_cost_categories_tree(),
+            payment_methods=[m for m in get_payment_methods_config() if m.get('ativo')],
+            subfolders=ONEDRIVE_SUBFOLDERS,
+            today=str(date.today()),
+            document_type_labels=DOCUMENT_TYPE_LABELS,
+            payment_method_labels=PAYMENT_METHOD_LABELS,
+            payment_terms_labels=PAYMENT_TERMS_LABELS,
+            form_data=form_data,
+            field_errors=field_errors,
+        ), 422
+
     if request.method == 'POST':
         supplier_id_str = request.form.get('supplier_id', '').strip()
         supplier_id = int(supplier_id_str) if supplier_id_str else None
@@ -665,13 +684,17 @@ def registar():
 
         _INVOICE_DOC_TYPES = {'fatura', 'nota_credito', 'nota_debito'}
         if not supplier_name and document_type in _INVOICE_DOC_TYPES:
-            flash('Nome do fornecedor é obrigatório para este tipo de documento.', 'warning')
-            return redirect(url_for('faturas.registar'))
+            return _render_with_errors(
+                {'supplier': 'Nome do fornecedor é obrigatório para este tipo de documento.'},
+                request.form,
+            )
         try:
             amount_eur = float(amount_str)
         except (ValueError, TypeError):
-            flash('Valor inválido.', 'warning')
-            return redirect(url_for('faturas.registar'))
+            return _render_with_errors(
+                {'amount_eur': 'Valor inválido — introduz um número (ex: 12.50).'},
+                request.form,
+            )
 
         try:
             vat_amount_eur = float(vat_str)
@@ -688,8 +711,10 @@ def registar():
         if pdf_file and pdf_file.filename:
             ext = _ext(pdf_file.filename)
             if ext not in _ALLOWED_MANUAL_EXTS:
-                flash(f'Tipo de ficheiro não suportado (.{ext}). Usa PDF ou imagem.', 'warning')
-                return redirect(url_for('faturas.registar'))
+                return _render_with_errors(
+                    {'pdf_file': f'Tipo de ficheiro não suportado (.{ext}). Usa PDF ou imagem.'},
+                    request.form,
+                )
             pdf_data = pdf_file.read()
             pdf_filename = pdf_file.filename
 
@@ -712,8 +737,10 @@ def registar():
         # Enforce: invoice-type documents must resolve to a known supplier
         _INVOICE_DOC_TYPES = {'fatura', 'nota_credito', 'nota_debito'}
         if document_type in _INVOICE_DOC_TYPES and not supplier_id:
-            flash('Seleciona um fornecedor existente ou cria um novo antes de registar este tipo de documento.', 'warning')
-            return redirect(url_for('faturas.registar'))
+            return _render_with_errors(
+                {'supplier': 'Seleciona um fornecedor da lista ou regista-o primeiro (botão ＋).'},
+                request.form,
+            )
 
         store_id_int = int(store_id) if store_id else None
         current_user = session.get('user', {}).get('username', 'sistema')
