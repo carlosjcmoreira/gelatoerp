@@ -289,15 +289,13 @@ def get_producao_sabor_overview() -> pd.DataFrame:
 def get_sabores_excluidos_eurokg() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
-        # Return BOTH nome and nome_corrente for each excluded recipe so that
-        # producao.sabor entries stored under either form are correctly filtered.
-        # (Some records are imported with the alias/nome_corrente, others with
-        # the original nome — COALESCE alone only covers one form.)
+        # After the producao.sabor normalisation migration, all entries are stored
+        # under COALESCE(nome_corrente, nome).  A single COALESCE lookup is therefore
+        # sufficient — no UNION over both forms is needed.
         cursor.execute("""
-            SELECT nome FROM receitas_gelado WHERE conta_eurokg = FALSE
-            UNION
-            SELECT nome_corrente FROM receitas_gelado
-            WHERE conta_eurokg = FALSE AND nome_corrente IS NOT NULL AND nome_corrente != ''
+            SELECT COALESCE(nome_corrente, nome)
+            FROM receitas_gelado
+            WHERE conta_eurokg = FALSE
         """)
         return [row[0] for row in cursor.fetchall()]
 
@@ -1207,12 +1205,22 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
         if all_descs:
             upper_descs = [d.upper() for d in all_descs]
             placeholders = ','.join(['%s'] * len(upper_descs))
+            # Primary lookup: description matches the original recipe nome.
             cursor.execute(
                 f"SELECT UPPER(nome), COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE UPPER(nome) IN ({placeholders}) AND ativo = TRUE",
                 upper_descs
             )
-            for nome_upper, nome_corrente in cursor.fetchall():
-                receitas_map[nome_upper] = nome_corrente
+            for nome_upper, canonical in cursor.fetchall():
+                receitas_map[nome_upper] = canonical
+            # Secondary lookup: description already uses the canonical nome_corrente.
+            # Prevents creating a duplicate recipe entry when the CSV uses the alias.
+            cursor.execute(
+                f"SELECT UPPER(nome_corrente), COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE UPPER(nome_corrente) IN ({placeholders}) AND ativo = TRUE AND nome_corrente IS NOT NULL AND nome_corrente != ''",
+                upper_descs
+            )
+            for nc_upper, canonical in cursor.fetchall():
+                if nc_upper not in receitas_map:
+                    receitas_map[nc_upper] = canonical
 
         min_date = min(all_dates)
         max_date = max(all_dates)

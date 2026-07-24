@@ -3579,16 +3579,41 @@ def run_migrations_normalise_producao_sabores():
                         nome_receita, canonical,
                     )
 
-            # Ensure Stracciatella Ruby recipe exists — idempotent by nome_corrente
+            # Ensure Stracciatella Ruby recipe exists — idempotent via ON CONFLICT.
+            # NOTE: we use ON CONFLICT DO NOTHING on (nome) because the previous
+            # WHERE NOT EXISTS guard had a race condition: two workers could both
+            # pass the check and then one would hit the UNIQUE constraint on nome,
+            # aborting the whole migration transaction.
             cursor.execute(
                 """INSERT INTO receitas_gelado (nome, nome_corrente, ativo, conta_eurokg)
-                   SELECT 'STRACCIATELLA RUBY', 'Stracciatella Ruby', TRUE, TRUE
-                   WHERE NOT EXISTS (
-                       SELECT 1 FROM receitas_gelado WHERE nome_corrente = 'Stracciatella Ruby'
-                   )""",
+                   VALUES ('STRACCIATELLA RUBY', 'Stracciatella Ruby', TRUE, TRUE)
+                   ON CONFLICT (nome) DO NOTHING""",
             )
             if cursor.rowcount > 0:
                 logger.info("run_migrations_normalise_producao_sabores: inserted Stracciatella Ruby recipe")
+
+            # General normalisation: update any producao.sabor that matches a
+            # receita nome (case-insensitive) but is stored under the old nome
+            # rather than the canonical nome_corrente.  This covers all past and
+            # future aliases without needing per-pair hardcoded entries above.
+            cursor.execute(
+                """
+                UPDATE producao p
+                SET sabor = COALESCE(r.nome_corrente, r.nome)
+                FROM receitas_gelado r
+                WHERE UPPER(p.sabor) = UPPER(r.nome)
+                  AND r.nome_corrente IS NOT NULL
+                  AND r.nome_corrente != ''
+                  AND p.sabor != r.nome_corrente
+                """
+            )
+            general_updated = cursor.rowcount
+            if general_updated > 0:
+                logger.info(
+                    "run_migrations_normalise_producao_sabores: general nome→nome_corrente normalisation updated %d producao rows",
+                    general_updated,
+                )
+            total_updated += general_updated
 
             conn.commit()
             logger.info(
