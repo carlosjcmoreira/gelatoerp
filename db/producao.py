@@ -8,6 +8,11 @@ from db.stores import get_store_id_by_name
 import pandas as pd
 import json
 
+# Lojas que não são produtoras de gelado e devem ser excluídas do cálculo
+# de produção no modo "Global Porto" (euro/kg).
+# Bolhão recebe transferências (não produz); B2B é canal de venda externo.
+LOJAS_NAO_PRODUCAO_EUROKG = ('Bolhão', 'B2B')
+
 def get_target_by_month(month: int) -> float:
     high_season = [5, 6, 7, 8, 9]
     if month in high_season:
@@ -281,7 +286,12 @@ def get_sabores_excluidos_eurokg() -> list:
         cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE conta_eurokg = FALSE")
         return [row[0] for row in cursor.fetchall()]
 
-def get_producao_total_by_period(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> float:
+def get_producao_total_by_period(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True, lojas_excluidas: tuple = ()) -> float:
+    """Sum production kg for a period.
+
+    ``lojas_excluidas`` excludes specific lojas from the sum when no explicit
+    ``loja`` filter is provided (useful for Global Porto: exclude Bolhão/B2B).
+    """
     query = "SELECT COALESCE(SUM(quantidade_kg), 0) FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
@@ -295,6 +305,10 @@ def get_producao_total_by_period(loja: str = None, data_inicio: date = None, dat
     if loja:
         query += " AND loja = %s"
         params.append(loja)
+    elif lojas_excluidas:
+        placeholders = ','.join(['%s'] * len(lojas_excluidas))
+        query += f" AND loja NOT IN ({placeholders})"
+        params.extend(lojas_excluidas)
     if data_inicio:
         query += " AND data >= %s"
         params.append(data_inicio)
@@ -391,7 +405,7 @@ def get_producao_plano_matosinhos_by_month(year: int) -> dict:
 
 
 @db_retry
-def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> pd.DataFrame:
+def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True, lojas_excluidas: tuple = ()) -> pd.DataFrame:
     query = "SELECT data, SUM(quantidade_kg) as total_kg FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
@@ -405,6 +419,10 @@ def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_f
     if loja:
         query += " AND loja = %s"
         params.append(loja)
+    elif lojas_excluidas:
+        placeholders = ','.join(['%s'] * len(lojas_excluidas))
+        query += f" AND loja NOT IN ({placeholders})"
+        params.extend(lojas_excluidas)
     if data_inicio:
         query += " AND data >= %s"
         params.append(data_inicio)
@@ -416,7 +434,7 @@ def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_f
         return pd.read_sql_query(query, conn, params=params)
 
 @db_retry
-def get_producao_df(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True) -> pd.DataFrame:
+def get_producao_df(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True, lojas_excluidas: tuple = ()) -> pd.DataFrame:
     query = "SELECT * FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
@@ -430,6 +448,10 @@ def get_producao_df(loja: str = None, data_inicio: date = None, data_fim: date =
     if loja:
         query += " AND loja = %s"
         params.append(loja)
+    elif lojas_excluidas:
+        placeholders = ','.join(['%s'] * len(lojas_excluidas))
+        query += f" AND loja NOT IN ({placeholders})"
+        params.extend(lojas_excluidas)
     if data_inicio:
         query += " AND data >= %s"
         params.append(data_inicio)
@@ -522,7 +544,11 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
         producao_plano_daily = get_producao_plano_matosinhos_daily(data_inicio, data_fim)
         producao_df = pd.DataFrame()
     else:
-        producao_df = get_producao_df(None, data_inicio, data_fim, para_eurokg=True)
+        # Exclude non-production lojas (Bolhão, B2B) from Global Porto sum
+        producao_df = get_producao_df(
+            loja_db, data_inicio, data_fim, para_eurokg=True,
+            lojas_excluidas=LOJAS_NAO_PRODUCAO_EUROKG if loja_db is None else ()
+        )
         producao_plano_daily = {}
     quebras_df = get_quebras_df(loja_db, data_inicio, data_fim)
     if not quebras_df.empty:
@@ -800,7 +826,11 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
         producao_ajustada = producao
         ajuste = 0.0
     else:
-        producao = get_producao_total_by_period(None, first_day, last_day) or 0
+        # Exclude non-production lojas (Bolhão, B2B) from Global Porto sum
+        producao = get_producao_total_by_period(
+            loja_db, first_day, last_day,
+            lojas_excluidas=LOJAS_NAO_PRODUCAO_EUROKG if loja_db is None else ()
+        ) or 0
         ajuste = get_ajuste_producao_mes(year, month)
         producao_ajustada = max(0, producao - ajuste)
 
@@ -922,12 +952,24 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
                 stock_per_loja[loja_name][d] = val
                 all_stock[d] = all_stock.get(d, 0) + val
 
+        # For Global Porto (loja_db is None), exclude non-production lojas
+        # (Bolhão receives transfers; B2B is an external sales channel).
+        # For a specific loja, filter to that loja only.
+        if loja_db:
+            prod_loja_clause = " AND loja = %s"
+            prod_loja_params = [loja_db]
+        else:
+            excl_lojas = list(LOJAS_NAO_PRODUCAO_EUROKG)
+            excl_placeholders = ','.join(['%s'] * len(excl_lojas))
+            prod_loja_clause = f" AND loja NOT IN ({excl_placeholders})"
+            prod_loja_params = excl_lojas
+
         cursor.execute(f"""
             SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(quantidade_kg), 0)
             FROM producao
-            WHERE EXTRACT(YEAR FROM data) = %s{prod_excl}
+            WHERE EXTRACT(YEAR FROM data) = %s{prod_excl}{prod_loja_clause}
             GROUP BY mes ORDER BY mes
-        """, [year] + list(excluidos))
+        """, [year] + list(excluidos) + prod_loja_params)
         producao_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
         cursor.execute("""
@@ -1213,6 +1255,87 @@ def delete_producao_by_date_range(data_inicio: date, data_fim: date, loja: str):
         deleted = cursor.rowcount
         conn.commit()
     return deleted
+
+def get_producao_duplicados_csv_balanca(loja: str, data_inicio: date = None, data_fim: date = None) -> dict:
+    """Detect days where tipo='producao' (CSV import) and tipo='balança' both exist.
+
+    Returns:
+        {
+          'dias': list of {'data': date, 'csv_kg': float, 'balanca_kg': float},
+          'total_csv_kg': float,  # kg that would be removed
+        }
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        query = """
+            SELECT
+                data,
+                ROUND(SUM(CASE WHEN tipo = 'producao' THEN quantidade_kg ELSE 0 END)::numeric, 2) AS csv_kg,
+                ROUND(SUM(CASE WHEN tipo = 'balança' THEN quantidade_kg ELSE 0 END)::numeric, 2) AS balanca_kg
+            FROM producao
+            WHERE loja = %s
+              AND tipo IN ('producao', 'balança')
+        """
+        params = [loja]
+        if data_inicio:
+            query += " AND data >= %s"
+            params.append(data_inicio)
+        if data_fim:
+            query += " AND data <= %s"
+            params.append(data_fim)
+        query += """
+            GROUP BY data
+            HAVING SUM(CASE WHEN tipo = 'producao' THEN 1 ELSE 0 END) > 0
+               AND SUM(CASE WHEN tipo = 'balança' THEN 1 ELSE 0 END) > 0
+            ORDER BY data DESC
+        """
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    dias = [{'data': r['data'], 'csv_kg': float(r['csv_kg']), 'balanca_kg': float(r['balanca_kg'])} for r in rows]
+    total_csv_kg = round(sum(d['csv_kg'] for d in dias), 2)
+    return {'dias': dias, 'total_csv_kg': total_csv_kg}
+
+
+def delete_producao_csv_onde_balanca_existe(loja: str, data_inicio: date = None, data_fim: date = None) -> int:
+    """Delete tipo='producao' (CSV) records for days where tipo='balança' also exists.
+
+    This removes the duplicated CSV imports that were later re-uploaded via the
+    scale (tipo='balança'), avoiding double-counting in the euro/kg calculation.
+    Returns the number of records deleted.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        query = """
+            DELETE FROM producao
+            WHERE loja = %s
+              AND tipo = 'producao'
+              AND data IN (
+                  SELECT DISTINCT data FROM producao
+                  WHERE loja = %s AND tipo = 'balança'
+        """
+        params = [loja, loja]
+        if data_inicio:
+            query += " AND data >= %s"
+            params.append(data_inicio)
+        if data_fim:
+            query += " AND data <= %s"
+            params.append(data_fim)
+        query += ")"
+        if data_inicio:
+            query += " AND data >= %s"
+            params.append(data_inicio)
+        if data_fim:
+            query += " AND data <= %s"
+            params.append(data_fim)
+        cursor.execute(query, params)
+        deleted = cursor.rowcount
+        conn.commit()
+    invalidate_prefix('kpi_annual')
+    invalidate_prefix('kpi_monthly')
+    invalidate_prefix('kpi_by_day')
+    return deleted
+
 
 def get_producao_total_by_date(loja: str = None) -> list:
     with db_connection() as conn:

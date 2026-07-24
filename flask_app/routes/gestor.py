@@ -128,6 +128,7 @@ def upload_producao():
     tabs = get_tabs()
     loja_upload = request.args.get('loja', 'Matosinhos')
     prod_totals_list = db.get_producao_by_source_by_date(loja_upload)
+    duplicados_info = db.get_producao_duplicados_csv_balanca(loja_upload)
 
     if request.method == 'POST':
         action = request.form.get('action')
@@ -138,11 +139,14 @@ def upload_producao():
             return _handle_delete_producao()
         elif action == 'manual_producao':
             return _handle_manual_producao()
+        elif action == 'limpar_duplicados_csv':
+            return _handle_limpar_duplicados_csv(loja_upload)
 
     return render_template('gestor/upload_producao.html',
                            active_tab='upload_producao', tabs=tabs,
                            loja_upload=loja_upload,
                            prod_totals=prod_totals_list,
+                           duplicados_info=duplicados_info,
                            today=date.today().isoformat())
 
 
@@ -193,6 +197,19 @@ def _handle_delete_producao():
     except Exception as e:
         flash(f'Erro: {str(e)}', 'error')
     return redirect(url_for('gestor.upload_producao', loja=request.form.get('loja', 'Matosinhos')))
+
+
+def _handle_limpar_duplicados_csv(loja_upload):
+    loja = request.form.get('loja_dup', loja_upload)
+    try:
+        deleted = db.delete_producao_csv_onde_balanca_existe(loja)
+        if deleted > 0:
+            flash(f'{deleted} registo(s) CSV duplicados removidos para {loja} (dias onde já existia upload de balança).', 'success')
+        else:
+            flash('Nenhum registo CSV duplicado encontrado para esta loja.', 'info')
+    except Exception as e:
+        flash(f'Erro ao limpar duplicados: {str(e)}', 'error')
+    return redirect(url_for('gestor.upload_producao', loja=loja))
 
 
 def _handle_manual_producao():

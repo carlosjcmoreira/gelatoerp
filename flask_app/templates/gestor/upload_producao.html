@@ -102,6 +102,48 @@
                 Linhas a ⚠️ amarelo indicam diferença &gt;10%.
             </p>
 
+            {% if duplicados_info and duplicados_info.dias %}
+            <div class="alert alert-warning mt-3 mb-3">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <strong>⚠️ Possível duplicação detectada</strong><br>
+                        <span class="small">
+                            Existem <strong>{{ duplicados_info.dias|length }} dia(s)</strong> com registos CSV
+                            (<code>tipo='producao'</code>) e registos de balança (<code>tipo='balança'</code>) em simultâneo
+                            para <strong>{{ loja_upload }}</strong> — total CSV a remover: <strong>{{ "%.2f"|format(duplicados_info.total_csv_kg) }} kg</strong>.
+                        </span>
+                        <div class="mt-2">
+                            <details>
+                                <summary class="small text-muted" style="cursor:pointer">Ver dias afetados ({{ duplicados_info.dias|length }})</summary>
+                                <table class="table table-sm table-bordered mt-2" style="font-size:0.8rem;">
+                                    <thead class="table-light">
+                                        <tr><th>Data</th><th class="text-end">CSV (kg)</th><th class="text-end">Balança (kg)</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for d in duplicados_info.dias %}
+                                        <tr>
+                                            <td>{{ d.data }}</td>
+                                            <td class="text-end text-danger">{{ "%.2f"|format(d.csv_kg) }}</td>
+                                            <td class="text-end">{{ "%.2f"|format(d.balanca_kg) }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </details>
+                        </div>
+                    </div>
+                    <form method="POST" class="flex-shrink-0">
+                        <input type="hidden" name="action" value="limpar_duplicados_csv">
+                        <input type="hidden" name="loja_dup" value="{{ loja_upload }}">
+                        <button type="submit" class="btn btn-warning btn-sm"
+                            onclick="return confirm('Remover {{ duplicados_info.dias|length }} dia(s) de registos CSV ({{ '%.2f'|format(duplicados_info.total_csv_kg) }} kg) onde já existe upload de balança para {{ loja_upload }}?')">
+                            🗑️ Remover CSV duplicados
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
             <h6 class="mt-3">Eliminar Produção por Período</h6>
             <form method="POST">
                 <input type="hidden" name="action" value="delete_producao">
