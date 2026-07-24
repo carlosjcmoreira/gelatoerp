@@ -13,6 +13,12 @@ import json
 # Bolhão recebe transferências (não produz); B2B é canal de venda externo.
 LOJAS_NAO_PRODUCAO_EUROKG = ('Bolhão', 'B2B')
 
+# Tipos de registo de produção que contam para o Euro/kg.
+# Entradas 'manual' (e outras não listadas) são registos de CONTROLO da equipa —
+# servem para comparar com a balança e nunca entram no cálculo Euro/kg,
+# nem devem ser apagadas. Fontes válidas: extração da balança e CSV CalybraBox.
+TIPOS_PRODUCAO_EUROKG = ('producao', 'balança')
+
 def get_target_by_month(month: int) -> float:
     high_season = [5, 6, 7, 8, 9]
     if month in high_season:
@@ -295,6 +301,9 @@ def get_producao_total_by_period(loja: str = None, data_inicio: date = None, dat
     query = "SELECT COALESCE(SUM(quantidade_kg), 0) FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
+        tipo_placeholders = ','.join(['%s'] * len(TIPOS_PRODUCAO_EUROKG))
+        query += f" AND tipo IN ({tipo_placeholders})"
+        params.extend(TIPOS_PRODUCAO_EUROKG)
         excluidos = get_sabores_excluidos_eurokg()
         if excluidos:
             placeholders = ','.join(['%s'] * len(excluidos))
@@ -409,6 +418,9 @@ def get_producao_daily_totals(loja: str = None, data_inicio: date = None, data_f
     query = "SELECT data, SUM(quantidade_kg) as total_kg FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
+        tipo_placeholders = ','.join(['%s'] * len(TIPOS_PRODUCAO_EUROKG))
+        query += f" AND tipo IN ({tipo_placeholders})"
+        params.extend(TIPOS_PRODUCAO_EUROKG)
         excluidos = get_sabores_excluidos_eurokg()
         if excluidos:
             placeholders = ','.join(['%s'] * len(excluidos))
@@ -438,6 +450,9 @@ def get_producao_df(loja: str = None, data_inicio: date = None, data_fim: date =
     query = "SELECT * FROM producao WHERE 1=1"
     params = []
     if para_eurokg:
+        tipo_placeholders = ','.join(['%s'] * len(TIPOS_PRODUCAO_EUROKG))
+        query += f" AND tipo IN ({tipo_placeholders})"
+        params.extend(TIPOS_PRODUCAO_EUROKG)
         excluidos = get_sabores_excluidos_eurokg()
         if excluidos:
             placeholders = ','.join(['%s'] * len(excluidos))
@@ -964,12 +979,14 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
             prod_loja_clause = f" AND loja NOT IN ({excl_placeholders})"
             prod_loja_params = excl_lojas
 
+        tipo_placeholders = ','.join(['%s'] * len(TIPOS_PRODUCAO_EUROKG))
         cursor.execute(f"""
             SELECT EXTRACT(MONTH FROM data)::int as mes, COALESCE(SUM(quantidade_kg), 0)
             FROM producao
-            WHERE EXTRACT(YEAR FROM data) = %s{prod_excl}{prod_loja_clause}
+            WHERE EXTRACT(YEAR FROM data) = %s
+              AND tipo IN ({tipo_placeholders}){prod_excl}{prod_loja_clause}
             GROUP BY mes ORDER BY mes
-        """, [year] + list(excluidos) + prod_loja_params)
+        """, [year] + list(TIPOS_PRODUCAO_EUROKG) + list(excluidos) + prod_loja_params)
         producao_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
         cursor.execute("""
