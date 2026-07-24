@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-07-24T11:10:17.282695",
+  "note": "Monthly Euro/kg totals per loja. Run this script again after schema changes and diff against this file to confirm totals are unchanged.",
+  "totals_by_month": {
+    "2026-01": {
+      "Matosinhos": 887.4999
+    },
+    "2026-02": {
+      "Matosinhos": 1114.3701
+    },
+    "2026-03": {
+      "Matosinhos": 1741.7537
+    },
+    "2026-04": {
+      "Matosinhos": 2532.927
+    },
+    "2026-05": {
+      "Matosinhos": 1028.162
+    }
+  }
+}
