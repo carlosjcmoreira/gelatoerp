@@ -217,6 +217,7 @@ def create_app():
     from flask_app.routes.avencas import avencas_bp
     from flask_app.routes.tarefas import tarefas_bp
     from flask_app.routes.agente import agente_bp
+    from flask_app.routes.admin import admin_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -241,6 +242,7 @@ def create_app():
     app.register_blueprint(avencas_bp, url_prefix='/financeiro/avencas')
     app.register_blueprint(tarefas_bp, url_prefix='/tarefas')
     app.register_blueprint(agente_bp, url_prefix='/agente')
+    app.register_blueprint(admin_bp, url_prefix='/admin')
 
     @app.errorhandler(413)
     def request_entity_too_large(e):

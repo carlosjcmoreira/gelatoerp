@@ -13,12 +13,17 @@ What this script does
    target name in the migration fix pairs has a consistent inclusion status.
 3. Snapshots current monthly Euro/kg totals (last 3 years) per loja, applying
    the same WHERE clause as `get_producao_total_by_period(para_eurokg=True)`.
-4. Writes the snapshot to `scripts/eurokg_snapshot.json` for future diff comparison.
-5. Prints a clear PASS / FAIL summary.
+4. Diffs the new snapshot against any saved baseline (scripts/eurokg_snapshot.json),
+   listing months where totals changed, affected sabores and row counts.
+5. Writes the updated snapshot to `scripts/eurokg_snapshot.json`.
+6. Prints a clear PASS / FAIL summary.
 
 Usage
 -----
-    python scripts/verify_eurokg_sabor_migration.py
+    python scripts/verify_eurokg_sabor_migration.py [--update-baseline]
+
+    Without --update-baseline: prints the diff but does NOT overwrite the saved baseline.
+    With    --update-baseline: overwrites scripts/eurokg_snapshot.json with current totals.
 
 Environment: DATABASE_URL must be set (automatically available in the Replit env).
 """
@@ -26,6 +31,7 @@ Environment: DATABASE_URL must be set (automatically available in the Replit env
 import os
 import sys
 import json
+import argparse
 from datetime import datetime, date
 
 # Allow importing from the project root
@@ -76,6 +82,8 @@ RECEITA_FIXES = [
 
 TIPOS_PRODUCAO_EUROKG = ('producao', 'balança')
 
+SNAPSHOT_PATH = os.path.join(os.path.dirname(__file__), 'eurokg_snapshot.json')
+
 
 def connect():
     url = os.environ.get('DATABASE_URL')
@@ -106,10 +114,6 @@ def check_conta_eurokg_consistency(conn):
     the same conta_eurokg status.  Returns list of inconsistency dicts.
     """
     cur = conn.cursor()
-    cur.execute("SELECT COALESCE(nome_corrente, nome) AS canonical, conta_eurokg FROM receitas_gelado")
-    rows = cur.fetchall()
-    # Build lookup by canonical name (nome_corrente preferred)
-    # Also index by nome for old-name lookups
     cur.execute("SELECT nome, nome_corrente, conta_eurokg FROM receitas_gelado")
     all_rows = cur.fetchall()
     by_nome = {r['nome']: r['conta_eurokg'] for r in all_rows}
@@ -129,8 +133,6 @@ def check_conta_eurokg_consistency(conn):
         old_status = lookup(old)
         new_status = lookup(new)
         if old_status is None or new_status is None:
-            # One side not in receitas_gelado — not necessarily an error
-            # (old names may have been purged), but flag if new canonical is missing
             if new_status is None:
                 inconsistencies.append({
                     'old': old, 'new': new,
@@ -194,7 +196,111 @@ def snapshot_monthly_totals(conn):
     return snapshot
 
 
+def get_sabor_breakdown_for_month(conn, month_str: str):
+    """
+    Returns { loja: { sabor: { total_kg, row_count } } } for a given YYYY-MM month.
+    Uses the same Euro/kg filter (tipo + sabor exclusions).
+    """
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COALESCE(nome_corrente, nome) AS canonical FROM receitas_gelado WHERE conta_eurokg = FALSE"
+    )
+    excluidos = [r['canonical'] for r in cur.fetchall()]
+
+    year, month = month_str.split('-')
+    start = date(int(year), int(month), 1)
+    import calendar
+    last_day = calendar.monthrange(int(year), int(month))[1]
+    end = date(int(year), int(month), last_day)
+
+    query = """
+        SELECT loja, sabor,
+               COALESCE(SUM(quantidade_kg), 0) AS total_kg,
+               COUNT(*) AS row_count
+        FROM producao
+        WHERE tipo = ANY(%s)
+          AND sabor IS NOT NULL
+          AND data >= %s AND data <= %s
+    """
+    params = [list(TIPOS_PRODUCAO_EUROKG), start, end]
+    if excluidos:
+        query += " AND sabor != ALL(%s)"
+        params.append(excluidos)
+    query += " GROUP BY loja, sabor ORDER BY loja, sabor"
+
+    cur.execute(query, params)
+    result = {}
+    for r in cur.fetchall():
+        loja = r['loja']
+        if loja not in result:
+            result[loja] = {}
+        result[loja][r['sabor']] = {
+            'total_kg': float(r['total_kg']),
+            'row_count': int(r['row_count']),
+        }
+    return result
+
+
+def load_baseline():
+    """Load the saved baseline snapshot, or return None if not present."""
+    if not os.path.exists(SNAPSHOT_PATH):
+        return None
+    try:
+        with open(SNAPSHOT_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return data
+    except Exception as e:
+        print(f"    WARNING: Could not load baseline from {SNAPSHOT_PATH}: {e}", file=sys.stderr)
+        return None
+
+
+def diff_snapshots(baseline_totals: dict, current_totals: dict, conn) -> list:
+    """
+    Compare current totals against the baseline.
+    Returns list of dicts for months where any loja total changed.
+    Each dict: { month, loja, baseline_kg, current_kg, delta_kg, sabor_breakdown }
+    where sabor_breakdown is only populated for changed months.
+    """
+    all_months = sorted(set(baseline_totals.keys()) | set(current_totals.keys()))
+    diffs = []
+    for month in all_months:
+        baseline_month = baseline_totals.get(month, {})
+        current_month = current_totals.get(month, {})
+        all_lojas = sorted(set(baseline_month.keys()) | set(current_month.keys()))
+        for loja in all_lojas:
+            b_kg = baseline_month.get(loja, 0.0)
+            c_kg = current_month.get(loja, 0.0)
+            delta = round(c_kg - b_kg, 4)
+            if abs(delta) > 0.001:  # tolerance for float precision
+                diffs.append({
+                    'month': month,
+                    'loja': loja,
+                    'baseline_kg': round(b_kg, 4),
+                    'current_kg': round(c_kg, 4),
+                    'delta_kg': delta,
+                })
+    # Enrich with sabor breakdown for changed months
+    changed_months = set(d['month'] for d in diffs)
+    breakdowns = {}
+    for month in changed_months:
+        breakdowns[month] = get_sabor_breakdown_for_month(conn, month)
+    for d in diffs:
+        month_breakdown = breakdowns.get(d['month'], {})
+        d['sabor_breakdown'] = month_breakdown.get(d['loja'], {})
+    return diffs
+
+
 def main():
+    parser = argparse.ArgumentParser(
+        description='Verify Euro/kg totals are stable after the sabor migration.'
+    )
+    parser.add_argument(
+        '--update-baseline',
+        action='store_true',
+        help='Overwrite scripts/eurokg_snapshot.json with current totals after verification.',
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
     print("Euro/kg sabor normalisation verification")
     print(f"Run at: {datetime.now().isoformat()}")
@@ -228,29 +334,64 @@ def main():
         else:
             print("    PASS  All mapping pairs share the same conta_eurokg status.")
 
-        # --- Step 3: snapshot ---
+        # --- Step 3: snapshot current totals ---
         print("\n[3] Snapshotting current monthly Euro/kg totals (last 3 years) …")
-        snapshot = snapshot_monthly_totals(conn)
-        total_months = len(snapshot)
+        current_snapshot = snapshot_monthly_totals(conn)
+        total_months = len(current_snapshot)
         grand_total = sum(
-            kg for month_data in snapshot.values() for kg in month_data.values()
+            kg for month_data in current_snapshot.values() for kg in month_data.values()
         )
         print(f"    Captured {total_months} month(s), grand total {grand_total:.2f} kg.")
 
-    # Write snapshot file
-    snapshot_path = os.path.join(os.path.dirname(__file__), 'eurokg_snapshot.json')
+        # --- Step 4: diff against baseline ---
+        print("\n[4] Comparing against saved baseline …")
+        baseline_data = load_baseline()
+        if baseline_data is None:
+            print(f"    INFO  No baseline found at {SNAPSHOT_PATH}. Skipping diff.")
+            print(f"    INFO  Run with --update-baseline to save the first snapshot.")
+        else:
+            baseline_totals = baseline_data.get('totals_by_month', {})
+            baseline_ts = baseline_data.get('generated_at', 'unknown')
+            print(f"    Baseline generated at: {baseline_ts}")
+            diffs = diff_snapshots(baseline_totals, current_snapshot, conn)
+            if not diffs:
+                print("    PASS  All monthly Euro/kg totals match the baseline exactly.")
+            else:
+                msg = f"    FAIL  {len(diffs)} month/loja pair(s) changed vs baseline:"
+                print(msg)
+                failures.append(msg)
+                for d in diffs:
+                    line = (
+                        f"      {d['month']} / {d['loja']}: "
+                        f"{d['baseline_kg']:.4f} → {d['current_kg']:.4f} kg "
+                        f"(Δ {d['delta_kg']:+.4f})"
+                    )
+                    print(line)
+                    if d.get('sabor_breakdown'):
+                        for sabor, info in sorted(d['sabor_breakdown'].items()):
+                            print(
+                                f"        sabor={sabor!r}: "
+                                f"{info['total_kg']:.4f} kg, "
+                                f"{info['row_count']} row(s)"
+                            )
+
+    # --- Step 5: (optionally) write new snapshot ---
     snapshot_output = {
         'generated_at': datetime.now().isoformat(),
         'note': (
             'Monthly Euro/kg totals per loja. '
             'Run this script again after schema changes and diff against this file '
-            'to confirm totals are unchanged.'
+            'to confirm totals are unchanged. '
+            'Use --update-baseline to refresh after intentional data changes.'
         ),
-        'totals_by_month': snapshot,
+        'totals_by_month': current_snapshot,
     }
-    with open(snapshot_path, 'w', encoding='utf-8') as f:
-        json.dump(snapshot_output, f, ensure_ascii=False, indent=2)
-    print(f"    Snapshot saved to {snapshot_path}")
+    if args.update_baseline:
+        with open(SNAPSHOT_PATH, 'w', encoding='utf-8') as f:
+            json.dump(snapshot_output, f, ensure_ascii=False, indent=2)
+        print(f"\n    Baseline snapshot updated at {SNAPSHOT_PATH}")
+    else:
+        print(f"\n    (Run with --update-baseline to overwrite {SNAPSHOT_PATH})")
 
     # --- Summary ---
     print("\n" + "=" * 60)
