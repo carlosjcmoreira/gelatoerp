@@ -289,7 +289,16 @@ def get_producao_sabor_overview() -> pd.DataFrame:
 def get_sabores_excluidos_eurokg() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT COALESCE(nome_corrente, nome) FROM receitas_gelado WHERE conta_eurokg = FALSE")
+        # Return BOTH nome and nome_corrente for each excluded recipe so that
+        # producao.sabor entries stored under either form are correctly filtered.
+        # (Some records are imported with the alias/nome_corrente, others with
+        # the original nome — COALESCE alone only covers one form.)
+        cursor.execute("""
+            SELECT nome FROM receitas_gelado WHERE conta_eurokg = FALSE
+            UNION
+            SELECT nome_corrente FROM receitas_gelado
+            WHERE conta_eurokg = FALSE AND nome_corrente IS NOT NULL AND nome_corrente != ''
+        """)
         return [row[0] for row in cursor.fetchall()]
 
 def get_producao_total_by_period(loja: str = None, data_inicio: date = None, data_fim: date = None, para_eurokg: bool = True, lojas_excluidas: tuple = ()) -> float:
