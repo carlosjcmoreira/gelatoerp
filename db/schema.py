@@ -4057,6 +4057,56 @@ def run_migrations_faturas_clientes_data_pagamento():
                 pass
 
 
+_LOCK_PRODUTO_ALIASES = 202673
+
+
+def run_migrations_produto_aliases():
+    """Create produtos_vendas_aliases table and seed the three historical renames.
+
+    Maps old POS product names to their current active equivalent so the
+    Dashboard de Vendas can aggregate them together in the Top/Bottom rankings.
+    Advisory lock 202673 ensures only one worker runs the DDL.
+    """
+    _SEED = [
+        ('Copo Mini',    'Copo Piccolo'),
+        ('Copo Pequeno', 'Copo Classico'),
+        ('Cone Pequeno', 'Cone Classico'),
+    ]
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_PRODUTO_ALIASES,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_produto_aliases: lock held by another worker, skipping")
+                return
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS produtos_vendas_aliases (
+                    id          SERIAL PRIMARY KEY,
+                    nome_antigo TEXT NOT NULL UNIQUE,
+                    nome_atual  TEXT NOT NULL,
+                    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_pva_nome_antigo "
+                "ON produtos_vendas_aliases(nome_antigo)"
+            )
+            for nome_antigo, nome_atual in _SEED:
+                cursor.execute(
+                    "INSERT INTO produtos_vendas_aliases (nome_antigo, nome_atual) "
+                    "VALUES (%s, %s) ON CONFLICT (nome_antigo) DO NOTHING",
+                    (nome_antigo, nome_atual),
+                )
+            conn.commit()
+            logger.info("run_migrations_produto_aliases: done")
+        except Exception as exc:
+            logger.error("run_migrations_produto_aliases failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 def run_migrations_invoice_status_config():
     """Create invoice_status_config table and seed default statuses if empty.
 

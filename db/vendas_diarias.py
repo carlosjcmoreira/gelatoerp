@@ -26,6 +26,73 @@ def _iso_year_bounds(iso_year: int):
     return first_day, last_day
 
 
+def get_produto_aliases() -> dict:
+    """Return {nome_antigo: nome_atual} mapping from the DB (replaces hardcoded dict)."""
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT nome_antigo, nome_atual FROM produtos_vendas_aliases ORDER BY nome_antigo")
+        return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def add_produto_alias(nome_antigo: str, nome_atual: str) -> None:
+    """Insert or update a product rename alias."""
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO produtos_vendas_aliases (nome_antigo, nome_atual)
+               VALUES (%s, %s)
+               ON CONFLICT (nome_antigo) DO UPDATE SET nome_atual = EXCLUDED.nome_atual""",
+            (nome_antigo.strip(), nome_atual.strip()),
+        )
+        conn.commit()
+
+
+def remove_produto_alias(alias_id: int) -> None:
+    """Delete a product alias by id."""
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM produtos_vendas_aliases WHERE id = %s", (alias_id,))
+        conn.commit()
+
+
+def get_produto_aliases_with_ids() -> list:
+    """Return list of dicts {id, nome_antigo, nome_atual, created_at} for the management UI."""
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, nome_antigo, nome_atual, created_at "
+            "FROM produtos_vendas_aliases ORDER BY nome_antigo"
+        )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def get_produto_names_by_activity() -> dict:
+    """Return {'active': [...], 'historic': [...]} from vendas_detalhe.
+
+    Active = product has sales in the current calendar year.
+    Historic = only has data in prior years (or no data at all beyond POS config).
+    """
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT produto,
+                   MAX(EXTRACT(YEAR FROM data))::int AS max_year
+            FROM vendas_detalhe
+            GROUP BY produto
+        """)
+        rows = cur.fetchall()
+
+    current_year = __import__('datetime').date.today().year
+    active, historic = [], []
+    for produto, max_year in rows:
+        (active if max_year >= current_year else historic).append(produto)
+
+    active.sort()
+    historic.sort()
+    return {'active': active, 'historic': historic}
+
+
 def get_vendas_diarias_yoy(ano: int, mes: int = None, iso_week: int = None, weekday: int = None) -> list:
     """Return daily sales for ISO year *ano* compared with the same ISO-week/weekday in ISO year *ano-1*.
 
@@ -1229,13 +1296,9 @@ def get_dashboard_vendas() -> dict:
     # Accumulate per-produto totals across lojas for the 'total' key,
     # and keep per-loja lists for individual loja filter keys.
     # Products that were renamed keep separate rows across years in the raw
-    # data (old name in 2025, new name in 2026). Map old -> current name so
-    # the Top10/Top5/Bottom5 analysis treats them as a single product.
-    _PRODUTO_RENAME = {
-        'Copo Mini': 'Copo Piccolo',
-        'Copo Pequeno': 'Copo Classico',
-        'Cone Pequeno': 'Cone Classico',
-    }
+    # data (old name in 2025, new name in 2026). Load the rename map from
+    # the DB so the user can manage it without touching code.
+    _PRODUTO_RENAME = get_produto_aliases()
 
     _prod_total: dict = {}   # produto -> {y2026, y2025}
     _prod_loja: dict = {}    # loja -> {produto -> {y2026, y2025}}

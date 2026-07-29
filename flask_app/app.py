@@ -46,7 +46,7 @@ from db.schema import run_migrations_supplier_aliases
 from db.schema import run_migrations_normalise_producao_sabores
 from db.schema import run_migrations_quantidade_kg_to_numeric
 from db.schema import run_migrations_loja_origem
-from db.schema import run_migrations_invoice_status_config
+from db.schema import run_migrations_invoice_status_config, run_migrations_produto_aliases
 from db.schema import run_migrations_pdf_filename_backfill
 from db.schema import run_migrations_b2b, run_migrations_faturas_clientes_status
 from db.schema import run_migrations_faturas_clientes_data_pagamento
@@ -180,6 +180,7 @@ def create_app():
         run_migrations_quantidade_kg_to_numeric()
         run_migrations_loja_origem()
         run_migrations_invoice_status_config()
+        run_migrations_produto_aliases()
         run_migrations_pdf_filename_backfill()
         run_migrations_b2b()
         run_migrations_faturas_clientes_status()

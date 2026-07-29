@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% set back_url = url_for("gestor.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3" style="max-width:860px;">
+    <h5 class="mb-1">🔀 Aliases de Produtos</h5>
+    <p class="text-muted small mb-4">
+        Quando um produto muda de nome no POS, os dados históricos ficam registados com o nome antigo.
+        Associa aqui o nome antigo ao nome actual para que o dashboard de vendas os agregue na mesma linha.
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+        <div class="alert alert-{{ 'danger' if cat == 'error' else cat }} alert-dismissible fade show py-2 small" role="alert">
+            {{ msg }}
+            <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+        </div>
+        {% endfor %}
+    {% endwith %}
+
+    <!-- ── Aliases existentes ─────────────────────────────────────────────── -->
+    <div class="card mb-4">
+        <div class="card-header py-2 d-flex align-items-center gap-2">
+            <span class="fw-semibold small">Aliases activos</span>
+            <span class="badge bg-secondary ms-auto">{{ aliases | length }}</span>
+        </div>
+        {% if aliases %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3" style="width:38%">Nome antigo <span class="text-muted fw-normal">(POS histórico)</span></th>
+                        <th style="width:38%">Nome actual <span class="text-muted fw-normal">(agregado como)</span></th>
+                        <th class="text-muted" style="width:14%">Criado em</th>
+                        <th style="width:10%"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in aliases %}
+                    <tr>
+                        <td class="ps-3">
+                            <span class="badge bg-light text-secondary border me-1">histórico</span>
+                            <span class="font-monospace small">{{ a.nome_antigo }}</span>
+                        </td>
+                        <td>
+                            <span class="text-success me-1">→</span>
+                            <span class="font-monospace small fw-semibold">{{ a.nome_atual }}</span>
+                        </td>
+                        <td class="text-muted small">
+                            {{ a.created_at.strftime('%d/%m/%Y') if a.created_at else '—' }}
+                        </td>
+                        <td>
+                            <form method="post" action="{{ url_for('gestor.aliases_produto_remover') }}"
+                                  onsubmit="return confirm('Remover alias \'{{ a.nome_antigo }}\' → \'{{ a.nome_atual }}\'?');">
+                                <input type="hidden" name="alias_id" value="{{ a.id }}">
+                                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"
+                                        title="Remover alias">🗑</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="card-body py-3 text-center text-muted small">
+            Nenhum alias definido ainda. Cria o primeiro abaixo.
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ── Criar novo alias ───────────────────────────────────────────────── -->
+    <div class="card mb-4">
+        <div class="card-header py-2">
+            <span class="fw-semibold small">➕ Novo alias</span>
+        </div>
+        <div class="card-body pb-3">
+            <form method="post" action="{{ url_for('gestor.aliases_produto') }}">
+                <div class="row g-3 align-items-end">
+                    <div class="col-12 col-md-5">
+                        <label class="form-label small mb-1">
+                            Nome antigo
+                            <span class="text-muted fw-normal">(como vem nos dados históricos do POS)</span>
+                        </label>
+                        <select name="nome_antigo" class="form-select form-select-sm" required id="sel-antigo">
+                            <option value="">— Seleccionar —</option>
+                            {% if historic_products %}
+                            <optgroup label="Só em anos anteriores">
+                                {% for p in historic_products %}
+                                <option value="{{ p }}">{{ p }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
+                            {% if active_products %}
+                            <optgroup label="Com vendas este ano (incomum)">
+                                {% for p in active_products %}
+                                <option value="{{ p }}">{{ p }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
+                        </select>
+                    </div>
+                    <div class="col-auto d-flex align-items-center pb-1 px-0" style="font-size:1.2rem;">→</div>
+                    <div class="col-12 col-md-5">
+                        <label class="form-label small mb-1">
+                            Nome actual
+                            <span class="text-muted fw-normal">(nome vigente no POS)</span>
+                        </label>
+                        <select name="nome_atual" class="form-select form-select-sm" required id="sel-atual">
+                            <option value="">— Seleccionar —</option>
+                            {% if active_products %}
+                            <optgroup label="Com vendas este ano">
+                                {% for p in active_products %}
+                                <option value="{{ p }}">{{ p }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
+                            {% if historic_products %}
+                            <optgroup label="Só em anos anteriores">
+                                {% for p in historic_products %}
+                                <option value="{{ p }}">{{ p }}</option>
+                                {% endfor %}
+                            </optgroup>
+                            {% endif %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-auto">
+                        <button type="submit" class="btn btn-primary btn-sm w-100 w-md-auto">Guardar alias</button>
+                    </div>
+                </div>
+                <div class="form-text mt-2">
+                    Podes também escrever um nome livre que não aparece na lista usando os campos de texto livres abaixo.
+                </div>
+            </form>
+
+            <!-- Fallback: free-text entry -->
+            <form method="post" action="{{ url_for('gestor.aliases_produto') }}" class="mt-3 border-top pt-3">
+                <p class="small text-muted mb-2">Ou introduzir nomes manualmente (para nomes não listados acima):</p>
+                <div class="row g-2 align-items-end">
+                    <div class="col-12 col-md-5">
+                        <label class="form-label small mb-1">Nome antigo (texto livre)</label>
+                        <input type="text" name="nome_antigo" class="form-control form-control-sm"
+                               placeholder="Ex: Copo Pequeno" maxlength="255">
+                    </div>
+                    <div class="col-auto d-flex align-items-center pb-1 px-0" style="font-size:1.2rem;">→</div>
+                    <div class="col-12 col-md-5">
+                        <label class="form-label small mb-1">Nome actual (texto livre)</label>
+                        <input type="text" name="nome_atual" class="form-control form-control-sm"
+                               placeholder="Ex: Copo Classico" maxlength="255">
+                    </div>
+                    <div class="col-12 col-md-auto">
+                        <button type="submit" class="btn btn-outline-primary btn-sm w-100 w-md-auto">Guardar</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── Referência: produtos do POS ───────────────────────────────────── -->
+    <div class="row g-3">
+        <div class="col-12 col-md-6">
+            <div class="card h-100">
+                <div class="card-header py-2 d-flex align-items-center gap-2">
+                    <span class="badge bg-success">Activos</span>
+                    <span class="small fw-semibold">Com vendas {{ 'este ano' }}</span>
+                    <span class="badge bg-secondary ms-auto">{{ active_products | length }}</span>
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush small" style="max-height:280px;overflow-y:auto;">
+                        {% for p in active_products %}
+                        <li class="list-group-item py-1 px-3 font-monospace">{{ p }}</li>
+                        {% else %}
+                        <li class="list-group-item py-2 text-muted">Nenhum dado encontrado.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-6">
+            <div class="card h-100">
+                <div class="card-header py-2 d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary">Históricos</span>
+                    <span class="small fw-semibold">Só em anos anteriores</span>
+                    <span class="badge bg-secondary ms-auto">{{ historic_products | length }}</span>
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush small" style="max-height:280px;overflow-y:auto;">
+                        {% for p in historic_products %}
+                        {% set is_aliased = aliases | selectattr('nome_antigo', 'equalto', p) | list | length > 0 %}
+                        <li class="list-group-item py-1 px-3 d-flex align-items-center justify-content-between font-monospace">
+                            <span>{{ p }}</span>
+                            {% if is_aliased %}
+                            <span class="badge bg-success-subtle text-success border border-success-subtle ms-2"
+                                  title="Tem alias definido">✓ aliased</span>
+                            {% endif %}
+                        </li>
+                        {% else %}
+                        <li class="list-group-item py-2 text-muted">Nenhum histórico encontrado.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

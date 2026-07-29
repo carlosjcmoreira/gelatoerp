@@ -25,6 +25,7 @@ TABS = [
     {'id': 'upload_pesagem', 'label': 'Upload Pesagem', 'icon': '⚖️', 'url_endpoint': 'gestor.upload_pesagem'},
     {'id': 'vendas_detalhe', 'label': 'Vendas Detalhe', 'icon': '🛒', 'url_endpoint': 'gestor.vendas_detalhe'},
     {'id': 'config_vendas_diarias', 'label': 'Filtro Vendas Diárias', 'icon': '📅', 'url_endpoint': 'gestor.config_vendas_diarias'},
+    {'id': 'aliases_produto', 'label': 'Aliases de Produtos', 'icon': '🔀', 'url_endpoint': 'gestor.aliases_produto'},
     {'id': 'alocacao_produtos', 'label': 'Alocação de Produtos', 'icon': '📋', 'url_endpoint': 'gestor.regras_negocio'},
     {'id': 'ajustes_producao', 'label': 'Ajustes Produção', 'icon': '🔧', 'url_endpoint': 'gestor.ajustes_producao'},
     {'id': 'motivos_quebra', 'label': 'Motivos Quebra', 'icon': '⚠️', 'url_endpoint': 'gestor.motivos_quebra'},
@@ -725,6 +726,54 @@ def config_vendas_diarias_toggle_b2b():
     except Exception as exc:
         logger.warning("config_vendas_diarias_toggle_b2b error: %s", exc)
         return jsonify({'ok': False, 'error': str(exc)}), 400
+
+
+@gestor_bp.route('/aliases-produto', methods=['GET', 'POST'])
+@perm_required('acesso_gestor')
+def aliases_produto():
+    from db.vendas_diarias import (
+        get_produto_aliases_with_ids,
+        get_produto_names_by_activity,
+        add_produto_alias,
+    )
+    if request.method == 'POST':
+        nome_antigo = (request.form.get('nome_antigo') or '').strip()
+        nome_atual  = (request.form.get('nome_atual')  or '').strip()
+        if not nome_antigo or not nome_atual:
+            flash('Preenche os dois campos para criar um alias.', 'warning')
+        elif nome_antigo == nome_atual:
+            flash('O nome antigo e o nome actual não podem ser iguais.', 'warning')
+        else:
+            try:
+                add_produto_alias(nome_antigo, nome_atual)
+                flash(f'Alias criado: "{nome_antigo}" → "{nome_atual}".', 'success')
+            except Exception as exc:
+                logger.error("aliases_produto POST error: %s", exc)
+                flash(f'Erro ao guardar alias: {exc}', 'error')
+        return redirect(url_for('gestor.aliases_produto'))
+
+    aliases  = get_produto_aliases_with_ids()
+    produtos = get_produto_names_by_activity()
+    return render_template(
+        'gestor/aliases_produto.html',
+        aliases=aliases,
+        active_products=produtos['active'],
+        historic_products=produtos['historic'],
+    )
+
+
+@gestor_bp.route('/aliases-produto/remover', methods=['POST'])
+@perm_required('acesso_gestor')
+def aliases_produto_remover():
+    from db.vendas_diarias import remove_produto_alias
+    try:
+        alias_id = int(request.form.get('alias_id', 0))
+        remove_produto_alias(alias_id)
+        flash('Alias removido.', 'success')
+    except Exception as exc:
+        logger.error("aliases_produto_remover error: %s", exc)
+        flash(f'Erro ao remover alias: {exc}', 'error')
+    return redirect(url_for('gestor.aliases_produto'))
 
 
 @gestor_bp.route('/regras-negocio', methods=['GET', 'POST'])
