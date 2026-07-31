@@ -350,6 +350,19 @@ def index():
     if category_filter:
         invoices = [i for i in invoices if i.get('category') and category_filter.lower() in i['category'].lower()]
 
+    # Sem evidência filter (in-memory — has_pdf already computed by DB)
+    sem_evidencia_filter = request.args.get('sem_evidencia', '') == '1'
+    # Count before applying the filter; exclude draft/cancelled (same rule as dashboard alert)
+    sem_evidencia_count = sum(
+        1 for i in invoices
+        if not i.get('has_pdf') and i.get('status') not in ('draft', 'cancelled')
+    )
+    if sem_evidencia_filter:
+        invoices = [
+            i for i in invoices
+            if not i.get('has_pdf') and i.get('status') not in ('draft', 'cancelled')
+        ]
+
     _labels_map = get_invoice_status_labels_map()
     for inv in invoices:
         if inv['status'] in ('pending_review', 'scheduled') and inv['due_date'] and inv['due_date'] < today:
@@ -378,6 +391,8 @@ def index():
                  ('category', category_filter)]:
         if v:
             _filter_params.append((k, v))
+    if sem_evidencia_filter:
+        _filter_params.append(('sem_evidencia', '1'))
     if date_from_raw:
         _filter_params.append(('date_from', date_from_raw))
     if date_to_raw:
@@ -387,6 +402,12 @@ def index():
     if date_field != 'due_date':
         _filter_params.append(('date_field', date_field))
     filter_qs = ('?' + urlencode(_filter_params)) if _filter_params else '?'
+
+    # Build sem_evidencia toggle URLs from the fully-populated params list
+    _params_no_ev = [p for p in _filter_params if p[0] != 'sem_evidencia']
+    _params_with_ev = _params_no_ev + [('sem_evidencia', '1')]
+    sem_ev_off_url = ('?' + urlencode(_params_no_ev)) if _params_no_ev else '?'
+    sem_ev_on_url = '?' + urlencode(_params_with_ev)
 
     stores = get_stores_list()
     cost_centers = get_cost_centers(ativo_only=True)
@@ -470,6 +491,10 @@ def index():
         pending_installments=pending_installments,
         category_filter=category_filter,
         all_categories=all_categories,
+        sem_evidencia_filter=sem_evidencia_filter,
+        sem_evidencia_count=sem_evidencia_count,
+        sem_ev_on_url=sem_ev_on_url,
+        sem_ev_off_url=sem_ev_off_url,
     )
 
 

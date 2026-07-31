@@ -138,11 +138,18 @@ def widget_faturas() -> dict:
             (first_of_month,)
         )
         pagas_mes = int(cur.fetchone()[0])
+        cur.execute(
+            "SELECT COUNT(*) FROM invoices "
+            "WHERE (pdf_data IS NULL OR octet_length(pdf_data) = 0) "
+            "AND status NOT IN ('draft', 'cancelled')"
+        )
+        sem_evidencia = int(cur.fetchone()[0])
     return {
         'pending': pending,
         'agendadas': agendadas,
         'vencidas': vencidas,
         'pagas_mes': pagas_mes,
+        'sem_evidencia': sem_evidencia,
     }
 
 

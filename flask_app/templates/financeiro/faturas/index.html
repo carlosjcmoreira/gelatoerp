@@ -553,6 +553,13 @@
         {% if ns.pending > 0 %}<span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="{{ _sd['pending_review'] }}">{{ ns.pending }} pendente(s)</span>{% endif %}
         {% if ns.scheduled > 0 %}<span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="{{ _sd['scheduled'] }}">{{ ns.scheduled }} agendada(s)</span>{% endif %}
         {% if ns.paid > 0 %}<span class="badge bg-success" data-bs-toggle="tooltip" title="{{ _sd['paid'] }}">{{ ns.paid }} paga(s)</span>{% endif %}
+        {% if sem_evidencia_count > 0 %}
+        <a href="{{ sem_ev_off_url if sem_evidencia_filter else sem_ev_on_url }}"
+           class="badge text-decoration-none {{ 'bg-warning text-dark' if sem_evidencia_filter else 'bg-warning-subtle text-warning-emphasis' }}"
+           data-bs-toggle="tooltip" title="Faturas sem PDF ou imagem — clique para filtrar{% if sem_evidencia_filter %} (ativo — clique para limpar){% endif %}">
+            ⚠ Sem ficheiro: {{ sem_evidencia_count }}
+        </a>
+        {% endif %}
     </div>
 
     <!-- Bulk action form wraps the table so checkboxes are submitted -->
@@ -665,7 +672,10 @@
                                data-amount="{{ inv.amount_eur if inv.amount_eur is not none else '' }}"
                                data-doc-type="{{ inv.document_type or 'fatura' }}">
                     </td>
-                    <td class="fw-semibold text-truncate" style="max-width:180px" data-col-key="supplier_name">{{ inv.supplier_name or '—' }}</td>
+                    <td class="fw-semibold text-truncate" style="max-width:180px" data-col-key="supplier_name">
+                        {{ inv.supplier_name or '—' }}
+                        {% if not inv.has_pdf %}<span class="badge bg-warning text-dark ms-1" title="Sem ficheiro anexado — PDF ou imagem em falta" style="font-size:0.65rem">⚠ Sem ficheiro</span>{% endif %}
+                    </td>
                     <td class="text-nowrap small" data-col-key="invoice_number">{{ inv.invoice_number or '—' }}</td>
                     <td class="d-none d-md-table-cell text-muted small" data-col-key="category">{{ inv.category or '—' }}</td>
                     <td class="d-none d-md-table-cell text-muted small text-nowrap" data-col-key="store_name">{{ inv.store_name or '—' }}</td>

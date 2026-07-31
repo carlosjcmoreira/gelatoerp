@@ -216,4 +216,15 @@ def index():
 
     widgets = _build_widgets(user)
     today = date.today()
-    return render_template('dashboard.html', widgets=widgets, today=today)
+
+    # Global alert: invoices without documentary evidence
+    faturas_sem_evidencia = 0
+    if user.get('acesso_administrativo') or user.get('acesso_gestor'):
+        try:
+            from db.faturas import count_invoices_sem_evidencia as _count_sem_ev
+            faturas_sem_evidencia = _count_sem_ev()
+        except Exception:
+            pass
+
+    return render_template('dashboard.html', widgets=widgets, today=today,
+                           faturas_sem_evidencia=faturas_sem_evidencia)

@@ -101,7 +101,7 @@ def faturas():
 
     # Filter session persistence
     _FILTER_KEYS = ('supplier_id', 'supplier_name', 'store_id', 'status',
-                    'date_from', 'date_to', 'date_field', 'q', 'document_type')
+                    'date_from', 'date_to', 'date_field', 'q', 'document_type', 'sem_evidencia')
     if request.args.get('clear') == '1':
         session.pop('faturas_filters', None)
         return redirect(url_for('compras.faturas'))
@@ -153,6 +153,14 @@ def faturas():
     except Exception:
         pass
 
+    sem_evidencia_raw = request.args.get('sem_evidencia', '')
+    sem_evidencia_filter = sem_evidencia_raw == '1'
+    # Explicit '0' means the user clicked "off" — clear it from session so navigating
+    # back doesn't re-apply the filter via session restore
+    if sem_evidencia_raw == '0' and 'faturas_filters' in session:
+        session['faturas_filters'].pop('sem_evidencia', None)
+        session.modified = True
+
     filter_kwargs = dict(
         supplier_id=supplier_filter_id,
         supplier_name=supplier_name_filter or None,
@@ -163,6 +171,7 @@ def faturas():
         date_field=date_field,
         document_type=document_type_filter or None,
         search=q_filter or None,
+        sem_evidencia=True if sem_evidencia_filter else None,
     )
     total_count = count_invoices(**filter_kwargs)
     total_pages = max(1, math.ceil(total_count / PAGE_SIZE))
@@ -194,7 +203,7 @@ def faturas():
     has_filters = bool(
         supplier_filter_id or supplier_name_filter or store_id_filter
         or status_filter or date_from_raw or date_to_raw
-        or document_type_filter or q_filter
+        or document_type_filter or q_filter or sem_evidencia_filter
     )
     if has_filters:
         _filter_save = {}
@@ -216,6 +225,8 @@ def faturas():
             _filter_save['date_to'] = date_to_raw
         if date_field != 'issue_date':
             _filter_save['date_field'] = date_field
+        if sem_evidencia_filter:
+            _filter_save['sem_evidencia'] = '1'
         session['faturas_filters'] = _filter_save
     _fqs_d = {}
     if q_filter:
@@ -236,7 +247,18 @@ def faturas():
         _fqs_d['date_to'] = date_to_raw
     if date_field != 'issue_date':
         _fqs_d['date_field'] = date_field
+    if sem_evidencia_filter:
+        _fqs_d['sem_evidencia'] = '1'
     filter_qs = '?' + urlencode(_fqs_d) if _fqs_d else '?'
+
+    # Build sem_evidencia toggle URLs
+    # Off URL uses sem_evidencia=0 (not removal) so _has_any_filter_param stays True
+    # and session restore doesn't swallow the explicit "clear" intent.
+    _fqs_no_ev = {k: v for k, v in _fqs_d.items() if k != 'sem_evidencia'}
+    _fqs_with_ev = {**_fqs_no_ev, 'sem_evidencia': '1'}
+    _fqs_ev_zero = {**_fqs_no_ev, 'sem_evidencia': '0'}
+    sem_ev_off_url = '?' + urlencode(_fqs_ev_zero)
+    sem_ev_on_url = '?' + urlencode(_fqs_with_ev)
 
     # Build base query (no status) for badge strip counts
     _bfqs_d = {k: v for k, v in _fqs_d.items() if k != 'status'}
@@ -248,6 +270,11 @@ def faturas():
         'scheduled': count_invoices(**_count_base, status='scheduled'),
         'paid': count_invoices(**_count_base, status='paid'),
     }
+
+    # Count invoices without evidence (ignoring current status/sem_evidencia filter)
+    # sem_evidencia=True in _build_invoice_where already excludes draft+cancelled
+    _count_no_status_no_ev = {k: v for k, v in _count_base.items() if k != 'sem_evidencia'}
+    sem_evidencia_count = count_invoices(**_count_no_status_no_ev, sem_evidencia=True)
 
     return render_template('compras/faturas.html',
                            invoices=invoices,
@@ -268,6 +295,10 @@ def faturas():
                            filter_qs=filter_qs,
                            base_filter_qs=base_filter_qs,
                            status_counts=status_counts,
+                           sem_evidencia_count=sem_evidencia_count,
+                           sem_evidencia_filter=sem_evidencia_filter,
+                           sem_ev_on_url=sem_ev_on_url,
+                           sem_ev_off_url=sem_ev_off_url,
                            page=page,
                            total_pages=total_pages,
                            total_count=total_count,

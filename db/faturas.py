@@ -1022,7 +1022,8 @@ def _build_invoice_where(status: str = None, statuses: list = None,
                          supplier_id: int = None,
                          date_from=None, date_to=None,
                          date_field: str = 'issue_date',
-                         document_type: str = None):
+                         document_type: str = None,
+                         sem_evidencia: bool = None):
     where = []
     params = []
     # 'overdue' is a virtual status: scheduled invoices with due_date in the past
@@ -1084,6 +1085,10 @@ def _build_invoice_where(status: str = None, statuses: list = None,
         else:
             where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
             params.extend([s, s, s])
+    if sem_evidencia:
+        where.append("(i.pdf_data IS NULL OR octet_length(i.pdf_data) = 0)")
+        # Alerts for missing evidence only apply to active invoices (never draft/cancelled)
+        where.append("i.status NOT IN ('draft', 'cancelled')")
     where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
     return where_clause, params
 
@@ -1101,6 +1106,7 @@ def get_invoices(status: str = None, statuses: list = None,
                  date_from=None, date_to=None,
                  date_field: str = 'issue_date',
                  document_type: str = None,
+                 sem_evidencia: bool = None,
                  limit: int = None, offset: int = 0) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -1111,6 +1117,7 @@ def get_invoices(status: str = None, statuses: list = None,
             supplier_name=supplier_name, supplier_names=supplier_names,
             supplier_id=supplier_id, date_from=date_from, date_to=date_to,
             date_field=date_field, document_type=document_type,
+            sem_evidencia=sem_evidencia,
         )
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
         direction = 'DESC' if order_dir == 'desc' else 'ASC'
@@ -1173,7 +1180,8 @@ def count_invoices(status: str = None, statuses: list = None,
                    supplier_id: int = None,
                    date_from=None, date_to=None,
                    date_field: str = 'issue_date',
-                   document_type: str = None) -> int:
+                   document_type: str = None,
+                   sem_evidencia: bool = None) -> int:
     where_clause, params = _build_invoice_where(
         status=status, statuses=statuses, no_status_filter=no_status_filter,
         store_id=store_id, search=search,
@@ -1181,6 +1189,7 @@ def count_invoices(status: str = None, statuses: list = None,
         supplier_name=supplier_name, supplier_names=supplier_names,
         supplier_id=supplier_id, date_from=date_from, date_to=date_to,
         date_field=date_field, document_type=document_type,
+        sem_evidencia=sem_evidencia,
     )
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -1190,6 +1199,19 @@ def count_invoices(status: str = None, statuses: list = None,
             LEFT JOIN stores st ON i.store_id = st.id
             {where_clause}
         """, params)
+        return int(cursor.fetchone()[0])
+
+
+def count_invoices_sem_evidencia() -> int:
+    """Return the number of invoices (excluding draft/cancelled) without any PDF or image attached."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM invoices
+            WHERE (pdf_data IS NULL OR octet_length(pdf_data) = 0)
+              AND status NOT IN ('draft', 'cancelled')
+        """)
         return int(cursor.fetchone()[0])
 
 

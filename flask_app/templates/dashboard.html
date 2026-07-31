@@ -7,6 +7,19 @@
         <span class="text-muted small">{{ today.strftime('%d %b %Y') }}</span>
     </div>
 
+    {% if faturas_sem_evidencia and faturas_sem_evidencia > 0 %}
+    <div class="alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-3" role="alert" style="font-size:0.9rem">
+        <span style="font-size:1.1rem">⚠️</span>
+        <div>
+            <strong>{{ faturas_sem_evidencia }} fatura{{ 's' if faturas_sem_evidencia != 1 else '' }} sem evidência documental</strong>
+            — não {{ 'têm' if faturas_sem_evidencia != 1 else 'tem' }} PDF ou imagem anexado.
+            <a href="{{ url_for('compras.faturas') }}?sem_evidencia=1" class="alert-link ms-1">Ver no Compras →</a>
+            <span class="text-muted mx-1">|</span>
+            <a href="{{ url_for('faturas.index') }}?all=1&sem_evidencia=1" class="alert-link">Ver no Financeiro →</a>
+        </div>
+    </div>
+    {% endif %}
+
     {% if widgets %}
     <div class="dashboard-grid">
         {% for w in widgets %}

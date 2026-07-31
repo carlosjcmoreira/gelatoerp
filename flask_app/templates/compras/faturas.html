@@ -73,6 +73,13 @@
             ✅ Pagas: {{ status_counts.paid }}
         </a>
         {% endif %}
+        {% if sem_evidencia_count > 0 %}
+        <a href="{{ sem_ev_off_url if sem_evidencia_filter else sem_ev_on_url }}"
+           class="badge text-decoration-none fs-badge {{ 'bg-warning text-dark' if sem_evidencia_filter else 'bg-warning-subtle text-warning-emphasis' }}"
+           title="Faturas sem PDF ou imagem — clique para filtrar{% if sem_evidencia_filter %} (ativo — clique para limpar){% endif %}">
+            ⚠ Sem ficheiro: {{ sem_evidencia_count }}
+        </a>
+        {% endif %}
     </div>
 
     {# ── Contagem ─────────────────────────────────────────────── #}
@@ -190,7 +197,10 @@
                 <td class="text-nowrap text-muted small">
                     {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
                 </td>
-                <td class="fw-semibold" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ inv.supplier_name or '—' }}</td>
+                <td class="fw-semibold" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    {{ inv.supplier_name or '—' }}
+                    {% if not inv.has_pdf %}<span class="badge bg-warning text-dark ms-1" title="Sem ficheiro anexado — PDF ou imagem em falta" style="font-size:0.65rem">⚠ Sem ficheiro</span>{% endif %}
+                </td>
                 <td class="text-muted small">{{ inv.invoice_number or '—' }}</td>
                 <td>
                     {% set _dt = inv.document_type or 'fatura' %}
