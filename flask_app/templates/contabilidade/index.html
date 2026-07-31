@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% set back_url = url_for("home.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">📒 Contabilidade</h5>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('contabilidade.tickets') }}" class="btn btn-outline-secondary btn-sm">
+                🎫 Tickets
+                {% if summary.tickets_abertos > 0 %}
+                <span class="badge bg-danger ms-1">{{ summary.tickets_abertos }}</span>
+                {% endif %}
+            </a>
+            <a href="{{ url_for('contabilidade.export_xlsx') }}{{ '?' + request.query_string.decode() if request.query_string else '' }}"
+               class="btn btn-outline-success btn-sm">⬇ Excel</a>
+        </div>
+    </div>
+
+    {# ── Summary cards ─────────────────────────────────────────────── #}
+    <div class="row g-2 mb-3">
+        <div class="col-6 col-md-3">
+            <a href="{{ url_for('contabilidade.index', accounting_status='por_contabilizar') }}"
+               class="text-decoration-none">
+                <div class="card border-warning h-100">
+                    <div class="card-body py-2 px-3">
+                        <div class="text-muted small">Por Contabilizar</div>
+                        <div class="fs-4 fw-bold text-warning">{{ summary.por_contabilizar_count }}</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-warning h-100">
+                <div class="card-body py-2 px-3">
+                    <div class="text-muted small">Valor Por Contabilizar</div>
+                    <div class="fs-6 fw-bold text-warning">{{ '%.2f €'|format(summary.por_contabilizar_eur) }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <a href="{{ url_for('contabilidade.index', accounting_status='contabilizado') }}"
+               class="text-decoration-none">
+                <div class="card border-success h-100">
+                    <div class="card-body py-2 px-3">
+                        <div class="text-muted small">Contabilizadas este mês</div>
+                        <div class="fs-4 fw-bold text-success">{{ summary.contabilizado_mes }}</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        <div class="col-6 col-md-3">
+            <a href="{{ url_for('contabilidade.tickets') }}" class="text-decoration-none">
+                <div class="card border-danger h-100">
+                    <div class="card-body py-2 px-3">
+                        <div class="text-muted small">Tickets em aberto</div>
+                        <div class="fs-4 fw-bold text-danger">{{ summary.tickets_abertos }}</div>
+                    </div>
+                </div>
+            </a>
+        </div>
+    </div>
+
+    {# ── Filters ───────────────────────────────────────────────────── #}
+    <form id="filter-form" method="get" action="" data-no-loading>
+        <input type="hidden" name="order_by" value="{{ order_by }}">
+        <input type="hidden" name="order_dir" value="{{ order_dir }}">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <input type="text" name="q"
+                   class="form-control form-control-sm"
+                   style="flex:2 1 180px;min-width:0"
+                   placeholder="Fornecedor, Nº documento…"
+                   value="{{ search }}" autocomplete="off">
+            <select name="accounting_status" class="form-select form-select-sm" style="width:auto;min-width:160px">
+                <option value="">Todos os estados</option>
+                {% for k, v in accounting_status_labels.items() %}
+                <option value="{{ k }}" {% if accounting_status == k %}selected{% endif %}>{{ v }}</option>
+                {% endfor %}
+            </select>
+            <select name="supplier_name" class="form-select form-select-sm" style="width:auto;min-width:140px">
+                <option value="">Todos os fornecedores</option>
+                {% for sn in all_supplier_names %}
+                <option value="{{ sn }}" {% if supplier_name == sn %}selected{% endif %}>{{ sn }}</option>
+                {% endfor %}
+            </select>
+            <select name="document_type" class="form-select form-select-sm" style="width:auto;min-width:120px">
+                <option value="">Todos os tipos</option>
+                {% for dt, lbl in document_type_labels.items() %}
+                <option value="{{ dt }}" {% if document_type == dt %}selected{% endif %}>{{ lbl }}</option>
+                {% endfor %}
+            </select>
+            <select name="store_id" class="form-select form-select-sm" style="width:auto;min-width:100px">
+                <option value="">Todas as lojas</option>
+                {% for st in stores %}
+                <option value="{{ st.id }}" {% if store_id == st.id %}selected{% endif %}>{{ st.name }}</option>
+                {% endfor %}
+            </select>
+            <input type="date" name="date_from" class="form-control form-control-sm" style="width:auto" value="{{ date_from_raw }}" title="Data emissão de">
+            <span class="text-muted small">–</span>
+            <input type="date" name="date_to" class="form-control form-control-sm" style="width:auto" value="{{ date_to_raw }}" title="Data emissão até">
+            <button type="submit" class="btn btn-primary btn-sm flex-shrink-0">Filtrar</button>
+            {% if has_filters %}
+            <a href="{{ url_for('contabilidade.index') }}" class="btn btn-outline-secondary btn-sm flex-shrink-0" title="Limpar filtros">✕</a>
+            <span class="badge bg-secondary">Com filtros</span>
+            {% endif %}
+        </div>
+    </form>
+
+    {# ── Count ─────────────────────────────────────────────────────── #}
+    {% if total_count > 0 %}
+    <div class="text-muted small mb-2">
+        {% if total_count > page_size %}{{ total_count }} documentos — página {{ page }} de {{ total_pages }}{% else %}{{ total_count }} documento(s){% endif %}
+    </div>
+    {% endif %}
+
+    {# ── Bulk action bar ────────────────────────────────────────────── #}
+    <div id="bulk-bar" class="d-none mb-2 p-2 bg-light border rounded d-flex align-items-center gap-2 flex-wrap">
+        <span class="small fw-semibold" id="bulk-count-label"></span>
+        <select id="bulk-status-sel" class="form-select form-select-sm" style="width:auto">
+            <option value="">— Alterar estado para —</option>
+            {% for k, v in accounting_status_labels.items() %}
+            <option value="{{ k }}">{{ v }}</option>
+            {% endfor %}
+        </select>
+        <button type="button" class="btn btn-sm btn-primary" onclick="submitBulk()">Aplicar</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">Limpar</button>
+    </div>
+
+    {% if invoices %}
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle" style="font-size:0.84rem;">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:32px">
+                        <input type="checkbox" id="cb-all" class="form-check-input"
+                               title="Selecionar todos" onchange="toggleAll(this)">
+                    </th>
+                    {% macro sort_a(col, label) %}
+                    {% set nd = 'asc' if (order_by != col or order_dir == 'desc') else 'desc' %}
+                    <a href="?order_by={{ col }}&order_dir={{ nd }}&page=1{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if store_id %}&store_id={{ store_id }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}"
+                       class="text-decoration-none text-reset">{{ label }}{% if order_by == col %} {{ '▲' if order_dir == 'asc' else '▼' }}{% else %} <span class="text-muted opacity-50">⇅</span>{% endif %}</a>
+                    {% endmacro %}
+                    <th>{{ sort_a('issue_date', 'Data') }}</th>
+                    <th>{{ sort_a('supplier_name', 'Fornecedor') }}</th>
+                    <th class="d-none d-md-table-cell">NIF</th>
+                    <th class="d-none d-sm-table-cell">Nº Doc.</th>
+                    <th class="d-none d-md-table-cell">Tipo</th>
+                    <th class="text-end">{{ sort_a('amount_eur', 'Valor') }}</th>
+                    <th class="d-none d-lg-table-cell text-end">IVA</th>
+                    <th class="d-none d-md-table-cell">Loja</th>
+                    <th class="d-none d-sm-table-cell">Pgto.</th>
+                    <th>{{ sort_a('accounting_status', 'Contabilístico') }}</th>
+                    <th style="width:36px"></th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for inv in invoices %}
+            <tr data-inv-id="{{ inv.id }}">
+                <td>
+                    <input type="checkbox" class="form-check-input cb-inv" value="{{ inv.id }}"
+                           onchange="updateBulkBar()">
+                </td>
+                <td class="text-nowrap text-muted small">
+                    {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
+                </td>
+                <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="fw-semibold">
+                    {{ inv.supplier_name or '—' }}
+                </td>
+                <td class="text-muted small d-none d-md-table-cell">{{ inv.supplier_nif or '—' }}</td>
+                <td class="text-muted small d-none d-sm-table-cell">{{ inv.invoice_number or '—' }}</td>
+                <td class="d-none d-md-table-cell">
+                    {% set _dt = inv.document_type or 'fatura' %}
+                    {% if _dt == 'nota_credito' %}
+                    <span class="badge bg-success-subtle text-success-emphasis">NC</span>
+                    {% elif _dt == 'fatura' %}
+                    <span class="badge bg-light text-dark border">FT</span>
+                    {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis">{{ document_type_labels.get(_dt, _dt)|truncate(10,True,'…') }}</span>
+                    {% endif %}
+                </td>
+                <td class="text-end text-nowrap fw-semibold
+                    {% if inv.document_type == 'nota_credito' %}text-success{% else %}text-danger{% endif %}">
+                    {% if inv.amount_eur is not none %}
+                        {% if inv.document_type == 'nota_credito' %}+{% else %}-{% endif %}{{ '%.2f'|format(inv.amount_eur) }}
+                    {% else %}—{% endif %}
+                </td>
+                <td class="text-end text-muted small d-none d-lg-table-cell">
+                    {{ '%.2f'|format(inv.vat_amount_eur) if inv.vat_amount_eur is not none else '—' }}
+                </td>
+                <td class="small d-none d-md-table-cell">{{ inv.store_name or '—' }}</td>
+                <td class="small d-none d-sm-table-cell">
+                    {% if inv.status == 'paid' %}<span class="badge bg-success-subtle text-success-emphasis">Pago</span>
+                    {% elif inv.status == 'pending_review' %}<span class="badge bg-warning-subtle text-warning-emphasis">A rever</span>
+                    {% elif inv.status == 'scheduled' %}<span class="badge bg-info-subtle text-info-emphasis">Agendado</span>
+                    {% else %}<span class="badge bg-secondary-subtle text-secondary-emphasis">{{ inv.status or '—' }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <select class="form-select form-select-sm border-0 py-0 px-1 fw-semibold acc-status-sel"
+                            style="min-width:130px;background:transparent;cursor:pointer;font-size:0.8rem"
+                            data-inv-id="{{ inv.id }}"
+                            onchange="setAccStatus(this)">
+                        {% for k, v in accounting_status_labels.items() %}
+                        <option value="{{ k }}" {% if inv.accounting_status == k %}selected{% endif %}>{{ v }}</option>
+                        {% endfor %}
+                    </select>
+                    {% if inv.accounting_notes %}
+                    <small class="text-muted d-block" style="font-size:0.7rem" title="{{ inv.accounting_notes }}">📝 {{ inv.accounting_notes|truncate(30,True,'…') }}</small>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if inv.has_pdf %}
+                    <a href="{{ url_for('contabilidade.download_pdf', invoice_id=inv.id) }}"
+                       target="_blank"
+                       class="btn btn-outline-secondary btn-sm py-0 px-1"
+                       title="Ver ficheiro"
+                       onclick="event.stopPropagation()">📄</a>
+                    {% else %}
+                    <span class="text-muted" title="Sem ficheiro">—</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# ── Pagination ─────────────────────────────────────────────────── #}
+    {% if total_pages > 1 %}
+    <nav class="mt-2">
+        <ul class="pagination pagination-sm justify-content-center mb-1">
+            <li class="page-item {% if page == 1 %}disabled{% endif %}">
+                <a class="page-link" href="?page={{ [1,page-1]|max }}&order_by={{ order_by }}&order_dir={{ order_dir }}{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if store_id %}&store_id={{ store_id }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}">‹</a>
+            </li>
+            {% if total_pages <= 10 %}
+                {% for p in range(1, total_pages + 1) %}
+                <li class="page-item {% if p == page %}active{% endif %}">
+                    <a class="page-link" href="?page={{ p }}&order_by={{ order_by }}&order_dir={{ order_dir }}{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if store_id %}&store_id={{ store_id }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}">{{ p }}</a>
+                </li>
+                {% endfor %}
+            {% else %}
+                {% set win_start = [1, page - 2]|max %}
+                {% set win_end = [total_pages, page + 2]|min %}
+                {% if win_start > 1 %}
+                <li class="page-item"><a class="page-link" href="?page=1">1</a></li>
+                {% if win_start > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+                {% endif %}
+                {% for p in range(win_start, win_end + 1) %}
+                <li class="page-item {% if p == page %}active{% endif %}">
+                    <a class="page-link" href="?page={{ p }}&order_by={{ order_by }}&order_dir={{ order_dir }}{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if store_id %}&store_id={{ store_id }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}">{{ p }}</a>
+                </li>
+                {% endfor %}
+                {% if win_end < total_pages %}
+                {% if win_end < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
+                <li class="page-item"><a class="page-link" href="?page={{ total_pages }}">{{ total_pages }}</a></li>
+                {% endif %}
+            {% endif %}
+            <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+                <a class="page-link" href="?page={{ [total_pages,page+1]|min }}&order_by={{ order_by }}&order_dir={{ order_dir }}{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if store_id %}&store_id={{ store_id }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}">›</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+
+    {% else %}
+    <div class="text-center text-muted py-5">
+        <div style="font-size:2.5rem;">📒</div>
+        <p class="mt-2">{% if has_filters %}Sem resultados para os filtros aplicados.{% else %}Sem faturas registadas.{% endif %}</p>
+        {% if has_filters %}<a href="{{ url_for('contabilidade.index') }}" class="btn btn-outline-secondary btn-sm mt-1">Limpar filtros</a>{% endif %}
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+/* ── Bulk selection ────────────────────────────────────────────── */
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.cb-inv:checked')).map(cb => parseInt(cb.value));
+}
+
+function updateBulkBar() {
+    var ids = getSelectedIds();
+    var bar = document.getElementById('bulk-bar');
+    var lbl = document.getElementById('bulk-count-label');
+    if (ids.length > 0) {
+        bar.classList.remove('d-none');
+        bar.classList.add('d-flex');
+        lbl.textContent = ids.length + ' fatura' + (ids.length === 1 ? '' : 's') + ' selecionada' + (ids.length === 1 ? '' : 's');
+    } else {
+        bar.classList.add('d-none');
+        bar.classList.remove('d-flex');
+    }
+    // Sync "select all" checkbox
+    var all = document.querySelectorAll('.cb-inv');
+    document.getElementById('cb-all').checked = (all.length > 0 && ids.length === all.length);
+}
+
+function toggleAll(cbAll) {
+    document.querySelectorAll('.cb-inv').forEach(cb => cb.checked = cbAll.checked);
+    updateBulkBar();
+}
+
+function clearSelection() {
+    document.querySelectorAll('.cb-inv').forEach(cb => cb.checked = false);
+    document.getElementById('cb-all').checked = false;
+    updateBulkBar();
+}
+
+function submitBulk() {
+    var ids = getSelectedIds();
+    var status = document.getElementById('bulk-status-sel').value;
+    if (!ids.length) { alert('Selecione pelo menos uma fatura.'); return; }
+    if (!status) { alert('Selecione um estado contabilístico.'); return; }
+
+    fetch('{{ url_for("contabilidade.atualizar_estado") }}', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_ids: ids, status: status }),
+    })
+    .then(r => r.json())
+    .then(function(data) {
+        if (data.ok) {
+            // Update status selects in the table
+            ids.forEach(function(id) {
+                var sel = document.querySelector('.acc-status-sel[data-inv-id="' + id + '"]');
+                if (sel) sel.value = status;
+            });
+            clearSelection();
+        } else {
+            alert('Erro: ' + (data.error || 'desconhecido'));
+        }
+    })
+    .catch(function() { alert('Erro de comunicação.'); });
+}
+
+/* ── Individual status change ──────────────────────────────────── */
+function setAccStatus(sel) {
+    var id = parseInt(sel.dataset.invId);
+    var status = sel.value;
+    if (!id || !status) return;
+
+    fetch('{{ url_for("contabilidade.atualizar_estado") }}', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_ids: [id], status: status }),
+    })
+    .then(r => r.json())
+    .then(function(data) {
+        if (!data.ok) {
+            alert('Erro ao atualizar: ' + (data.error || 'desconhecido'));
+        }
+    })
+    .catch(function() { alert('Erro de comunicação.'); });
+}
+</script>
+{% endblock %}

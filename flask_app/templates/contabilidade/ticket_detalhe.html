@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set back_url = url_for("contabilidade.tickets") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5" style="max-width:760px">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">🎫 Ticket #{{ ticket.id }}</h5>
+        <a href="{{ url_for('contabilidade.tickets') }}" class="btn btn-outline-secondary btn-sm">← Tickets</a>
+    </div>
+
+    {# ── Ticket detail card ─────────────────────────────────────────── #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                <h6 class="fw-bold mb-0">{{ ticket.titulo }}</h6>
+                <span class="badge {{ ticket.status_badge }} flex-shrink-0">{{ ticket.status_label }}</span>
+            </div>
+            {% if ticket.descricao %}
+            <p class="text-muted small mb-2" style="white-space:pre-wrap">{{ ticket.descricao }}</p>
+            {% endif %}
+            <div class="d-flex flex-wrap gap-3 text-muted small mt-2">
+                <span>👤 {{ ticket.criado_por }}</span>
+                <span>📅 {{ ticket.criado_em.strftime('%d/%m/%Y %H:%M') if ticket.criado_em else '—' }}</span>
+                {% if ticket.prazo %}
+                <span>⏰ Prazo: {{ ticket.prazo.strftime('%d/%m/%Y') }}</span>
+                {% endif %}
+                {% if ticket.invoice_id %}
+                <span>🧾 Fatura {{ ticket.invoice_number or '#' + ticket.invoice_id|string }}
+                    {% if ticket.supplier_name %} — {{ ticket.supplier_name }}{% endif %}
+                    {% if ticket.invoice_amount %} ({{ '%.2f €'|format(ticket.invoice_amount) }}){% endif %}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# ── Responses ──────────────────────────────────────────────────── #}
+    {% if ticket.respostas %}
+    <h6 class="text-muted small fw-semibold mb-2">RESPOSTAS ({{ ticket.respostas|length }})</h6>
+    <div class="mb-3">
+        {% for r in ticket.respostas %}
+        <div class="card mb-2 border-start border-4
+            {% if r.novo_status == 'resolvido' %}border-success
+            {% elif r.novo_status == 'em_curso' %}border-warning
+            {% else %}border-secondary{% endif %}">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+                    <span class="small fw-semibold">{{ r.criado_por }}</span>
+                    <div class="d-flex align-items-center gap-2">
+                        {% if r.novo_status %}
+                        <span class="badge
+                            {% if r.novo_status == 'resolvido' %}bg-success{% elif r.novo_status == 'em_curso' %}bg-warning text-dark{% else %}bg-danger{% endif %}
+                            " style="font-size:0.7rem">→ {{ r.status_label }}</span>
+                        {% endif %}
+                        <span class="text-muted small">{{ r.criado_em.strftime('%d/%m/%Y %H:%M') if r.criado_em else '' }}</span>
+                    </div>
+                </div>
+                <p class="mb-0 small" style="white-space:pre-wrap">{{ r.mensagem }}</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# ── Add response form ──────────────────────────────────────────── #}
+    {% if ticket.status != 'resolvido' %}
+    <div class="card">
+        <div class="card-header py-2 small fw-semibold">Adicionar Resposta</div>
+        <div class="card-body py-2">
+            <form method="POST" action="{{ url_for('contabilidade.responder_ticket', ticket_id=ticket.id) }}">
+                <div class="mb-2">
+                    <textarea name="mensagem" class="form-control form-control-sm" rows="3"
+                              placeholder="Escreva uma resposta ou actualização…" required></textarea>
+                </div>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <select name="novo_status" class="form-select form-select-sm" style="width:auto;min-width:160px">
+                        <option value="">Manter estado actual</option>
+                        {% for k, v in ticket_status_labels.items() %}
+                        {% if k != ticket.status %}
+                        <option value="{{ k }}">→ {{ v }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-primary btn-sm">Responder</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success py-2 small mb-0">
+        ✅ Este ticket está <strong>resolvido</strong>.
+        <form method="POST" action="{{ url_for('contabilidade.responder_ticket', ticket_id=ticket.id) }}" class="d-inline ms-2">
+            <input type="hidden" name="mensagem" value="Ticket reaberto.">
+            <input type="hidden" name="novo_status" value="aberto">
+            <button type="submit" class="btn btn-link btn-sm p-0 text-danger">Reabrir</button>
+        </form>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

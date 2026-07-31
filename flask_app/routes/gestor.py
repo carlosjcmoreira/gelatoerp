@@ -1140,7 +1140,7 @@ def _handle_config_post(action, config_option):
         loja_ids = [loja['id'] for loja in lojas_venda]
         _perm_fields = ['acesso_eurokg', 'acesso_producao', 'acesso_pastelaria', 'acesso_confeitaria',
                         'acesso_administrativo', 'acesso_gestor', 'acesso_financeiro', 'acesso_eventos',
-                        'acesso_tarefas', 'ativo']
+                        'acesso_tarefas', 'acesso_contabilidade', 'ativo']
         before_map = {u['id']: u for u in users}
         updates = []
         for u in users:
@@ -1160,6 +1160,7 @@ def _handle_config_post(action, config_option):
                 'acesso_financeiro': request.form.get(f'acesso_financeiro_{uid}') == 'on',
                 'acesso_eventos': request.form.get(f'acesso_eventos_{uid}') == 'on',
                 'acesso_tarefas': request.form.get(f'acesso_tarefas_{uid}') == 'on',
+                'acesso_contabilidade': request.form.get(f'acesso_contabilidade_{uid}') == 'on',
                 'ativo': request.form.get(f'ativo_{uid}') == 'on',
                 'vendas_store_ids': vendas_store_ids,
             })

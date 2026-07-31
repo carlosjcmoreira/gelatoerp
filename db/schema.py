@@ -4146,3 +4146,89 @@ def run_migrations_invoice_status_config():
                 conn.rollback()
             except Exception:
                 pass
+
+
+_LOCK_CONTABILIDADE = 202680
+
+
+def run_migrations_contabilidade():
+    """Add accounting columns to invoices, create tickets tables, add acesso_contabilidade to users.
+
+    Advisory lock 202680 ensures only one worker runs the DDL.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_CONTABILIDADE,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_contabilidade: lock held by another worker, skipping")
+                return
+
+            # ── invoices: accounting columns ───────────────────────────────
+            cursor.execute("""
+                ALTER TABLE invoices
+                    ADD COLUMN IF NOT EXISTS accounting_status      VARCHAR(30)
+                        DEFAULT 'por_contabilizar',
+                    ADD COLUMN IF NOT EXISTS accounting_notes       TEXT,
+                    ADD COLUMN IF NOT EXISTS accounting_updated_by  VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS accounting_updated_at  TIMESTAMP
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_invoices_accounting_status "
+                "ON invoices(accounting_status)"
+            )
+
+            # ── users: acesso_contabilidade ───────────────────────────────
+            cursor.execute(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+                "acesso_contabilidade BOOLEAN DEFAULT FALSE"
+            )
+
+            # ── contabilidade_tickets ─────────────────────────────────────
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS contabilidade_tickets (
+                    id         SERIAL PRIMARY KEY,
+                    invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+                    titulo     TEXT NOT NULL,
+                    descricao  TEXT,
+                    prazo      DATE,
+                    status     VARCHAR(20) NOT NULL DEFAULT 'aberto',
+                    criado_por VARCHAR(100) NOT NULL,
+                    criado_em  TIMESTAMP NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ct_status "
+                "ON contabilidade_tickets(status)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ct_invoice_id "
+                "ON contabilidade_tickets(invoice_id)"
+            )
+
+            # ── contabilidade_ticket_respostas ────────────────────────────
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS contabilidade_ticket_respostas (
+                    id          SERIAL PRIMARY KEY,
+                    ticket_id   INTEGER NOT NULL
+                                    REFERENCES contabilidade_tickets(id) ON DELETE CASCADE,
+                    mensagem    TEXT NOT NULL,
+                    novo_status VARCHAR(20),
+                    criado_por  VARCHAR(100) NOT NULL,
+                    criado_em   TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ctr_ticket_id "
+                "ON contabilidade_ticket_respostas(ticket_id)"
+            )
+
+            conn.commit()
+            logger.info("run_migrations_contabilidade: complete")
+        except Exception as exc:
+            logger.error("run_migrations_contabilidade failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass

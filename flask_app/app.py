@@ -50,6 +50,7 @@ from db.schema import run_migrations_invoice_status_config, run_migrations_produ
 from db.schema import run_migrations_pdf_filename_backfill
 from db.schema import run_migrations_b2b, run_migrations_faturas_clientes_status
 from db.schema import run_migrations_faturas_clientes_data_pagamento
+from db.schema import run_migrations_contabilidade
 from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clientes
 
 
@@ -185,6 +186,7 @@ def create_app():
         run_migrations_b2b()
         run_migrations_faturas_clientes_status()
         run_migrations_faturas_clientes_data_pagamento()
+        run_migrations_contabilidade()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()
@@ -219,6 +221,7 @@ def create_app():
     from flask_app.routes.tarefas import tarefas_bp
     from flask_app.routes.agente import agente_bp
     from flask_app.routes.admin import admin_bp
+    from flask_app.routes.contabilidade import contabilidade_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -244,6 +247,7 @@ def create_app():
     app.register_blueprint(tarefas_bp, url_prefix='/tarefas')
     app.register_blueprint(agente_bp, url_prefix='/agente')
     app.register_blueprint(admin_bp, url_prefix='/admin')
+    app.register_blueprint(contabilidade_bp, url_prefix='/contabilidade')
 
     @app.errorhandler(413)
     def request_entity_too_large(e):
