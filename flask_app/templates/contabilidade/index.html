@@ -197,17 +197,40 @@
                     {% endif %}
                 </td>
                 <td>
-                    <select class="form-select form-select-sm border-0 py-0 px-1 fw-semibold acc-status-sel"
-                            style="min-width:130px;background:transparent;cursor:pointer;font-size:0.8rem"
-                            data-inv-id="{{ inv.id }}"
-                            onchange="setAccStatus(this)">
-                        {% for k, v in accounting_status_labels.items() %}
-                        <option value="{{ k }}" {% if inv.accounting_status == k %}selected{% endif %}>{{ v }}</option>
-                        {% endfor %}
-                    </select>
-                    {% if inv.accounting_notes %}
-                    <small class="text-muted d-block" style="font-size:0.7rem" title="{{ inv.accounting_notes }}">📝 {{ inv.accounting_notes|truncate(30,True,'…') }}</small>
-                    {% endif %}
+                    <div class="d-flex align-items-center gap-1">
+                        <select class="form-select form-select-sm border-0 py-0 px-1 fw-semibold acc-status-sel"
+                                style="min-width:130px;background:transparent;cursor:pointer;font-size:0.8rem"
+                                data-inv-id="{{ inv.id }}"
+                                onchange="setAccStatus(this)">
+                            {% for k, v in accounting_status_labels.items() %}
+                            <option value="{{ k }}" {% if inv.accounting_status == k %}selected{% endif %}>{{ v }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button"
+                                class="btn btn-link btn-sm p-0 lh-1 text-decoration-none note-btn"
+                                title="{% if inv.accounting_notes %}Editar nota{% else %}Adicionar nota{% endif %}"
+                                style="font-size:0.85rem;color:{% if inv.accounting_notes %}#0d6efd{% else %}#adb5bd{% endif %}"
+                                onclick="toggleNote({{ inv.id }}, this)">📝</button>
+                    </div>
+                    <div id="note-display-{{ inv.id }}" class="{% if not inv.accounting_notes %}d-none{% endif %}">
+                        <small class="text-muted" style="font-size:0.7rem"
+                               title="{{ inv.accounting_notes or '' }}"
+                               data-full-text="{{ inv.accounting_notes or '' }}">{{ inv.accounting_notes|truncate(40,True,'…') if inv.accounting_notes else '' }}</small>
+                    </div>
+                    <div id="note-editor-{{ inv.id }}" class="d-none mt-1">
+                        <textarea class="form-control form-control-sm"
+                                  id="note-text-{{ inv.id }}"
+                                  rows="2"
+                                  style="font-size:0.78rem;resize:vertical;min-width:200px"
+                                  placeholder="Nota contabilística…"
+                                  data-saved-value="{{ inv.accounting_notes or '' }}">{{ inv.accounting_notes or '' }}</textarea>
+                        <div class="d-flex gap-1 mt-1">
+                            <button type="button" class="btn btn-primary btn-sm py-0" style="font-size:0.75rem"
+                                    onclick="saveNote({{ inv.id }})">Guardar</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm py-0" style="font-size:0.75rem"
+                                    onclick="cancelNote({{ inv.id }})">Cancelar</button>
+                        </div>
+                    </div>
                 </td>
                 <td>
                     {% if inv.has_pdf %}
@@ -354,6 +377,99 @@ function setAccStatus(sel) {
         }
     })
     .catch(function() { alert('Erro de comunicação.'); });
+}
+
+/* ── Inline note editing ───────────────────────────────────────── */
+function toggleNote(id, btn) {
+    var editor = document.getElementById('note-editor-' + id);
+    var display = document.getElementById('note-display-' + id);
+    if (editor.classList.contains('d-none')) {
+        editor.classList.remove('d-none');
+        display.classList.add('d-none');
+        var ta = document.getElementById('note-text-' + id);
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+    } else {
+        cancelNote(id);
+    }
+}
+
+function cancelNote(id) {
+    var editor = document.getElementById('note-editor-' + id);
+    var display = document.getElementById('note-display-' + id);
+    var ta = document.getElementById('note-text-' + id);
+    var small = display.querySelector('small');
+
+    // Restore textarea to last saved value (initialized from server, updated on save)
+    ta.value = ta.dataset.savedValue;
+
+    // Restore display to last saved note text
+    var saved = ta.dataset.savedValue;
+    if (saved) {
+        small.textContent = saved.length > 40 ? saved.substring(0, 39) + '…' : saved;
+        small.title = saved;
+        display.classList.remove('d-none');
+    } else {
+        small.textContent = '';
+        small.title = '';
+        display.classList.add('d-none');
+    }
+
+    editor.classList.add('d-none');
+}
+
+function saveNote(id) {
+    var ta = document.getElementById('note-text-' + id);
+    var notes = ta.value.trim();
+    var statusSel = document.querySelector('.acc-status-sel[data-inv-id="' + id + '"]');
+    var status = statusSel ? statusSel.value : '';
+    if (!status) { alert('Estado contabilístico não encontrado.'); return; }
+
+    var btn = document.querySelector('#note-editor-' + id + ' .btn-primary');
+    btn.disabled = true;
+    btn.textContent = '…';
+
+    fetch('{{ url_for("contabilidade.atualizar_estado") }}', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ invoice_ids: [id], status: status, notes: notes }),
+    })
+    .then(r => r.json())
+    .then(function(data) {
+        btn.disabled = false;
+        btn.textContent = 'Guardar';
+        if (data.ok) {
+            // Update display
+            var display = document.getElementById('note-display-' + id);
+            var small = display.querySelector('small');
+            ta.dataset.savedValue = notes;
+            if (notes) {
+                small.textContent = notes.length > 40 ? notes.substring(0, 39) + '…' : notes;
+                small.title = notes;
+                if (!small.dataset) small.dataset = {};
+                small.dataset.fullText = notes;
+                display.classList.remove('d-none');
+            } else {
+                small.textContent = '';
+                small.title = '';
+                small.dataset.fullText = '';
+                display.classList.add('d-none');
+            }
+            // Update note button colour
+            var noteBtn = document.querySelector('[onclick="toggleNote(' + id + ', this)"]');
+            if (noteBtn) noteBtn.style.color = notes ? '#0d6efd' : '#adb5bd';
+            // Hide editor
+            document.getElementById('note-editor-' + id).classList.add('d-none');
+        } else {
+            alert('Erro ao guardar nota: ' + (data.error || 'desconhecido'));
+        }
+    })
+    .catch(function() {
+        btn.disabled = false;
+        btn.textContent = 'Guardar';
+        alert('Erro de comunicação.');
+    });
 }
 </script>
 {% endblock %}
