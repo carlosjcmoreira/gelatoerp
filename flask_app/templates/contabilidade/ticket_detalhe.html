@@ -63,6 +63,27 @@
     </div>
     {% endif %}
 
+    {# ── Attach file (only when ticket has an invoice_id) ──────────── #}
+    {% if ticket.invoice_id and ticket.status != 'resolvido' %}
+    <div class="card mb-3">
+        <div class="card-header py-2 small fw-semibold">📎 Anexar Ficheiro</div>
+        <div class="card-body py-2">
+            <form method="POST"
+                  action="{{ url_for('contabilidade.anexar_ficheiro_ticket', ticket_id=ticket.id) }}"
+                  enctype="multipart/form-data">
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <input type="file" name="pdf_file" accept=".pdf"
+                           class="form-control form-control-sm" style="max-width:320px" required>
+                    <button type="submit" class="btn btn-success btn-sm">Anexar ficheiro</button>
+                </div>
+                <div class="text-muted small mt-1">
+                    O ticket será automaticamente marcado como <strong>resolvido</strong> após o upload.
+                </div>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
     {# ── Add response form ──────────────────────────────────────────── #}
     {% if ticket.status != 'resolvido' %}
     <div class="card">

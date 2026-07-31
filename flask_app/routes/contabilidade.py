@@ -384,6 +384,49 @@ def ticket_detalhe(ticket_id: int):
     )
 
 
+@contabilidade_bp.route('/tickets/<int:ticket_id>/anexar-ficheiro', methods=['POST'])
+@perm_required('acesso_contabilidade')
+def anexar_ficheiro_ticket(ticket_id: int):
+    from db.contabilidade import get_ticket, add_ticket_response
+    from db.faturas import save_invoice_pdf
+
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        flash('Ticket não encontrado.', 'error')
+        return redirect(url_for('contabilidade.tickets'))
+
+    if not ticket.get('invoice_id'):
+        flash('Este ticket não está associado a uma fatura.', 'error')
+        return redirect(url_for('contabilidade.ticket_detalhe', ticket_id=ticket_id))
+
+    pdf_file = request.files.get('pdf_file')
+    if not pdf_file or not pdf_file.filename:
+        flash('Nenhum ficheiro seleccionado.', 'warning')
+        return redirect(url_for('contabilidade.ticket_detalhe', ticket_id=ticket_id))
+
+    ext = pdf_file.filename.rsplit('.', 1)[-1].lower() if '.' in pdf_file.filename else ''
+    if ext != 'pdf':
+        flash('Apenas ficheiros PDF são aceites.', 'warning')
+        return redirect(url_for('contabilidade.ticket_detalhe', ticket_id=ticket_id))
+
+    pdf_data = pdf_file.read()
+    if not pdf_data.startswith(b'%PDF'):
+        flash('Ficheiro não é um PDF válido.', 'warning')
+        return redirect(url_for('contabilidade.ticket_detalhe', ticket_id=ticket_id))
+
+    save_invoice_pdf(ticket['invoice_id'], pdf_data, pdf_file.filename or 'fatura.pdf')
+
+    add_ticket_response(
+        ticket_id=ticket_id,
+        mensagem='Ficheiro anexado',
+        novo_status='resolvido',
+        criado_por=_username(),
+    )
+
+    flash('Ficheiro anexado e ticket resolvido com sucesso.', 'success')
+    return redirect(url_for('contabilidade.ticket_detalhe', ticket_id=ticket_id))
+
+
 @contabilidade_bp.route('/tickets/<int:ticket_id>/responder', methods=['POST'])
 @perm_required('acesso_contabilidade')
 def responder_ticket(ticket_id: int):
