@@ -388,6 +388,11 @@ def _safe_return_url(raw: str) -> str:
 @perm_required('acesso_administrativo')
 def invoice_panel(invoice_id: int):
     from datetime import date as _date
+    from db.contabilidade import (
+        get_tickets_for_invoice,
+        ACCOUNTING_STATUS_LABELS,
+        ACCOUNTING_STATUS_BADGE,
+    )
     inv = get_invoice(invoice_id)
     if not inv:
         return '<p class="text-danger p-3">Fatura não encontrada.</p>', 404
@@ -404,6 +409,10 @@ def invoice_panel(invoice_id: int):
         store_name=inv.get('store_name'), store_id=inv.get('store_id')
     )
     suppliers = get_suppliers()
+    cont_tickets = get_tickets_for_invoice(invoice_id)
+    acc_status = inv.get('accounting_status') or 'por_contabilizar'
+    inv['accounting_status_label'] = ACCOUNTING_STATUS_LABELS.get(acc_status, acc_status)
+    inv['accounting_status_badge'] = ACCOUNTING_STATUS_BADGE.get(acc_status, 'bg-secondary')
     return render_template(
         'compras/_panel.html',
         inv=inv,
@@ -420,6 +429,7 @@ def invoice_panel(invoice_id: int):
         stock_local_derivado=stock_local_derivado,
         suppliers=suppliers,
         panel_return_url=panel_return_url,
+        cont_tickets=cont_tickets,
     )
 
 

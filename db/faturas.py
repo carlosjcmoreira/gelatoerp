@@ -1273,7 +1273,11 @@ def get_invoice(invoice_id: int) -> dict:
                    COALESCE(i.installment_total, 0) AS installment_total,
                    (SELECT COUNT(*) FROM invoice_installments
                     WHERE invoice_id = i.id AND status = 'paid') AS installment_paid_count,
-                   (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf
+                   (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf,
+                   COALESCE(i.accounting_status, 'por_contabilizar') AS accounting_status,
+                   i.accounting_notes,
+                   i.accounting_updated_by,
+                   i.accounting_updated_at
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -1293,6 +1297,10 @@ def get_invoice(invoice_id: int) -> dict:
     inv['installment_total'] = int(row[33]) if len(row) > 33 and row[33] else 0
     inv['installment_paid_count'] = int(row[34]) if len(row) > 34 and row[34] else 0
     inv['has_pdf'] = bool(row[35]) if len(row) > 35 else inv['has_pdf']
+    inv['accounting_status'] = row[36] if len(row) > 36 else 'por_contabilizar'
+    inv['accounting_notes'] = row[37] if len(row) > 37 else None
+    inv['accounting_updated_by'] = row[38] if len(row) > 38 else None
+    inv['accounting_updated_at'] = row[39] if len(row) > 39 else None
     return inv
 
 

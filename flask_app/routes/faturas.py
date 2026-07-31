@@ -1182,6 +1182,15 @@ def invoice_panel(invoice_id: int):
     stock_local_derivado = derive_local_from_store(
         store_name=inv.get('store_name'), store_id=inv.get('store_id'))
     panel_return_url = _safe_return_url(request.args.get('return_url', ''))
+    from db.contabilidade import (
+        get_tickets_for_invoice,
+        ACCOUNTING_STATUS_LABELS,
+        ACCOUNTING_STATUS_BADGE,
+    )
+    cont_tickets = get_tickets_for_invoice(invoice_id)
+    acc_status = inv.get('accounting_status') or 'por_contabilizar'
+    inv['accounting_status_label'] = ACCOUNTING_STATUS_LABELS.get(acc_status, acc_status)
+    inv['accounting_status_badge'] = ACCOUNTING_STATUS_BADGE.get(acc_status, 'bg-secondary')
     return render_template(
         'financeiro/faturas/_panel.html',
         inv=inv,
@@ -1199,6 +1208,7 @@ def invoice_panel(invoice_id: int):
         stock_local_derivado=stock_local_derivado,
         suppliers=get_suppliers(),
         panel_return_url=panel_return_url,
+        cont_tickets=cont_tickets,
     )
 
 

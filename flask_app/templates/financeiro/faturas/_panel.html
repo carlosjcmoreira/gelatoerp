@@ -204,6 +204,46 @@
         {% endif %}
     </dl>
 
+    <!-- ── Contabilidade ────────────────────────────────────── -->
+    <div class="card mb-3">
+        <div class="card-header py-2 px-3 d-flex align-items-center gap-2">
+            <span class="fw-semibold small">📊 Contabilidade</span>
+            <span class="badge {{ inv.accounting_status_badge }} ms-1" style="font-size:.75rem">
+                {{ inv.accounting_status_label }}
+            </span>
+        </div>
+        <div class="card-body py-2 px-3 small">
+            {% if inv.accounting_notes %}
+            <div class="text-muted mb-2">{{ inv.accounting_notes }}</div>
+            {% endif %}
+            {% if inv.accounting_updated_by or inv.accounting_updated_at %}
+            <div class="text-muted" style="font-size:.75rem">
+                {% if inv.accounting_updated_by %}Actualizado por {{ inv.accounting_updated_by }}{% endif %}
+                {% if inv.accounting_updated_at %} em {{ inv.accounting_updated_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+            </div>
+            {% endif %}
+            {% if cont_tickets %}
+            <div class="mt-2">
+                <div class="fw-semibold mb-1">Tickets associados</div>
+                <ul class="list-unstyled mb-0">
+                {% for t in cont_tickets %}
+                    <li class="d-flex align-items-start gap-2 mb-1">
+                        <span class="badge {{ t.status_badge }} flex-shrink-0" style="font-size:.7rem;margin-top:.1rem">{{ t.status_label }}</span>
+                        <span>
+                            <a href="{{ url_for('contabilidade.ticket_detalhe', ticket_id=t.id) }}"
+                               class="text-decoration-none" target="_blank" data-no-loading>{{ t.titulo }}</a>
+                            <span class="text-muted ms-1" style="font-size:.75rem">{{ t.criado_em.strftime('%d/%m/%Y') if t.criado_em else '' }}</span>
+                        </span>
+                    </li>
+                {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            <div class="text-muted">Nenhum ticket associado.</div>
+            {% endif %}
+        </div>
+    </div>
+
     <!-- ── Editar fatura ────────────────────────────────────── -->
     <div class="card mb-3">
         <div class="card-header py-2 px-3">
