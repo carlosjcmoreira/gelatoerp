@@ -364,6 +364,14 @@ def criar_ticket():
         prazo=prazo,
     )
     flash('Ticket criado com sucesso.', 'success')
+
+    return_url = request.form.get('_return_url', '').strip()
+    if return_url:
+        from urllib.parse import urlparse
+        parsed = urlparse(return_url)
+        if not parsed.scheme and not parsed.netloc:
+            return redirect(return_url)
+
     return redirect(url_for('contabilidade.ticket_detalhe', ticket_id=ticket_id))
 
 

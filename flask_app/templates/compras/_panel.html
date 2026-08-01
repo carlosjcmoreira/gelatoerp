@@ -264,8 +264,36 @@
                 </ul>
             </div>
             {% else %}
-            <div class="text-muted">Nenhum ticket associado.</div>
+            <div class="text-muted mb-1">Nenhum ticket associado.</div>
             {% endif %}
+            <div class="mt-2">
+                <button class="btn btn-outline-primary btn-sm" type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#cpmCriarTicket{{ inv.id }}"
+                        aria-expanded="false">
+                    🎫 Criar ticket
+                </button>
+                <div class="collapse mt-2" id="cpmCriarTicket{{ inv.id }}">
+                    <form method="post" action="{{ url_for('contabilidade.criar_ticket') }}">
+                        <input type="hidden" name="invoice_id" value="{{ inv.id }}">
+                        <input type="hidden" name="_return_url" value="{{ panel_return_url }}">
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">Título <span class="text-danger">*</span></label>
+                            <input type="text" name="titulo" class="form-control form-control-sm" required
+                                   placeholder="Ex: Fatura em falta">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">Descrição</label>
+                            <textarea name="descricao" class="form-control form-control-sm" rows="2"
+                                      placeholder="Detalhes adicionais (opcional)"></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">Criar ticket</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm ms-1"
+                                data-bs-toggle="collapse"
+                                data-bs-target="#cpmCriarTicket{{ inv.id }}">Cancelar</button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 
