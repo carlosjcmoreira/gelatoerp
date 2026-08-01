@@ -1226,6 +1226,8 @@ def invoice_panel(invoice_id: int):
     acc_status = inv.get('accounting_status') or 'por_contabilizar'
     inv['accounting_status_label'] = ACCOUNTING_STATUS_LABELS.get(acc_status, acc_status)
     inv['accounting_status_badge'] = ACCOUNTING_STATUS_BADGE.get(acc_status, 'bg-secondary')
+    from db.pagamentos import get_invoice_payment_record
+    inv_payment = get_invoice_payment_record(invoice_id)
     return render_template(
         'financeiro/faturas/_panel.html',
         inv=inv,
@@ -1244,6 +1246,7 @@ def invoice_panel(invoice_id: int):
         suppliers=get_suppliers(),
         panel_return_url=panel_return_url,
         cont_tickets=cont_tickets,
+        inv_payment=inv_payment,
     )
 
 

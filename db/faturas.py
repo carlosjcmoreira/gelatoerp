@@ -1458,6 +1458,29 @@ def update_invoice(invoice_id: int, data: dict):
             f"UPDATE invoices SET {', '.join(fields)} WHERE id = %s",
             params
         )
+        # ── Audit trail: auto-create invoice_payments record when paid via update_invoice ──
+        if new_status == 'paid':
+            cursor.execute(
+                "SELECT 1 FROM invoice_payments WHERE invoice_id = %s", (invoice_id,)
+            )
+            if not cursor.fetchone():
+                logger.warning(
+                    'update_invoice: inv=%s set to paid without prior invoice_payments record — '
+                    'creating automatic audit entry (confirmed_by="sistema:update_invoice"). '
+                    'Prefer mark_payment_executed for deliberate payment actions.',
+                    invoice_id,
+                )
+                effective_paid_date = data.get('paid_date')
+                cursor.execute(
+                    "INSERT INTO invoice_payments "
+                    "(invoice_id, paid_date, status, confirmed_by, notes, updated_at) "
+                    "VALUES (%s, "
+                    "  COALESCE(%s::date, (SELECT paid_date FROM invoices WHERE id = %s), NOW()::date), "
+                    "  'paid', 'sistema:update_invoice', "
+                    "  'Registo criado automaticamente — chamada directa a update_invoice', NOW()) "
+                    "ON CONFLICT (invoice_id) DO NOTHING",
+                    (invoice_id, effective_paid_date, invoice_id),
+                )
         conn.commit()
 
 
@@ -1693,6 +1716,20 @@ def mark_installment_paid(installment_id: int, invoice_id: int, paid_date, confi
                 SET status = 'paid', paid_date = %s, updated_at = NOW()
                 WHERE id = %s
             """, (paid_date, invoice_id))
+            # Audit trail: write invoice_payments record so the paid-by user is captured.
+            # Done inline (same transaction) to avoid circular import of db.pagamentos.
+            cursor.execute(
+                "INSERT INTO invoice_payments "
+                "(invoice_id, paid_date, status, confirmed_by, notes, updated_at) "
+                "VALUES (%s, %s, 'paid', %s, 'Pago pela última parcela da fatura', NOW()) "
+                "ON CONFLICT (invoice_id) DO UPDATE SET "
+                "    paid_date = EXCLUDED.paid_date, "
+                "    status = 'paid', "
+                "    confirmed_by = EXCLUDED.confirmed_by, "
+                "    notes = COALESCE(EXCLUDED.notes, invoice_payments.notes), "
+                "    updated_at = NOW()",
+                (invoice_id, paid_date, confirmed_by),
+            )
             parent_paid = True
 
         conn.commit()

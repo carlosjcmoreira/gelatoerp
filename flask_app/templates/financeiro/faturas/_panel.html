@@ -176,6 +176,19 @@
         <dt class="col-5 text-muted">Método pagamento</dt>
         <dd class="col-7">{{ inv.payment_method }}</dd>
         {% endif %}
+        {% if inv_payment %}
+        <dt class="col-5 text-muted">Registado por</dt>
+        <dd class="col-7">
+            <span class="badge bg-light text-dark border" style="font-size:.75rem; font-weight:500">
+                👤 {{ inv_payment.confirmed_by or '—' }}
+            </span>
+            {% if inv_payment.updated_at %}
+            <span class="text-muted ms-1" style="font-size:.75rem">
+                {{ inv_payment.updated_at.strftime('%d/%m/%Y %H:%M') }}
+            </span>
+            {% endif %}
+        </dd>
+        {% endif %}
         {% if inv.created_by %}
         <dt class="col-5 text-muted">Criado por</dt>
         <dd class="col-7">{{ inv.created_by }}</dd>

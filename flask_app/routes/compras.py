@@ -12,6 +12,7 @@ from database import (
     criar_ordem_transferencia,
     create_invoice,
     update_invoice,
+    mark_payment_executed,
     get_suppliers,
     propose_invoice_payment,
     suggest_payment_date,
@@ -631,6 +632,18 @@ def review_draft(invoice_id):
         if _supplier_created:
             flash(f"Fornecedor '{supplier_name}' criado automaticamente. Verifica em Fornecedores se é duplicado.", 'warning')
         if ja_paga:
+            # Overwrite the automatic audit record with the real user's identity
+            _username = session.get('user', {}).get('username', 'sistema:compras')
+            try:
+                mark_payment_executed(
+                    invoice_id,
+                    paid_date or date.today(),
+                    _username,
+                    payment_method=payment_method,
+                    notes='Registado como pago na revisão do documento',
+                )
+            except Exception as _pe:
+                logger.warning('review_draft: mark_payment_executed failed for inv=%s: %s', invoice_id, _pe)
             flash('Fatura registada e marcada como paga.', 'success')
         else:
             flash('Fatura registada com sucesso.', 'success')
@@ -675,11 +688,14 @@ def marcar_paga(invoice_id):
     else:
         paid_date = date.today()
 
-    update_invoice(invoice_id, {
-        'status': 'paid',
-        'paid_date': paid_date.isoformat(),
-        'payment_method': payment_method,
-    })
+    username = session.get('user', {}).get('username', 'sistema:compras')
+    try:
+        mark_payment_executed(invoice_id, paid_date, username, payment_method=payment_method)
+    except Exception as e:
+        logger.error('marcar_paga inv=%s: %s', invoice_id, e, exc_info=True)
+        flash('Erro ao registar pagamento (ver logs).', 'danger')
+        back = request.form.get('_return_url', '').strip()
+        return redirect(back if back else url_for('compras.faturas'))
     flash('Pagamento registado com sucesso.', 'success')
     back = request.form.get('_return_url', '').strip()
     return redirect(back if back else url_for('compras.faturas'))

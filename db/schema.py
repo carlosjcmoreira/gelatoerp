@@ -4148,6 +4148,59 @@ def run_migrations_invoice_status_config():
                 pass
 
 
+_LOCK_INVOICE_PAYMENT_AUDIT = 202681
+
+
+def run_migrations_invoice_payment_audit():
+    """Ensure invoice_payments has confirmed_by; backfill records for paid invoices that lack one.
+
+    Advisory lock 202681 ensures idempotency across workers.
+    """
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_INVOICE_PAYMENT_AUDIT,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_invoice_payment_audit: lock held by another worker, skipping")
+                return
+
+            # Ensure confirmed_by column exists (added after initial table creation)
+            cursor.execute(
+                "ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS confirmed_by VARCHAR(100)"
+            )
+
+            # Backfill: one retroactive record per paid invoice that has no invoice_payments row
+            cursor.execute("""
+                INSERT INTO invoice_payments
+                    (invoice_id, paid_date, status, confirmed_by, notes, updated_at)
+                SELECT
+                    i.id,
+                    COALESCE(i.paid_date, i.updated_at::date, NOW()::date),
+                    'paid',
+                    'migração',
+                    'Registo criado retroactivamente — origem desconhecida',
+                    NOW()
+                FROM invoices i
+                WHERE i.status = 'paid'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM invoice_payments ip WHERE ip.invoice_id = i.id
+                  )
+                ON CONFLICT (invoice_id) DO NOTHING
+            """)
+            n = cursor.rowcount
+            conn.commit()
+            if n > 0:
+                logger.info("run_migrations_invoice_payment_audit: backfilled %d retroactive payment records", n)
+            else:
+                logger.info("run_migrations_invoice_payment_audit: no backfill needed")
+        except Exception as exc:
+            logger.error("run_migrations_invoice_payment_audit failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 _LOCK_CONTABILIDADE = 202680
 
 

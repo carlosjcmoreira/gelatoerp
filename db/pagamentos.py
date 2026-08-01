@@ -344,6 +344,7 @@ def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None,
                ON CONFLICT (invoice_id) DO UPDATE SET
                    paid_date = EXCLUDED.paid_date,
                    status = 'paid',
+                   confirmed_by = EXCLUDED.confirmed_by,
                    notes = COALESCE(EXCLUDED.notes, invoice_payments.notes),
                    payment_method = COALESCE(EXCLUDED.payment_method, invoice_payments.payment_method),
                    confirming_contract_id = COALESCE(EXCLUDED.confirming_contract_id, invoice_payments.confirming_contract_id),
@@ -355,6 +356,18 @@ def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None,
             (paid_date, invoice_id)
         )
         conn.commit()
+
+
+def get_invoice_payment_record(invoice_id: int):
+    """Return the invoice_payments row for a given invoice, or None if not found."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT * FROM invoice_payments WHERE invoice_id = %s",
+            (invoice_id,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 
 def get_invoice_payments(status_filter=None):
