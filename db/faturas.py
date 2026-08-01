@@ -1419,7 +1419,35 @@ _STATUSES_REQUIRING_SUPPLIER = frozenset({'pending_review', 'scheduled', 'paid',
 _DOCUMENT_TYPES_INVOICE = frozenset({'fatura', 'nota_credito', 'nota_debito'})
 
 
-def update_invoice(invoice_id: int, data: dict):
+def get_invoice_audit_log(invoice_id: int) -> list:
+    """Return all audit log entries for an invoice, newest first."""
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, campo_alterado, valor_anterior, valor_novo, alterado_por, alterado_em
+                FROM invoice_audit_log
+                WHERE invoice_id = %s
+                ORDER BY alterado_em ASC
+            """, (invoice_id,))
+            rows = cursor.fetchall()
+        return [
+            {
+                'id': r[0],
+                'campo_alterado': r[1],
+                'valor_anterior': r[2],
+                'valor_novo': r[3],
+                'alterado_por': r[4],
+                'alterado_em': r[5],
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.warning('get_invoice_audit_log(%s) failed: %s', invoice_id, exc)
+        return []
+
+
+def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
     fields = []
     params = []
     allowed = [
@@ -1454,10 +1482,30 @@ def update_invoice(invoice_id: int, data: dict):
                         f'Não é possível mover para estado "{new_status}" sem fornecedor ligado '
                         f'(documento tipo {effective_doc_type}).'
                     )
+        # ── Capture old status before writing, for audit log ──
+        old_status = None
+        if new_status is not None:
+            cursor.execute("SELECT status FROM invoices WHERE id = %s", (invoice_id,))
+            _row = cursor.fetchone()
+            old_status = _row[0] if _row else None
+
         cursor.execute(
             f"UPDATE invoices SET {', '.join(fields)} WHERE id = %s",
             params
         )
+
+        # ── Status change audit log ──
+        if new_status is not None and new_status != old_status:
+            try:
+                cursor.execute(
+                    "INSERT INTO invoice_audit_log "
+                    "(invoice_id, campo_alterado, valor_anterior, valor_novo, alterado_por) "
+                    "VALUES (%s, 'status', %s, %s, %s)",
+                    (invoice_id, old_status, new_status, changed_by),
+                )
+            except Exception as _audit_exc:
+                logger.warning('update_invoice: audit log insert failed for inv=%s: %s', invoice_id, _audit_exc)
+
         # ── Audit trail: auto-create invoice_payments record when paid via update_invoice ──
         if new_status == 'paid':
             cursor.execute(

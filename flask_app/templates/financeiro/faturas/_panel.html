@@ -504,6 +504,42 @@
         </div>
     </div>
 
+    <!-- ── Histórico de estados ─────────────────────────────── -->
+    {% if audit_log %}
+    <div class="card mb-3">
+        <div class="card-header py-2 px-3">
+            <button class="btn btn-link p-0 text-decoration-none small fw-semibold" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#panelAuditLog{{ inv.id }}">
+                🕓 Histórico ({{ audit_log | length }})
+            </button>
+        </div>
+        <div class="collapse" id="panelAuditLog{{ inv.id }}">
+            <div class="card-body py-2 px-3">
+                <ol class="list-unstyled mb-0" style="border-left:2px solid #dee2e6;padding-left:.75rem">
+                {% for entry in audit_log %}
+                    <li class="mb-2 position-relative">
+                        <span class="position-absolute" style="left:-1.05rem;top:.2rem;width:.6rem;height:.6rem;border-radius:50%;background:#6c757d;display:inline-block"></span>
+                        {% set _new_lbl = status_labels.get(entry.valor_novo, entry.valor_novo) %}
+                        {% set _old_lbl = status_labels.get(entry.valor_anterior, entry.valor_anterior) if entry.valor_anterior else '—' %}
+                        <div class="small">
+                            {% if entry.valor_anterior %}
+                            <span class="text-muted">{{ _old_lbl }}</span>
+                            <span class="text-muted mx-1">→</span>
+                            {% endif %}
+                            <strong>{{ _new_lbl }}</strong>
+                        </div>
+                        <div class="text-muted" style="font-size:.75rem">
+                            {% if entry.alterado_por %}👤 {{ entry.alterado_por }}{% endif %}
+                            {% if entry.alterado_em %} · {{ entry.alterado_em.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                        </div>
+                    </li>
+                {% endfor %}
+                </ol>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- ── Zona de perigo ───────────────────────────────────── -->
     <div class="card border-danger mb-3">
         <div class="card-body py-2 px-3">

@@ -259,11 +259,32 @@ def get_invoices_with_payments(status: str = None, store_id: int = None,
         return cursor.fetchall()
 
 
+def _write_status_audit(cursor, invoice_id, old_status, new_status, changed_by):
+    """Insert a row into invoice_audit_log if the status actually changed.
+    Safe to call even if the table doesn't exist yet (swallows errors silently).
+    Must be called within an open transaction before conn.commit().
+    """
+    if old_status == new_status:
+        return
+    try:
+        cursor.execute(
+            "INSERT INTO invoice_audit_log "
+            "(invoice_id, campo_alterado, valor_anterior, valor_novo, alterado_por) "
+            "VALUES (%s, 'status', %s, %s, %s)",
+            (invoice_id, old_status, new_status, changed_by),
+        )
+    except Exception:
+        pass  # audit table may not exist yet; never block the main operation
+
+
 def propose_invoice_payment(invoice_id, proposed_date, amount_eur):
     """Create or update the payment proposal for an invoice."""
     with db_connection() as conn:
         cursor = conn.cursor()
         _require_supplier_for_invoice(cursor, invoice_id)
+        cursor.execute("SELECT status FROM invoices WHERE id = %s", (invoice_id,))
+        _row = cursor.fetchone()
+        old_status = _row[0] if _row else None
         cursor.execute("""
             INSERT INTO invoice_payments (invoice_id, proposed_date, amount_eur, status)
             VALUES (%s, %s, %s, 'proposed')
@@ -278,6 +299,8 @@ def propose_invoice_payment(invoice_id, proposed_date, amount_eur):
             "WHERE id = %s AND status = 'pending_review'",
             (invoice_id,)
         )
+        if cursor.rowcount > 0:
+            _write_status_audit(cursor, invoice_id, old_status, 'scheduled', 'sistema')
         conn.commit()
 
 
@@ -287,6 +310,9 @@ def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by
     with db_connection() as conn:
         cursor = conn.cursor()
         _require_supplier_for_invoice(cursor, invoice_id)
+        cursor.execute("SELECT status FROM invoices WHERE id = %s", (invoice_id,))
+        _row = cursor.fetchone()
+        old_status = _row[0] if _row else None
         cursor.execute("""
             INSERT INTO invoice_payments (invoice_id, confirmed_date, amount_eur, status,
                                           confirmed_by, confirmed_at, notes, payment_method, confirming_contract_id)
@@ -307,6 +333,7 @@ def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by
             "UPDATE invoices SET status = 'scheduled', updated_at = NOW() WHERE id = %s",
             (invoice_id,)
         )
+        _write_status_audit(cursor, invoice_id, old_status, 'scheduled', confirmed_by or 'sistema')
         conn.commit()
 
 
@@ -337,6 +364,9 @@ def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None,
     with db_connection() as conn:
         cursor = conn.cursor()
         _require_supplier_for_invoice(cursor, invoice_id)
+        cursor.execute("SELECT status FROM invoices WHERE id = %s", (invoice_id,))
+        _row = cursor.fetchone()
+        old_status = _row[0] if _row else None
         cursor.execute(
             """INSERT INTO invoice_payments
                    (invoice_id, paid_date, status, confirmed_by, notes, payment_method, confirming_contract_id, updated_at)
@@ -355,6 +385,7 @@ def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None,
             "UPDATE invoices SET status = 'paid', paid_date = %s, updated_at = NOW() WHERE id = %s",
             (paid_date, invoice_id)
         )
+        _write_status_audit(cursor, invoice_id, old_status, 'paid', confirmed_by or 'sistema')
         conn.commit()
 
 

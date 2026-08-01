@@ -1447,6 +1447,20 @@ def run_faturas_migrations():
             ON CONFLICT (metodo) DO NOTHING
         """)
 
+        # invoice_audit_log — full history of status changes per invoice
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS invoice_audit_log (
+                id SERIAL PRIMARY KEY,
+                invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+                campo_alterado VARCHAR(100) NOT NULL,
+                valor_anterior TEXT,
+                valor_novo TEXT,
+                alterado_por VARCHAR(100),
+                alterado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoice_audit_log_invoice ON invoice_audit_log(invoice_id, alterado_em DESC)")
+
         # Wire FK from movimentos_stock_materiais -> invoices now that invoices exists
         cursor.execute("""
             DO $$

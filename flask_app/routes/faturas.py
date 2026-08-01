@@ -41,7 +41,7 @@ import flask_app.services.faturas as faturas_svc
 from flask_app.services import ServiceError
 from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair,
                         get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias,
-                        get_invoice_status_labels_map)
+                        get_invoice_status_labels_map, get_invoice_audit_log)
 from flask_app.utils.finance import (
     parse_date as _parse_date,
     parse_float as _parse_float,
@@ -666,7 +666,7 @@ def bulk_action():
                         except Exception as pe:
                             logger.warning('bulk confirming scheduled inv=%s: %s', inv_id, pe)
                 else:
-                    update_invoice(inv_id, {'status': new_status})
+                    update_invoice(inv_id, {'status': new_status}, changed_by=current_user)
                 ok += 1
             except Exception as e:
                 logger.error('bulk change_status id=%s: %s', inv_id, e, exc_info=True)
@@ -1228,6 +1228,7 @@ def invoice_panel(invoice_id: int):
     inv['accounting_status_badge'] = ACCOUNTING_STATUS_BADGE.get(acc_status, 'bg-secondary')
     from db.pagamentos import get_invoice_payment_record
     inv_payment = get_invoice_payment_record(invoice_id)
+    audit_log = get_invoice_audit_log(invoice_id)
     return render_template(
         'financeiro/faturas/_panel.html',
         inv=inv,
@@ -1247,6 +1248,7 @@ def invoice_panel(invoice_id: int):
         panel_return_url=panel_return_url,
         cont_tickets=cont_tickets,
         inv_payment=inv_payment,
+        audit_log=audit_log,
     )
 
 
@@ -1463,6 +1465,7 @@ def edit(invoice_id: int):
         flash('Seleciona um fornecedor antes de guardar este tipo de documento em estado não rascunho.', 'warning')
         return _panel_redirect(invoice_id)
 
+    _edit_user = session.get('user', {}).get('username', 'sistema')
     update_invoice(invoice_id, {
         'supplier_id': supplier_id,
         'supplier_name': supplier_name or None,
@@ -1478,7 +1481,7 @@ def edit(invoice_id: int):
         'status': status,
         'notes': notes or None,
         'document_type': document_type,
-    })
+    }, changed_by=_edit_user)
 
     flash('Documento actualizado.', 'success')
     return _panel_redirect(invoice_id)
