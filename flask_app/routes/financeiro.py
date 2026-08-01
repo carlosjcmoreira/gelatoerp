@@ -1,10 +1,14 @@
 import sys
 import os
+import logging
 from datetime import date, datetime
 from flask import Blueprint, render_template, url_for, request, redirect, flash, session
 from flask_app.auth import perm_required
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import get_contas_por_fornecedor, mark_payment_executed
+from db.pagamentos import get_already_paid_invoices
+
+logger = logging.getLogger(__name__)
 
 financeiro_bp = Blueprint('financeiro', __name__)
 
@@ -106,6 +110,8 @@ def liquidar_fornecedor():
     ids = request.form.getlist('invoice_ids', type=int)
     paid_date_str = request.form.get('paid_date', str(date.today()))
     payment_method = request.form.get('payment_method', 'transferencia')
+    force_duplicate = request.form.get('force_duplicate', '0') == '1'
+
     try:
         paid_date = datetime.strptime(paid_date_str, '%Y-%m-%d').date()
     except ValueError:
@@ -114,6 +120,21 @@ def liquidar_fornecedor():
     if not ids:
         flash('Nenhum documento selecionado.', 'warning')
         return redirect(url_for('faturas.index', view='fornecedor'))
+
+    # Guard: warn before re-paying already-paid invoices
+    if not force_duplicate:
+        already_paid = get_already_paid_invoices(ids)
+        if already_paid:
+            refs = ', '.join(
+                f"{r['invoice_number'] or '(sem nº)'} — {r['supplier_name']}"
+                for r in already_paid
+            )
+            flash(
+                f'⚠️ {len(already_paid)} fatura(s) já estão pagas: {refs}. '
+                'Marque "Confirmar mesmo assim" no modal para processar na mesma.',
+                'warning',
+            )
+            return redirect(url_for('faturas.index', view='fornecedor'))
 
     username = _get_username()
     method_label = dict(PAYMENT_METHODS).get(payment_method, payment_method)
@@ -124,11 +145,12 @@ def liquidar_fornecedor():
         try:
             mark_payment_executed(inv_id, paid_date, username, notes=payment_note)
             ok += 1
-        except Exception:
+        except Exception as e:
+            logger.error('liquidar_fornecedor inv=%s: %s', inv_id, e, exc_info=True)
             fail += 1
 
     if fail:
-        flash(f'{ok} documento(s) liquidado(s). {fail} falharam.', 'warning')
+        flash(f'{ok} documento(s) liquidado(s). {fail} falharam (ver logs).', 'warning')
     else:
         flash(f'{ok} documento(s) liquidado(s) via {method_label} em {paid_date.strftime("%d/%m/%Y")}.', 'success')
 

@@ -592,6 +592,22 @@ def bulk_action():
             flash(f'É obrigatório indicar a data ao alterar para «{label}».', 'warning')
             return redirect(return_url)
 
+        # Guard: warn before re-paying already-paid invoices
+        if new_status == 'paid' and request.form.get('force_duplicate', '0') != '1':
+            from db.pagamentos import get_already_paid_invoices
+            already_paid = get_already_paid_invoices(ids)
+            if already_paid:
+                refs = ', '.join(
+                    f"{r['invoice_number'] or '(sem nº)'} — {r['supplier_name']}"
+                    for r in already_paid
+                )
+                flash(
+                    f'⚠️ {len(already_paid)} fatura(s) já estão pagas: {refs}. '
+                    'Marque "Confirmar mesmo assim" no modal para processar na mesma.',
+                    'warning',
+                )
+                return redirect(return_url)
+
         # Payment method (optional, for scheduled/paid)
         bulk_payment_method = request.form.get('bulk_payment_method', '').strip() or None
         bulk_confirming_id_raw = request.form.get('bulk_confirming_contract_id', '').strip()
@@ -634,7 +650,7 @@ def bulk_action():
                     update_invoice(inv_id, {'status': new_status})
                 ok += 1
             except Exception as e:
-                logger.error('bulk change_status id=%s: %s', inv_id, e)
+                logger.error('bulk change_status id=%s: %s', inv_id, e, exc_info=True)
                 fail += 1
         msg = f'{ok} fatura(s) alterada(s) para «{label}».'
         if fail:

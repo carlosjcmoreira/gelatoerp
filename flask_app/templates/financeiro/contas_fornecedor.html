@@ -17,6 +17,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <form method="post" action="{{ url_for('financeiro.liquidar_fornecedor') }}" id="formLiquidar">
+                    <input type="hidden" name="force_duplicate" id="force-dup-input" value="0">
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label small">Data de pagamento *</label>
@@ -32,6 +33,15 @@
                             </select>
                         </div>
                         <div id="liquidar-summary" class="small text-muted"></div>
+                        <div class="mt-2 border-top pt-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="cb-force-dup"
+                                       onchange="document.getElementById('force-dup-input').value = this.checked ? '1' : '0'">
+                                <label class="form-check-label small text-warning-emphasis fw-semibold" for="cb-force-dup">
+                                    ⚠️ Confirmar mesmo assim (incluindo faturas já pagas)
+                                </label>
+                            </div>
+                        </div>
                     </div>
                     <div class="modal-footer py-2">
                         <button type="submit" class="btn btn-success btn-sm">Liquidar</button>

@@ -310,6 +310,27 @@ def confirm_invoice_payment(invoice_id, confirmed_date, amount_eur, confirmed_by
         conn.commit()
 
 
+def get_already_paid_invoices(ids: list) -> list:
+    """Return invoices from *ids* that already have status='paid'.
+
+    Used as a pre-flight check before batch liquidation to detect potential
+    duplicate payments.  Returns a list of dicts with id, invoice_number,
+    supplier_name.
+    """
+    if not ids:
+        return []
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT id, invoice_number, supplier_name "
+            "FROM invoices "
+            "WHERE id = ANY(%s) AND status = 'paid' "
+            "ORDER BY supplier_name, invoice_number",
+            (ids,)
+        )
+        return [dict(r) for r in cursor.fetchall()]
+
+
 def mark_payment_executed(invoice_id, paid_date, confirmed_by, notes=None,
                           payment_method=None, confirming_contract_id=None):
     """Mark invoice payment as executed/paid (upserts invoice_payments, updates invoices)."""

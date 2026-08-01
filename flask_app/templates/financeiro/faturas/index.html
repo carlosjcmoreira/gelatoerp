@@ -82,6 +82,7 @@
         <input type="hidden" name="bulk_date" id="forn-date-hidden" value="">
         <input type="hidden" name="bulk_payment_method" id="forn-pm-hidden" value="">
         <input type="hidden" name="bulk_confirming_contract_id" id="forn-confirming-hidden" value="">
+        <input type="hidden" name="force_duplicate" id="forn-force-dup-hidden" value="0">
         <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='fornecedor') }}">
 
         <!-- Bulk action bar -->
@@ -571,6 +572,7 @@
         <input type="hidden" name="bulk_confirming_contract_id" id="bulk-confirming-hidden" value="">
         <input type="hidden" name="bulk_nparcelas" id="bulk-nparcelas-hidden" value="1">
         <input type="hidden" name="bulk_freq" id="bulk-freq-hidden" value="none">
+        <input type="hidden" name="force_duplicate" id="bulk-force-dup-hidden" value="0">
         <input type="hidden" name="return_url" value="{{ request.url }}">
 
         <!-- Bulk action bar (hidden until ≥1 row selected) -->
@@ -1206,6 +1208,14 @@ function openInvPanel(id) {
                         {% endif %}
                     </select>
                 </div>
+                <div class="mt-2 border-top pt-2">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="pm-force-dup-cb">
+                        <label class="form-check-label small text-warning-emphasis fw-semibold" for="pm-force-dup-cb">
+                            ⚠️ Confirmar mesmo assim (incluindo faturas já pagas)
+                        </label>
+                    </div>
+                </div>
                 <div id="pm-confirming-wrap" class="mb-2" style="display:none">
                     <label class="form-label small mb-1">Contrato Confirming</label>
                     <select id="pm-confirming-select" class="form-select form-select-sm" onchange="pmConfirmingChange()">
@@ -1294,18 +1304,21 @@ function pmConfirm() {
     if (pm === 'confirming' && !ccId) {
         alert('Selecione um contrato de confirming.'); return;
     }
+    const forceDup = document.getElementById('pm-force-dup-cb').checked ? '1' : '0';
     if (_pmModal) _pmModal.hide();
     if (_pmTargetForm === 'bulk-form') {
         document.getElementById('bulk-pm-hidden').value = pm;
         document.getElementById('bulk-confirming-hidden').value = pm === 'confirming' ? ccId : '';
         document.getElementById('bulk-nparcelas-hidden').value = pm === 'confirming' ? nparcelas : 1;
         document.getElementById('bulk-freq-hidden').value = pm === 'confirming' ? freq : 'none';
+        document.getElementById('bulk-force-dup-hidden').value = forceDup;
         document.getElementById('bulk-form').requestSubmit();
     } else if (_pmTargetForm === 'bulk-form-forn') {
         document.getElementById('forn-pm-hidden').value = pm;
         document.getElementById('forn-confirming-hidden').value = pm === 'confirming' ? ccId : '';
         document.getElementById('forn-nparcelas-hidden').value = pm === 'confirming' ? nparcelas : 1;
         document.getElementById('forn-freq-hidden').value = pm === 'confirming' ? freq : 'none';
+        document.getElementById('forn-force-dup-hidden').value = forceDup;
         document.getElementById('bulk-form-forn').requestSubmit();
     }
 }
