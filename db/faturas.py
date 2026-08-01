@@ -1699,7 +1699,27 @@ def mark_installment_paid(installment_id: int, invoice_id: int, paid_date, confi
         return parent_paid
 
 
-def get_contas_por_fornecedor(status_filter: str = None) -> list:
+def get_paid_counts_by_supplier(supplier_names: list) -> dict:
+    """Return {supplier_name: paid_count} for the given supplier names.
+
+    Used to show a "X pagas" badge when the default filter hides paid invoices.
+    """
+    if not supplier_names:
+        return {}
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT COALESCE(supplier_name, '(sem fornecedor)') AS sn, COUNT(*) AS n "
+            "FROM invoices "
+            "WHERE status = 'paid' AND supplier_name = ANY(%s) "
+            "GROUP BY sn",
+            (supplier_names,),
+        )
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+
+def get_contas_por_fornecedor(status_filter: str = None,
+                               status_filters: list = None) -> list:
     """
     Returns a list of all non-draft invoices and credit notes, grouped by supplier.
     Each entry contains:
@@ -1710,14 +1730,19 @@ def get_contas_por_fornecedor(status_filter: str = None) -> list:
       - saldo_liquido: total_nc - total_faturas (negative means owed)
       - invoices: list of individual invoice dicts
 
-    status_filter: optional single status to restrict results
-                   (e.g. 'pending_review', 'scheduled', 'paid', 'overdue').
-                   Defaults to all non-draft invoices.
+    status_filters: list of statuses to include (e.g. ['pending_review', 'scheduled']).
+                    Takes precedence over status_filter when provided.
+    status_filter:  single status string for backwards-compatible callers.
+                    Ignored when status_filters is set.
+                    Defaults to all non-draft invoices when both are None.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
         params = []
-        if status_filter == 'overdue':
+        if status_filters is not None:
+            extra_where = "AND i.status = ANY(%s)"
+            params.append(status_filters)
+        elif status_filter == 'overdue':
             extra_where = "AND i.status IN ('pending_review', 'scheduled') AND i.due_date < CURRENT_DATE"
         elif status_filter:
             extra_where = "AND i.status = %s"

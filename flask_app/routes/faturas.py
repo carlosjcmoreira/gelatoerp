@@ -151,9 +151,27 @@ def index():
 
     if view == 'fornecedor':
         forn_status = request.args.get('forn_status', '').strip()
-        if forn_status not in ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', ''):
+        _valid_forn_statuses = ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', 'all', '')
+        if forn_status not in _valid_forn_statuses:
             forn_status = ''
-        grupos = get_contas_por_fornecedor(status_filter=forn_status or None)
+
+        # Default (empty) = show only active/pending invoices; 'all' = no filter
+        _default_active = (forn_status == '')
+        if _default_active:
+            from db.faturas import get_contas_por_fornecedor as _gcp
+            grupos = _gcp(status_filters=['pending_review', 'scheduled'])
+        elif forn_status == 'all':
+            grupos = get_contas_por_fornecedor(status_filter=None)
+        else:
+            grupos = get_contas_por_fornecedor(status_filter=forn_status)
+
+        # Fetch paid counts per supplier for badge (only when not already showing paid)
+        forn_paid_counts = {}
+        if _default_active and grupos:
+            from db.faturas import get_paid_counts_by_supplier
+            supplier_names = [g['supplier_name'] for g in grupos if g['supplier_name']]
+            forn_paid_counts = get_paid_counts_by_supplier(supplier_names)
+
         for grupo in grupos:
             for inv in grupo.get('invoices', []):
                 if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
@@ -177,6 +195,7 @@ def index():
             categoria_custo_filter=None,
             document_type_labels=DOCUMENT_TYPE_LABELS,
             forn_status=forn_status,
+            forn_paid_counts=forn_paid_counts,
         )
 
     if view == 'centro_custo':
