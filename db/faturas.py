@@ -1464,6 +1464,15 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
         return
     fields.append("updated_at = NOW()")
     params.append(invoice_id)
+
+    # Fields tracked in audit log (human-editable, meaningful to audit)
+    _AUDIT_TRACKED = [
+        'supplier_name', 'invoice_number', 'amount_eur', 'vat_amount_eur',
+        'issue_date', 'due_date', 'category', 'store_id', 'document_type',
+        'notes', 'status', 'payment_method',
+    ]
+    fields_to_audit = [f for f in _AUDIT_TRACKED if f in data]
+
     with db_connection() as conn:
         cursor = conn.cursor()
         # Central guard: invoice-type documents cannot enter post-draft states without supplier_id
@@ -1482,29 +1491,69 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
                         f'Não é possível mover para estado "{new_status}" sem fornecedor ligado '
                         f'(documento tipo {effective_doc_type}).'
                     )
-        # ── Capture old status before writing, for audit log ──
-        old_status = None
-        if new_status is not None:
-            cursor.execute("SELECT status FROM invoices WHERE id = %s", (invoice_id,))
+
+        # ── Capture old values for all auditable fields before writing ──
+        old_values = {}
+        if fields_to_audit:
+            # Also fetch store name when store_id is being changed
+            extra_cols = ''
+            if 'store_id' in fields_to_audit:
+                extra_cols = ', (SELECT name FROM stores WHERE id = invoices.store_id)'
+            cursor.execute(
+                f"SELECT {', '.join(fields_to_audit)}{extra_cols} FROM invoices WHERE id = %s",
+                (invoice_id,)
+            )
             _row = cursor.fetchone()
-            old_status = _row[0] if _row else None
+            if _row:
+                for i, fname in enumerate(fields_to_audit):
+                    old_values[fname] = _row[i]
+                if 'store_id' in fields_to_audit:
+                    old_values['_store_name_old'] = _row[len(fields_to_audit)]
+
+        # Resolve new store name if store_id is changing
+        if 'store_id' in data and data['store_id']:
+            cursor.execute("SELECT name FROM stores WHERE id = %s", (data['store_id'],))
+            _sr = cursor.fetchone()
+            old_values['_store_name_new'] = _sr[0] if _sr else str(data['store_id'])
+        elif 'store_id' in data:
+            old_values['_store_name_new'] = None
 
         cursor.execute(
             f"UPDATE invoices SET {', '.join(fields)} WHERE id = %s",
             params
         )
 
-        # ── Status change audit log ──
-        if new_status is not None and new_status != old_status:
-            try:
-                cursor.execute(
-                    "INSERT INTO invoice_audit_log "
-                    "(invoice_id, campo_alterado, valor_anterior, valor_novo, alterado_por) "
-                    "VALUES (%s, 'status', %s, %s, %s)",
-                    (invoice_id, old_status, new_status, changed_by),
-                )
-            except Exception as _audit_exc:
-                logger.warning('update_invoice: audit log insert failed for inv=%s: %s', invoice_id, _audit_exc)
+        # ── Audit log: record each changed field ──
+        def _str(v):
+            """Normalise a DB value to a comparable/storable string."""
+            if v is None:
+                return None
+            if isinstance(v, float):
+                return f'{v:.2f}'
+            return str(v)
+
+        try:
+            for fname in fields_to_audit:
+                new_raw = data[fname]
+                old_raw = old_values.get(fname)
+
+                # For store_id use human-readable names instead of numeric IDs
+                if fname == 'store_id':
+                    old_display = old_values.get('_store_name_old') or (_str(old_raw) if old_raw else None)
+                    new_display = old_values.get('_store_name_new') or (_str(new_raw) if new_raw else None)
+                else:
+                    old_display = _str(old_raw)
+                    new_display = _str(new_raw)
+
+                if old_display != new_display:
+                    cursor.execute(
+                        "INSERT INTO invoice_audit_log "
+                        "(invoice_id, campo_alterado, valor_anterior, valor_novo, alterado_por) "
+                        "VALUES (%s, %s, %s, %s, %s)",
+                        (invoice_id, fname, old_display, new_display, changed_by),
+                    )
+        except Exception as _audit_exc:
+            logger.warning('update_invoice: audit log insert failed for inv=%s: %s', invoice_id, _audit_exc)
 
         # ── Audit trail: auto-create invoice_payments record when paid via update_invoice ──
         if new_status == 'paid':
