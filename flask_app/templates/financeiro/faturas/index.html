@@ -371,6 +371,23 @@
         {% if category_filter %}<input type="hidden" name="category" id="ff-cat" value="{{ category_filter }}">{% endif %}
     </form>
 
+    <!-- ── Barra de pesquisa ──────────────────────────────────────────────── -->
+    <div class="d-flex align-items-center gap-2 mb-2">
+        <div class="input-group input-group-sm" style="max-width:460px">
+            <span class="input-group-text text-muted bg-body border-end-0 pe-2" style="pointer-events:none">🔍</span>
+            <input type="text" id="doc-search-inp"
+                   class="form-control border-start-0 ps-1"
+                   placeholder="Pesquisar fornecedor, documento, notas, tipo, loja…"
+                   value="{{ search or '' }}"
+                   autocomplete="off">
+            <button id="doc-search-clear" class="btn btn-outline-secondary"
+                    type="button"
+                    style="display:{{ 'inline-flex' if search else 'none' }}"
+                    onclick="docSearchClear()" title="Limpar pesquisa"
+                    data-no-loading>✕</button>
+        </div>
+    </div>
+
     <!-- ── Filter Bar ──────────────────────────────────────────────────────── -->
     <div class="fbar mb-3">
 
@@ -479,8 +496,6 @@
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('due_date')">📅 Vencimento</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('issue_date')">📋 Emissão</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('paid_date')">✅ Data Pagamento</button></li>
-                    <li><hr class="dropdown-divider my-1"></li>
-                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('q')">🔍 Pesquisa de texto</button></li>
                 </ul>
             </div>
             {% if _any_f %}
@@ -1877,6 +1892,41 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 </div>
+
+<script>
+// ── Inline document search bar ────────────────────────────────────────────────
+(function() {
+    var inp = document.getElementById('doc-search-inp');
+    var clrBtn = document.getElementById('doc-search-clear');
+    if (!inp) return;
+    var _t = null;
+    inp.addEventListener('input', function() {
+        clrBtn.style.display = this.value ? '' : 'none';
+        clearTimeout(_t);
+        var v = this.value;
+        _t = setTimeout(function() {
+            _fbarSet('ff-q', 'q', v);
+            document.getElementById('filter-form').requestSubmit();
+        }, 500);
+    });
+    inp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            clearTimeout(_t);
+            _fbarSet('ff-q', 'q', this.value);
+            document.getElementById('filter-form').requestSubmit();
+        }
+    });
+})();
+function docSearchClear() {
+    var inp = document.getElementById('doc-search-inp');
+    if (inp) inp.value = '';
+    var clrBtn = document.getElementById('doc-search-clear');
+    if (clrBtn) clrBtn.style.display = 'none';
+    _fbarSet('ff-q', 'q', '');
+    document.getElementById('filter-form').requestSubmit();
+}
+</script>
 
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pt.js"></script>

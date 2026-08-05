@@ -1079,12 +1079,15 @@ def _build_invoice_where(status: str = None, statuses: list = None,
     if search:
         s = f'%{search.lower()}%'
         if supplier_name or supplier_names:
-            # Supplier already pinned via filter — search invoice number and notes
-            where.append("(LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
-            params.extend([s, s])
+            # Supplier already pinned via filter — search invoice number, notes, document_type, store
+            where.append("(LOWER(i.invoice_number) LIKE %s OR LOWER(COALESCE(i.notes,'')) LIKE %s"
+                         " OR LOWER(COALESCE(i.document_type,'')) LIKE %s OR LOWER(COALESCE(st.name,'')) LIKE %s)")
+            params.extend([s, s, s, s])
         else:
-            where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s OR LOWER(i.notes) LIKE %s)")
-            params.extend([s, s, s])
+            where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s"
+                         " OR LOWER(COALESCE(i.notes,'')) LIKE %s OR LOWER(COALESCE(i.document_type,'')) LIKE %s"
+                         " OR LOWER(COALESCE(st.name,'')) LIKE %s)")
+            params.extend([s, s, s, s, s])
     if sem_evidencia:
         where.append("(i.pdf_data IS NULL OR octet_length(i.pdf_data) = 0)")
         # Alerts for missing evidence only apply to active invoices (never draft/cancelled)
