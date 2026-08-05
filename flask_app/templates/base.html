@@ -116,7 +116,7 @@
             if (!el) return;
             var href = el.getAttribute('href');
             if (!href || href === '#' || href.startsWith('javascript:')) return;
-            if (el.hasAttribute('data-bs-dismiss') || el.hasAttribute('data-no-loading')) return;
+            if (el.hasAttribute('data-bs-dismiss') || el.hasAttribute('data-no-loading') || el.hasAttribute('download')) return;
             if (el.target === '_blank') return;
             try {
                 var url = new URL(href, window.location.origin);
