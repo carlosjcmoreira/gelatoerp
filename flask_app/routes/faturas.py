@@ -1924,6 +1924,33 @@ def fornecedores():
             )
             return redirect(url_for('faturas.fornecedores'))
 
+        elif action == 'bulk_merge':
+            pair_count = int(request.form.get('pair_count', 0))
+            total_merged = 0
+            total_invoices = 0
+            errors = []
+            for i in range(pair_count):
+                if not request.form.get(f'sel_{i}'):
+                    continue  # unchecked — skip
+                src_str = request.form.get(f'src_{i}', '').strip()
+                tgt_str = request.form.get(f'tgt_{i}', '').strip()
+                if not src_str.isdigit() or not tgt_str.isdigit():
+                    continue
+                try:
+                    n = merge_supplier(int(src_str), int(tgt_str))
+                    total_invoices += n
+                    total_merged += 1
+                except Exception as exc:
+                    errors.append(str(exc))
+            if total_merged:
+                flash(f'✅ {total_merged} par(es) fundido(s) — {total_invoices} fatura(s) re-ligada(s).', 'success')
+            if errors:
+                for err in errors[:3]:
+                    flash(f'⚠ {err}', 'warning')
+            if not total_merged and not errors:
+                flash('Nenhum par seleccionado.', 'info')
+            return redirect(url_for('faturas.fornecedores'))
+
         elif action == 'ignore_pair':
             id_a_raw = request.form.get('id_a', '').strip()
             id_b_raw = request.form.get('id_b', '').strip()

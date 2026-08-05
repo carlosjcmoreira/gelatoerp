@@ -80,12 +80,21 @@
 
     {% if duplicate_pairs %}
     <div class="card border-warning mb-4">
-        <div class="card-header py-2 d-flex justify-content-between align-items-center"
-             style="cursor:pointer;background:rgba(255,193,7,.12)"
-             data-bs-toggle="collapse" data-bs-target="#dupsCollapse"
-             aria-expanded="true" aria-controls="dupsCollapse">
-            <span class="fw-semibold small">⚠️ Possíveis duplicados ({{ duplicate_pairs | length }} par{{ 'es' if duplicate_pairs | length != 1 else '' }})</span>
-            <span class="text-muted small">▾ Expandir</span>
+        <div class="card-header py-2 d-flex justify-content-between align-items-center gap-2"
+             style="background:rgba(255,193,7,.12)">
+            <span class="fw-semibold small" style="cursor:pointer"
+                  data-bs-toggle="collapse" data-bs-target="#dupsCollapse">
+                ⚠️ Possíveis duplicados ({{ duplicate_pairs | length }} par{{ 'es' if duplicate_pairs | length != 1 else '' }})
+            </span>
+            <div class="d-flex gap-2 align-items-center">
+                <button class="btn btn-warning btn-sm"
+                        type="button"
+                        data-bs-toggle="modal" data-bs-target="#modalBulkMerge">
+                    🔀 Fundir todos
+                </button>
+                <span class="text-muted small" style="cursor:pointer"
+                      data-bs-toggle="collapse" data-bs-target="#dupsCollapse">▾</span>
+            </div>
         </div>
         <div class="collapse show" id="dupsCollapse">
         <div class="list-group list-group-flush">
@@ -359,6 +368,88 @@
     </div>
 </div>
 
+<!-- ── Bulk Merge Modal ─────────────────────────────────────────────────────── -->
+{% if duplicate_pairs %}
+<div class="modal fade" id="modalBulkMerge" tabindex="-1" aria-labelledby="bulkMergeTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="bulkMergeTitle">🔀 Fundir duplicados em batch</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" id="bulkMergeForm">
+                <input type="hidden" name="action" value="bulk_merge">
+                <input type="hidden" name="pair_count" value="{{ duplicate_pairs | length }}">
+                <div class="modal-body py-2">
+                    <div class="alert alert-warning py-2 small mb-3">
+                        Para cada par seleccionado, o fornecedor à <strong>esquerda</strong> (🗑) será eliminado e as suas faturas passam para o da <strong>direita</strong> (✅). Usa ⇄ para trocar a direcção.
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="small text-muted">{{ duplicate_pairs | length }} par(es) detectado(s)</span>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="bulkSelectAll(true)">Seleccionar todos</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="bulkSelectAll(false)">Limpar</button>
+                        </div>
+                    </div>
+                    <div class="list-group">
+                    {% for pair in duplicate_pairs %}
+                    {% set i = loop.index0 %}
+                    {# Default: fewer invoices → source (deleted); more invoices → target (kept) #}
+                    {% if pair.a.invoice_count <= pair.b.invoice_count %}
+                    {% set def_src = pair.a %} {% set def_tgt = pair.b %}
+                    {% else %}
+                    {% set def_src = pair.b %} {% set def_tgt = pair.a %}
+                    {% endif %}
+                    <div class="list-group-item py-2 px-3" id="bulk-row-{{ i }}">
+                        <div class="d-flex align-items-start gap-2">
+                            <div class="pt-1">
+                                <input type="checkbox" class="form-check-input bulk-pair-cb" name="sel_{{ i }}" id="cb_{{ i }}" checked>
+                            </div>
+                            <div class="flex-grow-1">
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle" title="Será eliminado">
+                                        🗑 <span id="src-name-{{ i }}">{{ def_src.name }}</span>
+                                        <span class="ms-1">({{ def_src.invoice_count }} fat.)</span>
+                                    </span>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                                            onclick="bulkToggleDir({{ i }})"
+                                            title="Trocar direcção">⇄</button>
+                                    <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle" title="Ficará como canónico">
+                                        ✅ <span id="tgt-name-{{ i }}">{{ def_tgt.name }}</span>
+                                        <span class="ms-1">({{ def_tgt.invoice_count }} fat.)</span>
+                                    </span>
+                                    <span class="badge bg-warning text-dark">{{ pair.reason }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <input type="hidden" name="src_{{ i }}" id="src-id-{{ i }}" value="{{ def_src.id }}">
+                        <input type="hidden" name="tgt_{{ i }}" id="tgt-id-{{ i }}" value="{{ def_tgt.id }}">
+                        <input type="hidden" id="src-name-store-{{ i }}" value="{{ def_src.name | e }}">
+                        <input type="hidden" id="tgt-name-store-{{ i }}" value="{{ def_tgt.name | e }}">
+                        <input type="hidden" id="src-cnt-{{ i }}" value="{{ def_src.invoice_count }}">
+                        <input type="hidden" id="tgt-cnt-{{ i }}" value="{{ def_tgt.invoice_count }}">
+                        <input type="hidden" id="src-id-orig-{{ i }}" value="{{ def_src.id }}">
+                        <input type="hidden" id="tgt-id-orig-{{ i }}" value="{{ def_tgt.id }}">
+                    </div>
+                    {% endfor %}
+                    </div>
+                </div>
+                <div class="modal-footer py-2 d-flex justify-content-between">
+                    <span class="small text-muted" id="bulkSelectedCount">{{ duplicate_pairs | length }} par(es) seleccionado(s)</span>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-warning btn-sm"
+                                onclick="return confirm('Fundir os pares seleccionados? Esta acção não pode ser desfeita.')">
+                            🔀 Confirmar fusão
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
@@ -409,5 +500,44 @@ function prefillNew(name, nif) {
     document.getElementById('sIban').value          = '';
     document.getElementById('sNotes').value         = '';
 }
+
+// ── Bulk merge helpers ────────────────────────────────────────────────────────
+function bulkToggleDir(i) {
+    var srcId   = document.getElementById('src-id-' + i);
+    var tgtId   = document.getElementById('tgt-id-' + i);
+    var srcName = document.getElementById('src-name-' + i);
+    var tgtName = document.getElementById('tgt-name-' + i);
+    var srcCnt  = document.getElementById('src-cnt-' + i);
+    var tgtCnt  = document.getElementById('tgt-cnt-' + i);
+    if (!srcId) return;
+    // Swap ids
+    var tmpId = srcId.value; srcId.value = tgtId.value; tgtId.value = tmpId;
+    // Swap display names
+    var tmpName = srcName.textContent; srcName.textContent = tgtName.textContent; tgtName.textContent = tmpName;
+    // Swap counts in badges
+    var srcBadge = srcName.parentElement;
+    var tgtBadge = tgtName.parentElement;
+    var tmpCnt = srcCnt.value; srcCnt.value = tgtCnt.value; tgtCnt.value = tmpCnt;
+    var srcCountSpan = srcBadge.querySelector('span:last-child');
+    var tgtCountSpan = tgtBadge.querySelector('span:last-child');
+    if (srcCountSpan && tgtCountSpan) {
+        var t = srcCountSpan.textContent; srcCountSpan.textContent = tgtCountSpan.textContent; tgtCountSpan.textContent = t;
+    }
+}
+
+function bulkSelectAll(checked) {
+    document.querySelectorAll('.bulk-pair-cb').forEach(function(cb) { cb.checked = checked; });
+    _bulkUpdateCount();
+}
+
+function _bulkUpdateCount() {
+    var n = document.querySelectorAll('.bulk-pair-cb:checked').length;
+    var el = document.getElementById('bulkSelectedCount');
+    if (el) el.textContent = n + ' par(es) seleccionado(s)';
+}
+
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList.contains('bulk-pair-cb')) _bulkUpdateCount();
+});
 </script>
 {% endblock %}
