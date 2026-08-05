@@ -41,7 +41,8 @@ import flask_app.services.faturas as faturas_svc
 from flask_app.services import ServiceError
 from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair,
                         get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias,
-                        get_invoice_status_labels_map, get_invoice_audit_log)
+                        get_invoice_status_labels_map, get_invoice_audit_log,
+                        get_saved_views, save_view, delete_saved_view)
 from flask_app.utils.finance import (
     parse_date as _parse_date,
     parse_float as _parse_float,
@@ -514,7 +515,48 @@ def index():
         sem_evidencia_count=sem_evidencia_count,
         sem_ev_on_url=sem_ev_on_url,
         sem_ev_off_url=sem_ev_off_url,
+        saved_views=_get_user_saved_views(),
     )
+
+
+def _get_user_saved_views() -> list:
+    """Return saved views for the current session user. Safe — returns [] on any error."""
+    try:
+        user_id = session.get('user', {}).get('username', '')
+        return get_saved_views(user_id) if user_id else []
+    except Exception:
+        return []
+
+
+@faturas_bp.route('/views', methods=['POST'])
+@perm_required('acesso_gestor')
+def save_view_endpoint():
+    """POST /financeiro/faturas/views — persist a named filter view."""
+    user_id = session.get('user', {}).get('username', '')
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'Não autenticado'}), 401
+    data = request.get_json(silent=True) or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': 'Nome obrigatório'}), 400
+    filters = data.get('filters') or {}
+    try:
+        view_id = save_view(user_id, name, filters)
+        return jsonify({'ok': True, 'id': view_id, 'name': name})
+    except Exception as exc:
+        logger.error('save_view_endpoint failed: %s', exc)
+        return jsonify({'ok': False, 'error': 'Erro ao guardar vista'}), 500
+
+
+@faturas_bp.route('/views/<int:view_id>', methods=['DELETE'])
+@perm_required('acesso_gestor')
+def delete_view_endpoint(view_id):
+    """DELETE /financeiro/faturas/views/<id> — remove a saved view owned by current user."""
+    user_id = session.get('user', {}).get('username', '')
+    if not user_id:
+        return jsonify({'ok': False, 'error': 'Não autenticado'}), 401
+    deleted = delete_saved_view(view_id, user_id)
+    return jsonify({'ok': deleted})
 
 
 def _generate_bulk_confirming_parcelas(amount, start_date, n, freq='none'):

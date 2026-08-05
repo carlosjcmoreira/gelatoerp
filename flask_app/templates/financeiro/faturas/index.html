@@ -498,6 +498,48 @@
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('paid_date')">✅ Data Pagamento</button></li>
                 </ul>
             </div>
+
+            <!-- Vistas guardadas dropdown (documento view only) -->
+            {% if view == 'documento' %}
+            <div class="dropdown" id="sv-dropdown-wrap">
+                <button class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" type="button"
+                        data-bs-toggle="dropdown" aria-expanded="false" id="sv-dropdown-btn"
+                        title="As minhas vistas guardadas">
+                    🔖 Vistas
+                    {% if saved_views %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">{{ saved_views|length }}</span>{% endif %}
+                </button>
+                <ul class="dropdown-menu shadow-sm py-1" style="min-width:240px" id="sv-dropdown-menu">
+                    {% if saved_views %}
+                    {% for sv in saved_views %}
+                    <li>
+                        <div class="d-flex align-items-center px-2 py-1 gap-1">
+                            <button class="btn btn-link btn-sm text-start py-1 flex-grow-1 text-truncate text-body text-decoration-none"
+                                    type="button" title="{{ sv.name }}"
+                                    onclick="svLoad({{ sv.filters | tojson }})"
+                                    data-no-loading>
+                                {{ sv.name | truncate(30, True, '…') }}
+                            </button>
+                            <button class="btn btn-link btn-sm text-danger p-0 flex-shrink-0"
+                                    type="button" title="Apagar vista"
+                                    onclick="svDelete({{ sv.id }}, {{ sv.name | tojson }}, this)"
+                                    data-no-loading>🗑</button>
+                        </div>
+                    </li>
+                    {% endfor %}
+                    <li><hr class="dropdown-divider my-1"></li>
+                    {% else %}
+                    <li><span class="dropdown-item-text small text-muted px-3 py-2">Nenhuma vista guardada</span></li>
+                    {% endif %}
+                    <li>
+                        <button class="dropdown-item small py-2" type="button"
+                                onclick="svOpenSaveModal()" data-no-loading>
+                            💾 Guardar vista actual…
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            {% endif %}{# view == 'documento' #}
+
             {% if _any_f %}
             <a href="{{ url_for('faturas.index') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0" data-no-loading>✕ Limpar</a>
             {% endif %}
@@ -1985,6 +2027,249 @@ function docSearchClear() {
             }
         });
     });
+})();
+</script>
+
+<!-- ── Saved Views Modal ────────────────────────────────────────────── -->
+<div class="modal fade" id="svSaveModal" tabindex="-1" aria-labelledby="svSaveModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title" id="svSaveModalLabel">💾 Guardar vista</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-3">
+        <label class="form-label small fw-semibold" for="sv-name-inp">Nome da vista</label>
+        <input type="text" id="sv-name-inp" class="form-control form-control-sm"
+               placeholder="Ex: Pendentes 2026, Fornecedor X…"
+               maxlength="200" autocomplete="off">
+        <div id="sv-save-error" class="text-danger small mt-1" style="display:none"></div>
+      </div>
+      <div class="modal-footer py-2 gap-2">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm" id="sv-save-btn" onclick="svSave()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var SV_SAVE_URL = '{{ url_for("faturas.save_view_endpoint") }}';
+  var SV_DELETE_URL_TPL = '{{ url_for("faturas.delete_view_endpoint", view_id=0) }}'.replace('/0', '/');
+  var SV_BASE_URL = '{{ url_for("faturas.index") }}';
+
+  var _svModal = null;
+  function _getSvModal() {
+    if (!_svModal) _svModal = new bootstrap.Modal(document.getElementById('svSaveModal'));
+    return _svModal;
+  }
+
+  /** Collect current URL filter params as a plain dict (status → array). */
+  function svGetCurrentFilters() {
+    var params = new URLSearchParams(window.location.search);
+    var filters = {};
+    params.forEach(function(v, k) {
+      if (k === 'view') return;   // skip view= param
+      if (k === 'status') {
+        if (!filters.status) filters.status = [];
+        filters.status.push(v);
+      } else if (v) {
+        filters[k] = v;
+      }
+    });
+    return filters;
+  }
+
+  /** Navigate to the URL represented by a saved-view filters dict. */
+  window.svLoad = function(filters) {
+    var params = new URLSearchParams();
+    Object.entries(filters).forEach(function(entry) {
+      var k = entry[0], v = entry[1];
+      if (Array.isArray(v)) {
+        v.forEach(function(val) { params.append(k, val); });
+      } else if (v) {
+        params.append(k, v);
+      }
+    });
+    var qs = params.toString();
+    window.location.href = SV_BASE_URL + (qs ? '?' + qs : '');
+  };
+
+  /** Open the save-view modal. */
+  window.svOpenSaveModal = function() {
+    var inp = document.getElementById('sv-name-inp');
+    if (inp) { inp.value = ''; inp.focus(); }
+    var err = document.getElementById('sv-save-error');
+    if (err) err.style.display = 'none';
+    _getSvModal().show();
+    // focus after animation
+    document.getElementById('svSaveModal').addEventListener('shown.bs.modal', function cb() {
+      document.getElementById('sv-name-inp').focus();
+      document.getElementById('svSaveModal').removeEventListener('shown.bs.modal', cb);
+    });
+  };
+
+  /** Submit the save-view form. */
+  window.svSave = function() {
+    var nameInp = document.getElementById('sv-name-inp');
+    var errEl = document.getElementById('sv-save-error');
+    var name = (nameInp.value || '').trim();
+    if (!name) {
+      errEl.textContent = 'Introduz um nome para a vista.';
+      errEl.style.display = '';
+      nameInp.focus();
+      return;
+    }
+    errEl.style.display = 'none';
+    var btn = document.getElementById('sv-save-btn');
+    btn.disabled = true;
+    btn.textContent = 'A guardar…';
+
+    var filters = svGetCurrentFilters();
+    fetch(SV_SAVE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ name: name, filters: filters })
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        _getSvModal().hide();
+        // Add the new view to the dropdown without a full reload
+        _svAddToDropdown(data.id, data.name, filters);
+        _svShowToast('Vista "' + data.name + '" guardada!', 'success');
+      } else {
+        errEl.textContent = data.error || 'Erro ao guardar.';
+        errEl.style.display = '';
+      }
+    })
+    .catch(function() {
+      errEl.textContent = 'Erro de rede. Tenta novamente.';
+      errEl.style.display = '';
+    })
+    .finally(function() {
+      btn.disabled = false;
+      btn.textContent = 'Guardar';
+    });
+  };
+
+  /** Delete a saved view. */
+  window.svDelete = function(viewId, viewName, btn) {
+    if (!confirm('Apagar a vista "' + viewName + '"?')) return;
+    fetch(SV_DELETE_URL_TPL + viewId, {
+      method: 'DELETE',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data) {
+      if (data.ok) {
+        var li = btn.closest('li');
+        if (li) li.remove();
+        _svUpdateBadge();
+        _svShowToast('Vista apagada.', 'info');
+      } else {
+        _svShowToast('Não foi possível apagar a vista.', 'danger');
+      }
+    })
+    .catch(function() {
+      _svShowToast('Erro de rede ao apagar.', 'danger');
+    });
+  };
+
+  /** Dynamically add a newly saved view to the dropdown (avoids full reload). */
+  function _svAddToDropdown(id, name, filters) {
+    var menu = document.getElementById('sv-dropdown-menu');
+    if (!menu) return;
+    // Remove "Nenhuma vista guardada" placeholder if present
+    menu.querySelectorAll('.sv-empty-msg').forEach(function(el){ el.remove(); });
+
+    var li = document.createElement('li');
+    var truncated = name.length > 30 ? name.slice(0, 29) + '…' : name;
+    li.innerHTML =
+      '<div class="d-flex align-items-center px-2 py-1 gap-1">' +
+        '<button class="btn btn-link btn-sm text-start py-1 flex-grow-1 text-truncate text-body text-decoration-none" ' +
+                'type="button" title="' + name.replace(/"/g, '&quot;') + '" ' +
+                'onclick="svLoad(' + JSON.stringify(filters) + ')" data-no-loading>' +
+          truncated +
+        '</button>' +
+        '<button class="btn btn-link btn-sm text-danger p-0 flex-shrink-0" type="button" ' +
+                'title="Apagar vista" data-no-loading ' +
+                'onclick="svDelete(' + id + ',' + JSON.stringify(name) + ',this)">🗑</button>' +
+      '</div>';
+
+    // Insert before the divider (last <hr> li)
+    var divider = menu.querySelector('li hr');
+    if (divider) {
+      menu.insertBefore(li, divider.closest('li'));
+    } else {
+      menu.insertBefore(li, menu.lastElementChild);
+    }
+    _svUpdateBadge();
+  }
+
+  /** Keep the badge counter on the dropdown button in sync. */
+  function _svUpdateBadge() {
+    var menu = document.getElementById('sv-dropdown-menu');
+    var btn = document.getElementById('sv-dropdown-btn');
+    if (!menu || !btn) return;
+    var count = menu.querySelectorAll('li .btn-link.text-body').length;
+    var badge = btn.querySelector('.badge');
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'badge bg-secondary ms-1';
+        badge.style.fontSize = '.65rem';
+        btn.appendChild(badge);
+      }
+      badge.textContent = count;
+    } else {
+      if (badge) badge.remove();
+      // Show empty placeholder
+      var menu2 = document.getElementById('sv-dropdown-menu');
+      var divider = menu2.querySelector('li hr');
+      if (divider) {
+        var emptyLi = document.createElement('li');
+        emptyLi.className = 'sv-empty-msg';
+        emptyLi.innerHTML = '<span class="dropdown-item-text small text-muted px-3 py-2">Nenhuma vista guardada</span>';
+        menu2.insertBefore(emptyLi, divider.closest('li'));
+      }
+    }
+  }
+
+  /** Show a brief Bootstrap toast. */
+  function _svShowToast(msg, type) {
+    var container = document.getElementById('sv-toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'sv-toast-container';
+      container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+      container.style.zIndex = '9999';
+      document.body.appendChild(container);
+    }
+    var t = document.createElement('div');
+    t.className = 'toast align-items-center text-bg-' + (type || 'secondary') + ' border-0';
+    t.setAttribute('role', 'alert');
+    t.innerHTML =
+      '<div class="d-flex">' +
+        '<div class="toast-body small">' + msg + '</div>' +
+        '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>' +
+      '</div>';
+    container.appendChild(t);
+    var bsToast = new bootstrap.Toast(t, { delay: 3000 });
+    bsToast.show();
+    t.addEventListener('hidden.bs.toast', function(){ t.remove(); });
+  }
+
+  // Allow Enter key to submit the save modal
+  document.addEventListener('DOMContentLoaded', function() {
+    var inp = document.getElementById('sv-name-inp');
+    if (inp) {
+      inp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); svSave(); }
+      });
+    }
+  });
 })();
 </script>
 {% endblock %}

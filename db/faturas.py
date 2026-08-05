@@ -1969,3 +1969,81 @@ def get_contas_por_fornecedor(status_filter: str = None,
 
     result.sort(key=lambda x: (x['supplier_name'] or '').lower())
     return result
+
+
+# ── Saved invoice views ────────────────────────────────────────────────────
+
+_LOCK_SAVED_VIEWS = 590590  # advisory lock — unique per migration
+
+
+def run_migrations_saved_invoice_views():
+    """Create saved_invoice_views table if not already present.
+
+    Uses an advisory lock so concurrent gunicorn workers don't race on the
+    SERIAL sequence creation (identical pattern to run_migrations_tile_config).
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_SAVED_VIEWS,))
+        if not cursor.fetchone()[0]:
+            logger.info('run_migrations_saved_invoice_views: lock held by another worker, skipping')
+            return
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS saved_invoice_views (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(100) NOT NULL,
+                name VARCHAR(200) NOT NULL,
+                filters_json TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+    logger.info('run_migrations_saved_invoice_views: ready')
+
+
+def get_saved_views(user_id: str) -> list:
+    """Return all saved views for a user, newest first."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, name, filters_json, created_at
+            FROM saved_invoice_views
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (user_id,))
+        rows = cursor.fetchall()
+    result = []
+    for r in rows:
+        try:
+            filters = json.loads(r[2]) if r[2] else {}
+        except Exception:
+            filters = {}
+        result.append({'id': r[0], 'name': r[1], 'filters': filters, 'created_at': r[3]})
+    return result
+
+
+def save_view(user_id: str, name: str, filters_dict: dict) -> int:
+    """Persist a named saved view. Returns the new row id."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO saved_invoice_views (user_id, name, filters_json)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (user_id, name.strip(), json.dumps(filters_dict)))
+        view_id = cursor.fetchone()[0]
+        conn.commit()
+    return view_id
+
+
+def delete_saved_view(view_id: int, user_id: str) -> bool:
+    """Delete a saved view owned by user_id. Returns True if deleted."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM saved_invoice_views WHERE id = %s AND user_id = %s",
+            (view_id, user_id),
+        )
+        deleted = cursor.rowcount > 0
+        conn.commit()
+    return deleted
