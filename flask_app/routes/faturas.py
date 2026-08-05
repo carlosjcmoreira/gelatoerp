@@ -1229,6 +1229,7 @@ def invoice_panel(invoice_id: int):
     from db.pagamentos import get_invoice_payment_record
     inv_payment = get_invoice_payment_record(invoice_id)
     audit_log = get_invoice_audit_log(invoice_id)
+    doc_mimetype = _mimetype_from_filename(inv.get('pdf_filename') or '') if inv.get('pdf_filename') else None
     return render_template(
         'financeiro/faturas/_panel.html',
         inv=inv,
@@ -1249,6 +1250,7 @@ def invoice_panel(invoice_id: int):
         cont_tickets=cont_tickets,
         inv_payment=inv_payment,
         audit_log=audit_log,
+        doc_mimetype=doc_mimetype,
     )
 
 
@@ -1792,6 +1794,18 @@ def finalize_upload(invoice_id: int):
     _save_pdf(invoice_id, pdf_data, filename or 'fatura.pdf')
     flash('PDF anexado com sucesso.', 'success')
     return jsonify({'ok': True, 'redirect': back})
+
+
+def _mimetype_from_filename(filename: str) -> str:
+    """Infer MIME type from filename extension alone (no bytes needed)."""
+    ext = (filename or '').lower().rsplit('.', 1)[-1]
+    return {
+        'pdf': 'application/pdf',
+        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'heic': 'image/heic', 'heif': 'image/heif',
+        'webp': 'image/webp',
+    }.get(ext, 'application/octet-stream')
 
 
 def _detect_file_mimetype(data, filename: str) -> str:

@@ -21,10 +21,16 @@
     {% if inv.has_pdf %}
     {% set _pdf_url = url_for('compras.download_pdf', invoice_id=inv.id) %}
     <div class="mb-3 d-flex gap-2">
+        {% if inv.pdf_is_image %}
+        <a href="{{ _pdf_url }}" class="btn btn-outline-secondary btn-sm" target="_blank" data-no-loading>
+            📎 Ver documento
+        </a>
+        {% else %}
         <a href="{{ url_for('static', filename='pdfjs-viewer.html') }}?file={{ _pdf_url | urlencode }}"
            class="btn btn-outline-secondary btn-sm" target="_blank" data-no-loading>
-            📄 Ver PDF
+            📎 Ver documento
         </a>
+        {% endif %}
         <a href="{{ _pdf_url }}?dl=1" class="btn btn-outline-secondary btn-sm" download data-no-loading>
             ⬇ Download
         </a>
