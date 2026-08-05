@@ -78,7 +78,8 @@ def _get_username():
 @compras_bp.route('/')
 @perm_required('acesso_administrativo')
 def index():
-    from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons, get_module_labels
+    from db.tiles import get_tile_visibility, seed_tile_config, get_tile_labels, get_tile_icons, get_module_labels
+    seed_tile_config('compras', [{'id': t['id'], 'label': t['label']} for t in TABS])
     visibility = get_tile_visibility('compras')
     labels = get_tile_labels('compras')
     icons = get_tile_icons('compras')
