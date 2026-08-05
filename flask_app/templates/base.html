@@ -91,12 +91,9 @@
             _loadingStartedAt = Date.now();
             clearTimeout(_t1);
             clearTimeout(_t2);
-            _t1 = setTimeout(function() {
-                loadingText.textContent = 'O servidor est\u00e1 a acordar, aguarda um momento\u2026';
-            }, 5000);
             _t2 = setTimeout(function() {
                 loadingBtn.style.display = '';
-            }, 12000);
+            }, 30000);
         }
 
         function hideLoading() {
