@@ -550,11 +550,14 @@
                     </td>
                     <td>
                         {% if inst_overdue %}
-                        <span class="badge bg-danger">Vencida</span>
+                        {% set _ba_io = badge_attrs(status_colors.get('overdue', 'bg-danger')) %}
+                        <span class="{{ _ba_io.css_class }}"{% if _ba_io.inline_style %} style="{{ _ba_io.inline_style }}"{% endif %}>{{ status_labels.get('overdue', 'Vencida') }}</span>
                         {% elif inst.status == 'scheduled' %}
-                        <span class="badge bg-info text-dark">Agendada</span>
+                        {% set _ba_is = badge_attrs(status_colors.get('scheduled', 'bg-info text-dark')) %}
+                        <span class="{{ _ba_is.css_class }}"{% if _ba_is.inline_style %} style="{{ _ba_is.inline_style }}"{% endif %}>{{ status_labels.get('scheduled', 'Agendada') }}</span>
                         {% else %}
-                        <span class="badge bg-warning text-dark">Pendente</span>
+                        {% set _ba_ip = badge_attrs(status_colors.get('pending_review', 'bg-warning text-dark')) %}
+                        <span class="{{ _ba_ip.css_class }}"{% if _ba_ip.inline_style %} style="{{ _ba_ip.inline_style }}"{% endif %}>{{ status_labels.get('pending_review', 'Pendente revisão') }}</span>
                         {% endif %}
                     </td>
                 </tr>
@@ -575,10 +578,10 @@
             {% if inv.status == 'scheduled' and inv.due_date and inv.due_date < today %}{% set ns.overdue = ns.overdue + 1 %}{% endif %}
             {% if inv.status == 'paid' %}{% set ns.paid = ns.paid + 1 %}{% endif %}
         {% endfor %}
-        {% if ns.overdue > 0 %}<span class="badge bg-danger" data-bs-toggle="tooltip" title="Prazo de pagamento ultrapassado — requer atenção imediata">{{ ns.overdue }} vencida(s)</span>{% endif %}
-        {% if ns.pending > 0 %}<span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="{{ _sd['pending_review'] }}">{{ ns.pending }} pendente(s)</span>{% endif %}
-        {% if ns.scheduled > 0 %}<span class="badge bg-info text-dark" data-bs-toggle="tooltip" title="{{ _sd['scheduled'] }}">{{ ns.scheduled }} agendada(s)</span>{% endif %}
-        {% if ns.paid > 0 %}<span class="badge bg-success" data-bs-toggle="tooltip" title="{{ _sd['paid'] }}">{{ ns.paid }} paga(s)</span>{% endif %}
+        {% if ns.overdue > 0 %}{% set _ba_ov = badge_attrs(status_colors.get('overdue', 'bg-danger')) %}<span class="{{ _ba_ov.css_class }}"{% if _ba_ov.inline_style %} style="{{ _ba_ov.inline_style }}"{% endif %} data-bs-toggle="tooltip" title="Prazo de pagamento ultrapassado — requer atenção imediata">{{ ns.overdue }} {{ status_labels.get('overdue', 'Vencida') }}</span>{% endif %}
+        {% if ns.pending > 0 %}{% set _ba_pe = badge_attrs(status_colors.get('pending_review', 'bg-warning text-dark')) %}<span class="{{ _ba_pe.css_class }}"{% if _ba_pe.inline_style %} style="{{ _ba_pe.inline_style }}"{% endif %} data-bs-toggle="tooltip" title="{{ _sd['pending_review'] }}">{{ ns.pending }} {{ status_labels.get('pending_review', 'Pendente') }}</span>{% endif %}
+        {% if ns.scheduled > 0 %}{% set _ba_sc = badge_attrs(status_colors.get('scheduled', 'bg-info text-dark')) %}<span class="{{ _ba_sc.css_class }}"{% if _ba_sc.inline_style %} style="{{ _ba_sc.inline_style }}"{% endif %} data-bs-toggle="tooltip" title="{{ _sd['scheduled'] }}">{{ ns.scheduled }} {{ status_labels.get('scheduled', 'Agendada') }}</span>{% endif %}
+        {% if ns.paid > 0 %}{% set _ba_pa = badge_attrs(status_colors.get('paid', 'bg-success')) %}<span class="{{ _ba_pa.css_class }}"{% if _ba_pa.inline_style %} style="{{ _ba_pa.inline_style }}"{% endif %} data-bs-toggle="tooltip" title="{{ _sd['paid'] }}">{{ ns.paid }} {{ status_labels.get('paid', 'Paga') }}</span>{% endif %}
         {% if sem_evidencia_count > 0 %}
         <a href="{{ sem_ev_off_url if sem_evidencia_filter else sem_ev_on_url }}"
            class="badge text-decoration-none {{ 'bg-warning text-dark' if sem_evidencia_filter else 'bg-warning-subtle text-warning-emphasis' }}"

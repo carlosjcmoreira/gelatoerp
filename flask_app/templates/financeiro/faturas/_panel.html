@@ -18,7 +18,7 @@
             {% endif %}
             {% set _ba = badge_attrs(status_colors.get('overdue' if overdue else inv.status, 'bg-secondary')) %}
             <span class="{{ _ba.css_class }}"{% if _ba.inline_style %} style="{{ _ba.inline_style }}"{% endif %}>
-                {{ 'Vencida' if overdue else inv.status_label }}
+                {{ status_labels.get('overdue', 'Vencida') if overdue else inv.status_label }}
             </span>
         </div>
     </div>
