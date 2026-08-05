@@ -39,6 +39,7 @@ from db.faturas import (
     get_distinct_supplier_names,
     get_supplier_by_alias,
     get_invoice_status_labels_map,
+    find_similar_suppliers,
     INVOICE_CATEGORIES,
     ONEDRIVE_SUBFOLDERS,
     DOCUMENT_TYPE_LABELS,
@@ -576,6 +577,8 @@ def review_draft(invoice_id):
                     _ocr_raw = json.loads(_ocr_raw)
                 except (json.JSONDecodeError, TypeError):
                     _ocr_raw = {}
+            _sugg_name_err = supplier_name or inv.get('supplier_name') or ''
+            _similar_err = find_similar_suppliers(_sugg_name_err) if _sugg_name_err and not inv.get('supplier_id') else []
             return render_template('compras/review_draft.html',
                                    inv=inv,
                                    document_type_labels=DOCUMENT_TYPE_LABELS,
@@ -583,10 +586,13 @@ def review_draft(invoice_id):
                                    cost_centers=cost_centers,
                                    cost_categories_tree=cost_categories_tree,
                                    today=date.today(),
-                                   categoria_auto_detected=bool(_ocr_raw.get('auto_categoria_custo')))
+                                   categoria_auto_detected=bool(_ocr_raw.get('auto_categoria_custo')),
+                                   similar_suppliers=_similar_err,
+                                   supplier_unregistered=(not inv.get('supplier_id') and bool(_sugg_name_err) and len(_similar_err) == 0))
 
         new_status = 'paid' if ja_paga else 'pending_review'
         supplier_nif_clean = request.form.get('supplier_nif', '').strip() or None
+        supplier_action = request.form.get('supplier_action', '').strip()
 
         # Resolve supplier_id for invoice-type documents leaving draft state.
         # update_invoice guards against moving to post-draft states without a linked supplier.
@@ -596,24 +602,45 @@ def review_draft(invoice_id):
         from db.faturas import OWN_COMPANY_NIFS, _normalize_nif as _nif_norm
         _nif_for_lookup = supplier_nif_clean if _nif_norm(supplier_nif_clean) not in OWN_COMPANY_NIFS else None
         if doc_type in {'fatura', 'nota_credito', 'nota_debito'} and not supplier_id:
+            # 1. Try exact match (by NIF, alias, or name)
+            _exact = None
             if _nif_for_lookup:
-                s = get_supplier_by_nif(_nif_for_lookup)
-                if not s:
-                    s = get_supplier_by_alias(supplier_name or '', supplier_nif_clean)
-                if s:
-                    supplier_id = s['id']
-                else:
-                    supplier_id = upsert_supplier(name=supplier_name, nif=supplier_nif_clean)
-                    _supplier_created = True
-            elif supplier_name:
-                s = get_supplier_by_name(supplier_name)
-                if not s:
-                    s = get_supplier_by_alias(supplier_name)
-                if s:
-                    supplier_id = s['id']
-                else:
-                    supplier_id = upsert_supplier(name=supplier_name)
-                    _supplier_created = True
+                _exact = get_supplier_by_nif(_nif_for_lookup)
+                if not _exact:
+                    _exact = get_supplier_by_alias(supplier_name or '', supplier_nif_clean)
+            if not _exact and supplier_name:
+                _exact = get_supplier_by_name(supplier_name)
+                if not _exact:
+                    _exact = get_supplier_by_alias(supplier_name)
+
+            if _exact:
+                supplier_id = _exact['id']
+            elif supplier_action.startswith('associate:'):
+                # User explicitly chose an existing supplier
+                _assoc_id = supplier_action[len('associate:'):]
+                if _assoc_id.isdigit():
+                    supplier_id = int(_assoc_id)
+            elif supplier_action == 'create':
+                # User explicitly chose to create a new supplier
+                supplier_id = upsert_supplier(name=supplier_name, nif=_nif_for_lookup)
+                _supplier_created = True
+            else:
+                # No exact match and no explicit action — save draft data, don't auto-create
+                update_invoice(invoice_id, {
+                    'supplier_name': supplier_name,
+                    'supplier_nif': supplier_nif_clean,
+                    'invoice_number': request.form.get('invoice_number', '').strip() or None,
+                    'amount_eur': amount_eur,
+                    'vat_amount_eur': vat_amount_eur,
+                    'issue_date': issue_date.isoformat() if issue_date else None,
+                    'due_date': due_date.isoformat() if due_date else None,
+                    'document_type': doc_type,
+                    'centro_custo_id': centro_custo_id,
+                    'categoria_custo_id': categoria_custo_id,
+                    'notes': notes,
+                })
+                flash('Selecciona um fornecedor existente ou cria um novo antes de registar.', 'warning')
+                return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
 
         update_invoice(invoice_id, {
             'supplier_id': supplier_id,
@@ -661,6 +688,17 @@ def review_draft(invoice_id):
             _ocr_raw = json.loads(_ocr_raw)
         except (json.JSONDecodeError, TypeError):
             _ocr_raw = {}
+
+    # Supplier suggestion logic: only for invoice-type docs without a linked supplier
+    _similar_suppliers = []
+    _supplier_unregistered = False
+    _inv_doc_type = inv.get('document_type', 'fatura')
+    if not inv.get('supplier_id') and _inv_doc_type in {'fatura', 'nota_credito', 'nota_debito'}:
+        _ocr_name = inv.get('supplier_name') or ''
+        if _ocr_name:
+            _similar_suppliers = find_similar_suppliers(_ocr_name)
+            _supplier_unregistered = len(_similar_suppliers) == 0
+
     return render_template('compras/review_draft.html',
                            inv=inv,
                            document_type_labels=DOCUMENT_TYPE_LABELS,
@@ -668,7 +706,9 @@ def review_draft(invoice_id):
                            cost_centers=cost_centers,
                            cost_categories_tree=cost_categories_tree,
                            today=date.today(),
-                           categoria_auto_detected=bool(_ocr_raw.get('auto_categoria_custo')))
+                           categoria_auto_detected=bool(_ocr_raw.get('auto_categoria_custo')),
+                           similar_suppliers=_similar_suppliers,
+                           supplier_unregistered=_supplier_unregistered)
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/marcar-paga', methods=['POST'])

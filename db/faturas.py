@@ -504,6 +504,26 @@ def get_duplicate_supplier_suggestions(suppliers: list = None, threshold: float 
     return suggestions
 
 
+def find_similar_suppliers(name: str, threshold: float = 0.70) -> list:
+    """Find registered suppliers whose name is similar to the given query.
+
+    Returns up to 5 matches sorted by descending similarity, each enriched
+    with a 'similarity' field (0-100 integer percentage).
+    """
+    from difflib import SequenceMatcher
+    if not name:
+        return []
+    suppliers = get_suppliers_with_invoice_count()
+    query = name.lower()
+    results = []
+    for s in suppliers:
+        ratio = SequenceMatcher(None, query, s['name'].lower()).ratio()
+        if ratio >= threshold:
+            results.append({**s, 'similarity': round(ratio * 100)})
+    results.sort(key=lambda x: -x['similarity'])
+    return results[:5]
+
+
 def ignore_supplier_pair(id_a: int, id_b: int) -> None:
     """Record that this pair should not appear in duplicate suggestions.
 

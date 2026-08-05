@@ -61,6 +61,47 @@
                            value="{{ inv.supplier_nif or '' }}"
                            placeholder="Ex: 123456789" maxlength="20">
                 </div>
+
+                {# ── Supplier suggestion panel ────────────────────────────── #}
+                {% if similar_suppliers %}
+                <div class="border border-warning rounded p-2 mt-1 bg-warning bg-opacity-10">
+                    <div class="fw-semibold small mb-2">⚠ Fornecedores semelhantes encontrados — associa um ou cria novo:</div>
+                    <div class="d-flex flex-column gap-2 mb-2">
+                        {% for s in similar_suppliers %}
+                        <div class="d-flex justify-content-between align-items-center gap-2">
+                            <span class="small">
+                                <strong>{{ s.name }}</strong>
+                                {% if s.nif %}<span class="text-muted ms-1">NIF: {{ s.nif }}</span>{% endif %}
+                                <span class="badge bg-secondary ms-1">{{ s.invoice_count }} fat.</span>
+                                <span class="badge bg-info bg-opacity-75 text-dark ms-1">{{ s.similarity }}%</span>
+                            </span>
+                            <button type="button" class="btn btn-warning btn-sm flex-shrink-0"
+                                    onclick="rdAssociate({{ s.id }}, {{ s.name | tojson }})">
+                                Associar
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-primary btn-sm" onclick="rdCreate()">
+                            ➕ Criar fornecedor novo
+                        </button>
+                        <span class="small text-success fw-semibold" id="rdActionLabel"></span>
+                    </div>
+                </div>
+                {% elif supplier_unregistered %}
+                <div class="border border-info rounded p-2 mt-1 bg-info bg-opacity-10">
+                    <div class="fw-semibold small mb-1">ℹ Fornecedor não registado</div>
+                    <div class="text-muted small mb-2">Este fornecedor ainda não existe. Confirma os dados acima e clica em criar.</div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-success btn-sm" onclick="rdCreate()">
+                            ➕ Criar fornecedor
+                        </button>
+                        <span class="small text-success fw-semibold" id="rdActionLabel"></span>
+                    </div>
+                </div>
+                {% endif %}
+                <input type="hidden" name="supplier_action" id="rdSupplierAction" value="">
             </div>
         </div>
 
@@ -224,6 +265,18 @@
 <script>
 function togglePagamento(checked) {
     document.getElementById('pagamentoFields').style.display = checked ? '' : 'none';
+}
+
+function rdAssociate(id, name) {
+    document.getElementById('rdSupplierAction').value = 'associate:' + id;
+    var lbl = document.getElementById('rdActionLabel');
+    if (lbl) lbl.textContent = '✓ Vai associar a "' + name + '"';
+}
+
+function rdCreate() {
+    document.getElementById('rdSupplierAction').value = 'create';
+    var lbl = document.getElementById('rdActionLabel');
+    if (lbl) lbl.textContent = '✓ Vai criar fornecedor novo';
 }
 
 (function() {
