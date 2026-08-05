@@ -592,9 +592,12 @@ def review_draft(invoice_id):
         # update_invoice guards against moving to post-draft states without a linked supplier.
         supplier_id = inv.get('supplier_id')
         _supplier_created = False
+        # Never use the company's own NIF to resolve a supplier
+        from db.faturas import OWN_COMPANY_NIFS, _normalize_nif as _nif_norm
+        _nif_for_lookup = supplier_nif_clean if _nif_norm(supplier_nif_clean) not in OWN_COMPANY_NIFS else None
         if doc_type in {'fatura', 'nota_credito', 'nota_debito'} and not supplier_id:
-            if supplier_nif_clean:
-                s = get_supplier_by_nif(supplier_nif_clean)
+            if _nif_for_lookup:
+                s = get_supplier_by_nif(_nif_for_lookup)
                 if not s:
                     s = get_supplier_by_alias(supplier_name or '', supplier_nif_clean)
                 if s:

@@ -121,7 +121,7 @@ Regras para documentos GOVERNAMENTAIS (AT, Segurança Social, etc.):
 Regras para FATURAS de fornecedor privado:
 - document_type_hint = "fatura" (ou "nota_credito" se for nota de crédito, "nota_debito" se for nota de débito, "outro" nos restantes casos)
 - supplier_name = nome do fornecedor
-- supplier_nif = NIF/NIPC do fornecedor (dígitos e prefixo de país opcional, ex: "PT501234567" ou "501234567"; sem pontos, espaços ou traços)
+- supplier_nif = NIF/NIPC do fornecedor (dígitos e prefixo de país opcional, ex: "PT501234567" ou "501234567"; sem pontos, espaços ou traços); NUNCA colocar o NIF do comprador/destinatário (ex: 516388819) — se o único NIF visível for esse, supplier_nif = null
 - invoice_number = número da fatura
 - amount_eur = total a pagar incluindo IVA
 - vat_amount_eur = valor do IVA
@@ -297,7 +297,7 @@ Regras para documentos GOVERNAMENTAIS:
 Regras para FATURAS/GUIAS de fornecedor privado:
 - document_type_hint = "fatura" (ou "nota_credito", "nota_debito", "outro" conforme o documento)
 - supplier_name = nome do fornecedor
-- supplier_nif = NIF do fornecedor (dígitos e prefixo de país opcional, ex: "PT501234567" ou "501234567"; sem pontos, espaços ou traços)
+- supplier_nif = NIF do fornecedor (dígitos e prefixo de país opcional, ex: "PT501234567" ou "501234567"; sem pontos, espaços ou traços); NUNCA colocar o NIF do comprador/destinatário (ex: 516388819) — se o único NIF visível for esse, supplier_nif = null
 - invoice_number = número da fatura ou guia
 - amount_eur = total a pagar incluindo IVA
 - vat_amount_eur = valor do IVA

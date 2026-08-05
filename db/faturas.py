@@ -7,6 +7,9 @@ from db.cache import ttl_cache, invalidate as _cache_invalidate
 import json
 import os
 
+# NIFs da própria empresa — nunca devem identificar um fornecedor
+OWN_COMPANY_NIFS: frozenset = frozenset({'516388819', 'PT516388819'})
+
 PAYMENT_METHOD_LABELS = {
     'transferencia': 'Transferência',
     'debito_direto': 'Débito Direto',
@@ -91,6 +94,8 @@ def get_supplier_by_nif(nif: str) -> dict:
     nif = _normalize_nif(nif)
     if not nif:
         return None
+    if nif in OWN_COMPANY_NIFS:
+        return None  # never match a supplier using the company's own NIF
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
