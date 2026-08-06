@@ -322,13 +322,14 @@ def set_invoice_status(invoice_id: int):
     valid_statuses = {'pending_review', 'scheduled', 'paid', 'cancelled'}
     if new_status not in valid_statuses:
         return jsonify({'ok': False, 'error': 'Estado inválido'}), 400
+    _actor = session.get('user', {}).get('username', 'sistema')
     updates = {'status': new_status}
     if new_status == 'paid':
         updates['paid_date'] = _date.today()
     else:
         updates['paid_date'] = None
     try:
-        update_invoice(invoice_id, updates)
+        update_invoice(invoice_id, updates, changed_by=_actor)
     except Exception as e:
         logger.error('set_invoice_status error: %s', e)
         return jsonify({'ok': False, 'error': str(e) or 'Erro interno'}), 500
@@ -349,8 +350,9 @@ def set_invoice_store(invoice_id: int):
             if s['id'] == store_id:
                 store_name = s['name']
                 break
+    _actor = session.get('user', {}).get('username', 'sistema')
     try:
-        update_invoice(invoice_id, {'store_id': store_id})
+        update_invoice(invoice_id, {'store_id': store_id}, changed_by=_actor)
     except Exception as e:
         logger.error('set_invoice_store error: %s', e)
         return jsonify({'ok': False, 'error': 'Erro interno'}), 500
@@ -369,8 +371,9 @@ def set_invoice_paid_date(invoice_id: int):
             paid_date = _datetime.strptime(paid_date_raw, '%Y-%m-%d').date()
         except ValueError:
             return jsonify({'ok': False, 'error': 'Data inválida'}), 400
+    _actor = session.get('user', {}).get('username', 'sistema')
     try:
-        update_invoice(invoice_id, {'paid_date': paid_date})
+        update_invoice(invoice_id, {'paid_date': paid_date}, changed_by=_actor)
     except Exception as e:
         logger.error('set_invoice_paid_date error: %s', e)
         return jsonify({'ok': False, 'error': 'Erro interno'}), 500
@@ -592,6 +595,7 @@ def review_draft(invoice_id):
                                    supplier_unregistered=(not inv.get('supplier_id') and bool(_sugg_name_err) and len(_similar_err) == 0))
 
         new_status = 'paid' if ja_paga else 'pending_review'
+        _compras_actor = session.get('user', {}).get('username', 'sistema:compras')
         supplier_nif_clean = request.form.get('supplier_nif', '').strip() or None
         supplier_action = request.form.get('supplier_action', '').strip()
 
@@ -639,7 +643,7 @@ def review_draft(invoice_id):
                     'centro_custo_id': centro_custo_id,
                     'categoria_custo_id': categoria_custo_id,
                     'notes': notes,
-                })
+                }, changed_by=_compras_actor)
                 flash('Selecciona um fornecedor existente ou cria um novo antes de registar.', 'warning')
                 return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
 
@@ -659,7 +663,7 @@ def review_draft(invoice_id):
             'centro_custo_id': centro_custo_id,
             'categoria_custo_id': categoria_custo_id,
             'notes': notes,
-        })
+        }, changed_by=_compras_actor)
         if _supplier_created:
             flash(f"Fornecedor '{supplier_name}' criado automaticamente. Verifica em Fornecedores se é duplicado.", 'warning')
         if ja_paga:

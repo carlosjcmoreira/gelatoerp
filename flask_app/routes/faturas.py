@@ -42,6 +42,7 @@ from flask_app.services import ServiceError
 from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair,
                         get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias,
                         get_invoice_status_labels_map, get_invoice_audit_log,
+                        get_invoice_deletion_log,
                         get_saved_views, save_view, delete_saved_view)
 from flask_app.utils.finance import (
     parse_date as _parse_date,
@@ -720,9 +721,10 @@ def bulk_action():
     elif action == 'delete':
         ok = 0
         fail = 0
+        _del_user = session.get('user', {}).get('username', 'sistema')
         for inv_id in ids:
             try:
-                delete_invoice(inv_id)
+                delete_invoice(inv_id, deleted_by=_del_user)
                 ok += 1
             except Exception as e:
                 logger.error('bulk delete id=%s: %s', inv_id, e)
@@ -1102,7 +1104,8 @@ def save():
         'categoria_custo_id': request.form.get('categoria_custo_id', ''),
     }
     try:
-        result = faturas_svc.save_reviewed_invoice(invoice_id, form_data)
+        _review_user = session.get('user', {}).get('username', 'sistema')
+        result = faturas_svc.save_reviewed_invoice(invoice_id, form_data, changed_by=_review_user)
     except ServiceError as e:
         flash(str(e), 'danger')
         return redirect(url_for('faturas.review', invoice_id=invoice_id))
@@ -1128,7 +1131,8 @@ def save():
 def cancel_draft(invoice_id):
     inv = get_invoice(invoice_id)
     if inv and inv.get('status') == 'draft':
-        delete_invoice(invoice_id)
+        _cancel_user = session.get('user', {}).get('username', 'sistema')
+        delete_invoice(invoice_id, deleted_by=_cancel_user)
     return_to = session.pop('faturas_return_to', '')
     if return_to == 'pagamentos':
         return redirect(url_for('pagamentos.nova_fatura'))
@@ -1314,8 +1318,9 @@ def set_paid_date(invoice_id: int):
             paid_date = _dt.strptime(raw, '%Y-%m-%d').date()
         except ValueError:
             return jsonify({'ok': False, 'error': 'Data inválida'}), 400
+    _actor = session.get('user', {}).get('username', 'sistema')
     try:
-        update_invoice(invoice_id, {'paid_date': paid_date})
+        update_invoice(invoice_id, {'paid_date': paid_date}, changed_by=_actor)
     except Exception as e:
         logger.error('set_paid_date error: %s', e)
         return jsonify({'ok': False, 'error': 'Erro interno'}), 500
@@ -1718,7 +1723,8 @@ def arquivar_onedrive(invoice_id: int):
 @faturas_bp.route('/<int:invoice_id>/eliminar', methods=['POST'])
 @perm_required('acesso_gestor')
 def eliminar(invoice_id: int):
-    delete_invoice(invoice_id)
+    _del_user = session.get('user', {}).get('username', 'sistema')
+    delete_invoice(invoice_id, deleted_by=_del_user)
     flash('Fatura eliminada.', 'success')
     return redirect(url_for('faturas.index'))
 
@@ -1727,23 +1733,67 @@ def eliminar(invoice_id: int):
 @perm_required('acesso_financeiro')
 def set_categoria_custo(invoice_id: int):
     """Quick-assign categoria_custo_id for an invoice (used inline from the cash-flow map)."""
-    from db.core import db_connection as _db_conn
     data = request.get_json(silent=True) or {}
     raw = data.get('categoria_custo_id')
     try:
         cat_id = int(raw) if raw not in (None, '', 'null') else None
     except (ValueError, TypeError):
         return jsonify({'ok': False, 'error': 'ID de categoria inválido'}), 400
-    with _db_conn() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            'UPDATE invoices SET categoria_custo_id = %s, updated_at = NOW() WHERE id = %s',
-            (cat_id, invoice_id),
-        )
-        if cur.rowcount == 0:
-            return jsonify({'ok': False, 'error': 'Fatura não encontrada'}), 404
-        conn.commit()
+    inv = get_invoice(invoice_id)
+    if not inv:
+        return jsonify({'ok': False, 'error': 'Fatura não encontrada'}), 404
+    _actor = session.get('user', {}).get('username', 'sistema')
+    try:
+        update_invoice(invoice_id, {'categoria_custo_id': cat_id}, changed_by=_actor)
+    except Exception as e:
+        logger.error('set_categoria_custo error: %s', e)
+        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
     return jsonify({'ok': True, 'invoice_id': invoice_id, 'categoria_custo_id': cat_id})
+
+
+@faturas_bp.route('/<int:invoice_id>/history')
+@perm_required('acesso_gestor')
+def invoice_history(invoice_id: int):
+    """Return the complete audit timeline for a document — including deleted ones.
+
+    For live invoices returns the invoice_audit_log.
+    For deleted invoices returns the prior_audit from invoice_deletion_log.
+    Always returns JSON so managers can query the timeline programmatically.
+    """
+    live = get_invoice(invoice_id)
+    if live:
+        audit = get_invoice_audit_log(invoice_id)
+        timeline = [
+            {
+                'campo_alterado': e['campo_alterado'],
+                'valor_anterior': e['valor_anterior'],
+                'valor_novo': e['valor_novo'],
+                'alterado_por': e['alterado_por'],
+                'alterado_em': e['alterado_em'].isoformat() if e['alterado_em'] else None,
+            }
+            for e in audit
+        ]
+        return jsonify({
+            'invoice_id': invoice_id,
+            'deleted': False,
+            'supplier_name': live.get('supplier_name'),
+            'invoice_number': live.get('invoice_number'),
+            'timeline': timeline,
+        })
+    tombstone = get_invoice_deletion_log(invoice_id)
+    if tombstone:
+        return jsonify({
+            'invoice_id': invoice_id,
+            'deleted': True,
+            'deleted_by': tombstone['deleted_by'],
+            'deleted_at': tombstone['deleted_at'].isoformat() if tombstone['deleted_at'] else None,
+            'supplier_name': tombstone['supplier_name'],
+            'invoice_number': tombstone['invoice_number'],
+            'amount_eur': str(tombstone['amount_eur']) if tombstone['amount_eur'] is not None else None,
+            'status_at_deletion': tombstone['status_at_deletion'],
+            'timeline': tombstone['prior_audit'],
+        })
+    return jsonify({'ok': False, 'error': 'Documento não encontrado'}), 404
 
 
 # ── PDF download / attach ───────────────────────────────────────────────────────

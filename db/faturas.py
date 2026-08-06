@@ -1439,6 +1439,23 @@ def create_invoice(data: dict) -> int:
               'centro_custo_id': data.get('centro_custo_id'),
               'categoria_custo_id': data.get('categoria_custo_id')})
         invoice_id = cursor.fetchone()[0]
+        # ── Audit: record creation event ──
+        try:
+            doc_type_label = DOCUMENT_TYPE_LABELS.get(doc_type, doc_type)
+            parts = [doc_type_label]
+            if data.get('supplier_name'):
+                parts.append(data['supplier_name'])
+            if data.get('amount_eur') is not None:
+                parts.append(f"{data['amount_eur']} €")
+            cursor.execute(
+                "INSERT INTO invoice_audit_log "
+                "(invoice_id, campo_alterado, valor_anterior, valor_novo, alterado_por) "
+                "VALUES (%s, 'criação', NULL, %s, %s)",
+                (invoice_id, ' · '.join(str(p) for p in parts),
+                 data.get('created_by') or 'sistema'),
+            )
+        except Exception as _audit_exc:
+            logger.warning('create_invoice: audit log insert failed for inv=%s: %s', invoice_id, _audit_exc)
         conn.commit()
     return invoice_id
 
@@ -1495,9 +1512,11 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
 
     # Fields tracked in audit log (human-editable, meaningful to audit)
     _AUDIT_TRACKED = [
-        'supplier_name', 'invoice_number', 'amount_eur', 'vat_amount_eur',
+        'supplier_name', 'supplier_nif', 'supplier_id',
+        'invoice_number', 'amount_eur', 'vat_amount_eur',
         'issue_date', 'due_date', 'category', 'store_id', 'document_type',
         'notes', 'status', 'payment_method',
+        'centro_custo_id', 'categoria_custo_id', 'paid_date', 'cfo_confirmed_date',
     ]
     fields_to_audit = [f for f in _AUDIT_TRACKED if f in data]
 
@@ -1546,6 +1565,18 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
         elif 'store_id' in data:
             old_values['_store_name_new'] = None
 
+        # Resolve supplier names for supplier_id changes (display name instead of numeric ID)
+        if 'supplier_id' in fields_to_audit and old_values.get('supplier_id'):
+            cursor.execute("SELECT name FROM suppliers WHERE id = %s", (old_values['supplier_id'],))
+            _ss = cursor.fetchone()
+            old_values['_supplier_name_old'] = _ss[0] if _ss else str(old_values['supplier_id'])
+        if 'supplier_id' in data and data['supplier_id']:
+            cursor.execute("SELECT name FROM suppliers WHERE id = %s", (data['supplier_id'],))
+            _ss = cursor.fetchone()
+            old_values['_supplier_name_new'] = _ss[0] if _ss else str(data['supplier_id'])
+        elif 'supplier_id' in data:
+            old_values['_supplier_name_new'] = None
+
         cursor.execute(
             f"UPDATE invoices SET {', '.join(fields)} WHERE id = %s",
             params
@@ -1565,10 +1596,13 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
                 new_raw = data[fname]
                 old_raw = old_values.get(fname)
 
-                # For store_id use human-readable names instead of numeric IDs
+                # For store_id / supplier_id use human-readable names instead of numeric IDs
                 if fname == 'store_id':
                     old_display = old_values.get('_store_name_old') or (_str(old_raw) if old_raw else None)
                     new_display = old_values.get('_store_name_new') or (_str(new_raw) if new_raw else None)
+                elif fname == 'supplier_id':
+                    old_display = old_values.get('_supplier_name_old') or (_str(old_raw) if old_raw else None)
+                    new_display = old_values.get('_supplier_name_new') or (_str(new_raw) if new_raw else None)
                 else:
                     old_display = _str(old_raw)
                     new_display = _str(new_raw)
@@ -1622,9 +1656,58 @@ def update_invoice_onedrive(invoice_id: int, onedrive_path: str, onedrive_subfol
         conn.commit()
 
 
-def delete_invoice(invoice_id: int):
+def delete_invoice(invoice_id: int, deleted_by: str = 'sistema'):
     with db_connection() as conn:
         cursor = conn.cursor()
+        # ── Tombstone: capture snapshot + FULL audit history before CASCADE destroys both ──
+        try:
+            cursor.execute(
+                "SELECT invoice_number, supplier_name, amount_eur, document_type, status "
+                "FROM invoices WHERE id = %s",
+                (invoice_id,)
+            )
+            _snap = cursor.fetchone()
+
+            # Fetch prior audit log *before* DELETE triggers the cascade
+            _prior_audit = []
+            try:
+                cursor.execute(
+                    "SELECT campo_alterado, valor_anterior, valor_novo, alterado_por, alterado_em "
+                    "FROM invoice_audit_log WHERE invoice_id = %s ORDER BY alterado_em ASC",
+                    (invoice_id,)
+                )
+                for _row in cursor.fetchall():
+                    _prior_audit.append({
+                        'campo_alterado': _row[0],
+                        'valor_anterior': _row[1],
+                        'valor_novo': _row[2],
+                        'alterado_por': _row[3],
+                        'alterado_em': _row[4].isoformat() if _row[4] else None,
+                    })
+            except Exception:
+                pass
+
+            # Append the deletion event itself so it appears last in the timeline
+            from datetime import datetime as _dt_now
+            _prior_audit.append({
+                'campo_alterado': 'eliminação',
+                'valor_anterior': _snap[4] if _snap else None,
+                'valor_novo': None,
+                'alterado_por': deleted_by,
+                'alterado_em': _dt_now.utcnow().isoformat(),
+            })
+
+            if _snap:
+                cursor.execute(
+                    "INSERT INTO invoice_deletion_log "
+                    "(invoice_id, invoice_number, supplier_name, amount_eur, "
+                    " document_type, status_at_deletion, deleted_by, prior_audit_json) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (invoice_id, _snap[0], _snap[1], _snap[2], _snap[3], _snap[4],
+                     deleted_by, json.dumps(_prior_audit)),
+                )
+        except Exception as _exc:
+            logger.warning('delete_invoice: tombstone write failed for inv=%s: %s', invoice_id, _exc)
         cursor.execute("DELETE FROM invoices WHERE id = %s", (invoice_id,))
         conn.commit()
 
@@ -2047,3 +2130,87 @@ def delete_saved_view(view_id: int, user_id: str) -> bool:
         deleted = cursor.rowcount > 0
         conn.commit()
     return deleted
+
+
+def get_invoice_deletion_log(invoice_id: int) -> dict | None:
+    """Return the tombstone record for a deleted invoice, or None if not found.
+
+    The returned dict includes ``prior_audit`` (list of dicts) reconstructed from
+    the JSON snapshot taken just before the DELETE.
+    """
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, invoice_number, supplier_name, amount_eur, document_type, "
+                "status_at_deletion, deleted_by, deleted_at, prior_audit_json "
+                "FROM invoice_deletion_log WHERE invoice_id = %s ORDER BY deleted_at DESC LIMIT 1",
+                (invoice_id,)
+            )
+            row = cursor.fetchone()
+        if not row:
+            return None
+        prior_audit = []
+        if row[8]:
+            try:
+                prior_audit = json.loads(row[8])
+            except Exception:
+                pass
+        return {
+            'id': row[0],
+            'invoice_id': invoice_id,
+            'invoice_number': row[1],
+            'supplier_name': row[2],
+            'amount_eur': row[3],
+            'document_type': row[4],
+            'status_at_deletion': row[5],
+            'deleted_by': row[6],
+            'deleted_at': row[7],
+            'prior_audit': prior_audit,
+        }
+    except Exception as exc:
+        logger.warning('get_invoice_deletion_log(%s) failed: %s', invoice_id, exc)
+        return None
+
+
+def run_migrations_invoice_audit_complete():
+    """Idempotent: create invoice_deletion_log for tombstone records that survive CASCADE deletes.
+
+    Uses advisory lock 593593 to serialise concurrent worker executions.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(593593)")
+            if not cursor.fetchone()[0]:
+                return
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS invoice_deletion_log (
+                    id SERIAL PRIMARY KEY,
+                    invoice_id INTEGER NOT NULL,
+                    invoice_number VARCHAR(100),
+                    supplier_name VARCHAR(255),
+                    amount_eur NUMERIC(12,2),
+                    document_type VARCHAR(50),
+                    status_at_deletion VARCHAR(50),
+                    deleted_by VARCHAR(100),
+                    deleted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    prior_audit_json TEXT
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_invoice_deletion_log_invoice "
+                "ON invoice_deletion_log(invoice_id)"
+            )
+            # Idempotent: add prior_audit_json if table was created by an earlier version
+            cursor.execute(
+                "ALTER TABLE invoice_deletion_log "
+                "ADD COLUMN IF NOT EXISTS prior_audit_json TEXT"
+            )
+            conn.commit()
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(593593)")
+                conn.commit()
+            except Exception:
+                pass

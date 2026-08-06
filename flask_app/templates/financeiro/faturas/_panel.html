@@ -523,18 +523,27 @@
     <!-- ── Histórico de alterações ─────────────────────────── -->
     {% if audit_log %}
     {% set _field_labels = {
-        'status':         'Estado',
-        'supplier_name':  'Fornecedor',
-        'invoice_number': 'Nº Fatura',
-        'amount_eur':     'Total (€)',
-        'vat_amount_eur': 'IVA (€)',
-        'issue_date':     'Data emissão',
-        'due_date':       'Data vencimento',
-        'category':       'Categoria',
-        'store_id':       'Loja',
-        'document_type':  'Tipo',
-        'notes':          'Notas',
-        'payment_method': 'Método pagamento',
+        'criação':             'Criação',
+        'revisão_ocr':         'Revisão OCR',
+        'eliminação':          'Eliminado',
+        'status':              'Estado',
+        'supplier_name':       'Fornecedor',
+        'supplier_nif':        'NIF fornecedor',
+        'supplier_id':         'Fornecedor (ligação)',
+        'invoice_number':      'Nº Fatura',
+        'amount_eur':          'Total (€)',
+        'vat_amount_eur':      'IVA (€)',
+        'issue_date':          'Data emissão',
+        'due_date':            'Data vencimento',
+        'paid_date':           'Data pagamento',
+        'cfo_confirmed_date':  'Data confirmação CFO',
+        'category':            'Categoria',
+        'store_id':            'Loja',
+        'document_type':       'Tipo',
+        'notes':               'Notas',
+        'payment_method':      'Método pagamento',
+        'centro_custo_id':     'Centro de custo',
+        'categoria_custo_id':  'Categoria de custo',
     } %}
     <div class="card mb-3">
         <div class="card-header py-2 px-3">
@@ -543,12 +552,16 @@
                 🕓 Histórico ({{ audit_log | length }})
             </button>
         </div>
-        <div class="collapse" id="panelAuditLog{{ inv.id }}">
+        <div class="collapse show" id="panelAuditLog{{ inv.id }}">
             <div class="card-body py-2 px-3">
                 <ol class="list-unstyled mb-0" style="border-left:2px solid #dee2e6;padding-left:.75rem">
                 {% for entry in audit_log %}
-                    {% set _is_status = entry.campo_alterado == 'status' %}
-                    {% set _is_doctype = entry.campo_alterado == 'document_type' %}
+                    {% set _campo = entry.campo_alterado %}
+                    {% set _is_status = _campo == 'status' %}
+                    {% set _is_doctype = _campo == 'document_type' %}
+                    {% set _is_creation = _campo == 'criação' %}
+                    {% set _is_ocr = _campo == 'revisão_ocr' %}
+                    {% set _is_deletion = _campo == 'eliminação' %}
                     {% set _new_raw = entry.valor_novo %}
                     {% set _old_raw = entry.valor_anterior %}
                     {% if _is_status %}
@@ -561,12 +574,23 @@
                         {% set _new_lbl = _new_raw %}
                         {% set _old_lbl = _old_raw if _old_raw else None %}
                     {% endif %}
-                    {% set _field_lbl = _field_labels.get(entry.campo_alterado, entry.campo_alterado) %}
+                    {% if _is_creation %}
+                        {% set _dot_color = '#198754' %}
+                    {% elif _is_ocr %}
+                        {% set _dot_color = '#6f42c1' %}
+                    {% elif _is_deletion %}
+                        {% set _dot_color = '#dc3545' %}
+                    {% elif _is_status %}
+                        {% set _dot_color = '#0d6efd' %}
+                    {% else %}
+                        {% set _dot_color = '#6c757d' %}
+                    {% endif %}
+                    {% set _field_lbl = _field_labels.get(_campo, _campo) %}
                     <li class="mb-2 position-relative">
-                        <span class="position-absolute" style="left:-1.05rem;top:.3rem;width:.6rem;height:.6rem;border-radius:50%;background:{{ '#0d6efd' if _is_status else '#6c757d' }};display:inline-block"></span>
+                        <span class="position-absolute" style="left:-1.05rem;top:.3rem;width:.6rem;height:.6rem;border-radius:50%;background:{{ _dot_color }};display:inline-block"></span>
                         <div class="small">
                             <span class="text-muted me-1">{{ _field_lbl }}:</span>
-                            {% if _old_lbl %}
+                            {% if _old_lbl and not _is_creation and not _is_ocr %}
                             <span class="text-muted">{{ _old_lbl }}</span>
                             <span class="text-muted mx-1">→</span>
                             {% endif %}

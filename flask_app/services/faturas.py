@@ -227,7 +227,7 @@ def _parse_float(val: str):
         return None
 
 
-def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
+def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistema') -> dict:
     """
     Apply reviewed form data to an existing draft invoice, upsert the supplier,
     and optionally archive to OneDrive.
@@ -400,6 +400,7 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
             'Seleciona ou cria um fornecedor antes de guardar este tipo de documento.'
         )
 
+    _old_status = inv.get('status')
     try:
         update_invoice(invoice_id, {
             'supplier_id': supplier_id,
@@ -419,9 +420,24 @@ def save_reviewed_invoice(invoice_id: int, form: dict) -> dict:
             'document_type': document_type,
             'centro_custo_id': centro_custo_id,
             'categoria_custo_id': categoria_custo_id,
-        })
+        }, changed_by=changed_by)
     except Exception as exc:
         raise ServiceError(f'Erro ao actualizar fatura: {exc}') from exc
+
+    # Insert a distinct audit marker so OCR reviews are visually distinguishable from generic edits
+    if _old_status == 'draft':
+        try:
+            from db.connection import db_connection as _dbc
+            with _dbc() as _conn:
+                _conn.cursor().execute(
+                    "INSERT INTO invoice_audit_log "
+                    "(invoice_id, campo_alterado, valor_anterior, valor_novo, alterado_por) "
+                    "VALUES (%s, 'revisão_ocr', 'draft', 'pending_review', %s)",
+                    (invoice_id, changed_by),
+                )
+                _conn.commit()
+        except Exception as _ae:
+            logger.warning('save_reviewed_invoice: revisão_ocr audit insert failed for inv=%s: %s', invoice_id, _ae)
 
     # Auto-link other invoices with the same supplier name (matches by registered name)
     if supplier_id:
