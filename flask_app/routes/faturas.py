@@ -478,6 +478,11 @@ def index():
     return render_template(
         'financeiro/faturas/index.html',
         view='documento',
+        scope='financeiro',
+        filter_action_url=url_for('faturas.index'),
+        panel_base_url=url_for('faturas.invoice_panel', invoice_id=0),
+        paid_date_url_tpl='/financeiro/faturas/SET_ID/set-paid-date',
+        inv_api_prefix='/financeiro/faturas',
         invoices=invoices,
         statuses_filter=statuses_filter,
         show_all=show_all,

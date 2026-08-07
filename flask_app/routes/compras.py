@@ -1,5 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, send_file, jsonify
-from flask_app.auth import perm_required
+from flask_app.auth import perm_required, any_perm_required
 from datetime import date, datetime
 import json
 import sys, os, logging, math
@@ -94,7 +94,7 @@ def index():
 
 
 @compras_bp.route('/faturas')
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_financeiro', 'acesso_compras')
 def faturas():
     from datetime import date as _date, datetime as _datetime
 
@@ -176,13 +176,14 @@ def faturas():
         search=q_filter or None,
         sem_evidencia=True if sem_evidencia_filter else None,
     )
-    total_count = count_invoices(**filter_kwargs)
+    total_count = count_invoices(**filter_kwargs, exclude_gov=True)
     total_pages = max(1, math.ceil(total_count / PAGE_SIZE))
     page = min(page, total_pages)
     offset = (page - 1) * PAGE_SIZE
 
     invoices = get_invoices(
         **filter_kwargs,
+        exclude_gov=True,
         order_by=order_by,
         order_dir=order_dir,
         limit=PAGE_SIZE,
@@ -268,47 +269,74 @@ def faturas():
     base_filter_qs = '?' + urlencode(_bfqs_d) if _bfqs_d else '?'
     _count_base = {k: v for k, v in filter_kwargs.items() if k != 'status'}
     status_counts = {
-        'overdue': count_invoices(**_count_base, status='overdue'),
-        'pending_review': count_invoices(**_count_base, status='pending_review'),
-        'scheduled': count_invoices(**_count_base, status='scheduled'),
-        'paid': count_invoices(**_count_base, status='paid'),
+        'overdue': count_invoices(**_count_base, status='overdue', exclude_gov=True),
+        'pending_review': count_invoices(**_count_base, status='pending_review', exclude_gov=True),
+        'scheduled': count_invoices(**_count_base, status='scheduled', exclude_gov=True),
+        'paid': count_invoices(**_count_base, status='paid', exclude_gov=True),
     }
 
     # Count invoices without evidence (ignoring current status/sem_evidencia filter)
     # sem_evidencia=True in _build_invoice_where already excludes draft+cancelled
     _count_no_status_no_ev = {k: v for k, v in _count_base.items() if k != 'sem_evidencia'}
-    sem_evidencia_count = count_invoices(**_count_no_status_no_ev, sem_evidencia=True)
+    sem_evidencia_count = count_invoices(**_count_no_status_no_ev, sem_evidencia=True, exclude_gov=True)
 
-    return render_template('compras/faturas.html',
+    return render_template('financeiro/faturas/index.html',
+                           # ── scope / URL routing ──────────────────────────
+                           view='documento',
+                           scope='compras',
+                           back_url=url_for('compras.index'),
+                           filter_action_url=url_for('compras.faturas'),
+                           panel_base_url=url_for('compras.invoice_panel', invoice_id=0),
+                           paid_date_url_tpl='/compras/faturas/SET_ID/set_paid_date',
+                           inv_api_prefix='/compras/faturas',
+                           # ── invoices / pagination ────────────────────────
                            invoices=invoices,
-                           suppliers=suppliers,
-                           all_supplier_names=all_supplier_names,
-                           stores=stores,
-                           supplier_filter_id=supplier_filter_id,
-                           supplier_name_filter=supplier_name_filter,
-                           store_id_filter=store_id_filter,
-                           status_filter=status_filter,
-                           date_from_raw=date_from_raw,
-                           date_to_raw=date_to_raw,
-                           date_field=date_field,
-                           document_type_filter=document_type_filter,
-                           q_filter=q_filter,
-                           order_by=order_by,
-                           order_dir=order_dir,
-                           filter_qs=filter_qs,
-                           base_filter_qs=base_filter_qs,
-                           status_counts=status_counts,
-                           sem_evidencia_count=sem_evidencia_count,
-                           sem_evidencia_filter=sem_evidencia_filter,
-                           sem_ev_on_url=sem_ev_on_url,
-                           sem_ev_off_url=sem_ev_off_url,
                            page=page,
                            total_pages=total_pages,
                            total_count=total_count,
                            page_size=PAGE_SIZE,
+                           # ── filters (Financeiro naming conventions) ──────
+                           search=q_filter,
+                           store_id=str(store_id_filter) if store_id_filter else '',
+                           supplier_name_filter=supplier_name_filter,
+                           document_type_filter=document_type_filter,
+                           date_from_raw=date_from_raw,
+                           date_to_raw=date_to_raw,
+                           date_field=date_field,
+                           order_by=order_by,
+                           order_dir=order_dir,
+                           filter_qs=filter_qs,
                            has_filters=has_filters,
-                           document_type_labels=DOCUMENT_TYPE_LABELS,
+                           # Compras also keeps single-status and badge strip vars:
+                           status_filter=status_filter,
+                           status_counts=status_counts,
+                           base_filter_qs=base_filter_qs,
+                           sem_evidencia_filter=sem_evidencia_filter,
+                           sem_evidencia_count=sem_evidencia_count,
+                           sem_ev_on_url=sem_ev_on_url,
+                           sem_ev_off_url=sem_ev_off_url,
+                           # ── Financeiro defaults (not used in Compras) ────
+                           statuses_filter=[],
+                           show_all=False,
+                           default_filter_active=False,
+                           month_raw='',
+                           month_options=[],
+                           category_filter='',
+                           centro_custo_filter=None,
+                           all_categories=[],
+                           cost_centers=[],
+                           cost_categories_tree=[],
+                           saved_views=[],
+                           pending_installments=[],
+                           confirming_contracts=[],
+                           grupos=[],
+                           grupos_cc=[],
+                           grupos_cat=[],
+                           # ── shared lookups ───────────────────────────────
+                           stores=stores,
+                           all_supplier_names=all_supplier_names,
                            payment_methods=payment_methods,
+                           document_type_labels=DOCUMENT_TYPE_LABELS,
                            today=today)
 
 

@@ -1036,6 +1036,9 @@ def rename_supplier_name_variant(old_name: str, new_name: str) -> int:
     return count
 
 
+_GOV_NIFS = ('500757155', '506826066')
+
+
 def _build_invoice_where(status: str = None, statuses: list = None,
                          no_status_filter: bool = False,
                          store_id: int = None,
@@ -1048,7 +1051,8 @@ def _build_invoice_where(status: str = None, statuses: list = None,
                          date_from=None, date_to=None,
                          date_field: str = 'issue_date',
                          document_type: str = None,
-                         sem_evidencia: bool = None):
+                         sem_evidencia: bool = None,
+                         exclude_gov: bool = False):
     where = []
     params = []
     # 'overdue' is a virtual status: scheduled invoices with due_date in the past
@@ -1117,6 +1121,17 @@ def _build_invoice_where(status: str = None, statuses: list = None,
         where.append("(i.pdf_data IS NULL OR octet_length(i.pdf_data) = 0)")
         # Alerts for missing evidence only apply to active invoices (never draft/cancelled)
         where.append("i.status NOT IN ('draft', 'cancelled')")
+    if exclude_gov:
+        # Exclude invoices from government/tax entities (AT, SS, etc.)
+        # Matched via the known NIF list or the entidade_governamental flag on the supplier record.
+        where.append("""(
+            (i.supplier_nif IS NULL OR i.supplier_nif NOT IN %s)
+            AND NOT EXISTS (
+                SELECT 1 FROM suppliers s
+                WHERE s.id = i.supplier_id AND s.entidade_governamental = true
+            )
+        )""")
+        params.append(_GOV_NIFS)
     where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
     return where_clause, params
 
@@ -1135,6 +1150,7 @@ def get_invoices(status: str = None, statuses: list = None,
                  date_field: str = 'issue_date',
                  document_type: str = None,
                  sem_evidencia: bool = None,
+                 exclude_gov: bool = False,
                  limit: int = None, offset: int = 0) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -1145,7 +1161,7 @@ def get_invoices(status: str = None, statuses: list = None,
             supplier_name=supplier_name, supplier_names=supplier_names,
             supplier_id=supplier_id, date_from=date_from, date_to=date_to,
             date_field=date_field, document_type=document_type,
-            sem_evidencia=sem_evidencia,
+            sem_evidencia=sem_evidencia, exclude_gov=exclude_gov,
         )
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
         direction = 'DESC' if order_dir == 'desc' else 'ASC'
@@ -1209,7 +1225,8 @@ def count_invoices(status: str = None, statuses: list = None,
                    date_from=None, date_to=None,
                    date_field: str = 'issue_date',
                    document_type: str = None,
-                   sem_evidencia: bool = None) -> int:
+                   sem_evidencia: bool = None,
+                   exclude_gov: bool = False) -> int:
     where_clause, params = _build_invoice_where(
         status=status, statuses=statuses, no_status_filter=no_status_filter,
         store_id=store_id, search=search,
@@ -1217,7 +1234,7 @@ def count_invoices(status: str = None, statuses: list = None,
         supplier_name=supplier_name, supplier_names=supplier_names,
         supplier_id=supplier_id, date_from=date_from, date_to=date_to,
         date_field=date_field, document_type=document_type,
-        sem_evidencia=sem_evidencia,
+        sem_evidencia=sem_evidencia, exclude_gov=exclude_gov,
     )
     with db_connection() as conn:
         cursor = conn.cursor()

@@ -4299,3 +4299,55 @@ def run_migrations_contabilidade():
                 conn.rollback()
             except Exception:
                 pass
+
+
+_LOCK_SUPPLIER_ENTIDADE_GOV = 202701
+
+
+def run_migrations_supplier_entidade_governamental():
+    """Add entidade_governamental flag to suppliers and pre-tag known government NIFs.
+
+    The flag is used by the Compras invoice list to exclude AT/SS documents
+    (which belong in Financeiro, not Compras).  Known NIFs pre-tagged:
+      500757155 — Autoridade Tributária (AT)
+      506826066 — Segurança Social (SS)
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_SUPPLIER_ENTIDADE_GOV,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_supplier_entidade_governamental: lock held, skipping")
+            return
+        try:
+            # Add column if missing
+            cursor.execute("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'suppliers' AND column_name = 'entidade_governamental'
+            """)
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    ALTER TABLE suppliers
+                    ADD COLUMN entidade_governamental BOOLEAN NOT NULL DEFAULT false
+                """)
+                logger.info("run_migrations_supplier_entidade_governamental: column added")
+
+            # Pre-tag known government NIFs
+            _GOV_NIFS = ['500757155', '506826066']
+            cursor.execute("""
+                UPDATE suppliers
+                SET entidade_governamental = true
+                WHERE nif = ANY(%s) AND entidade_governamental = false
+            """, (_GOV_NIFS,))
+            if cursor.rowcount:
+                logger.info(
+                    "run_migrations_supplier_entidade_governamental: tagged %d govt suppliers",
+                    cursor.rowcount,
+                )
+            conn.commit()
+            logger.info("run_migrations_supplier_entidade_governamental: complete")
+        except Exception as exc:
+            logger.error("run_migrations_supplier_entidade_governamental failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass

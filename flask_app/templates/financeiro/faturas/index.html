@@ -16,6 +16,11 @@
 {% endblock %}
 
 {% block content %}
+{% set scope = scope | default('financeiro') %}
+{% set _filter_action = filter_action_url | default(url_for('faturas.index')) %}
+{% set _panel_base_url = panel_base_url | default(url_for('faturas.invoice_panel', invoice_id=0)) %}
+{% set _paid_date_url_tpl = paid_date_url_tpl | default('/financeiro/faturas/SET_ID/set-paid-date') %}
+{% set _inv_api_prefix = inv_api_prefix | default('/financeiro/faturas') %}
 {% set _sd = {
     'pending_review': 'Aguarda confirmação pelo responsável financeiro',
     'scheduled': 'Pagamento confirmado e agendado para a data de vencimento',
@@ -24,8 +29,9 @@
 } %}
 <div class="container-fluid px-3 py-3 pb-5">
     <div class="d-flex align-items-center justify-content-between mb-3">
-        <h5 class="mb-0">📄 Documentos</h5>
+        <h5 class="mb-0">{% if scope == 'compras' %}🧾 Faturas{% else %}📄 Documentos{% endif %}</h5>
         <div class="d-flex gap-2 flex-wrap">
+            {% if scope == 'financeiro' %}
             <div class="btn-group btn-group-sm" role="group" aria-label="Vista">
                 <a href="{{ url_for('faturas.index') }}"
                    class="btn {% if view == 'documento' %}btn-primary{% else %}btn-outline-primary{% endif %}">
@@ -46,8 +52,50 @@
             </div>
             <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm">Fornecedores</a>
             <a href="{{ url_for('faturas.registar') }}" class="btn btn-primary btn-sm">+ Registar Documento</a>
+            {% else %}
+            <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm">🏭 Fornecedores</a>
+            <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-primary btn-sm">+ Registar Documento</a>
+            {% endif %}
         </div>
     </div>
+
+{% if scope == 'compras' and status_counts is defined %}
+    <!-- ── Compras status badge strip ──────────────────────────────────────── -->
+    <div class="d-flex flex-wrap gap-2 mb-3">
+        {% if status_counts.overdue > 0 %}
+        <a href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}status=overdue"
+           class="badge text-decoration-none fs-6 {{ 'bg-danger text-white' if status_filter == 'overdue' else 'bg-danger-subtle text-danger-emphasis border border-danger-subtle' }}"
+           style="font-size:.75rem!important">
+            🔴 Vencidas: {{ status_counts.overdue }}
+        </a>
+        {% endif %}
+        {% if status_counts.pending_review > 0 %}
+        <a href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}status=pending_review"
+           class="badge text-decoration-none {{ 'bg-warning text-dark' if status_filter == 'pending_review' else 'bg-warning-subtle text-warning-emphasis border border-warning-subtle' }}"
+           style="font-size:.75rem!important">
+            🕐 Por confirmar: {{ status_counts.pending_review }}
+        </a>
+        {% endif %}
+        {% if status_counts.scheduled > 0 %}
+        <a href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}status=scheduled"
+           class="badge text-decoration-none {{ 'bg-info text-dark' if status_filter == 'scheduled' else 'bg-info-subtle text-info-emphasis border border-info-subtle' }}"
+           style="font-size:.75rem!important">
+            🗓 Agendadas: {{ status_counts.scheduled }}
+        </a>
+        {% endif %}
+        {% if status_counts.paid > 0 %}
+        <a href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}status=paid"
+           class="badge text-decoration-none {{ 'bg-success text-white' if status_filter == 'paid' else 'bg-success-subtle text-success-emphasis border border-success-subtle' }}"
+           style="font-size:.75rem!important">
+            ✅ Pagas: {{ status_counts.paid }}
+        </a>
+        {% endif %}
+        {% if status_filter %}
+        <a href="{{ base_filter_qs }}" class="badge bg-secondary text-decoration-none" style="font-size:.75rem!important"
+           data-no-loading>✕ Ver todas</a>
+        {% endif %}
+    </div>
+{% endif %}
 
 {% if view == 'fornecedor' %}
     <!-- ── Por Fornecedor view ────────────────────────────────────────────── -->
@@ -354,7 +402,7 @@
     <!-- ── Filtros (Monday-style) ─────────────────────────────────────────── -->
 
     <!-- Hidden GET form — all active filter state stored as hidden inputs -->
-    <form id="filter-form" method="get" action="{{ url_for('faturas.index') }}" data-no-loading>
+    <form id="filter-form" method="get" action="{{ _filter_action }}" data-no-loading>
         <input type="hidden" name="order_by" id="ff-ob" value="{{ order_by }}">
         <input type="hidden" name="order_dir" id="ff-od" value="{{ order_dir }}">
         <input type="hidden" name="date_field" id="ff-df" value="{{ date_field }}">
@@ -363,6 +411,7 @@
         <input type="hidden" name="month" id="ff-month" value="">
         {% if show_all %}<input type="hidden" name="all" value="1">{% endif %}
         {% for s in statuses_filter %}<input type="hidden" name="status" class="ff-status" value="{{ s }}">{% endfor %}
+        {% if scope == 'compras' and status_filter %}<input type="hidden" name="status" class="ff-status" value="{{ status_filter }}">{% endif %}
         {% if supplier_name_filter %}<input type="hidden" name="supplier_name" id="ff-sn" value="{{ supplier_name_filter }}">{% endif %}
         {% if document_type_filter %}<input type="hidden" name="document_type" id="ff-dt" value="{{ document_type_filter }}">{% endif %}
         {% if store_id %}<input type="hidden" name="store_id" id="ff-sid" value="{{ store_id }}">{% endif %}
@@ -499,8 +548,8 @@
                 </ul>
             </div>
 
-            <!-- Vistas guardadas dropdown (documento view only) -->
-            {% if view == 'documento' %}
+            <!-- Vistas guardadas dropdown (Financeiro/documento view only) -->
+            {% if view == 'documento' and scope == 'financeiro' %}
             <div class="dropdown" id="sv-dropdown-wrap">
                 <button class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" type="button"
                         data-bs-toggle="dropdown" aria-expanded="false" id="sv-dropdown-btn"
@@ -541,12 +590,16 @@
             {% endif %}{# view == 'documento' #}
 
             {% if _any_f %}
-            <a href="{{ url_for('faturas.index') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0" data-no-loading>✕ Limpar</a>
+            <a href="{{ _filter_action }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0" data-no-loading>✕ Limpar</a>
             {% endif %}
             {% if show_all %}
-            <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm" data-no-loading>Em aberto</a>
+            <a href="{{ _filter_action }}" class="btn btn-outline-secondary btn-sm" data-no-loading>Em aberto</a>
             {% endif %}
+            {% if scope == 'financeiro' %}
             <a href="{{ url_for('faturas.dashboard') }}" class="btn btn-link btn-sm text-muted text-decoration-none p-0 ms-auto" data-no-loading>📊 Dashboard</a>
+            {% else %}
+            <span class="ms-auto"></span>
+            {% endif %}
             <span class="text-muted small">{{ invoices|length }} resultado{{ 's' if invoices|length != 1 }}</span>
         </div>
         </div><!-- /#fbar-chips-wrap -->
@@ -731,6 +784,7 @@
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="cfo_confirmed_date" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Data CFO</span></div></th>
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="notes" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Notas</span></div></th>
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="created_at" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Criado em</span></div></th>
+                    {% if scope == 'compras' %}<th style="width:40px"></th>{% endif %}
                 </tr>
             </thead>
             <tbody id="inv-table-body">
@@ -750,7 +804,24 @@
                     </td>
                     <td class="text-nowrap small" data-col-key="invoice_number">{{ inv.invoice_number or '—' }}</td>
                     <td class="d-none d-md-table-cell text-muted small" data-col-key="category">{{ inv.category or '—' }}</td>
-                    <td class="d-none d-md-table-cell text-muted small text-nowrap" data-col-key="store_name">{{ inv.store_name or '—' }}</td>
+                    <td class="d-none d-md-table-cell text-muted small text-nowrap" data-col-key="store_name"
+                        {% if scope == 'compras' %}onclick="event.stopPropagation()"{% endif %}>
+                        {% if scope == 'compras' %}
+                        <select class="form-select form-select-sm border-0 py-0 px-1"
+                                style="min-width:80px;background:transparent;cursor:pointer;font-size:0.8rem"
+                                data-inv-id="{{ inv.id }}"
+                                data-original="{{ inv.store_id or '' }}"
+                                onclick="event.stopPropagation()"
+                                onchange="setInvStore(this)">
+                            <option value="">—</option>
+                            {% for st in stores %}
+                            <option value="{{ st.id }}" {% if inv.store_id == st.id %}selected{% endif %}>{{ st.name }}</option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        {{ inv.store_name or '—' }}
+                        {% endif %}
+                    </td>
                     <td class="d-none d-lg-table-cell text-muted small text-nowrap" data-col-key="issue_date">
                         {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
                     </td>
@@ -809,6 +880,13 @@
                     <td class="col-hidden text-muted small text-nowrap" data-col-key="cfo_confirmed_date">{{ inv.cfo_confirmed_date.strftime('%d/%m/%Y') if inv.cfo_confirmed_date else '—' }}</td>
                     <td class="col-hidden text-muted small" data-col-key="notes" style="max-width:200px;white-space:normal">{{ inv.notes or '—' }}</td>
                     <td class="col-hidden text-muted small text-nowrap" data-col-key="created_at">{{ inv.created_at.strftime('%d/%m/%Y') if inv.created_at else '—' }}</td>
+                    {% if scope == 'compras' %}
+                    <td onclick="event.stopPropagation()" style="width:40px;text-align:center">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
+                                onclick="event.stopPropagation();openInvPanel({{ inv.id }})"
+                                title="Abrir documento">→</button>
+                    </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -840,8 +918,39 @@
     <div class="text-center text-muted py-5">
         <div style="font-size:2rem;">📄</div>
         <p class="mt-2">Nenhum documento encontrado.</p>
+        {% if scope == 'compras' %}
+        <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-primary btn-sm">+ Novo Documento</a>
+        {% else %}
         <a href="{{ url_for('faturas.registar') }}" class="btn btn-primary btn-sm">+ Novo Documento</a>
+        {% endif %}
     </div>
+    {% endif %}
+
+    {% if scope == 'compras' and total_pages is defined and total_pages > 1 %}
+    <nav class="mt-3" aria-label="Paginação de faturas">
+        <ul class="pagination pagination-sm justify-content-center mb-1">
+            {% if page > 1 %}
+            <li class="page-item">
+                <a class="page-link" href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}page={{ page - 1 }}" data-no-loading>‹</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">‹</span></li>
+            {% endif %}
+            {% for p in range(1, total_pages + 1) %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+                <a class="page-link" href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}page={{ p }}" data-no-loading>{{ p }}</a>
+            </li>
+            {% endfor %}
+            {% if page < total_pages %}
+            <li class="page-item">
+                <a class="page-link" href="{{ base_filter_qs }}{% if '?' in base_filter_qs %}&{% else %}?{% endif %}page={{ page + 1 }}" data-no-loading>›</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">›</span></li>
+            {% endif %}
+        </ul>
+        <p class="text-center text-muted small mb-0">{{ total_count }} documento{{ 's' if total_count != 1 }} · página {{ page }} de {{ total_pages }}</p>
+    </nav>
     {% endif %}
 
 {% endif %}
@@ -1227,7 +1336,7 @@ function openInvPanel(id) {
     panelBody.innerHTML = '';
     if (loading) { panelBody.appendChild(loading); loading.style.display = ''; }
     offcanvas.show();
-    var url = {{ url_for('faturas.invoice_panel', invoice_id=0)|tojson }}.replace('/0/panel', '/' + id + '/panel');
+    var url = {{ _panel_base_url|tojson }}.replace('/0/panel', '/' + id + '/panel');
     var _ru = encodeURIComponent(window.location.pathname + window.location.search);
     fetch(url + '?return_url=' + _ru, { credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
@@ -1963,6 +2072,27 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 })();
+{% if scope == 'compras' %}
+function setInvStore(sel) {
+    var id = sel.dataset.invId;
+    var origValue = sel.dataset.original || '';
+    sel.disabled = true;
+    fetch('{{ _inv_api_prefix }}/' + id + '/set_store', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({store_id: sel.value ? parseInt(sel.value, 10) : null})
+    }).then(function(r) { return r.json(); })
+      .then(function(data) {
+        sel.disabled = false;
+        if (data.ok) { sel.dataset.original = sel.value; }
+        else { sel.value = origValue; }
+    }).catch(function() {
+        sel.disabled = false;
+        sel.value = origValue;
+    });
+}
+{% endif %}
 function docSearchClear() {
     var inp = document.getElementById('doc-search-inp');
     if (inp) inp.value = '';
@@ -1977,7 +2107,7 @@ function docSearchClear() {
 <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pt.js"></script>
 <script>
 (function() {
-    var SET_DATE_URL_TPL = '{{ url_for("faturas.index") }}'.replace(/\/$/, '') + '/SET_ID/set-paid-date';
+    var SET_DATE_URL_TPL = {{ _paid_date_url_tpl | tojson }};
 
     document.querySelectorAll('.fin-paid-date-input').forEach(function(inp) {
         var invId = inp.dataset.invId;
