@@ -9,7 +9,7 @@ import psycopg2
 
 from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, session, send_file, jsonify)
-from flask_app.auth import perm_required
+from flask_app.auth import perm_required, any_perm_required
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
@@ -1444,7 +1444,7 @@ def registar_stock(invoice_id: int):
 # ── Edit ───────────────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/edit', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_financeiro', 'acesso_compras')
 def edit(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:

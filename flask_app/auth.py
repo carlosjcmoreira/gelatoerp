@@ -1,4 +1,4 @@
-from flask import session, redirect, url_for
+from flask import session, redirect, url_for, flash, request
 from functools import wraps
 
 
@@ -29,6 +29,32 @@ def perm_required(perm):
                 return redirect(url_for('auth.login'))
             user = session['user']
             if not _has_perm(user, perm):
+                if request.method == 'POST':
+                    flash('Não tens permissão para realizar esta acção.', 'danger')
+                return redirect(url_for('home.index'))
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
+def any_perm_required(*perms):
+    """Decorator that grants access when the user has ANY of the listed permissions.
+
+    Usage::
+
+        @any_perm_required('acesso_financeiro', 'acesso_compras')
+        def my_view():
+            ...
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if 'user' not in session:
+                return redirect(url_for('auth.login'))
+            user = session['user']
+            if not any(_has_perm(user, p) for p in perms):
+                if request.method == 'POST':
+                    flash('Não tens permissão para realizar esta acção.', 'danger')
                 return redirect(url_for('home.index'))
             return f(*args, **kwargs)
         return decorated
