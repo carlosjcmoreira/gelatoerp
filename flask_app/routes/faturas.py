@@ -72,7 +72,7 @@ def _panel_redirect(invoice_id: int):
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/dashboard')
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — financial dashboard
 def dashboard():
     from db.faturas import get_invoices_type_totals, get_pending_installments
     today = date.today()
@@ -129,7 +129,7 @@ def dashboard():
 # ── Index ──────────────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/')
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — invoice listing
 def index():
     from urllib.parse import urlencode
     view = request.args.get('view', 'documento')
@@ -535,7 +535,7 @@ def _get_user_saved_views() -> list:
 
 
 @faturas_bp.route('/views', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — save named filter view
 def save_view_endpoint():
     """POST /financeiro/faturas/views — persist a named filter view."""
     user_id = session.get('user', {}).get('username', '')
@@ -555,7 +555,7 @@ def save_view_endpoint():
 
 
 @faturas_bp.route('/views/<int:view_id>', methods=['DELETE'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — delete own saved view
 def delete_view_endpoint(view_id):
     """DELETE /financeiro/faturas/views/<id> — remove a saved view owned by current user."""
     user_id = session.get('user', {}).get('username', '')
@@ -636,7 +636,7 @@ def _get_bulk_allowed_statuses() -> set:
 
 
 @faturas_bp.route('/bulk', methods=['POST'])
-@perm_required('acesso_gestor')
+@perm_required('acesso_gestor')  # intentionally restricted — bulk ops include status changes and deletion
 def bulk_action():
     ids = request.form.getlist('ids', type=int)
     action = request.form.get('action', '')
@@ -747,7 +747,7 @@ def bulk_action():
 # ── Registar Documento (unified entry: manual + OCR channels) ──────────────────
 
 @faturas_bp.route('/registar', methods=['GET', 'POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — register new invoice (manual entry)
 def registar():
     """Unified document registration: manual entry, PDF upload, or photo channel."""
 
@@ -937,7 +937,7 @@ def registar():
 # ── Upload & OCR ───────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/upload', methods=['GET', 'POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — upload PDF / OCR invoice
 def upload():
     stores = get_stores_list()
     subfolders = ONEDRIVE_SUBFOLDERS
@@ -1008,7 +1008,7 @@ def upload():
 # ── Review draft (GET) ─────────────────────────────────────────────────────────
 
 @faturas_bp.route('/review/<int:invoice_id>')
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — review OCR draft before saving
 def review(invoice_id):
     inv = get_invoice(invoice_id)
     if not inv:
@@ -1072,7 +1072,7 @@ def review(invoice_id):
 # ── Save after review ──────────────────────────────────────────────────────────
 
 @faturas_bp.route('/save', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — save reviewed draft
 def save():
     invoice_id = request.form.get('invoice_id', '').strip()
     if not invoice_id:
@@ -1132,7 +1132,7 @@ def save():
 # ── Cancel draft ───────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/cancel_draft/<int:invoice_id>')
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — discard OCR draft
 def cancel_draft(invoice_id):
     inv = get_invoice(invoice_id)
     if inv and inv.get('status') == 'draft':
@@ -1147,7 +1147,7 @@ def cancel_draft(invoice_id):
 # ── Detail ─────────────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>')
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — invoice detail page
 def detail(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:
@@ -1194,7 +1194,7 @@ def detail(invoice_id: int):
 # ── Invoice cost-center allocation management ────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/centros-custo', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — add/remove cost-centre allocations
 def gestao_centros_custo(invoice_id: int):
     """Add or remove a cost-center allocation for an invoice."""
     inv = get_invoice(invoice_id)
@@ -1254,7 +1254,7 @@ def gestao_centros_custo(invoice_id: int):
 # ── Invoice panel (offcanvas fragment) ──────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/panel')
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — panel fragment shown to financial/compras users
 def invoice_panel(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:
@@ -1305,11 +1305,10 @@ def invoice_panel(invoice_id: int):
     )
 
 
-
 # ── Inline paid-date update ────────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/set-paid-date', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — inline paid-date correction
 def set_paid_date(invoice_id: int):
     from datetime import datetime as _dt
     inv = get_invoice(invoice_id)
@@ -1335,7 +1334,7 @@ def set_paid_date(invoice_id: int):
 # ── Invoice Linhas (line items) ────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/linha', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — manage invoice line items
 def linha(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:
@@ -1408,7 +1407,7 @@ def linha(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/registar-stock', methods=['POST'])
-@perm_required('acesso_gestor')
+@perm_required('acesso_gestor')  # intentionally restricted — stock entries affect inventory; requires full gestor access
 def registar_stock(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:
@@ -1449,7 +1448,7 @@ def registar_stock(invoice_id: int):
 # ── Edit ───────────────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/edit', methods=['POST'])
-@any_perm_required('acesso_financeiro', 'acesso_compras')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — edit invoice fields
 def edit(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:
@@ -1544,7 +1543,7 @@ def edit(invoice_id: int):
 # ── Quick actions ──────────────────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/confirmar', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — schedule/confirm payment date
 def confirmar(invoice_id: int):
     confirmed_date = _parse_date(request.form.get('confirmed_date', ''))
     if not confirmed_date:
@@ -1587,7 +1586,7 @@ def confirmar(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/pagar', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — mark invoice as paid
 def pagar(invoice_id: int):
     current_user = session.get('user', {}).get('username', 'system')
 
@@ -1675,7 +1674,7 @@ def pagar(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/installment/<int:installment_id>/pagar', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — pay individual installment
 def installment_pagar(invoice_id: int, installment_id: int):
     paid_date = _parse_date(request.form.get('paid_date', ''))
     if not paid_date:
@@ -1696,7 +1695,7 @@ def installment_pagar(invoice_id: int, installment_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/arquivar-onedrive', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — archive PDF to OneDrive
 def arquivar_onedrive(invoice_id: int):
     inv = get_invoice(invoice_id)
     if not inv:
@@ -1726,7 +1725,7 @@ def arquivar_onedrive(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/eliminar', methods=['POST'])
-@perm_required('acesso_gestor')
+@perm_required('acesso_gestor')  # intentionally restricted — deletion requires full gestor access
 def eliminar(invoice_id: int):
     _del_user = session.get('user', {}).get('username', 'sistema')
     delete_invoice(invoice_id, deleted_by=_del_user)
@@ -1735,7 +1734,7 @@ def eliminar(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/set-categoria-custo', methods=['POST'])
-@perm_required('acesso_financeiro')
+@perm_required('acesso_financeiro')  # min: acesso_financeiro — quick category assignment from cash-flow map
 def set_categoria_custo(invoice_id: int):
     """Quick-assign categoria_custo_id for an invoice (used inline from the cash-flow map)."""
     data = request.get_json(silent=True) or {}
@@ -1757,7 +1756,7 @@ def set_categoria_custo(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/history')
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — audit timeline (read-only JSON)
 def invoice_history(invoice_id: int):
     """Return the complete audit timeline for a document — including deleted ones.
 
@@ -1804,7 +1803,7 @@ def invoice_history(invoice_id: int):
 # ── PDF download / attach ───────────────────────────────────────────────────────
 
 @faturas_bp.route('/<int:invoice_id>/attach-pdf', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — attach PDF evidence
 def attach_pdf(invoice_id: int):
     from db.faturas import save_invoice_pdf as _save_pdf
     inv = get_invoice(invoice_id)
@@ -1828,7 +1827,7 @@ def attach_pdf(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/upload-chunk', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — chunked PDF upload
 def upload_chunk(invoice_id: int):
     import re, shutil
     upload_id = request.form.get('upload_id', '')
@@ -1856,7 +1855,7 @@ def upload_chunk(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/finalize-upload', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — finalize chunked upload
 def finalize_upload(invoice_id: int):
     import re, glob, shutil
     from db.faturas import save_invoice_pdf as _save_pdf
@@ -1919,7 +1918,7 @@ def _detect_file_mimetype(data, filename: str) -> str:
 
 
 @faturas_bp.route('/<int:invoice_id>/pdf')
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — view/download PDF evidence
 def download_pdf(invoice_id: int):
     pdf_data, pdf_filename = get_invoice_pdf(invoice_id)
     if not pdf_data:
@@ -1942,11 +1941,19 @@ def download_pdf(invoice_id: int):
 # ── Suppliers management ───────────────────────────────────────────────────────
 
 @faturas_bp.route('/fornecedores', methods=['GET', 'POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — supplier list/create/edit; destructive actions guarded below
 def fornecedores():
     stores = get_stores_list()
     if request.method == 'POST':
         action = request.form.get('action', '')
+
+        # Destructive / admin-only actions: require acesso_gestor
+        _ADMIN_ONLY_ACTIONS = {'delete', 'merge', 'bulk_merge', 'backfill', 'normalise', 'rename_variant'}
+        if action in _ADMIN_ONLY_ACTIONS:
+            _u = session.get('user', {})
+            if not _u.get('acesso_gestor'):
+                flash('Não tens permissão para realizar esta acção.', 'danger')
+                return redirect(url_for('faturas.fornecedores'))
 
         if action == 'save':
             name = request.form.get('name', '').strip()
@@ -2127,7 +2134,7 @@ def fornecedores():
 
 
 @faturas_bp.route('/fornecedores/quick', methods=['POST'])
-@perm_required('acesso_gestor')
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — quick supplier creation from panel modal
 def fornecedores_quick():
     """AJAX endpoint: quick supplier creation from the registar form modal."""
     name = request.form.get('name', '').strip()

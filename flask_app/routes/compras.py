@@ -76,7 +76,7 @@ def _get_username():
 
 
 @compras_bp.route('/')
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — module landing page
 def index():
     from db.tiles import get_tile_visibility, seed_tile_config, get_tile_labels, get_tile_icons, get_module_labels
     seed_tile_config('compras', [{'id': t['id'], 'label': t['label']} for t in TABS])
@@ -95,6 +95,7 @@ def index():
 
 @compras_bp.route('/faturas')
 @any_perm_required('acesso_financeiro', 'acesso_compras')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — invoice listing
 def faturas():
     from datetime import date as _date, datetime as _datetime
 
@@ -341,7 +342,7 @@ def faturas():
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/set_status', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — inline status change
 def set_invoice_status(invoice_id: int):
     from flask import jsonify
     from datetime import date as _date
@@ -366,7 +367,7 @@ def set_invoice_status(invoice_id: int):
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/set_store', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — inline store assignment
 def set_invoice_store(invoice_id: int):
     from flask import jsonify
     data = request.get_json(silent=True) or {}
@@ -388,7 +389,7 @@ def set_invoice_store(invoice_id: int):
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/set_paid_date', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — inline paid-date edit
 def set_invoice_paid_date(invoice_id: int):
     from datetime import datetime as _datetime
     data = request.get_json(silent=True) or {}
@@ -419,7 +420,7 @@ def _safe_return_url(raw: str) -> str:
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/panel')
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — slide-over panel view
 def invoice_panel(invoice_id: int):
     from datetime import date as _date
     from db.contabilidade import (
@@ -481,7 +482,7 @@ def _detect_file_mimetype(data, filename: str) -> str:
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/pdf')
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — view/download PDF evidence
 def download_pdf(invoice_id: int):
     pdf_data, pdf_filename = get_invoice_pdf(invoice_id)
     if not pdf_data:
@@ -501,7 +502,7 @@ def download_pdf(invoice_id: int):
 
 
 @compras_bp.route('/review-draft/<int:invoice_id>', methods=['GET', 'POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — review and submit OCR draft
 def review_draft(invoice_id):
     inv = get_invoice(invoice_id)
     if not inv or inv['status'] != 'draft':
@@ -745,7 +746,7 @@ def review_draft(invoice_id):
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/marcar-paga', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — record payment
 def marcar_paga(invoice_id):
     inv = get_invoice(invoice_id)
     if not inv or inv['status'] == 'paid':
@@ -778,7 +779,7 @@ def marcar_paga(invoice_id):
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/attach-pdf', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — attach PDF evidence
 def attach_pdf(invoice_id: int):
     back = request.form.get('_return_url', '').strip() or url_for('compras.faturas')
     inv = get_invoice(invoice_id)
@@ -802,7 +803,7 @@ def attach_pdf(invoice_id: int):
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/upload-chunk', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — chunked PDF upload
 def upload_chunk(invoice_id: int):
     import re, shutil
     upload_id = request.form.get('upload_id', '')
@@ -830,7 +831,7 @@ def upload_chunk(invoice_id: int):
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/finalize-upload', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — finalize chunked upload
 def finalize_upload(invoice_id: int):
     import re, glob, shutil
     upload_id = request.form.get('upload_id', '')
@@ -867,7 +868,7 @@ def finalize_upload(invoice_id: int):
 
 
 @compras_bp.route('/artigos', methods=['GET', 'POST'])
-@perm_required('acesso_administrativo')
+@perm_required('acesso_administrativo')  # intentionally admin-only — supply-article catalogue config
 def artigos():
     if request.method == 'POST':
         action = request.form.get('action')
@@ -903,7 +904,7 @@ def artigos():
 
 
 @compras_bp.route('/nova-fatura/upload-chunk', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — chunked upload for new invoice
 def nova_fatura_upload_chunk():
     import re, shutil
     upload_id = request.form.get('upload_id', '')
@@ -931,7 +932,7 @@ def nova_fatura_upload_chunk():
 
 
 @compras_bp.route('/nova-fatura/finalize-upload', methods=['POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — finalize upload for new invoice
 def nova_fatura_finalize_upload():
     import re, glob, shutil
     upload_id = request.form.get('upload_id', '')
@@ -967,7 +968,7 @@ def nova_fatura_finalize_upload():
 
 
 @compras_bp.route('/nova-fatura', methods=['GET', 'POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — register new invoice (manual/OCR/photo)
 def nova_fatura():
     if request.method == 'POST':
         channel = request.form.get('channel', 'manual')
@@ -1156,7 +1157,7 @@ def nova_fatura():
 
 
 @compras_bp.route('/criar-ordem', methods=['GET', 'POST'])
-@perm_required('acesso_administrativo')
+@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — create stock transfer order
 def criar_ordem():
     if request.method == 'POST':
         username = session.get('user', {}).get('username', '')
