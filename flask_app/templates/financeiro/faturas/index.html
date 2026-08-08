@@ -99,6 +99,38 @@
 
 {% if view == 'fornecedor' %}
     <!-- ── Por Fornecedor view ────────────────────────────────────────────── -->
+    <script>
+    /* Persist forn_status filter preference across visits (localStorage) */
+    (function () {
+      var LS_KEY = 'forn_status_pref';
+      var params = new URLSearchParams(window.location.search);
+      /* If view=fornecedor arrived without an explicit forn_status param,
+         apply the last saved preference before anything renders. */
+      if (!params.has('forn_status')) {
+        var saved = localStorage.getItem(LS_KEY);
+        if (saved) {
+          params.set('forn_status', saved);
+          window.location.replace('?' + params.toString());
+          /* Halt execution so the current (un-preferred) page doesn't render. */
+          document.write('');
+          return;
+        }
+      }
+      /* Save preference whenever the select changes. */
+      document.addEventListener('DOMContentLoaded', function () {
+        var sel = document.querySelector('select[name="forn_status"]');
+        if (sel) {
+          sel.addEventListener('change', function () {
+            if (this.value) {
+              localStorage.setItem(LS_KEY, this.value);
+            } else {
+              localStorage.removeItem(LS_KEY);
+            }
+          });
+        }
+      });
+    })();
+    </script>
     <p class="text-muted small mb-2">Todos os documentos agrupados por fornecedor.</p>
 
     <!-- Status filter bar -->
@@ -116,7 +148,8 @@
                 <option value="all" {% if forn_status == 'all' %}selected{% endif %}>🗂 Todos os estados</option>
             </select>
             {% if forn_status and forn_status != '' %}
-            <a href="{{ url_for('faturas.index', view='fornecedor') }}" class="btn btn-outline-secondary btn-sm">✕ Repor</a>
+            <a href="{{ url_for('faturas.index', view='fornecedor') }}" class="btn btn-outline-secondary btn-sm"
+               onclick="localStorage.removeItem('forn_status_pref')">✕ Repor</a>
             {% endif %}
             <span class="text-muted small ms-1">{{ grupos|length }} fornecedor{{ 'es' if grupos|length != 1 }}</span>
         </div>
