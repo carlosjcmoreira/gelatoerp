@@ -4,7 +4,10 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
 
-    <h5 class="mb-4">🔄 Débitos Diretos</h5>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h5 class="mb-0">♻️ Custos Recorrentes</h5>
+        <button class="btn btn-primary btn-sm" id="btnAdd">+ Adicionar</button>
+    </div>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
@@ -17,258 +20,458 @@
     {% endif %}
     {% endwith %}
 
-    {# ── Lista de débitos recorrentes ──────────────────────────────────────── #}
-    <div class="card mb-3">
-        <div class="card-header fw-semibold" style="font-size:0.85rem;">Débitos Recorrentes</div>
-        <div class="card-body">
-            <p class="text-muted mb-3" style="font-size:0.82rem;">
-                Encargos fixos mensais com data de débito conhecida (rendas, seguros, subscrições, etc.).
-            </p>
-            <form method="post" id="formDebitos">
-                <input type="hidden" name="action" value="save_debitos">
-                <div class="row g-2 mb-2 d-none d-sm-flex" style="font-size:0.75rem;">
-                    <div class="col-4 text-muted fw-semibold">Descrição</div>
-                    <div class="col-2 text-muted fw-semibold">Valor (€)</div>
-                    <div class="col-1 text-muted fw-semibold">Dia</div>
-                    <div class="col-4 text-muted fw-semibold">Centro de Custo</div>
-                    <div class="col-1"></div>
+    {% if entries %}
+    <div id="entriesAccordion">
+        {% for e in entries %}
+        <div class="card mb-2 shadow-sm">
+            <div class="card-header d-flex align-items-center py-2 px-3 gap-2"
+                 style="background:var(--bs-body-bg)">
+
+                {# ── Clickable collapse trigger ──────────────────────────── #}
+                <div class="flex-grow-1 pe-2" style="cursor:pointer"
+                     data-bs-toggle="collapse"
+                     data-bs-target="#body-{{ e.id }}"
+                     aria-expanded="false"
+                     aria-controls="body-{{ e.id }}">
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="fw-semibold" style="font-size:.9rem">{{ e.supplier_name }}</span>
+
+                        {% if e.tipologia == 'fixo' %}
+                        <span class="badge bg-primary" style="font-size:.68rem">Fixo</span>
+                        {% else %}
+                        <span class="badge bg-info text-dark" style="font-size:.68rem">Variável</span>
+                        {% endif %}
+
+                        <span class="badge bg-secondary bg-opacity-75" style="font-size:.68rem">
+                            {{ frequencia_labels.get(e.frequencia, e.frequencia) }}
+                        </span>
+
+                        {% if e.next_due %}
+                        <span class="small text-muted">
+                            → {{ e.next_due.strftime('%d/%m/%Y') }}
+                        </span>
+                        {% endif %}
+
+                        {% if not e.ativo %}
+                        <span class="badge bg-warning text-dark" style="font-size:.65rem">Inativo</span>
+                        {% endif %}
+
+                        {% if e.valor %}
+                        <span class="fw-semibold text-success ms-auto" style="font-size:.9rem">
+                            {{ '%.2f'|format(e.valor|float) }}€
+                        </span>
+                        {% else %}
+                        <span class="text-muted fst-italic ms-auto small">Variável</span>
+                        {% endif %}
+                    </div>
+                    {% if e.centro_custo_name %}
+                    <div class="small text-muted mt-1" style="font-size:.75rem">
+                        🏷 {{ e.centro_custo_name }}
+                    </div>
+                    {% endif %}
+                    {% if e.notas %}
+                    <div class="small text-muted mt-1" style="font-size:.75rem">
+                        {{ e.notas }}
+                    </div>
+                    {% endif %}
                 </div>
-                <div id="debitos-container">
-                    {% for dd in debitos_directos %}
-                    <div class="row g-2 mb-2 debito-row">
-                        <div class="col-4">
-                            <input type="text" class="form-control form-control-sm" name="dd_label"
-                                   placeholder="Descrição" value="{{ dd.label }}">
+
+                {# ── Action buttons ─────────────────────────────────────── #}
+                <div class="d-flex gap-1 flex-shrink-0">
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm py-0 px-2"
+                            title="Editar"
+                            data-entry='{{ e|tojson }}'
+                            data-entry-date="{{ e.data_cobranca_str }}"
+                            onclick="editEntry(this)">✏️</button>
+                    <button type="button"
+                            class="btn btn-outline-danger btn-sm py-0 px-2"
+                            title="Eliminar"
+                            onclick="confirmDelete({{ e.id }}, '{{ e.supplier_name|e }}')">🗑</button>
+                </div>
+            </div>
+
+            {# ── Collapse body: last 5 invoices ─────────────────────────── #}
+            <div class="collapse" id="body-{{ e.id }}"
+                 data-supplier-id="{{ e.supplier_id }}"
+                 data-entry-id="{{ e.id }}">
+                <div class="card-body py-2 px-3 border-top"
+                     id="invoices-pane-{{ e.id }}">
+                    <div class="text-muted small py-1">
+                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                        A carregar faturas…
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="text-center text-muted py-5">
+        <p class="mb-1 fs-5">♻️</p>
+        <p class="mb-1">Nenhum custo recorrente registado.</p>
+        <p class="small">Clique em <strong>+ Adicionar</strong> para começar.</p>
+    </div>
+    {% endif %}
+
+</div>
+
+{# ══════════════════════════════════════════════════════════════════════════
+   Add / Edit Modal
+══════════════════════════════════════════════════════════════════════════ #}
+<div class="modal fade" id="modalAdd" tabindex="-1" aria-labelledby="modalAddTitle">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" id="formAdd">
+                <input type="hidden" name="action"   id="fAction"   value="create">
+                <input type="hidden" name="entry_id" id="fEntryId"  value="">
+
+                <div class="modal-header py-3">
+                    <h6 class="modal-title fw-semibold" id="modalAddTitle">Novo Custo Recorrente</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body" style="font-size:.875rem">
+
+                    {# Fornecedor #}
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">
+                            Fornecedor <span class="text-danger">*</span>
+                        </label>
+                        <select class="form-select form-select-sm" name="supplier_id"
+                                id="fSupplier" required onchange="onParamChange()">
+                            <option value="">— Selecionar fornecedor —</option>
+                            {% for s in suppliers %}
+                            <option value="{{ s.id }}">{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# Tipologia + Frequência #}
+                    <div class="row g-3 mb-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">
+                                Tipologia <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select form-select-sm" name="tipologia"
+                                    id="fTipologia" required onchange="onTipologiaChange()">
+                                <option value="">—</option>
+                                <option value="fixo">Fixo</option>
+                                <option value="variavel">Variável</option>
+                            </select>
                         </div>
-                        <div class="col-2">
-                            <div class="input-group input-group-sm">
-                                <input type="number" class="form-control form-control-sm" name="dd_valor"
-                                       placeholder="0.00" value="{{ dd.valor_eur }}" step="0.01" min="0">
-                                <span class="input-group-text">€</span>
-                            </div>
-                        </div>
-                        <div class="col-1">
-                            <input type="number" class="form-control form-control-sm" name="dd_dia"
-                                   placeholder="Dia" value="{{ dd.dia_debito }}" min="1" max="31">
-                        </div>
-                        <div class="col-4">
-                            <select class="form-select form-select-sm" name="dd_centro_custo">
-                                <option value="">— centro de custo —</option>
-                                {% for sf in onedrive_subfolders %}
-                                <option value="{{ sf }}" {% if dd.get('centro_custo') == sf %}selected{% endif %}>{{ sf }}</option>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">
+                                Frequência <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-select form-select-sm" name="frequencia"
+                                    id="fFrequencia" required onchange="onParamChange()">
+                                <option value="">—</option>
+                                {% for val, label in frequencia_labels.items() %}
+                                <option value="{{ val }}">{{ label }}</option>
                                 {% endfor %}
                             </select>
                         </div>
-                        <div class="col-1">
-                            <button type="button" class="btn btn-outline-danger btn-sm w-100"
-                                    onclick="this.closest('.debito-row').remove()">✕</button>
-                        </div>
                     </div>
-                    {% endfor %}
+
+                    {# Data de cobrança #}
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">
+                            Data de Cobrança <span class="text-danger">*</span>
+                        </label>
+                        <input type="date" class="form-control form-control-sm"
+                               name="data_cobranca" id="fDataCobranca" required>
+                    </div>
+
+                    {# Centro de Custo #}
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Centro de Custo</label>
+                        <select class="form-select form-select-sm" name="centro_custo_id"
+                                id="fCentroCusto">
+                            <option value="">— Sem centro de custo —</option>
+                            {% for cc in cost_centers %}
+                            <option value="{{ cc.id }}">{{ cc.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    {# Valor — label and helper text change with tipologia #}
+                    <div class="mb-3" id="valorRow">
+                        <label class="form-label fw-semibold" id="valorLabel">
+                            Valor (€) <span class="text-danger" id="valorRequired">*</span>
+                        </label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control form-control-sm"
+                                   name="valor" id="fValor"
+                                   placeholder="0.00" step="0.01" min="0">
+                            <span class="input-group-text">€</span>
+                        </div>
+                        <div class="form-text text-muted" id="valorHint" style="display:none">
+                            Valor estimado com base nas faturas deste fornecedor.
+                        </div>
+                        <div class="form-text" id="sugestaoText"></div>
+                    </div>
+
+                    {# Notas #}
+                    <div class="mb-1">
+                        <label class="form-label fw-semibold">Notas</label>
+                        <textarea class="form-control form-control-sm"
+                                  name="notas" id="fNotas" rows="2"
+                                  placeholder="Observações opcionais…"></textarea>
+                    </div>
+
                 </div>
-                <div class="d-flex gap-2 mt-2 mb-4">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="addDebito">+ Adicionar linha</button>
-                    <button type="submit" class="btn btn-primary btn-sm">Guardar débitos</button>
+
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
                 </div>
             </form>
         </div>
     </div>
+</div>
 
-    {# ── Upload de factura de serviço público ─────────────────────────────── #}
-    <div class="card mb-3">
-        <div class="card-header fw-semibold" style="font-size:0.85rem;">📄 Importar factura de serviço público</div>
-        <div class="card-body">
-            <p class="text-muted mb-3" style="font-size:0.82rem;">
-                Carregue uma factura de electricidade, água, gás ou telecomunicações em PDF.
-                O sistema irá extrair o valor e calcular uma estimativa mensal para pré-preencher um novo débito.
-            </p>
-            <div class="mb-3">
-                <label class="form-label form-label-sm fw-semibold">Factura PDF</label>
-                <input type="file" class="form-control form-control-sm" id="invoicePdfInput" accept=".pdf">
-            </div>
-            <button type="button" class="btn btn-primary btn-sm" id="btnAnalisarPdf">
-                🔍 Analisar factura
-            </button>
-
-            <div id="ocrLoading" class="mt-3 d-none">
-                <div class="d-flex align-items-center gap-2 text-muted" style="font-size:0.82rem;">
-                    <div class="spinner-border spinner-border-sm" role="status"></div>
-                    A analisar o PDF com IA...
+{# ══════════════════════════════════════════════════════════════════════════
+   Delete confirmation modal
+══════════════════════════════════════════════════════════════════════════ #}
+<div class="modal fade" id="modalDelete" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <form method="post">
+                <input type="hidden" name="action"   value="delete">
+                <input type="hidden" name="entry_id" id="deleteEntryId">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title fw-semibold">Eliminar custo recorrente</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-            </div>
-
-            <div id="ocrError" class="mt-3 d-none">
-                <div class="alert alert-danger py-2 px-3" style="font-size:0.82rem;" id="ocrErrorMsg"></div>
-            </div>
-
-            <div id="ocrResult" class="mt-3 d-none">
-                <div class="card bg-primary bg-opacity-10 border-primary border-opacity-25">
-                    <div class="card-body py-3 px-3">
-                        <div class="fw-semibold mb-2" style="font-size:0.85rem;">Sugestão extraída</div>
-                        <div class="row g-2 mb-3" style="font-size:0.82rem;">
-                            <div class="col-sm-6">
-                                <span class="text-muted">Fornecedor:</span>
-                                <span class="fw-semibold ms-1" id="ocrFornecedor"></span>
-                            </div>
-                            <div class="col-sm-6">
-                                <span class="text-muted">Valor facturado:</span>
-                                <span class="fw-semibold ms-1" id="ocrValorFact"></span>
-                            </div>
-                            <div class="col-sm-6">
-                                <span class="text-muted">Período:</span>
-                                <span class="ms-1" id="ocrPeriodo"></span>
-                            </div>
-                            <div class="col-sm-6">
-                                <span class="text-muted">Estimativa mensal:</span>
-                                <span class="fw-bold text-primary ms-1" id="ocrEstMensal"></span>
-                            </div>
-                        </div>
-                        <div class="fw-semibold mb-2" style="font-size:0.83rem;">Adicionar como débito directo</div>
-                        <div class="row g-2">
-                            <div class="col-4">
-                                <input type="text" class="form-control form-control-sm" id="suggLabel" placeholder="Descrição">
-                            </div>
-                            <div class="col-2">
-                                <div class="input-group input-group-sm">
-                                    <input type="number" class="form-control form-control-sm" id="suggValor"
-                                           placeholder="0.00" step="0.01" min="0">
-                                    <span class="input-group-text">€</span>
-                                </div>
-                            </div>
-                            <div class="col-1">
-                                <input type="number" class="form-control form-control-sm" id="suggDia"
-                                       placeholder="Dia" min="1" max="31" value="1">
-                            </div>
-                            <div class="col-3">
-                                <select class="form-select form-select-sm" id="suggCentro">
-                                    <option value="">— centro de custo —</option>
-                                    {% for sf in onedrive_subfolders %}
-                                    <option value="{{ sf }}">{{ sf }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="col-2">
-                                <button type="button" class="btn btn-success btn-sm w-100" id="btnAdicionarSugestao">
-                                    ✓ Adicionar
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+                <div class="modal-body py-3" style="font-size:.875rem">
+                    Tem a certeza que quer eliminar
+                    <strong id="deleteName"></strong>?
+                    Esta acção é irreversível.
                 </div>
-            </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
+                </div>
+            </form>
         </div>
     </div>
-
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-var SUBFOLDERS_OPTIONS = (function() {
-    var opts = '<option value="">— centro de custo —</option>';
-    {% for sf in onedrive_subfolders %}
-    opts += '<option value="{{ sf }}">{{ sf }}</option>';
-    {% endfor %}
-    return opts;
-})();
+/* ── Status badge colours ─────────────────────────────────────────────────── */
+var STATUS_BADGE = {
+    'pago':      'success',
+    'paid':      'success',
+    'pendente':  'warning text-dark',
+    'pending':   'warning text-dark',
+    'vencido':   'danger',
+    'overdue':   'danger',
+    'cancelado': 'secondary',
+    'cancelled': 'secondary',
+};
 
-document.getElementById('addDebito').addEventListener('click', function() {
-    var container = document.getElementById('debitos-container');
-    var row = document.createElement('div');
-    row.className = 'row g-2 mb-2 debito-row';
-    row.innerHTML =
-        '<div class="col-4"><input type="text" class="form-control form-control-sm" name="dd_label" placeholder="Descrição"></div>' +
-        '<div class="col-2"><div class="input-group input-group-sm"><input type="number" class="form-control form-control-sm" name="dd_valor" placeholder="0.00" step="0.01" min="0"><span class="input-group-text">€</span></div></div>' +
-        '<div class="col-1"><input type="number" class="form-control form-control-sm" name="dd_dia" placeholder="Dia" min="1" max="31"></div>' +
-        '<div class="col-4"><select class="form-select form-select-sm" name="dd_centro_custo">' + SUBFOLDERS_OPTIONS + '</select></div>' +
-        '<div class="col-1"><button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="this.closest(\'.debito-row\').remove()">✕</button></div>';
-    container.appendChild(row);
-    row.querySelector('input[name="dd_label"]').focus();
-});
+/* ── Invoice lazy loading ─────────────────────────────────────────────────── */
+var _loaded = {};   // entryId → true once loaded
 
-document.getElementById('btnAnalisarPdf').addEventListener('click', function() {
-    var fileInput = document.getElementById('invoicePdfInput');
-    if (!fileInput.files || !fileInput.files[0]) {
-        alert('Por favor seleccione um ficheiro PDF.');
-        return;
-    }
-    var file = fileInput.files[0];
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-        alert('Apenas ficheiros PDF são suportados.');
-        return;
-    }
+document.querySelectorAll('.collapse[data-supplier-id]').forEach(function(colEl) {
+    colEl.addEventListener('show.bs.collapse', function() {
+        var entryId = colEl.dataset.entryId;
+        if (_loaded[entryId]) return;
+        _loaded[entryId] = true;
 
-    document.getElementById('ocrLoading').classList.remove('d-none');
-    document.getElementById('ocrResult').classList.add('d-none');
-    document.getElementById('ocrError').classList.add('d-none');
+        var supplierId = colEl.dataset.supplierId;
+        var pane = document.getElementById('invoices-pane-' + entryId);
 
-    var formData = new FormData();
-    formData.append('action', 'upload_invoice');
-    formData.append('invoice_pdf', file);
+        fetch('{{ url_for("cashflow.debitos_invoices", supplier_id=0) }}'.replace('/0', '/' + supplierId))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                pane.textContent = '';   // clear spinner
 
-    fetch('{{ url_for("cashflow.debitos") }}', {
-        method: 'POST',
-        body: formData
-    })
-    .then(function(response) { return response.json(); })
-    .then(function(data) {
-        document.getElementById('ocrLoading').classList.add('d-none');
-        if (data.error) {
-            document.getElementById('ocrErrorMsg').textContent = 'Erro: ' + data.error;
-            document.getElementById('ocrError').classList.remove('d-none');
-            return;
-        }
-        document.getElementById('ocrFornecedor').textContent = data.fornecedor || '—';
-        document.getElementById('ocrValorFact').textContent = data.valor_facturado_eur != null
-            ? data.valor_facturado_eur.toFixed(2) + '€' : '—';
-        var periodo = '';
-        if (data.periodo_inicio && data.periodo_fim) {
-            periodo = data.periodo_inicio + ' → ' + data.periodo_fim;
-            if (data.dias_periodo) periodo += ' (' + data.dias_periodo + ' dias)';
-        }
-        document.getElementById('ocrPeriodo').textContent = periodo || '—';
-        var estMensal = data.estimativa_mensal_eur;
-        document.getElementById('ocrEstMensal').textContent = estMensal != null
-            ? estMensal.toFixed(2) + '€/mês' : '—';
+                if (!data || !data.length) {
+                    var msg = document.createElement('p');
+                    msg.className = 'small text-muted py-1 mb-0';
+                    msg.textContent = 'Sem faturas registadas para este fornecedor.';
+                    pane.appendChild(msg);
+                    return;
+                }
 
-        document.getElementById('suggLabel').value = data.fornecedor || '';
-        document.getElementById('suggValor').value = estMensal != null ? estMensal.toFixed(2) : '';
+                /* Build table entirely with DOM APIs — no innerHTML on user data */
+                var table  = document.createElement('table');
+                table.className = 'table table-sm table-hover mb-0';
+                table.style.fontSize = '.8rem';
 
-        document.getElementById('ocrResult').classList.remove('d-none');
-    })
-    .catch(function(err) {
-        document.getElementById('ocrLoading').classList.add('d-none');
-        document.getElementById('ocrErrorMsg').textContent = 'Erro de comunicação: ' + err;
-        document.getElementById('ocrError').classList.remove('d-none');
+                var thead  = table.createTHead();
+                thead.className = 'table-light';
+                var hrow   = thead.insertRow();
+                ['Referência', 'Valor', 'Vencimento', 'Estado'].forEach(function(h, i) {
+                    var th = document.createElement('th');
+                    th.textContent = h;
+                    if (i === 1) th.className = 'text-end';
+                    hrow.appendChild(th);
+                });
+
+                var tbody = table.createTBody();
+                data.forEach(function(inv) {
+                    var tr = tbody.insertRow();
+
+                    /* Referência */
+                    var td1 = tr.insertCell();
+                    td1.className = 'small';
+                    td1.textContent = inv.invoice_number || '—';
+
+                    /* Valor */
+                    var td2 = tr.insertCell();
+                    td2.className = 'small text-end fw-semibold';
+                    td2.textContent = inv.amount_eur != null
+                        ? inv.amount_eur.toLocaleString('pt-PT',
+                            {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '€'
+                        : '—';
+
+                    /* Vencimento */
+                    var td3 = tr.insertCell();
+                    td3.className = 'small text-nowrap';
+                    var dateStr = inv.due_date || inv.issue_date || '';
+                    if (dateStr.length === 10) {
+                        var p = dateStr.split('-');
+                        dateStr = p[2] + '/' + p[1] + '/' + p[0];
+                    }
+                    td3.textContent = dateStr || '—';
+
+                    /* Estado — badge class comes from a hardcoded map, status text via textContent */
+                    var td4 = tr.insertCell();
+                    var badgeEl = document.createElement('span');
+                    var badgeClass = STATUS_BADGE[inv.status] || 'secondary';
+                    badgeEl.className = 'badge bg-' + badgeClass;
+                    badgeEl.style.fontSize = '.65rem';
+                    badgeEl.textContent = inv.status || '—';
+                    td4.appendChild(badgeEl);
+                });
+
+                pane.appendChild(table);
+            })
+            .catch(function() {
+                pane.textContent = '';
+                var errMsg = document.createElement('p');
+                errMsg.className = 'small text-danger py-1 mb-0';
+                errMsg.textContent = 'Erro ao carregar faturas.';
+                pane.appendChild(errMsg);
+            });
     });
 });
 
-document.getElementById('btnAdicionarSugestao').addEventListener('click', function() {
-    var label = document.getElementById('suggLabel').value.trim();
-    var valor = document.getElementById('suggValor').value.trim();
-    var dia = document.getElementById('suggDia').value.trim();
-    var centro = document.getElementById('suggCentro').value;
-    if (!label || !valor) {
-        alert('Preencha a descrição e o valor antes de adicionar.');
-        return;
-    }
-    var container = document.getElementById('debitos-container');
-    var row = document.createElement('div');
-    row.className = 'row g-2 mb-2 debito-row';
-    var selectHtml = '<select class="form-select form-select-sm" name="dd_centro_custo">' + SUBFOLDERS_OPTIONS + '</select>';
-    row.innerHTML =
-        '<div class="col-4"><input type="text" class="form-control form-control-sm" name="dd_label" value="' + label.replace(/"/g, '&quot;') + '"></div>' +
-        '<div class="col-2"><div class="input-group input-group-sm"><input type="number" class="form-control form-control-sm" name="dd_valor" value="' + valor + '" step="0.01" min="0"><span class="input-group-text">€</span></div></div>' +
-        '<div class="col-1"><input type="number" class="form-control form-control-sm" name="dd_dia" value="' + (dia || '1') + '" min="1" max="31"></div>' +
-        '<div class="col-4">' + selectHtml + '</div>' +
-        '<div class="col-1"><button type="button" class="btn btn-outline-danger btn-sm w-100" onclick="this.closest(\'.debito-row\').remove()">✕</button></div>';
-    container.appendChild(row);
-    if (centro) {
-        row.querySelector('select[name="dd_centro_custo"]').value = centro;
-    }
-    document.getElementById('ocrResult').classList.add('d-none');
-    document.getElementById('invoicePdfInput').value = '';
-    row.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+/* ── Modal open (Add button) ──────────────────────────────────────────────── */
+document.getElementById('btnAdd').addEventListener('click', function() {
+    resetModal();
+    new bootstrap.Modal(document.getElementById('modalAdd')).show();
 });
+
+function resetModal() {
+    document.getElementById('fAction').value       = 'create';
+    document.getElementById('fEntryId').value      = '';
+    document.getElementById('modalAddTitle').textContent = 'Novo Custo Recorrente';
+    document.getElementById('fSupplier').value     = '';
+    document.getElementById('fTipologia').value    = '';
+    document.getElementById('fFrequencia').value   = '';
+    document.getElementById('fDataCobranca').value = '';
+    document.getElementById('fCentroCusto').value  = '';
+    document.getElementById('fValor').value        = '';
+    document.getElementById('fNotas').value        = '';
+    document.getElementById('sugestaoText').textContent = '';
+    _applyTipologiaUI('');
+}
+
+/* ── Edit button ──────────────────────────────────────────────────────────── */
+function editEntry(btn) {
+    var e = JSON.parse(btn.dataset.entry);
+    var dateStr = btn.dataset.entryDate || '';
+    resetModal();
+    document.getElementById('fAction').value       = 'update';
+    document.getElementById('fEntryId').value      = e.id;
+    document.getElementById('modalAddTitle').textContent = 'Editar Custo Recorrente';
+    document.getElementById('fSupplier').value     = e.supplier_id  || '';
+    document.getElementById('fTipologia').value    = e.tipologia    || '';
+    document.getElementById('fFrequencia').value   = e.frequencia   || '';
+    document.getElementById('fDataCobranca').value = dateStr;
+    document.getElementById('fCentroCusto').value  = e.centro_custo_id || '';
+    document.getElementById('fValor').value        = e.valor != null ? e.valor : '';
+    document.getElementById('fNotas').value        = e.notas || '';
+    _applyTipologiaUI(e.tipologia || '');
+    new bootstrap.Modal(document.getElementById('modalAdd')).show();
+}
+
+/* ── Tipologia change ─────────────────────────────────────────────────────── */
+function onTipologiaChange() {
+    var tip = document.getElementById('fTipologia').value;
+    _applyTipologiaUI(tip);
+    if (tip === 'variavel') _fetchSugestao();
+}
+
+function _applyTipologiaUI(tip) {
+    var label    = document.getElementById('valorLabel');
+    var required = document.getElementById('valorRequired');
+    var hint     = document.getElementById('valorHint');
+    var input    = document.getElementById('fValor');
+
+    if (tip === 'fixo') {
+        label.firstChild.textContent = 'Valor (€) ';
+        required.style.display = '';
+        hint.style.display = 'none';
+        input.required = true;
+        document.getElementById('sugestaoText').textContent = '';
+    } else if (tip === 'variavel') {
+        label.firstChild.textContent = 'Valor Estimado (€) ';
+        required.style.display = 'none';
+        hint.style.display = '';
+        input.required = false;
+    } else {
+        label.firstChild.textContent = 'Valor (€) ';
+        required.style.display = 'none';
+        hint.style.display = 'none';
+        input.required = false;
+    }
+}
+
+/* ── Param change (supplier or frequency) ────────────────────────────────── */
+function onParamChange() {
+    var tip = document.getElementById('fTipologia').value;
+    if (tip === 'variavel') _fetchSugestao();
+}
+
+function _fetchSugestao() {
+    var suppId = document.getElementById('fSupplier').value;
+    var freq   = document.getElementById('fFrequencia').value;
+    var txt    = document.getElementById('sugestaoText');
+    if (!suppId || !freq) return;
+    txt.textContent = 'A calcular sugestão…';
+    txt.className   = 'form-text text-muted';
+    fetch('{{ url_for("cashflow.debitos_sugestao_valor") }}?supplier_id=' + suppId + '&frequencia=' + freq)
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.valor != null) {
+                document.getElementById('fValor').value = d.valor.toFixed(2);
+                txt.textContent = 'Média calculada a partir de ' + d.n_periodos + ' período(s).';
+                txt.className   = 'form-text text-success';
+            } else {
+                txt.textContent = 'Sem faturas suficientes para sugerir valor.';
+                txt.className   = 'form-text text-muted';
+            }
+        })
+        .catch(function() {
+            txt.textContent = '';
+        });
+}
+
+/* ── Delete confirm ───────────────────────────────────────────────────────── */
+function confirmDelete(entryId, name) {
+    document.getElementById('deleteEntryId').value = entryId;
+    document.getElementById('deleteName').textContent = name;
+    new bootstrap.Modal(document.getElementById('modalDelete')).show();
+}
 </script>
 {% endblock %}

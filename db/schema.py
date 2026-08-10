@@ -4356,6 +4356,57 @@ def run_migrations_supplier_entidade_governamental():
 _LOCK_SUPPLIER_CENTRO_CUSTO = 202702
 
 
+_LOCK_CUSTOS_RECORRENTES = 202620
+
+
+def run_migrations_custos_recorrentes():
+    """Create the custos_recorrentes table (replaces avencas + debitos_directos JSON).
+
+    Advisory lock 202620.  Runs after run_migrations_supplier_centro_custo so
+    the suppliers and cost_centers tables are guaranteed to exist.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_CUSTOS_RECORRENTES,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_custos_recorrentes: lock held, skipping")
+            return
+        try:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS custos_recorrentes (
+                    id               SERIAL PRIMARY KEY,
+                    supplier_id      INTEGER        NOT NULL REFERENCES suppliers(id) ON DELETE CASCADE,
+                    tipologia        VARCHAR(20)    NOT NULL
+                                     CHECK (tipologia IN ('fixo', 'variavel')),
+                    frequencia       VARCHAR(20)    NOT NULL
+                                     CHECK (frequencia IN ('semanal','quinzenal','mensal',
+                                                           'trimestral','semestral','anual')),
+                    data_cobranca    DATE           NOT NULL,
+                    centro_custo_id  INTEGER        REFERENCES cost_centers(id) ON DELETE SET NULL,
+                    valor            NUMERIC(12,2),
+                    notas            TEXT,
+                    ativo            BOOLEAN        NOT NULL DEFAULT TRUE,
+                    created_at       TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
+                    updated_at       TIMESTAMPTZ    NOT NULL DEFAULT NOW()
+                )
+            """)
+            conn.commit()
+            logger.info("run_migrations_custos_recorrentes: table ready")
+        except Exception as exc:
+            logger.error("run_migrations_custos_recorrentes failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise  # fail loudly — do not start with a missing table
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_CUSTOS_RECORRENTES,))
+                conn.commit()
+            except Exception:
+                pass
+
+
 def run_migrations_supplier_centro_custo():
     """Add centro_custo_id FK to suppliers (default cost centre per supplier).
 

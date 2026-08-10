@@ -34,7 +34,7 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_migrations_stock_gelado_carapinas)
 from db.tiles import run_migrations_tile_config
 from db.pagamentos import run_migrations_tesouraria_manuais
-from db.avencas import run_migrations_avencas
+from db.schema import run_migrations_custos_recorrentes
 from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2, run_migrations_tarefas_v3
 from db.schema import run_migrations_fecho_caixa_audit
 from db.schema import run_migrations_user_audit_log
@@ -162,7 +162,6 @@ def create_app():
         run_backfill_transferencias_eventos()
         run_migrations_batch_id()
         run_migrations_stock_producao_lojas()
-        run_migrations_avencas()
         run_migrations_tarefas()
         run_migrations_tarefas_v2()
         run_migrations_tarefas_v3()
@@ -185,6 +184,9 @@ def create_app():
         run_migrations_invoice_installments()
         run_migrations_supplier_aliases()
         run_migrations_supplier_centro_custo()
+        run_migrations_custos_recorrentes()
+        from db.custos_recorrentes import run_backfill_custos_recorrentes
+        run_backfill_custos_recorrentes()
         run_migrations_normalise_producao_sabores()
         run_migrations_quantidade_kg_to_numeric()
         run_migrations_loja_origem()
@@ -229,7 +231,6 @@ def create_app():
     from flask_app.routes.cashflow import cashflow_bp
     from flask_app.routes.centros_custo import centros_custo_bp
     from flask_app.routes.categorias_custo import categorias_custo_bp
-    from flask_app.routes.avencas import avencas_bp
     from flask_app.routes.tarefas import tarefas_bp
     from flask_app.routes.agente import agente_bp
     from flask_app.routes.admin import admin_bp
@@ -255,7 +256,6 @@ def create_app():
     app.register_blueprint(cashflow_bp, url_prefix='/financeiro/cashflow')
     app.register_blueprint(centros_custo_bp, url_prefix='/financeiro/centros-custo')
     app.register_blueprint(categorias_custo_bp, url_prefix='/financeiro/categorias')
-    app.register_blueprint(avencas_bp, url_prefix='/financeiro/avencas')
     app.register_blueprint(tarefas_bp, url_prefix='/tarefas')
     app.register_blueprint(agente_bp, url_prefix='/agente')
     app.register_blueprint(admin_bp, url_prefix='/admin')

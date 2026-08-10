@@ -7,7 +7,7 @@ from flask_app.auth import perm_required
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from db.cashflow import get_cashflow_config, set_cashflow_config
-from db.faturas import ONEDRIVE_SUBFOLDERS
+from db.faturas import ONEDRIVE_SUBFOLDERS, get_suppliers
 from db.centros_custo import (
     get_colaboradores, get_colaboradores_calculados,
     upsert_colaborador, toggle_colaborador,
@@ -253,143 +253,169 @@ def salarios_irs_preview():
 @cashflow_bp.route('/debitos', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def debitos():
-    if request.method == 'POST':
-        action = request.form.get('action', 'save_debitos')
+    from db.custos_recorrentes import (
+        get_custos_recorrentes, create_custo_recorrente,
+        update_custo_recorrente, delete_custo_recorrente,
+        next_due_date_cr, FREQUENCIA_LABELS, TIPOLOGIA_LABELS,
+    )
+    today = date.today()
 
-        if action == 'save_debitos':
-            labels = request.form.getlist('dd_label')
-            valores = request.form.getlist('dd_valor')
-            dias = request.form.getlist('dd_dia')
-            centros = request.form.getlist('dd_centro_custo')
-            debitos_list = []
-            for lbl, val, dia, cc in zip(labels, valores, dias, centros):
-                lbl = lbl.strip()
-                cc = cc.strip() or None
-                val_str = val.replace(',', '.')
-                try:
-                    valor = float(val_str)
-                    dia_int = int(dia)
-                    if lbl and valor > 0 and 1 <= dia_int <= 31:
-                        debitos_list.append({
-                            'label': lbl,
-                            'valor_eur': valor,
-                            'dia_debito': dia_int,
-                            'centro_custo': cc,
-                        })
-                except (ValueError, TypeError):
-                    pass
-            set_cashflow_config('debitos_directos', json.dumps(debitos_list))
-            flash(f'{len(debitos_list)} débito(s) directo(s) guardado(s).', 'success')
+    _VALID_TIPOLOGIA  = {'fixo', 'variavel'}
+    _VALID_FREQUENCIA = {'semanal', 'quinzenal', 'mensal', 'trimestral', 'semestral', 'anual'}
+
+    def _parse_form():
+        """Parse and validate common form fields. Returns (data_dict, errors_list)."""
+        errors = []
+        try:
+            supplier_id = int(request.form.get('supplier_id', 0))
+            if not supplier_id:
+                raise ValueError
+        except (ValueError, TypeError):
+            supplier_id = None
+            errors.append('Fornecedor é obrigatório.')
+
+        tipologia = request.form.get('tipologia', '').strip()
+        if tipologia not in _VALID_TIPOLOGIA:
+            errors.append('Tipologia inválida.')
+
+        frequencia = request.form.get('frequencia', '').strip()
+        if frequencia not in _VALID_FREQUENCIA:
+            errors.append('Frequência inválida.')
+
+        data_str = request.form.get('data_cobranca', '').strip()
+        try:
+            from datetime import date as _date
+            data_cobranca = _date.fromisoformat(data_str) if data_str else None
+            if not data_cobranca:
+                raise ValueError
+        except ValueError:
+            data_cobranca = None
+            errors.append('Data de cobrança inválida.')
+
+        try:
+            cc_raw = request.form.get('centro_custo_id', '').strip()
+            centro_custo_id = int(cc_raw) if cc_raw else None
+        except (ValueError, TypeError):
+            centro_custo_id = None
+
+        valor = None
+        valor_str = request.form.get('valor', '').replace(',', '.').strip()
+        if valor_str:
+            try:
+                valor = float(valor_str)
+                if valor < 0:
+                    raise ValueError
+            except ValueError:
+                errors.append('Valor inválido.')
+        elif tipologia == 'fixo':
+            errors.append('Valor é obrigatório para custos fixos.')
+
+        notas = request.form.get('notas', '').strip() or None
+
+        return {
+            'supplier_id': supplier_id,
+            'tipologia': tipologia,
+            'frequencia': frequencia,
+            'data_cobranca': data_cobranca,
+            'centro_custo_id': centro_custo_id,
+            'valor': valor,
+            'notas': notas,
+        }, errors
+
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+
+        if action == 'create':
+            data, errors = _parse_form()
+            if errors:
+                for e in errors:
+                    flash(e, 'danger')
+            else:
+                create_custo_recorrente(**data)
+                flash('Custo recorrente criado com sucesso.', 'success')
             return redirect(url_for('cashflow.debitos'))
 
-        elif action == 'upload_invoice':
-            pdf_file = request.files.get('invoice_pdf')
-            if not pdf_file or not pdf_file.filename:
-                return jsonify({'error': 'Nenhum ficheiro enviado.'}), 400
-            if not pdf_file.filename.lower().endswith('.pdf'):
-                return jsonify({'error': 'Apenas ficheiros PDF são suportados.'}), 400
+        elif action == 'update':
             try:
-                pdf_bytes = pdf_file.read()
-                from flask_app.ocr_invoice import _get_anthropic_client
-                import base64
-                client = _get_anthropic_client()
-                if not client:
-                    return jsonify({'error': 'Serviço OCR não disponível.'}), 503
+                entry_id = int(request.form.get('entry_id', 0))
+                if not entry_id:
+                    raise ValueError
+            except (ValueError, TypeError):
+                flash('Entrada inválida.', 'danger')
+                return redirect(url_for('cashflow.debitos'))
+            data, errors = _parse_form()
+            if errors:
+                for e in errors:
+                    flash(e, 'danger')
+            else:
+                update_custo_recorrente(entry_id, **data)
+                flash('Custo recorrente actualizado.', 'success')
+            return redirect(url_for('cashflow.debitos'))
 
-                pdf_b64 = base64.standard_b64encode(pdf_bytes).decode('utf-8')
+        elif action == 'delete':
+            try:
+                entry_id = int(request.form.get('entry_id', 0))
+            except (ValueError, TypeError):
+                entry_id = 0
+            if entry_id:
+                delete_custo_recorrente(entry_id)
+                flash('Custo recorrente eliminado.', 'success')
+            return redirect(url_for('cashflow.debitos'))
 
-                prompt = """Analisa este documento PDF que é uma factura de serviço público (electricidade, água, gás, telecomunicações, etc.).
-Extrai os seguintes campos e devolve APENAS um objeto JSON válido (sem markdown, sem texto extra):
+    # GET
+    raw = get_custos_recorrentes()
+    entries = []
+    for row in raw:
+        e = dict(row)
+        e['next_due'] = next_due_date_cr(e, today)
+        # Ensure data_cobranca is a string for tojson serialisation
+        if hasattr(e.get('data_cobranca'), 'isoformat'):
+            e['data_cobranca_str'] = e['data_cobranca'].isoformat()
+        else:
+            e['data_cobranca_str'] = e.get('data_cobranca') or ''
+        entries.append(e)
 
-{
-  "fornecedor": "nome do fornecedor/empresa",
-  "valor_facturado_eur": 0.00,
-  "periodo_inicio": "YYYY-MM-DD",
-  "periodo_fim": "YYYY-MM-DD",
-  "dias_periodo": 30,
-  "estimativa_mensal_eur": 0.00
-}
+    suppliers = get_suppliers()
+    cost_centers = get_cost_centers(ativo_only=True)
 
-Regras:
-- valor_facturado_eur: valor total a pagar nesta factura (com IVA se aplicável).
-- periodo_inicio e periodo_fim: período de consumo/serviço cobrado nesta factura (não a data de emissão).
-- dias_periodo: número de dias cobertos pelo período (calcula a partir das datas se possível).
-- estimativa_mensal_eur: valor_facturado_eur dividido por dias_periodo e multiplicado por 30 (estimativa de custo mensal).
-- Se um campo não for encontrado, usa null.
-- Devolve APENAS o JSON, sem qualquer texto adicional."""
+    return render_template(
+        'financeiro/cashflow/debitos.html',
+        entries=entries,
+        suppliers=suppliers,
+        cost_centers=cost_centers,
+        frequencia_labels=FREQUENCIA_LABELS,
+        tipologia_labels=TIPOLOGIA_LABELS,
+        today=today,
+    )
 
-                message = client.messages.create(
-                    model="claude-haiku-4-5",
-                    max_tokens=512,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "document",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "application/pdf",
-                                    "data": pdf_b64,
-                                },
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt
-                            }
-                        ]
-                    }]
-                )
 
-                raw_text = message.content[0].text.strip()
-                if raw_text.startswith("```"):
-                    raw_text = raw_text.split("```")[1]
-                    if raw_text.startswith("json"):
-                        raw_text = raw_text[4:]
-                raw_text = raw_text.strip()
+@cashflow_bp.route('/debitos/invoices/<int:supplier_id>')
+@perm_required('acesso_gestor')
+def debitos_invoices(supplier_id):
+    from db.custos_recorrentes import get_last_invoices
+    rows = get_last_invoices(supplier_id, limit=5)
+    result = []
+    for r in rows:
+        result.append({
+            'invoice_number': r['invoice_number'],
+            'amount_eur': float(r['amount_eur']) if r['amount_eur'] is not None else None,
+            'due_date':   r['due_date'].isoformat()   if r['due_date']   else None,
+            'issue_date': r['issue_date'].isoformat() if r['issue_date'] else None,
+            'status':     r['status'] or '',
+        })
+    return jsonify(result)
 
-                parsed = json.loads(raw_text)
 
-                def _safe_float(val):
-                    if val is None:
-                        return None
-                    try:
-                        return float(str(val).replace(',', '.'))
-                    except (ValueError, TypeError):
-                        return None
-
-                def _safe_int(val):
-                    if val is None:
-                        return None
-                    try:
-                        return int(val)
-                    except (ValueError, TypeError):
-                        return None
-
-                suggestion = {
-                    'fornecedor': parsed.get('fornecedor') or None,
-                    'valor_facturado_eur': _safe_float(parsed.get('valor_facturado_eur')),
-                    'periodo_inicio': parsed.get('periodo_inicio') or None,
-                    'periodo_fim': parsed.get('periodo_fim') or None,
-                    'dias_periodo': _safe_int(parsed.get('dias_periodo')),
-                    'estimativa_mensal_eur': _safe_float(parsed.get('estimativa_mensal_eur')),
-                    'error': None,
-                }
-                return jsonify(suggestion)
-
-            except json.JSONDecodeError as e:
-                logger.error("OCR JSON parse error: %s", e)
-                return jsonify({'error': 'Não foi possível interpretar a resposta do OCR.'}), 500
-            except Exception as e:
-                logger.error("Utility invoice OCR failed: %s", e)
-                return jsonify({'error': 'Ocorreu um erro ao processar o ficheiro. Tente novamente.'}), 500
-
-    cfg = get_cashflow_config()
+@cashflow_bp.route('/debitos/sugestao-valor')
+@perm_required('acesso_gestor')
+def debitos_sugestao_valor():
+    from db.custos_recorrentes import suggest_valor
     try:
-        debitos_directos = json.loads(cfg.get('debitos_directos', '[]'))
-    except Exception:
-        debitos_directos = []
-
-    return render_template('financeiro/cashflow/debitos.html',
-                           cfg=cfg,
-                           debitos_directos=debitos_directos,
-                           onedrive_subfolders=ONEDRIVE_SUBFOLDERS)
+        supplier_id = int(request.args.get('supplier_id', 0))
+        frequencia  = request.args.get('frequencia', '').strip()
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Parâmetros inválidos'}), 400
+    if not supplier_id or not frequencia:
+        return jsonify({'valor': None, 'n_periodos': 0})
+    result = suggest_valor(supplier_id, frequencia)
+    return jsonify(result)

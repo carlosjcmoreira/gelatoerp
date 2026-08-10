@@ -889,9 +889,12 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             fonte = 'media_28d'
         return round(total, 2), fonte, daily
 
-    from db.avencas import get_avencas as _get_avencas, next_due_date as _avenca_next_due_date
-    avencas_ativas = list(_get_avencas(ativo_only=True))
-
+    from db.custos_recorrentes import (
+        get_custos_recorrentes as _get_cr,
+        next_due_date_cr as _cr_next_due,
+        FREQUENCIA_LABELS as _CR_FREQ_LABELS,
+    )
+    _cr_ativos = list(_get_cr(ativo_only=True))
     _manuais = get_tesouraria_manuais(week_starts)
 
     result = []
@@ -923,22 +926,24 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
                 'source': row.get('source', 'scheduled'),
             })
 
-        for av in avencas_ativas:
-            due = _avenca_next_due_date(av, week_start)
+        for cr in _cr_ativos:
+            due = _cr_next_due(cr, week_start)
             if due is None or not (week_start <= due <= week_end):
                 continue
-            cid = av['categoria_custo_id']
-            cname = av['categoria_custo_nome'] or 'Sem categoria de custo'
+            if cr.get('valor') is None:
+                continue  # variável sem estimativa — omitir da previsão
+            cid   = cr.get('centro_custo_id')
+            cname = cr.get('centro_custo_name') or 'Custos Recorrentes'
             if cid not in cats:
                 cats[cid] = {'category_id': cid, 'category_name': cname, 'amount': 0.0, 'items': []}
-            amt = float(av['valor'] or 0)
+            amt = float(cr['valor'])
             cats[cid]['amount'] = round(cats[cid]['amount'] + amt, 2)
             cats[cid]['items'].append({
-                'type': 'avenca',
-                'description': av['nome'],
-                'reference': av['periodicidade'].capitalize() if av['periodicidade'] else '',
-                'amount': round(amt, 2),
-                'date': due,
+                'type':        'custo_recorrente',
+                'description': cr['supplier_name'],
+                'reference':   _CR_FREQ_LABELS.get(cr['frequencia'], cr['frequencia']),
+                'amount':      round(amt, 2),
+                'date':        due,
             })
 
         for cc in credit_contracts:
