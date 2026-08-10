@@ -352,6 +352,17 @@ def index():
     if document_type_filter not in DOCUMENT_TYPE_LABELS:
         document_type_filter = ''
     supplier_name_filter = request.args.get('supplier_name', '').strip()
+    supplier_id_raw = request.args.get('supplier_id', '').strip()
+    supplier_id_filter = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
+    # Resolve supplier name from supplier_id when no explicit name filter is given
+    supplier_id_name = ''
+    if supplier_id_filter and not supplier_name_filter:
+        try:
+            _sup = get_supplier_by_id(supplier_id_filter)
+            if _sup:
+                supplier_id_name = _sup.get('name', '')
+        except Exception:
+            supplier_id_filter = None
 
     # Date filters
     date_field = request.args.get('date_field', 'due_date').strip()
@@ -403,6 +414,7 @@ def index():
         categoria_custo_id=categoria_custo_filter,
         document_type=document_type_filter or None,
         supplier_name=supplier_name_filter or None,
+        supplier_id=supplier_id_filter or None,
         date_from=date_from,
         date_to=date_to,
         date_field=date_field,
@@ -451,6 +463,7 @@ def index():
     for k, v in [('q', search), ('store_id', store_id),
                  ('centro_custo_id', centro_custo_raw), ('categoria_custo_id', categoria_custo_raw),
                  ('document_type', document_type_filter), ('supplier_name', supplier_name_filter),
+                 ('supplier_id', supplier_id_raw if supplier_id_filter else ''),
                  ('category', category_filter)]:
         if v:
             _filter_params.append((k, v))
@@ -504,7 +517,8 @@ def index():
         _type_badge_params.append(('all', '1'))
     for k, v in [('q', search), ('store_id', store_id),
                  ('centro_custo_id', centro_custo_raw), ('categoria_custo_id', categoria_custo_raw),
-                 ('supplier_name', supplier_name_filter)]:
+                 ('supplier_name', supplier_name_filter),
+                 ('supplier_id', supplier_id_raw if supplier_id_filter else '')]:
         if v:
             _type_badge_params.append((k, v))
     if date_from_raw:
@@ -551,6 +565,8 @@ def index():
         type_badge_base_qs=type_badge_base_qs,
         all_supplier_names=all_supplier_names,
         supplier_name_filter=supplier_name_filter,
+        supplier_id_filter=supplier_id_filter,
+        supplier_id_name=supplier_id_name,
         date_field=date_field,
         date_from_raw=date_from_raw,
         date_to_raw=date_to_raw,

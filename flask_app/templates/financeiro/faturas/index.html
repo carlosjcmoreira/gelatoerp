@@ -558,6 +558,7 @@
         {% for s in statuses_filter %}<input type="hidden" name="status" class="ff-status" value="{{ s }}">{% endfor %}
         {% if scope == 'compras' and status_filter %}<input type="hidden" name="status" class="ff-status" value="{{ status_filter }}">{% endif %}
         {% if supplier_name_filter %}<input type="hidden" name="supplier_name" id="ff-sn" value="{{ supplier_name_filter }}">{% endif %}
+        {% if supplier_id_filter %}<input type="hidden" name="supplier_id" id="ff-spid" value="{{ supplier_id_filter }}">{% endif %}
         {% if document_type_filter %}<input type="hidden" name="document_type" id="ff-dt" value="{{ document_type_filter }}">{% endif %}
         {% if store_id %}<input type="hidden" name="store_id" id="ff-sid" value="{{ store_id }}">{% endif %}
         {% if search %}<input type="hidden" name="q" id="ff-q" value="{{ search }}">{% endif %}
@@ -585,7 +586,7 @@
     <!-- ── Filter Bar ──────────────────────────────────────────────────────── -->
     <div class="fbar mb-3">
 
-        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter else 0) + (1 if document_type_filter else 0) + (1 if store_id else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) + (1 if category_filter else 0) %}
+        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter or supplier_id_filter else 0) + (1 if document_type_filter else 0) + (1 if store_id else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) + (1 if category_filter else 0) %}
         <!-- Mobile toggle (only shown on xs/sm screens) -->
         <div class="d-md-none mb-2">
             <button class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between"
@@ -596,7 +597,7 @@
         </div>
 
         <!-- Single filter line: chips + action buttons -->
-        {% set _any_f = statuses_filter or supplier_name_filter or search or document_type_filter or store_id or date_from_raw or date_to_raw or month_raw or centro_custo_filter %}
+        {% set _any_f = statuses_filter or supplier_name_filter or supplier_id_filter or search or document_type_filter or store_id or date_from_raw or date_to_raw or month_raw or centro_custo_filter %}
         <div class="collapse d-md-block" id="fbar-chips-wrap">
         <div class="d-flex flex-wrap gap-2 align-items-center" id="fbar-chips">
             {% if default_filter_active %}
@@ -616,6 +617,11 @@
             <span class="fbar-chip">
                 👤 {{ supplier_name_filter | truncate(22, True, '…') }}
                 <button class="fbar-chip-x" type="button" onclick="removeFilter('supplier_name')" title="Remover">✕</button>
+            </span>
+            {% elif supplier_id_filter and supplier_id_name %}
+            <span class="fbar-chip">
+                👤 {{ supplier_id_name | truncate(22, True, '…') }}
+                <button class="fbar-chip-x" type="button" onclick="removeFilter('supplier_id')" title="Remover">✕</button>
             </span>
             {% endif %}
             {% if document_type_filter %}

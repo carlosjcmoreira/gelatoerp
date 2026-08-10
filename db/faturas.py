@@ -412,6 +412,11 @@ def merge_supplier(source_id: int, target_id: int) -> int:
             (target_id, source_id),
         )
         count = cursor.rowcount
+        # Keep the denormalized supplier_name in sync with the canonical target name
+        cursor.execute(
+            "UPDATE invoices SET supplier_name = (SELECT name FROM suppliers WHERE id = %s) WHERE supplier_id = %s",
+            (target_id, target_id),
+        )
         cursor.execute("DELETE FROM suppliers WHERE id = %s", (source_id,))
         conn.commit()
     logger.info('merge_supplier: %d→%d, %d invoice(s) re-linked', source_id, target_id, count)
