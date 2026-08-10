@@ -329,101 +329,218 @@ def vendas_diarias():
 @financeiro_bp.route('/pl-por-loja')
 @perm_required('acesso_financeiro')
 def pl_por_loja():
-    from db.centros_custo import get_pl_by_store
+    from db.mapa_exploracao import get_mapa_exploracao
     import io
     import csv as csv_mod
     from flask import Response
 
     today = date.today()
-    default_from = date(today.year, 1, 1)
-    default_to = today
-
-    date_from_str = request.args.get('date_from', str(default_from))
-    date_to_str = request.args.get('date_to', str(default_to))
-
     try:
-        date_from = datetime.strptime(date_from_str, '%Y-%m-%d').date()
-    except ValueError:
-        date_from = default_from
+        ano = int(request.args.get('ano', today.year))
+        if ano < 2000 or ano > 2100:
+            ano = today.year
+    except (ValueError, TypeError):
+        ano = today.year
 
-    try:
-        date_to = datetime.strptime(date_to_str, '%Y-%m-%d').date()
-    except ValueError:
-        date_to = default_to
+    store_id_raw = request.args.get('store_id', '').strip()
+    store_id = int(store_id_raw) if store_id_raw.isdigit() else None
 
-    pl = get_pl_by_store(date_from=date_from, date_to=date_to)
+    mapa = get_mapa_exploracao(ano, store_id=store_id)
+
+    # Pre-compute per-month cost totals so the template can reference them directly
+    _months = list(range(1, 13))
+    _tcm: dict = {}
+    for _cat in mapa['categories']:
+        _cd = mapa['costs'].get(_cat['id'], {})
+        for _m in _months:
+            _tcm[_m] = round(_tcm.get(_m, 0) + _cd.get(_m, 0), 2)
+    # Include uncategorised invoices so EBITDA / Total Custos are complete
+    for _m in _months:
+        _tcm[_m] = round(_tcm.get(_m, 0) + mapa['costs_uncat'].get(_m, 0), 2)
+    mapa['total_costs_monthly'] = _tcm
+
+    if mapa['mode'] == 'consolidated':
+        _stcm: dict = {}
+        for _s in mapa['stores']:
+            _sid = _s['id']
+            _sm: dict = {}
+            for _cat in mapa['categories']:
+                _cd = mapa['store_costs'].get(_sid, {}).get(_cat['id'], {})
+                for _m in _months:
+                    _sm[_m] = round(_sm.get(_m, 0) + _cd.get(_m, 0), 2)
+            # Uncategorised are global/unallocated — not added per-store to avoid double-count
+            _stcm[_sid] = _sm
+        mapa['store_total_costs_monthly'] = _stcm
 
     if request.args.get('export') == 'csv':
         output = io.StringIO()
         writer = csv_mod.writer(output)
-        store_names = [s['name'] for s in pl['stores']]
-        header = ['Categoria', 'Modo', 'Total (€)'] + store_names + ['Não alocado (€)']
-        writer.writerow(header)
-        revenue_row = ['RECEITA', '', f"{pl['total_revenue']:.2f}"] + [
-            f"{pl['store_revenues'].get(s['id'], 0.0):.2f}"
-            for s in pl['stores']
-        ] + ['']
-        writer.writerow(revenue_row)
-        for row in pl['rows']:
-            store_vals = [
-                f"{row['store_amounts'].get(s['id'], 0.0):.2f}"
-                for s in pl['stores']
-            ]
-            writer.writerow([
-                row['cat_name'],
-                row['modo'],
-                f"{row['total_eur']:.2f}",
-                *store_vals,
-                f"{row['unallocated']:.2f}",
-            ])
-        totals_row = ['TOTAL CUSTOS (faturas)', '', f"{pl['grand_total']:.2f}"] + [
-            f"{pl['store_totals'].get(s['id'], 0.0):.2f}"
-            for s in pl['stores']
-        ] + ['']
-        writer.writerow(totals_row)
-        margin_row = ['RESULTADO BRUTO', '', f"{pl['total_margin']:.2f}"] + [
-            f"{pl['store_margins'].get(s['id'], 0.0):.2f}"
-            for s in pl['stores']
-        ] + ['']
-        writer.writerow(margin_row)
-        pct_row = ['MARGEM %', '', '']
-        for s in pl['stores']:
-            rev = pl['store_revenues'].get(s['id'], 0.0)
-            margin = pl['store_margins'].get(s['id'], 0.0)
-            pct = round(margin / rev * 100, 1) if rev else 0.0
-            pct_row.append(f"{pct:.1f}%")
-        pct_row.append('')
-        writer.writerow(pct_row)
-        # Recurring costs section — supplemental projection, not included in totals above
-        if pl.get('recurring_rows'):
-            writer.writerow([''] * (len(pl['stores']) + 4))  # blank separator
-            writer.writerow(
-                ['CUSTOS RECORRENTES (Projeção — não incluído nos totais acima)', '', '']
-                + [''] * (len(pl['stores']) + 1)
-            )
-            for row in pl['recurring_rows']:
-                freq_label = row.get('frequencia_label', row.get('frequencia', ''))
-                label = f"{row['supplier_name']} ({freq_label})"
-                if row.get('occurrences', 1) > 1:
-                    label += f" × {row['occurrences']}"
-                store_vals = [
-                    f"{row['store_amounts'].get(s['id'], 0.0):.2f}"
-                    for s in pl['stores']
-                ]
-                writer.writerow([
-                    label,
-                    'volume_vendas',
-                    f"{row['total_eur']:.2f}",
-                    *store_vals,
-                    f"{row['unallocated']:.2f}",
-                ])
-            cr_total_row = ['TOTAL RECORRENTES (projeção)', '', f"{pl['recurring_grand_total']:.2f}"] + [
-                f"{pl['recurring_store_totals'].get(s['id'], 0.0):.2f}"
-                for s in pl['stores']
-            ] + ['']
-            writer.writerow(cr_total_row)
+        months = list(range(1, 13))
+        MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+                 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+        scope = mapa['store']['name'] if mapa['store'] else 'Consolidado'
+        is_consolidated = mapa['mode'] == 'consolidated'
+        writer.writerow([f'Mapa de Exploração {ano} — {scope}'])
+        writer.writerow(['Linha'] + MESES + ['Total'])
+
+        def _row(label, d):
+            vals = [f"{d.get(m, 0):.2f}" for m in months]
+            total = f"{sum(d.get(m, 0) for m in months):.2f}"
+            writer.writerow([label] + vals + [total])
+
+        def _gap_pct_row(label, d_actual, d_ref):
+            """Variance row: (actual − ref) / ref × 100 — used for gap vs budget/prior-year."""
+            row_vals = []
+            for m in months:
+                a = d_actual.get(m, 0)
+                r = d_ref.get(m, 0)
+                row_vals.append(f"{(a - r) / r * 100:.1f}%" if r else '')
+            ta = sum(d_actual.get(m, 0) for m in months)
+            tr = sum(d_ref.get(m, 0) for m in months)
+            writer.writerow([label] + row_vals + [f"{(ta - tr) / tr * 100:.1f}%" if tr else ''])
+
+        def _gap_eur_row(label, d_actual, d_ref):
+            """Absolute euro gap row: actual − ref per month."""
+            row_vals = []
+            for m in months:
+                a = d_actual.get(m, 0)
+                r = d_ref.get(m, 0)
+                if d_ref.get(m) is not None or d_actual.get(m) is not None:
+                    row_vals.append(f"{a - r:+.2f}")
+                else:
+                    row_vals.append('')
+            ta = sum(d_actual.get(m, 0) for m in months)
+            tr = sum(d_ref.get(m, 0) for m in months)
+            writer.writerow([label] + row_vals + [f"{ta - tr:+.2f}"])
+
+        def _ratio_row(label, d_numerator, d_denominator):
+            """Direct-ratio row: numerator / denominator × 100 — used for % of sales."""
+            row_vals = []
+            for m in months:
+                n = d_numerator.get(m, 0)
+                d = d_denominator.get(m, 0)
+                row_vals.append(f"{n / d * 100:.1f}%" if d else '')
+            tn = sum(d_numerator.get(m, 0) for m in months)
+            td = sum(d_denominator.get(m, 0) for m in months)
+            writer.writerow([label] + row_vals + [f"{tn / td * 100:.1f}%" if td else ''])
+
+        today_m = mapa['today'].month
+        is_current_year = (ano == mapa['today'].year)
+        v_d = mapa['vendas']   # shorthand
+
+        # ── VENDAS ─────────────────────────────────────────────────────────
+        writer.writerow([])
+        writer.writerow(['--- VENDAS ---'])
+        _row('VENDAS — Real', v_d)
+        _row('VENDAS — Orçamento', mapa['budget_vendas'])
+        _gap_pct_row('VENDAS — Gap Orç. %', v_d, mapa['budget_vendas'])
+        _gap_eur_row('VENDAS — Gap Orç. €', v_d, mapa['budget_vendas'])
+        _row('VENDAS — Histórico AA', mapa['vendas_aa'])
+        _gap_pct_row('VENDAS — Gap Hist. %', v_d, mapa['vendas_aa'])
+        _gap_eur_row('VENDAS — Gap Hist. €', v_d, mapa['vendas_aa'])
+        if is_current_year:
+            # YTD running totals (only up to current month; '' for future months)
+            ytd_a_vals = []
+            ytd_h_vals = []
+            ytd_pct_vals = []
+            ytd_eur_vals = []
+            ra, rh = 0.0, 0.0
+            for m in months:
+                ra += v_d.get(m, 0)
+                rh += mapa['vendas_aa'].get(m, 0)
+                if m <= today_m:
+                    ytd_a_vals.append(f"{ra:.2f}")
+                    ytd_h_vals.append(f"{rh:.2f}")
+                    ytd_pct_vals.append(f"{(ra - rh) / rh * 100:.1f}%" if rh else '')
+                    ytd_eur_vals.append(f"{ra - rh:+.2f}")
+                else:
+                    ytd_a_vals.append('')
+                    ytd_h_vals.append('')
+                    ytd_pct_vals.append('')
+                    ytd_eur_vals.append('')
+            ta = sum(v_d.get(m, 0) for m in months[:today_m])
+            th = sum(mapa['vendas_aa'].get(m, 0) for m in months[:today_m])
+            writer.writerow(['VENDAS — Acc YTD'] + ytd_a_vals + [f"{ta:.2f}"])
+            writer.writerow(['VENDAS — Acc AA YTD'] + ytd_h_vals + [f"{th:.2f}"])
+            writer.writerow(['VENDAS — Acc YTD vs AA %'] + ytd_pct_vals + [f"{(ta - th) / th * 100:.1f}%" if th else ''])
+            writer.writerow(['VENDAS — Acc YTD vs AA €'] + ytd_eur_vals + [f"{ta - th:+.2f}"])
+        if is_consolidated:
+            for s in mapa['stores']:
+                _row(f'  {s["name"]} — Real', mapa['store_vendas'].get(s['id'], {}))
+                _row(f'  {s["name"]} — AA', mapa['store_vendas_aa'].get(s['id'], {}))
+
+        # ── CMVMC ──────────────────────────────────────────────────────────
+        writer.writerow([])
+        writer.writerow(['--- CMVMC ---'])
+        _row('CMVMC — Real', mapa['cmvmc'])
+        _row('CMVMC — Orçamento', mapa['budget_cmvmc'])
+        _gap_pct_row('CMVMC — Gap Orç. %', mapa['cmvmc'], mapa['budget_cmvmc'])
+        _row('CMVMC — Histórico AA', mapa['cmvmc_aa'])
+        _gap_pct_row('CMVMC — Gap Hist. %', mapa['cmvmc'], mapa['cmvmc_aa'])
+        if is_consolidated:
+            for s in mapa['stores']:
+                _row(f'  {s["name"]} — Real', mapa['store_cmvmc'].get(s['id'], {}))
+                _row(f'  {s["name"]} — AA', mapa['store_cmvmc_aa'].get(s['id'], {}))
+            ua_c = mapa.get('unallocated_cmvmc', {})
+            if ua_c:
+                _row('  Não alocado', ua_c)
+
+        # ── MARGEM BRUTA ───────────────────────────────────────────────────
+        writer.writerow([])
+        writer.writerow(['--- MARGEM BRUTA ---'])
+        mb = {m: round(v_d.get(m, 0) - mapa['cmvmc'].get(m, 0), 2) for m in months}
+        _row('MARGEM BRUTA', mb)
+        _ratio_row('MARGEM BRUTA — % sobre Vendas', mb, v_d)
+
+        # ── CUSTOS DE OPERAÇÃO ─────────────────────────────────────────────
+        writer.writerow([])
+        writer.writerow(['--- CUSTOS DE OPERAÇÃO ---'])
+        tot = {m: 0.0 for m in months}
+        for cat in mapa['categories']:
+            cid = cat['id']
+            cat_d = mapa['costs'].get(cid, {})
+            cat_orc = mapa['budget_costs'].get(cid, {})
+            cat_aa  = mapa['costs_aa'].get(cid, {})
+            _row(cat['name'] + ' — Real', cat_d)
+            _ratio_row(cat['name'] + ' — % sobre Vendas', cat_d, v_d)
+            if cat_orc:
+                _row(cat['name'] + ' — Orçamento', cat_orc)
+            if cat_aa:
+                _row(cat['name'] + ' — Histórico AA', cat_aa)
+            if is_consolidated:
+                for s in mapa['stores']:
+                    sd = mapa['store_costs'].get(s['id'], {}).get(cid, {})
+                    _row(f'  {s["name"]} — {cat["name"]}', sd)
+                ua = mapa.get('unallocated_costs', {}).get(cid, {})
+                if ua:
+                    _row(f'  Não alocado — {cat["name"]}', ua)
+            for m in months:
+                tot[m] = round(tot[m] + cat_d.get(m, 0), 2)
+
+        # Uncategorised invoices (included in Total Custos / EBITDA)
+        uncat = mapa.get('costs_uncat', {})
+        if uncat:
+            _row('Sem categoria (⚠️ não classificadas)', uncat)
+            uca_aa = mapa.get('costs_uncat_aa', {})
+            if uca_aa:
+                _row('Sem categoria — Histórico AA', uca_aa)
+            for m in months:
+                tot[m] = round(tot[m] + uncat.get(m, 0), 2)
+
+        # ── TOTAL CUSTOS ───────────────────────────────────────────────────
+        writer.writerow([])
+        _row('TOTAL CUSTOS OP.', tot)
+
+        # ── EBITDA ─────────────────────────────────────────────────────────
+        writer.writerow([])
+        writer.writerow(['--- EBITDA ---'])
+        ebitda = {m: round(mb.get(m, 0) - tot.get(m, 0), 2) for m in months}
+        _row('EBITDA', ebitda)
+        _ratio_row('EBITDA — % sobre Vendas', ebitda, v_d)
+
         output.seek(0)
-        filename = f"pl_por_loja_{date_from}_{date_to}.csv"
+        filename = f"mapa_exploracao_{ano}_{scope.lower().replace(' ', '_')}.csv"
         return Response(
             output.getvalue(),
             mimetype='text/csv',
@@ -432,9 +549,9 @@ def pl_por_loja():
 
     return render_template(
         'financeiro/pl_por_loja.html',
-        pl=pl,
-        date_from=date_from,
-        date_to=date_to,
+        mapa=mapa,
+        ano=ano,
+        store_id=store_id,
     )
 
 

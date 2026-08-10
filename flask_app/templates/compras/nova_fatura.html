@@ -5,6 +5,15 @@
 <div class="container-fluid px-3 py-3 pb-5">
     <h5 class="mb-3">➕ Registar Documento</h5>
 
+    {% if prefill_loja %}
+    <div class="alert alert-info py-2 small mb-3 d-flex align-items-center gap-2">
+        🗺️ <span>Contexto do Mapa de Exploração:
+        <strong>{{ prefill_loja }}</strong>{% if prefill_mes_label %}, <strong>{{ prefill_mes_label }}</strong>{% endif %}.
+        Distribui o custo desta fatura ao centro de custo correspondente à loja.</span>
+        <a href="{{ url_for('financeiro.distribuicao_centros_custo') }}" class="ms-auto small text-nowrap">Ver distribuição →</a>
+    </div>
+    {% endif %}
+
     <!-- Canal 1: Upload PDF / Excel → OCR automático -->
     <div class="card mb-3">
         <div class="card-body">
@@ -157,8 +166,9 @@
                 <div class="row g-2 mb-3">
                     <div class="col-6">
                         <label class="form-label small">Data de Emissão</label>
-                        <input type="date" name="issue_date" class="form-control form-control-sm"
-                               value="{{ today }}">
+                        <input type="date" name="issue_date" id="nova_fatura_issue_date"
+                               class="form-control form-control-sm"
+                               value="{{ prefill_issue_date or today }}">
                     </div>
                     <div class="col-6">
                         <label class="form-label small">Data de Vencimento</label>
@@ -237,6 +247,21 @@
     docTypeSelect.addEventListener('change', toggleFields);
     toggleFields();
 })();
+
+// ── Mapa de Exploração prefill: pre-select cost centre and issue date ──────
+{% if prefill_centro_custo_id %}
+document.addEventListener('DOMContentLoaded', function () {
+    // Pre-select the cost centre that matches the store chosen in the Mapa
+    var manualForm = document.querySelector('form[data-channel="manual"]') ||
+                     document.querySelector('form');
+    if (manualForm) {
+        var ccSel = manualForm.querySelector('select[name="centro_custo_id"]');
+        if (ccSel) {
+            ccSel.value = '{{ prefill_centro_custo_id }}';
+        }
+    }
+});
+{% endif %}
 
 // ── New-supplier toggle helpers ────────────────────────────────────────────
 function nfOnSupplierSelect(sel) {

@@ -1159,12 +1159,47 @@ def nova_fatura():
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
+    # Optional prefill hints from Mapa de Exploração shortcut
+    prefill_loja = request.args.get('prefill_loja', '').strip()
+    prefill_mes_raw = request.args.get('prefill_mes', '').strip()
+    try:
+        prefill_mes = int(prefill_mes_raw) if prefill_mes_raw else None
+        if prefill_mes and not (1 <= prefill_mes <= 12):
+            prefill_mes = None
+    except ValueError:
+        prefill_mes = None
+
+    MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+    prefill_mes_label = MESES_PT[prefill_mes - 1] if prefill_mes else None
+
+    # Match store name to a cost centre (case-insensitive) so we can pre-select it
+    prefill_centro_custo_id = None
+    if prefill_loja:
+        loja_lower = prefill_loja.lower()
+        for cc in cost_centers:
+            if cc['name'].lower() == loja_lower:
+                prefill_centro_custo_id = cc['id']
+                break
+
+    # Compute prefill issue_date: first day of the selected month in current year
+    prefill_issue_date = None
+    if prefill_mes:
+        try:
+            prefill_issue_date = str(date(date.today().year, prefill_mes, 1))
+        except ValueError:
+            pass
+
     return render_template('compras/nova_fatura.html',
                            suppliers=suppliers,
                            payment_methods=payment_methods,
                            cost_centers=cost_centers,
                            cost_categories_tree=cost_categories_tree,
-                           today=str(date.today()))
+                           today=str(date.today()),
+                           prefill_loja=prefill_loja or None,
+                           prefill_mes_label=prefill_mes_label,
+                           prefill_centro_custo_id=prefill_centro_custo_id,
+                           prefill_issue_date=prefill_issue_date)
 
 
 @compras_bp.route('/criar-ordem', methods=['GET', 'POST'])

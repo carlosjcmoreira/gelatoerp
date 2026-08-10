@@ -3,381 +3,653 @@
 
 {% block head %}
 <style>
-.pl-table th {
-    font-size: 0.72rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-    white-space: nowrap;
-}
-.pl-table td {
+/* ── Table scroll wrapper ──────────────────────────────────────────── */
+.mapa-wrap { overflow-x: auto; border-radius: .375rem; }
+
+/* ── Base table ────────────────────────────────────────────────────── */
+.mapa-table {
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 1400px;
     font-size: 0.82rem;
-    vertical-align: middle;
-    white-space: nowrap;
 }
-.pl-total-row td {
+.mapa-table th, .mapa-table td { white-space: nowrap; vertical-align: middle; }
+.mapa-table th { font-size: 0.72rem; }
+
+/* ── Sticky first column ────────────────────────────────────────────── */
+.col-label {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--bs-body-bg);
+    min-width: 220px;
+    border-right: 2px solid var(--bs-border-color) !important;
+}
+thead .col-label { z-index: 3; }
+.row-sub .col-label { padding-left: 2rem !important; color: var(--bs-secondary-color); }
+.row-store-sub .col-label { padding-left: 2.8rem !important; }
+
+/* ── Row types ──────────────────────────────────────────────────────── */
+.row-section td {
+    background: var(--bs-tertiary-bg) !important;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--bs-secondary-color);
+    border-top: 2px solid var(--bs-border-color) !important;
+}
+.row-vendas > td {
     font-weight: 700;
-    border-top: 2px solid var(--bs-border-color);
+    background: rgba(25, 135, 84, .07);
+    border-top: 2px solid rgba(25, 135, 84, .5) !important;
+}
+.row-cmvmc > td {
+    font-weight: 700;
+    background: rgba(255, 193, 7, .07);
+    border-top: 2px solid rgba(255, 193, 7, .5) !important;
+}
+.row-margem > td {
+    font-weight: 700;
+    background: rgba(13, 110, 253, .07);
+    border-top: 2px solid rgba(13, 110, 253, .4) !important;
+}
+.row-ebitda > td {
+    font-weight: 700;
+    background: rgba(102, 16, 242, .07);
+    border-top: 2px solid rgba(102, 16, 242, .4) !important;
+}
+.row-total-custos > td {
+    font-weight: 700;
     background: var(--bs-tertiary-bg);
+    border-top: 2px solid var(--bs-border-color) !important;
 }
-.pl-revenue-row td {
-    font-weight: 700;
-    background: rgba(25, 135, 84, 0.08);
-    color: var(--bs-success-text-emphasis, #0f5132);
-    border-top: 2px solid var(--bs-success);
-    border-bottom: 1px solid var(--bs-success);
-}
-.pl-margin-row td {
-    font-weight: 700;
-    border-top: 2px solid var(--bs-border-color);
-}
-.pl-margin-row.positive td { background: rgba(25, 135, 84, 0.08); color: var(--bs-success-text-emphasis, #0f5132); }
-.pl-margin-row.negative td { background: rgba(220, 53, 69, 0.08); color: var(--bs-danger-text-emphasis, #842029); }
-.pl-margin-pct-row td {
-    font-size: 0.80rem;
-    font-weight: 600;
-    background: var(--bs-tertiary-bg);
-    border-bottom: 2px solid var(--bs-border-color);
-}
-[data-bs-theme="dark"] .pl-revenue-row td {
-    background: rgba(25, 135, 84, 0.15);
-    color: #75c998;
-}
-[data-bs-theme="dark"] .pl-margin-row.positive td {
-    background: rgba(25, 135, 84, 0.15);
-    color: #75c998;
-}
-[data-bs-theme="dark"] .pl-margin-row.negative td {
-    background: rgba(220, 53, 69, 0.15);
-    color: #ea868f;
-}
-.modo-badge {
-    font-size: 0.65rem;
-    padding: 0.15em 0.45em;
-    border-radius: 0.3rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: .04em;
-}
-.modo-volume { background: #e0f0ff; color: #0a5a9c; }
-.modo-igualitario { background: #e0ffe8; color: #1a6b3c; }
-.modo-tudo_loja { background: #fff3e0; color: #b34d00; }
-.modo-manual { background: #f3e0ff; color: #6a0ab3; }
-[data-bs-theme="dark"] .modo-volume { background: #0d3560; color: #7ec8f0; }
-[data-bs-theme="dark"] .modo-igualitario { background: #0a3b20; color: #5fe09a; }
-[data-bs-theme="dark"] .modo-tudo_loja { background: #3b2200; color: #f0a057; }
-[data-bs-theme="dark"] .modo-manual { background: #2a0a40; color: #c57ef0; }
-.unalloc-warn { color: var(--bs-danger); font-weight: 600; }
-.store-col { text-align: right; }
-.cat-sub { padding-left: 1.6rem !important; color: var(--bs-secondary-color); }
-.no-data-row td { color: var(--bs-secondary-color); font-style: italic; }
-.section-label {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    font-weight: 700;
-    color: var(--bs-secondary-color);
-    padding-top: 0.6rem !important;
-    padding-bottom: 0.2rem !important;
-}
+.row-sub > td { color: var(--bs-secondary-color); font-size: 0.78rem; }
+.row-store-sub > td { color: var(--bs-secondary-color); font-size: 0.76rem; }
+
+/* ── Sticky col inherits row bg for section rows ─────────────────────── */
+.row-vendas .col-label      { background: rgba(25, 135, 84, .07); }
+.row-cmvmc .col-label       { background: rgba(255, 193, 7, .07); }
+.row-margem .col-label      { background: rgba(13, 110, 253, .07); }
+.row-ebitda .col-label      { background: rgba(102, 16, 242, .07); }
+.row-total-custos .col-label { background: var(--bs-tertiary-bg); }
+.row-section .col-label     { background: var(--bs-tertiary-bg); }
+
+[data-bs-theme="dark"] .row-vendas .col-label { background: rgba(25, 135, 84, .1); }
+[data-bs-theme="dark"] .row-cmvmc .col-label  { background: rgba(255, 193, 7, .1); }
+[data-bs-theme="dark"] .row-margem .col-label { background: rgba(13, 110, 253, .1); }
+[data-bs-theme="dark"] .row-ebitda .col-label { background: rgba(102, 16, 242, .1); }
+
+/* ── Value colors ───────────────────────────────────────────────────── */
+.val-pos { color: var(--bs-success) !important; }
+.val-neg { color: var(--bs-danger) !important; }
+.text-eur { font-variant-numeric: tabular-nums; }
+.col-total { border-left: 2px solid var(--bs-border-color) !important; font-weight: 600; }
+
+/* ── Future month opacity ───────────────────────────────────────────── */
+.future-val { opacity: .45; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
-    <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
-        <h5 class="mb-0">🏪 P&amp;L por Loja</h5>
-        <a href="{{ url_for('financeiro.pl_por_loja', date_from=date_from, date_to=date_to, export='csv') }}"
-           class="btn btn-outline-secondary btn-sm">
-            ⬇️ Exportar CSV
-        </a>
-    </div>
-    <p class="text-muted small mb-3">
-        Receitas e custos por loja — mostra a margem bruta por ponto de venda.
-    </p>
 
-    {# ── Date filter ─────────────────────────────────────────────────── #}
-    <form method="get" class="d-flex flex-wrap gap-2 align-items-end mb-4">
-        <div>
-            <label class="form-label small mb-1 fw-semibold">De</label>
-            <input type="date" name="date_from" class="form-control form-control-sm"
-                   value="{{ date_from }}" style="width:150px">
-        </div>
-        <div>
-            <label class="form-label small mb-1 fw-semibold">Até</label>
-            <input type="date" name="date_to" class="form-control form-control-sm"
-                   value="{{ date_to }}" style="width:150px">
-        </div>
-        <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
-    </form>
+{# ──────────────────────────────────────────────────────────────────── #}
+{#  Header: title + year nav + action buttons                           #}
+{# ──────────────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+    <h5 class="mb-0 me-2">🗺️ Mapa de Exploração</h5>
+    <div class="d-flex align-items-center gap-1">
+        <a href="{{ url_for('financeiro.pl_por_loja', ano=ano-1, store_id=store_id or '') }}"
+           class="btn btn-outline-secondary btn-sm px-2">‹</a>
+        <select class="form-select form-select-sm" style="width:90px"
+                onchange="location='{{ url_for('financeiro.pl_por_loja') }}?ano='+this.value+'{% if store_id %}&store_id={{ store_id }}{% endif %}'">
+            {% for y in range(mapa.today.year - 3, mapa.today.year + 3) %}
+            <option value="{{ y }}" {{ 'selected' if y == ano }}>{{ y }}</option>
+            {% endfor %}
+        </select>
+        <a href="{{ url_for('financeiro.pl_por_loja', ano=ano+1, store_id=store_id or '') }}"
+           class="btn btn-outline-secondary btn-sm px-2">›</a>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+        {% set _fatura_url = url_for('compras.nova_fatura',
+            prefill_loja=(mapa.store.name if mapa.store else ''),
+            prefill_mes=(mapa.today.month if ano == mapa.today.year else '')) %}
+        <a href="{{ _fatura_url }}" class="btn btn-outline-success btn-sm">➕ Fatura</a>
+        <a href="{{ url_for('financeiro.pl_por_loja', ano=ano, store_id=store_id or '', export='csv') }}"
+           class="btn btn-outline-secondary btn-sm">⬇ CSV</a>
+    </div>
+</div>
 
-    {# ── No data states ──────────────────────────────────────────────── #}
-    {% if not pl.stores %}
-    <div class="alert alert-warning py-2 small">
-        ⚠️ Não existem lojas activas configuradas.
-    </div>
-    {% elif not pl.rows %}
-    <div class="alert alert-info py-2 small">
-        ℹ️ Nenhuma fatura encontrada para o período seleccionado.
-    </div>
-    {% else %}
+{# ──────────────────────────────────────────────────────────────────── #}
+{#  Store tabs                                                           #}
+{# ──────────────────────────────────────────────────────────────────── #}
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link {% if not store_id %}active{% endif %}"
+           href="{{ url_for('financeiro.pl_por_loja', ano=ano) }}">🌐 Consolidado</a>
+    </li>
+    {% for s in mapa.stores %}
+    <li class="nav-item">
+        <a class="nav-link {% if store_id == s.id %}active{% endif %}"
+           href="{{ url_for('financeiro.pl_por_loja', ano=ano, store_id=s.id) }}">{{ s.name }}</a>
+    </li>
+    {% endfor %}
+</ul>
 
-    {# ── Sales split info banner ─────────────────────────────────────── #}
-    {% if pl.sales_split %}
-    <div class="alert alert-info py-2 small mb-3">
-        <strong>Volume de vendas (últimos 12 meses):</strong>
-        {% for store in pl.stores %}
-        <span class="me-3">{{ store.name }}: <strong>{{ pl.sales_split.get(store.id, 0) }}%</strong></span>
-        {% endfor %}
+{% if not mapa.stores %}
+<div class="alert alert-warning small">⚠️ Não existem lojas activas configuradas.</div>
+{% else %}
+
+{# ──────────────────────────────────────────────────────────────────── #}
+{#  Constants reused throughout                                          #}
+{# ──────────────────────────────────────────────────────────────────── #}
+{% set MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'] %}
+{% set v_total   = mapa.vendas.values()      | sum %}
+{% set orc_total = mapa.budget_vendas.values() | sum %}
+{% set aa_total  = mapa.vendas_aa.values()   | sum %}
+{% set c_total   = mapa.cmvmc.values()       | sum %}
+{% set co_total  = mapa.budget_cmvmc.values() | sum %}
+{% set ca_total  = mapa.cmvmc_aa.values()    | sum %}
+{% set tc_total  = mapa.total_costs_monthly.values() | sum %}
+
+{# ──────────────────────────────────────────────────────────────────── #}
+{#  Helper macros                                                        #}
+{# ──────────────────────────────────────────────────────────────────── #}
+
+{# Format integer euro amount — blank for zero/None #}
+{% macro e(v) %}{% if v %}{{ '%.0f'|format(v) }}{% else %}—{% endif %}{% endmacro %}
+
+{# Gap % between actual and reference (positive = good for revenue, bad for costs) #}
+{% macro gpct(actual, ref, cost_mode=false) %}
+{% if ref %}
+{% set pct = (actual - ref) / ref * 100 %}
+{% set good = pct >= 0 if not cost_mode else pct <= 0 %}
+<small class="{{ 'val-pos' if good else 'val-neg' }}">{{ '+%.1f'|format(pct) if pct >= 0 else '%.1f'|format(pct) }}%</small>
+{% else %}—{% endif %}
+{% endmacro %}
+
+{# ──────────────────────────────────────────────────────────────────── #}
+{#  Table                                                                #}
+{# ──────────────────────────────────────────────────────────────────── #}
+<div class="mapa-wrap shadow-sm border rounded">
+<table class="table table-sm table-bordered align-middle mb-0 mapa-table">
+
+{# ── Column headers ────────────────────────────────────────────────── #}
+<thead class="table-dark">
+<tr>
+    <th class="col-label ps-3">
+        {% if mapa.store %}{{ mapa.store.name }}{% else %}Consolidado{% endif %}
+        <span class="text-muted fw-normal"> · {{ ano }}</span>
+    </th>
+    {% for mi in range(12) %}
+    {% set m = mi + 1 %}
+    {% set is_fut = (ano > mapa.today.year) or (ano == mapa.today.year and m > mapa.today.month) %}
+    <th class="text-end{% if is_fut %} future-val{% endif %}">{{ MESES[mi] }}</th>
+    {% endfor %}
+    <th class="text-end col-total">Total</th>
+</tr>
+</thead>
+
+<tbody>
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  VENDAS                                                               #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+
+{# ── Vendas Real ── #}
+<tr class="row-vendas">
+    <td class="col-label ps-3">📈 VENDAS</td>
+    {% for m in range(1,13) %}
+    {% set is_fut = (ano > mapa.today.year) or (ano == mapa.today.year and m > mapa.today.month) %}
+    {% set v = mapa.vendas.get(m, 0) %}
+    <td class="text-end text-eur{% if is_fut %} future-val{% endif %}">{{ e(v) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(v_total) }}</td>
+</tr>
+
+{# ── Orçamento ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ Orçamento</td>
+    {% for m in range(1,13) %}
+    {% set o = mapa.budget_vendas.get(m) %}
+    <td class="text-end text-eur">{% if o is not none %}{{ '%.0f'|format(o) }}{% else %}—{% endif %}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(orc_total) }}</td>
+</tr>
+
+{# ── Gap Orç. % ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ Gap Orç. %</td>
+    {% for m in range(1,13) %}
+    <td class="text-end">{{ gpct(mapa.vendas.get(m,0), mapa.budget_vendas.get(m,0)) }}</td>
+    {% endfor %}
+    <td class="text-end col-total">{{ gpct(v_total, orc_total) }}</td>
+</tr>
+
+{# ── Gap Orç. € ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ Gap Orç. €</td>
+    {% for m in range(1,13) %}
+    {% set gap_e = mapa.vendas.get(m,0) - (mapa.budget_vendas.get(m) or 0) %}
+    {% set has = mapa.budget_vendas.get(m) is not none %}
+    <td class="text-end text-eur">
+        {% if has %}<span class="{{ 'val-pos' if gap_e >= 0 else 'val-neg' }}">{{ '+%.0f'|format(gap_e) if gap_e >= 0 else '%.0f'|format(gap_e) }}</span>{% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    {% set gap_tot_e = v_total - orc_total %}
+    <td class="text-end text-eur col-total">
+        {% if orc_total %}<span class="{{ 'val-pos' if gap_tot_e >= 0 else 'val-neg' }}">{{ '+%.0f'|format(gap_tot_e) if gap_tot_e >= 0 else '%.0f'|format(gap_tot_e) }}</span>{% else %}—{% endif %}
+    </td>
+</tr>
+
+{# ── Histórico AA ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ {{ mapa.ano_aa }} (Histórico)</td>
+    {% for m in range(1,13) %}
+    {% set h = mapa.vendas_aa.get(m, 0) %}
+    <td class="text-end text-eur">{{ e(h) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(aa_total) }}</td>
+</tr>
+
+{# ── Gap Hist. % ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ Gap Hist. %</td>
+    {% for m in range(1,13) %}
+    <td class="text-end">{{ gpct(mapa.vendas.get(m,0), mapa.vendas_aa.get(m,0)) }}</td>
+    {% endfor %}
+    <td class="text-end col-total">{{ gpct(v_total, aa_total) }}</td>
+</tr>
+
+{# ── Gap Hist. € ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ Gap Hist. €</td>
+    {% for m in range(1,13) %}
+    {% set gap_h = mapa.vendas.get(m,0) - mapa.vendas_aa.get(m,0) %}
+    {% set has_h = mapa.vendas.get(m,0) or mapa.vendas_aa.get(m,0) %}
+    <td class="text-end text-eur">
+        {% if has_h %}<span class="{{ 'val-pos' if gap_h >= 0 else 'val-neg' }}">{{ '+%.0f'|format(gap_h) if gap_h >= 0 else '%.0f'|format(gap_h) }}</span>{% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    {% set gap_h_tot = v_total - aa_total %}
+    <td class="text-end text-eur col-total">
+        {% if v_total or aa_total %}<span class="{{ 'val-pos' if gap_h_tot >= 0 else 'val-neg' }}">{{ '+%.0f'|format(gap_h_tot) if gap_h_tot >= 0 else '%.0f'|format(gap_h_tot) }}</span>{% else %}—{% endif %}
+    </td>
+</tr>
+
+{# ── Acc YTD vs AA — only meaningful for current year ── #}
+{% if ano == mapa.today.year %}
+<tr class="row-sub">
+    <td class="col-label">↳ Acc YTD vs {{ mapa.ano_aa }} %</td>
+    {% set ytd = namespace(a=0.0, h=0.0) %}
+    {% for m in range(1,13) %}
+    {% set ytd.a = ytd.a + (mapa.vendas.get(m) or 0) %}
+    {% set ytd.h = ytd.h + (mapa.vendas_aa.get(m) or 0) %}
+    <td class="text-end">
+        {% if m <= mapa.today.month %}{{ gpct(ytd.a, ytd.h) }}{% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    <td class="text-end col-total">{{ gpct(v_total, aa_total) }}</td>
+</tr>
+
+<tr class="row-sub">
+    <td class="col-label">↳ Acc YTD vs {{ mapa.ano_aa }} €</td>
+    {% set ytd2 = namespace(a=0.0, h=0.0) %}
+    {% for m in range(1,13) %}
+    {% set ytd2.a = ytd2.a + (mapa.vendas.get(m) or 0) %}
+    {% set ytd2.h = ytd2.h + (mapa.vendas_aa.get(m) or 0) %}
+    {% set gap_ytd = ytd2.a - ytd2.h %}
+    <td class="text-end text-eur">
+        {% if m <= mapa.today.month and (ytd2.a or ytd2.h) %}
+        <span class="{{ 'val-pos' if gap_ytd >= 0 else 'val-neg' }}">{{ '+%.0f'|format(gap_ytd) if gap_ytd >= 0 else '%.0f'|format(gap_ytd) }}</span>
+        {% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    {% set gap_ytd_tot = v_total - aa_total %}
+    <td class="text-end text-eur col-total">
+        {% if v_total or aa_total %}<span class="{{ 'val-pos' if gap_ytd_tot >= 0 else 'val-neg' }}">{{ '+%.0f'|format(gap_ytd_tot) if gap_ytd_tot >= 0 else '%.0f'|format(gap_ytd_tot) }}</span>{% else %}—{% endif %}
+    </td>
+</tr>
+{% endif %}
+
+{# ── tipo_venda breakdown / fallback note ── #}
+<tr class="row-sub">
+    <td class="col-label fst-italic text-muted" colspan="14">
+        <small>ℹ️ Detalhe por tipo (Lojas / Eventos / Serviços) disponível após captura do campo tipo_venda nos uploads de vendas.</small>
+    </td>
+</tr>
+
+{# ── Consolidated: per-store Vendas sub-rows ── #}
+{% if mapa.mode == 'consolidated' %}
+{% for s in mapa.stores %}
+{% set sv = mapa.store_vendas.get(s.id, {}) %}
+{% set sv_tot = sv.values() | sum %}
+<tr class="row-store-sub">
+    <td class="col-label">↳ {{ s.name }}</td>
+    {% for m in range(1,13) %}
+    {% set v = sv.get(m, 0) %}
+    <td class="text-end text-eur">{{ e(v) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(sv_tot) }}</td>
+</tr>
+{% endfor %}
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  CMVMC                                                                #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+
+<tr class="row-cmvmc">
+    <td class="col-label ps-3">🧾 CMVMC</td>
+    {% for m in range(1,13) %}
+    {% set v = mapa.cmvmc.get(m, 0) %}
+    <td class="text-end text-eur">{{ e(v) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(c_total) }}</td>
+</tr>
+
+<tr class="row-sub">
+    <td class="col-label">↳ Orçamento</td>
+    {% for m in range(1,13) %}
+    {% set o = mapa.budget_cmvmc.get(m) %}
+    <td class="text-end text-eur">{% if o is not none %}{{ '%.0f'|format(o) }}{% else %}—{% endif %}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(co_total) }}</td>
+</tr>
+
+<tr class="row-sub">
+    <td class="col-label">↳ Gap Orç. %</td>
+    {% for m in range(1,13) %}
+    <td class="text-end">{{ gpct(mapa.cmvmc.get(m,0), mapa.budget_cmvmc.get(m,0), cost_mode=true) }}</td>
+    {% endfor %}
+    <td class="text-end col-total">{{ gpct(c_total, co_total, cost_mode=true) }}</td>
+</tr>
+
+<tr class="row-sub">
+    <td class="col-label">↳ {{ mapa.ano_aa }} (Histórico)</td>
+    {% for m in range(1,13) %}
+    {% set h = mapa.cmvmc_aa.get(m, 0) %}
+    <td class="text-end text-eur">{{ e(h) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(ca_total) }}</td>
+</tr>
+
+{% if mapa.mode == 'consolidated' %}
+{% for s in mapa.stores %}
+{% set sc = mapa.store_cmvmc.get(s.id, {}) %}
+{% set sc_tot = sc.values() | sum %}
+<tr class="row-store-sub">
+    <td class="col-label">↳ {{ s.name }}</td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(sc.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(sc_tot) }}</td>
+</tr>
+{% endfor %}
+{% set ua_c = mapa.unallocated_cmvmc %}
+{% if ua_c %}
+{% set ua_c_tot = ua_c.values() | sum %}
+<tr class="row-store-sub text-warning">
+    <td class="col-label">↳ Não alocado</td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(ua_c.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(ua_c_tot) }}</td>
+</tr>
+{% endif %}
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  MARGEM BRUTA                                                         #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+
+{% set mb_total = v_total - c_total %}
+
+<tr class="row-margem">
+    <td class="col-label ps-3">📊 MARGEM BRUTA</td>
+    {% for m in range(1,13) %}
+    {% set mb = mapa.vendas.get(m, 0) - mapa.cmvmc.get(m, 0) %}
+    <td class="text-end text-eur {{ 'val-pos' if mb > 0 else ('val-neg' if mb < 0 else '') }}">
+        {% if mapa.vendas.get(m,0) or mapa.cmvmc.get(m,0) %}{{ '%.0f'|format(mb) }}{% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    <td class="text-end text-eur col-total {{ 'val-pos' if mb_total > 0 else ('val-neg' if mb_total < 0 else '') }}">
+        {% if v_total or c_total %}{{ '%.0f'|format(mb_total) }}{% else %}—{% endif %}
+    </td>
+</tr>
+
+<tr class="row-sub">
+    <td class="col-label">↳ % sobre Vendas</td>
+    {% for m in range(1,13) %}
+    {% set vv = mapa.vendas.get(m, 0) %}
+    {% set mb = vv - mapa.cmvmc.get(m, 0) %}
+    <td class="text-end">
+        {% if vv %}<small class="{{ 'val-pos' if mb >= 0 else 'val-neg' }}">{{ '%.1f'|format(mb / vv * 100) }}%</small>{% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    <td class="text-end col-total">
+        {% if v_total %}<small class="{{ 'val-pos' if mb_total >= 0 else 'val-neg' }}">{{ '%.1f'|format(mb_total / v_total * 100) }}%</small>{% else %}—{% endif %}
+    </td>
+</tr>
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  CUSTOS DE OPERAÇÃO                                                   #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+
+<tr class="row-section">
+    <td class="col-label ps-3" colspan="14">⚙️ Custos de Operação</td>
+</tr>
+
+{% if not mapa.categories %}
+<tr>
+    <td class="col-label ps-3 fst-italic text-muted" colspan="14">
+        Nenhuma categoria de custo configurada.
+        <a href="{{ url_for('financeiro.distribuicao_centros_custo') }}" class="ms-2 small">Configurar →</a>
+    </td>
+</tr>
+{% endif %}
+
+{% for cat in mapa.categories %}
+{% set cat_d   = mapa.costs.get(cat.id, {}) %}
+{% set cat_orc = mapa.budget_costs.get(cat.id, {}) %}
+{% set cat_tot = cat_d.values() | sum %}
+
+{# ── Category actual row ── #}
+<tr>
+    <td class="col-label ps-3">{{ cat.name }}</td>
+    {% for m in range(1,13) %}
+    {% set v = cat_d.get(m, 0) %}
+    <td class="text-end text-eur">{{ e(v) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur fw-semibold col-total">{{ e(cat_tot) }}</td>
+</tr>
+
+{# ── % sobre Vendas ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ % sobre Vendas</td>
+    {% for m in range(1,13) %}
+    {% set vv = mapa.vendas.get(m, 0) %}
+    {% set cv = cat_d.get(m, 0) %}
+    <td class="text-end">
+        {% if vv %}<small class="text-muted">{{ '%.1f'|format(cv / vv * 100) }}%</small>{% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    <td class="text-end col-total">
+        {% if v_total %}<small class="text-muted">{{ '%.1f'|format(cat_tot / v_total * 100) }}%</small>{% else %}—{% endif %}
+    </td>
+</tr>
+
+{# ── Category budget sub-row ── #}
+{% set cat_orc_tot = cat_orc.values() | sum %}
+{% if cat_orc %}
+<tr class="row-sub">
+    <td class="col-label">↳ Orçamento</td>
+    {% for m in range(1,13) %}
+    {% set o = cat_orc.get(m) %}
+    <td class="text-end text-eur">{% if o is not none %}{{ '%.0f'|format(o) }}{% else %}—{% endif %}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(cat_orc_tot) }}</td>
+</tr>
+{% endif %}
+
+{# ── Histórico AA ── #}
+{% set cat_aa_d = mapa.costs_aa.get(cat.id, {}) %}
+{% set cat_aa_tot = cat_aa_d.values() | sum %}
+{% if cat_aa_d %}
+<tr class="row-sub">
+    <td class="col-label">↳ {{ mapa.ano_aa }} (Histórico)</td>
+    {% for m in range(1,13) %}
+    {% set h = cat_aa_d.get(m, 0) %}
+    <td class="text-end text-eur">{{ e(h) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(cat_aa_tot) }}</td>
+</tr>
+{% endif %}
+
+{# ── Consolidated: per-store breakdown + unallocated ── #}
+{% if mapa.mode == 'consolidated' %}
+{% for s in mapa.stores %}
+{% set sd = mapa.store_costs.get(s.id, {}).get(cat.id, {}) %}
+{% set sd_tot = sd.values() | sum %}
+<tr class="row-store-sub">
+    <td class="col-label">↳ {{ s.name }}</td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(sd.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(sd_tot) }}</td>
+</tr>
+{% endfor %}
+{% set ua = mapa.unallocated_costs.get(cat.id, {}) %}
+{% if ua %}
+{% set ua_tot = ua.values() | sum %}
+<tr class="row-store-sub text-warning">
+    <td class="col-label">↳ Não alocado</td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(ua.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(ua_tot) }}</td>
+</tr>
+{% endif %}
+{% endif %}
+
+{% endfor %}{# end categories #}
+
+{# ── Sem categoria (unclassified invoices) ── #}
+{% set uncat_tot = mapa.costs_uncat.values() | sum %}
+{% if mapa.costs_uncat %}
+<tr>
+    <td class="col-label ps-3 text-warning">
+        ⚠️ Sem categoria
+        <small class="text-muted ms-1" title="Faturas sem categoria de custo atribuída — classifique-as para que apareçam na linha correta.">(?)</small>
+    </td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(mapa.costs_uncat.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur fw-semibold col-total">{{ e(uncat_tot) }}</td>
+</tr>
+{% set uncat_aa_tot = mapa.costs_uncat_aa.values() | sum %}
+{% if mapa.costs_uncat_aa %}
+<tr class="row-sub">
+    <td class="col-label">↳ {{ mapa.ano_aa }} (Histórico)</td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(mapa.costs_uncat_aa.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(uncat_aa_tot) }}</td>
+</tr>
+{% endif %}
+{% endif %}
+
+{# ── Pessoal placeholder ── #}
+<tr class="text-muted fst-italic">
+    <td class="col-label ps-3">
+        Pessoal
+        <span class="badge text-bg-secondary ms-1" style="font-size:.6rem">Em breve</span>
+    </td>
+    {% for m in range(1,13) %}<td class="text-end">—</td>{% endfor %}
+    <td class="text-end col-total">—</td>
+</tr>
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  TOTAL CUSTOS                                                         #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+
+<tr class="row-total-custos">
+    <td class="col-label ps-3">TOTAL CUSTOS OP.</td>
+    {% for m in range(1,13) %}
+    {% set v = mapa.total_costs_monthly.get(m, 0) %}
+    <td class="text-end text-eur">{{ e(v) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(tc_total) }}</td>
+</tr>
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  EBITDA                                                               #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+
+{% set ebitda_total = mb_total - tc_total %}
+
+<tr class="row-ebitda">
+    <td class="col-label ps-3">⚡ EBITDA</td>
+    {% for m in range(1,13) %}
+    {% set ebitda_m = mapa.vendas.get(m,0) - mapa.cmvmc.get(m,0) - mapa.total_costs_monthly.get(m,0) %}
+    {% set has_data = mapa.vendas.get(m,0) or mapa.cmvmc.get(m,0) or mapa.total_costs_monthly.get(m,0) %}
+    <td class="text-end text-eur {{ 'val-pos' if ebitda_m > 0 else ('val-neg' if ebitda_m < 0 else '') }}">
+        {% if has_data %}{{ '%.0f'|format(ebitda_m) }}{% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    <td class="text-end text-eur fw-bold col-total {{ 'val-pos' if ebitda_total > 0 else ('val-neg' if ebitda_total < 0 else '') }}">
+        {% if v_total or c_total or tc_total %}{{ '%.0f'|format(ebitda_total) }}{% else %}—{% endif %}
+    </td>
+</tr>
+
+{# ── EBITDA % sobre Vendas ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ % sobre Vendas</td>
+    {% for m in range(1,13) %}
+    {% set vv = mapa.vendas.get(m, 0) %}
+    {% set ebitda_m = vv - mapa.cmvmc.get(m,0) - mapa.total_costs_monthly.get(m,0) %}
+    <td class="text-end">
+        {% if vv %}
+        <small class="{{ 'val-pos' if ebitda_m >= 0 else 'val-neg' }}">{{ '%.1f'|format(ebitda_m / vv * 100) }}%</small>
+        {% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    <td class="text-end col-total">
+        {% if v_total %}
+        <small class="{{ 'val-pos' if ebitda_total >= 0 else 'val-neg' }}">{{ '%.1f'|format(ebitda_total / v_total * 100) }}%</small>
+        {% else %}—{% endif %}
+    </td>
+</tr>
+
+</tbody>
+</table>
+</div>{# /.mapa-wrap #}
+
+{# ──────────────────────────────────────────────────────────────────── #}
+{#  Footer notes                                                         #}
+{# ──────────────────────────────────────────────────────────────────── #}
+<div class="mt-3 small text-muted d-flex flex-wrap gap-3 align-items-start">
+    <div>
+        💡 Valores em € arredondados ao euro. <strong>CMVMC</strong> = faturas categorizadas como Matéria Prima.
+        <strong>Custos Op.</strong> = restantes categorias de faturas, distribuídas por loja via centros de custo.
     </div>
-    {% else %}
-    <div class="alert alert-warning py-2 small mb-3">
-        ⚠️ Sem dados de vendas nos últimos 12 meses. As categorias em modo "Volume de vendas" aparecem sem alocação.
+    {% if not mapa.vendas %}
+    <div class="alert alert-warning py-1 px-2 mb-0 small">
+        ⚠️ Sem dados de vendas para {{ ano }}. Carregue vendas no módulo Gestor.
     </div>
     {% endif %}
-
-    {# ── Revenue warning if no data ──────────────────────────────────── #}
-    {% if pl.total_revenue == 0 %}
-    <div class="alert alert-warning py-2 small mb-3">
-        ⚠️ Sem dados de receita (vendas_detalhe) para o período — a linha de receita mostra 0 €. Carregue dados de vendas no módulo Gestor.
+    {% if not mapa.categories %}
+    <div class="alert alert-info py-1 px-2 mb-0 small">
+        ℹ️ Configure categorias de custo em
+        <a href="{{ url_for('financeiro.distribuicao_centros_custo') }}">Distribuição Centros de Custo</a>.
     </div>
     {% endif %}
-
-    {# ── P&L table ───────────────────────────────────────────────────── #}
-    <div class="card">
-        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center">
-            <span>P&amp;L por categoria e loja</span>
-            <span class="text-muted">{{ date_from.strftime('%d/%m/%Y') }} – {{ date_to.strftime('%d/%m/%Y') }}</span>
-        </div>
-        <div class="table-responsive">
-            <table class="table table-sm table-hover align-middle mb-0 pl-table">
-                <thead class="table-dark">
-                    <tr>
-                        <th class="ps-3" style="min-width:180px">Categoria</th>
-                        <th style="min-width:120px">Modo</th>
-                        <th class="text-end" style="min-width:110px">Total (€)</th>
-                        {% for store in pl.stores %}
-                        <th class="text-end" style="min-width:110px">{{ store.name }}</th>
-                        {% endfor %}
-                        <th class="text-end" style="min-width:100px">Não alocado</th>
-                    </tr>
-                </thead>
-                <tbody>
-
-                {# ── Revenue row ──────────────────────────────────── #}
-                <tr class="pl-revenue-row">
-                    <td class="ps-3" colspan="2">📈 RECEITA</td>
-                    <td class="text-end">{{ "%.2f"|format(pl.total_revenue) }} €</td>
-                    {% for store in pl.stores %}
-                    <td class="text-end">
-                        {% set rev = pl.store_revenues.get(store.id, 0) %}
-                        {% if rev %}
-                        {{ "%.2f"|format(rev) }} €
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    {% endfor %}
-                    <td></td>
-                </tr>
-
-                {# ── Section label for costs ──────────────────────── #}
-                <tr>
-                    <td class="ps-3 section-label" colspan="{{ 4 + pl.stores|length }}">Custos</td>
-                </tr>
-
-                {# ── Cost rows ────────────────────────────────────── #}
-                {% for row in pl.rows %}
-                <tr {% if row.cat_id is none %}class="no-data-row"{% endif %}>
-                    <td class="ps-3 {% if row.parent_id %}cat-sub{% endif %}">
-                        {% if row.parent_id %}<span class="text-muted me-1">↳</span>{% endif %}
-                        {{ row.cat_name }}
-                    </td>
-                    <td>
-                        {% if row.cat_id is not none %}
-                        <span class="modo-badge modo-{{ row.modo }}">
-                            {% if row.modo == 'volume_vendas' %}Volume
-                            {% elif row.modo == 'igualitario' %}50/50
-                            {% elif row.modo == 'tudo_loja' %}Tudo loja
-                            {% elif row.modo == 'manual' %}Manual
-                            {% else %}{{ row.modo }}{% endif %}
-                        </span>
-                        {% else %}
-                        <span class="text-muted small fst-italic">—</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-end fw-semibold">{{ "%.2f"|format(row.total_eur) }} €</td>
-                    {% for store in pl.stores %}
-                    <td class="text-end store-col">
-                        {% set amt = row.store_amounts.get(store.id, 0) %}
-                        {% if amt %}
-                        {{ "%.2f"|format(amt) }} €
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    {% endfor %}
-                    <td class="text-end">
-                        {% if row.unallocated and row.unallocated | abs > 0.01 %}
-                        <span class="unalloc-warn">{{ "%.2f"|format(row.unallocated) }} €</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-
-                </tbody>
-                <tfoot>
-                    {# ── Total costs row ────────────────────────── #}
-                    <tr class="pl-total-row">
-                        <td class="ps-3" colspan="2">TOTAL CUSTOS</td>
-                        <td class="text-end">{{ "%.2f"|format(pl.grand_total) }} €</td>
-                        {% for store in pl.stores %}
-                        <td class="text-end">
-                            {{ "%.2f"|format(pl.store_totals.get(store.id, 0)) }} €
-                        </td>
-                        {% endfor %}
-                        <td></td>
-                    </tr>
-
-                    {# ── Gross margin row ───────────────────────── #}
-                    {% set margin_sign = 'positive' if pl.total_margin >= 0 else 'negative' %}
-                    <tr class="pl-margin-row {{ margin_sign }}">
-                        <td class="ps-3" colspan="2">
-                            {% if pl.total_margin >= 0 %}✅{% else %}❌{% endif %}
-                            RESULTADO BRUTO
-                        </td>
-                        <td class="text-end">
-                            {% if pl.total_margin >= 0 %}+{% endif %}{{ "%.2f"|format(pl.total_margin) }} €
-                        </td>
-                        {% for store in pl.stores %}
-                        {% set m = pl.store_margins.get(store.id, 0) %}
-                        <td class="text-end">
-                            {% if m >= 0 %}+{% endif %}{{ "%.2f"|format(m) }} €
-                        </td>
-                        {% endfor %}
-                        <td></td>
-                    </tr>
-
-                    {# ── Margin % row ───────────────────────────── #}
-                    <tr class="pl-margin-pct-row">
-                        <td class="ps-3" colspan="2">MARGEM %</td>
-                        <td class="text-end">
-                            {% if pl.total_revenue > 0 %}
-                            {{ "%.1f"|format(pl.total_margin / pl.total_revenue * 100) }}%
-                            {% else %}
-                            <span class="text-muted">—</span>
-                            {% endif %}
-                        </td>
-                        {% for store in pl.stores %}
-                        {% set rev = pl.store_revenues.get(store.id, 0) %}
-                        {% set m = pl.store_margins.get(store.id, 0) %}
-                        <td class="text-end">
-                            {% if rev > 0 %}
-                            {{ "%.1f"|format(m / rev * 100) }}%
-                            {% else %}
-                            <span class="text-muted">—</span>
-                            {% endif %}
-                        </td>
-                        {% endfor %}
-                        <td></td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-    </div>
-
-    {# ── Recurring costs — supplemental forecast (not included in totals above) ── #}
-    {% if pl.recurring_rows %}
-    <div class="card mt-3 border-success border-opacity-25">
-        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center bg-transparent">
-            <span>♻️ Custos Recorrentes <span class="badge text-bg-warning ms-1" style="font-size:0.7rem">Projeção</span></span>
-            <span class="text-muted fw-normal">Valores projectados para o período — <strong>não incluídos</strong> nos totais de custos acima</span>
-        </div>
-        <div class="table-responsive">
-            <table class="table table-sm table-hover align-middle mb-0 pl-table">
-                <thead class="table-secondary">
-                    <tr>
-                        <th class="ps-3" style="min-width:200px">Fornecedor</th>
-                        <th style="min-width:110px">Frequência</th>
-                        <th class="text-end" style="min-width:110px">Total período (€)</th>
-                        {% for store in pl.stores %}
-                        <th class="text-end" style="min-width:110px">{{ store.name }}</th>
-                        {% endfor %}
-                        <th class="text-end" style="min-width:100px">Não alocado</th>
-                    </tr>
-                </thead>
-                <tbody>
-                {% for row in pl.recurring_rows %}
-                <tr>
-                    <td class="ps-3">
-                        {{ row.supplier_name }}
-                        {% if row.tipologia == 'variavel' %}
-                        <span class="badge text-bg-secondary ms-1" style="font-size:0.6rem">Variável</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {{ row.frequencia_label }}
-                        {% if row.occurrences > 1 %}
-                        <span class="text-muted small">× {{ row.occurrences }}</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-end fw-semibold">{{ "%.2f"|format(row.total_eur) }} €</td>
-                    {% for store in pl.stores %}
-                    <td class="text-end store-col">
-                        {% set amt = row.store_amounts.get(store.id, 0) %}
-                        {% if amt %}
-                        {{ "%.2f"|format(amt) }} €
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                    {% endfor %}
-                    <td class="text-end">
-                        {% if row.unallocated and row.unallocated | abs > 0.01 %}
-                        <span class="unalloc-warn">{{ "%.2f"|format(row.unallocated) }} €</span>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-                </tbody>
-                <tfoot>
-                    <tr class="pl-total-row">
-                        <td class="ps-3" colspan="2">TOTAL PROJECTADO RECORRENTES</td>
-                        <td class="text-end">{{ "%.2f"|format(pl.recurring_grand_total) }} €</td>
-                        {% for store in pl.stores %}
-                        <td class="text-end">
-                            {{ "%.2f"|format(pl.recurring_store_totals.get(store.id, 0)) }} €
-                        </td>
-                        {% endfor %}
-                        <td></td>
-                    </tr>
-                </tfoot>
-            </table>
-        </div>
-        <div class="card-footer small text-muted py-1">
-            ℹ️ Projeção calculada com base nas ocorrências no período seleccionado. Distribução por loja via volume de vendas (últimos 12 meses). Os valores reais constam das faturas acima quando emitidas.
-        </div>
+    {% if not mapa.cmvmc and not mapa.budget_cmvmc %}
+    <div class="alert alert-info py-1 px-2 mb-0 small">
+        ℹ️ CMVMC sem dados: classifique faturas como "Matéria Prima" ou defina orçamento em
+        <a href="{{ url_for('financeiro.orcamento') }}">Orçamento</a>.
     </div>
     {% endif %}
+</div>
 
-    {# ── Legend ──────────────────────────────────────────────────────── #}
-    <div class="mt-3 small text-muted">
-        <strong>Modos de distribuição de custos:</strong>
-        <span class="modo-badge modo-volume me-2">Volume</span> — proporcional ao volume de vendas dos últimos 12 meses
-        <span class="modo-badge modo-igualitario me-2 ms-2">50/50</span> — igual entre lojas activas
-        <span class="modo-badge modo-tudo_loja me-2 ms-2">Tudo loja</span> — 100% a uma loja
-        <span class="modo-badge modo-manual me-2 ms-2">Manual</span> — percentagens definidas manualmente
-        <br>
-        <span class="text-danger fw-semibold">Não alocado</span> — valor sem distribuição definida (configure em
-        <a href="{{ url_for('financeiro.distribuicao_centros_custo') }}">Distribuição Centros de Custo</a>).
-        <br>
-        <strong>Receita</strong> — agregada a partir dos dados de vendas (Gestor / vendas_detalhe) para o período seleccionado.
-        <strong>Resultado Bruto</strong> = Receita − Total de Custos.
-    </div>
-    {% endif %}
+{% endif %}{# mapa.stores #}
 </div>
 {% endblock %}
