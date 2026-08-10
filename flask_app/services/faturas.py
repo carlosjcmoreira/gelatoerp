@@ -318,27 +318,20 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
     elif document_type in DOCUMENT_TYPES_INVOICE and not supplier_id and not supplier_name:
         raise ServiceError('Seleciona ou cria um fornecedor antes de guardar este tipo de documento.')
 
-    if not existing_supplier_id_str and supplier_nif and supplier_name:
+    if not existing_supplier_id_str and is_new_supplier and supplier_nif and supplier_name:
+        # Only create a supplier when the user explicitly requested it (is_new_supplier=1).
+        # Implicit name+NIF upserts are no longer allowed — the user must select an
+        # existing supplier from the dropdown or explicitly fill in the new-supplier form.
         try:
-            if is_new_supplier:
-                supplier_id = upsert_supplier(
-                    name=supplier_name,
-                    nif=supplier_nif,
-                    category=category or None,
-                    store_id=store_id,
-                    payment_method=supplier_payment_method,
-                    payment_terms=supplier_payment_terms,
-                    iban=supplier_iban,
-                )
-            else:
-                # Existing supplier: update IBAN from OCR hint if detected; keep other fields via COALESCE
-                supplier_id = upsert_supplier(
-                    name=supplier_name,
-                    nif=supplier_nif,
-                    category=category or None,
-                    store_id=store_id,
-                    iban=ocr_iban_hint,
-                )
+            supplier_id = upsert_supplier(
+                name=supplier_name,
+                nif=supplier_nif,
+                category=category or None,
+                store_id=store_id,
+                payment_method=supplier_payment_method,
+                payment_terms=supplier_payment_terms,
+                iban=supplier_iban,
+            )
         except Exception as exc:
             raise ServiceError(f'Erro ao guardar fornecedor: {exc}') from exc
 

@@ -1532,17 +1532,6 @@ def edit(invoice_id: int):
                 supplier_nif = _sup.get('nif') or ''
         except Exception:
             pass
-    elif supplier_nif and supplier_name:
-        try:
-            supplier_id = upsert_supplier(
-                name=supplier_name,
-                nif=supplier_nif,
-                category=category or None,
-                store_id=store_id,
-            )
-        except Exception as _sup_exc:
-            logger.warning('upsert_supplier failed during edit for invoice %s: %s', invoice_id, _sup_exc)
-            flash('Dados do fornecedor não puderam ser actualizados, mas os restantes campos foram guardados.', 'warning')
     elif supplier_name and not supplier_id:
         # Fallback: try name-based lookup when no NIF is provided
         try:
