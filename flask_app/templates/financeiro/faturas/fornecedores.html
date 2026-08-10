@@ -981,6 +981,10 @@ function applyBulkEdit() {
 
 // ── Inline cell save (AJAX) ───────────────────────────────────────────────────
 function inlineSave(supplierId, field, value, selectEl) {
+    // Prevent the browser from auto-scrolling to the select after onchange
+    var _savedY = window.scrollY;
+    requestAnimationFrame(function() { window.scrollTo({ top: _savedY, behavior: 'instant' }); });
+
     var fd = new FormData();
     fd.append('action', 'bulk_edit');
     fd.append('field', field);
