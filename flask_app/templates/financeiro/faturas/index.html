@@ -2558,4 +2558,50 @@ function docSearchClear() {
   });
 })();
 </script>
+
+<script>
+// ── Inline paid-date picker for the compras panel ─────────────────────────────
+// Defined here (not in compras/_panel.html) because the panel is injected via
+// innerHTML, which does not execute <script> blocks.  This function must live in
+// the page's own already-executed global scope.
+function setPanelPaidDate(inputEl) {
+    // Prevent the browser from scrolling when the date input loses focus after
+    // the change event — same scroll-lock pattern as inlineSave() above.
+    var _savedY = window.scrollY;
+    var _scrollLock = function() { window.scrollTo({ top: _savedY, behavior: 'instant' }); };
+    window.addEventListener('scroll', _scrollLock, { passive: true });
+    setTimeout(function() { window.removeEventListener('scroll', _scrollLock); }, 300);
+
+    inputEl.blur();
+
+    var invId = inputEl.getAttribute('data-inv-id');
+    var statusEl = document.getElementById('paid-date-status-' + invId);
+    var url = '/compras/faturas/' + invId + '/set_paid_date';
+
+    inputEl.disabled = true;
+    if (statusEl) statusEl.textContent = '…';
+
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paid_date: inputEl.value })
+    })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            inputEl.disabled = false;
+            if (data.ok) {
+                if (statusEl) {
+                    statusEl.textContent = data.paid_date_formatted ? '✓ ' + data.paid_date_formatted : '✓';
+                    setTimeout(function() { statusEl.textContent = ''; }, 2000);
+                }
+            } else {
+                if (statusEl) { statusEl.textContent = '⚠'; }
+            }
+        })
+        .catch(function() {
+            inputEl.disabled = false;
+            if (statusEl) { statusEl.textContent = '⚠'; }
+        });
+}
+</script>
 {% endblock %}
