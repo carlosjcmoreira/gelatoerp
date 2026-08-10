@@ -233,6 +233,9 @@
             <tr class="drill-row drill-cat-{{ css_id }} d-none bg-light" style="font-size:0.78rem">
                 <td class="ps-4 text-muted">
                     └ {{ display_label }}
+                    {% if item_meta.get('type') == 'custo_recorrente' %}
+                    <span class="badge text-bg-success ms-1" style="font-size:0.58rem;vertical-align:middle" title="Custo recorrente">♻️</span>
+                    {% endif %}
                     {% if item_meta.get('source') == 'due_date_fallback' %}
                     <span class="badge text-bg-secondary ms-1" style="font-size:0.58rem;vertical-align:middle" title="Sem pagamento agendado — incluído pelo vencimento">venc.</span>
                     {% endif %}
@@ -340,7 +343,7 @@
         <div class="card-body py-2">
             <h6 class="card-title mb-2" style="font-size:0.85rem">ℹ️ Legenda</h6>
             <ul class="small text-muted mb-0" style="column-count:2;column-gap:2rem">
-                <li><strong>Categorias de custo</strong>: faturas, avenças e créditos agrupados por categoria. Clique para expandir.</li>
+                <li><strong>Categorias de custo</strong>: faturas, custos recorrentes e créditos agrupados por categoria. Clique para expandir. O badge <span class="badge text-bg-success" style="font-size:0.65rem">♻️</span> identifica entradas de Custos Recorrentes.</li>
                 <li><strong>POS — Real</strong>: Valor real registado em vendas (dias passados)</li>
                 <li><strong>POS — Prev.</strong>: Previsão de 30 dias ajustada (clique para ver detalhe diário)</li>
                 <li><strong>POS — Média</strong>: Média diária dos últimos 28 dias × 7 dias</li>

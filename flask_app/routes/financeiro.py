@@ -375,7 +375,7 @@ def pl_por_loja():
                 *store_vals,
                 f"{row['unallocated']:.2f}",
             ])
-        totals_row = ['TOTAL CUSTOS', '', f"{pl['grand_total']:.2f}"] + [
+        totals_row = ['TOTAL CUSTOS (faturas)', '', f"{pl['grand_total']:.2f}"] + [
             f"{pl['store_totals'].get(s['id'], 0.0):.2f}"
             for s in pl['stores']
         ] + ['']
@@ -393,6 +393,34 @@ def pl_por_loja():
             pct_row.append(f"{pct:.1f}%")
         pct_row.append('')
         writer.writerow(pct_row)
+        # Recurring costs section — supplemental projection, not included in totals above
+        if pl.get('recurring_rows'):
+            writer.writerow([''] * (len(pl['stores']) + 4))  # blank separator
+            writer.writerow(
+                ['CUSTOS RECORRENTES (Projeção — não incluído nos totais acima)', '', '']
+                + [''] * (len(pl['stores']) + 1)
+            )
+            for row in pl['recurring_rows']:
+                freq_label = row.get('frequencia_label', row.get('frequencia', ''))
+                label = f"{row['supplier_name']} ({freq_label})"
+                if row.get('occurrences', 1) > 1:
+                    label += f" × {row['occurrences']}"
+                store_vals = [
+                    f"{row['store_amounts'].get(s['id'], 0.0):.2f}"
+                    for s in pl['stores']
+                ]
+                writer.writerow([
+                    label,
+                    'volume_vendas',
+                    f"{row['total_eur']:.2f}",
+                    *store_vals,
+                    f"{row['unallocated']:.2f}",
+                ])
+            cr_total_row = ['TOTAL RECORRENTES (projeção)', '', f"{pl['recurring_grand_total']:.2f}"] + [
+                f"{pl['recurring_store_totals'].get(s['id'], 0.0):.2f}"
+                for s in pl['stores']
+            ] + ['']
+            writer.writerow(cr_total_row)
         output.seek(0)
         filename = f"pl_por_loja_{date_from}_{date_to}.csv"
         return Response(

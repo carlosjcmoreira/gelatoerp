@@ -769,6 +769,97 @@ def get_pl_by_store(date_from=None, date_to=None) -> dict:
             'unallocated': unallocated,
         })
 
+    # ── Custos Recorrentes section ──────────────────────────────────────────
+    # Each active recurring-cost entry is prorated to the selected period
+    # (occurrences × valor) and allocated across stores via sales_split (volume_vendas).
+    # Variável entries without a stored valor use suggest_valor as a fallback.
+    from db.custos_recorrentes import (
+        get_custos_recorrentes as _get_cr,
+        next_due_date_cr as _cr_next_due,
+        suggest_valor as _cr_suggest,
+        FREQUENCIA_LABELS as _CR_FREQ_LABELS,
+    )
+    from datetime import timedelta as _timedelta
+    from dateutil.relativedelta import relativedelta as _relativedelta
+    import calendar as _cal_mod
+
+    _CR_PERIOD_MONTHS = {'mensal': 1, 'trimestral': 3, 'semestral': 6, 'anual': 12}
+    _CR_PERIOD_DAYS   = {'semanal': 7, 'quinzenal': 14}
+
+    def _count_occurrences(entry, d_from, d_to):
+        """Count occurrences of a recurring entry that fall in [d_from, d_to]."""
+        if d_from is None or d_to is None or d_from > d_to:
+            return 0
+        freq = entry.get('frequencia', '')
+        current = _cr_next_due(entry, d_from)
+        if current is None or current > d_to:
+            return 0
+        ref = entry.get('data_cobranca')
+        ref_day = ref.day if hasattr(ref, 'day') else current.day
+        count = 0
+        max_iter = 2000  # safety cap
+        while current is not None and current <= d_to and max_iter > 0:
+            count += 1
+            max_iter -= 1
+            if freq in _CR_PERIOD_DAYS:
+                current = current + _timedelta(days=_CR_PERIOD_DAYS[freq])
+            elif freq in _CR_PERIOD_MONTHS:
+                cand = current + _relativedelta(months=_CR_PERIOD_MONTHS[freq])
+                max_d = _cal_mod.monthrange(cand.year, cand.month)[1]
+                current = cand.replace(day=min(ref_day, max_d))
+            else:
+                break
+        return count
+
+    recurring_rows = []
+    recurring_store_totals = {sid: 0.0 for sid in store_ids}
+    recurring_grand_total = 0.0
+
+    for cr in _get_cr(ativo_only=True):
+        valor = cr.get('valor')
+        if valor is None and cr.get('tipologia') == 'variavel':
+            suggestion = _cr_suggest(cr['supplier_id'], cr['frequencia'])
+            valor = suggestion.get('valor')
+        if valor is None:
+            continue  # no amount to project; skip
+
+        occurrences = _count_occurrences(cr, date_from, date_to)
+        if occurrences == 0:
+            continue
+
+        total_cr = round(float(valor) * occurrences, 2)
+        recurring_grand_total += total_cr
+
+        # Allocate using volume_vendas (sales_split); CR entries have no cost-category
+        # allocation config so sales proportion is the most neutral default.
+        # NOTE: recurring costs are intentionally NOT added to grand_total / store_totals.
+        # They are shown as a supplemental forecast below the actuals-only totals to
+        # prevent double-counting with invoices from the same suppliers that are already
+        # captured in the invoice aggregation above.
+        cr_store_amounts = {}
+        cr_allocated = 0.0
+        for sid in store_ids:
+            pct = sales_split.get(sid, 0.0)
+            amount = round(total_cr * pct / 100.0, 2)
+            cr_store_amounts[sid] = amount
+            cr_allocated += amount
+            recurring_store_totals[sid] = round(recurring_store_totals[sid] + amount, 2)
+
+        recurring_rows.append({
+            'cr_id':              cr['id'],
+            'supplier_name':      cr['supplier_name'],
+            'frequencia':         cr['frequencia'],
+            'frequencia_label':   _CR_FREQ_LABELS.get(cr['frequencia'], cr['frequencia']),
+            'tipologia':          cr.get('tipologia', 'fixo'),
+            'centro_custo_name':  cr.get('centro_custo_name'),
+            'valor_por_ocorrencia': round(float(valor), 2),
+            'occurrences':        occurrences,
+            'total_eur':          total_cr,
+            'store_amounts':      cr_store_amounts,
+            'unallocated':        round(total_cr - cr_allocated, 2),
+            'modo':               'volume_vendas',
+        })
+
     total_revenue = round(sum(store_revenues.values()), 2)
     store_margins = {
         sid: round(store_revenues.get(sid, 0.0) - store_totals[sid], 2)
@@ -779,6 +870,9 @@ def get_pl_by_store(date_from=None, date_to=None) -> dict:
     return {
         'stores': active_stores,
         'rows': rows,
+        'recurring_rows': recurring_rows,
+        'recurring_grand_total': round(recurring_grand_total, 2),
+        'recurring_store_totals': {sid: round(v, 2) for sid, v in recurring_store_totals.items()},
         'grand_total': round(grand_total, 2),
         'store_totals': {sid: round(v, 2) for sid, v in store_totals.items()},
         'store_revenues': {sid: round(v, 2) for sid, v in store_revenues.items()},

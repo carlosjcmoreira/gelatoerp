@@ -288,6 +288,82 @@
         </div>
     </div>
 
+    {# ── Recurring costs — supplemental forecast (not included in totals above) ── #}
+    {% if pl.recurring_rows %}
+    <div class="card mt-3 border-success border-opacity-25">
+        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center bg-transparent">
+            <span>♻️ Custos Recorrentes <span class="badge text-bg-warning ms-1" style="font-size:0.7rem">Projeção</span></span>
+            <span class="text-muted fw-normal">Valores projectados para o período — <strong>não incluídos</strong> nos totais de custos acima</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0 pl-table">
+                <thead class="table-secondary">
+                    <tr>
+                        <th class="ps-3" style="min-width:200px">Fornecedor</th>
+                        <th style="min-width:110px">Frequência</th>
+                        <th class="text-end" style="min-width:110px">Total período (€)</th>
+                        {% for store in pl.stores %}
+                        <th class="text-end" style="min-width:110px">{{ store.name }}</th>
+                        {% endfor %}
+                        <th class="text-end" style="min-width:100px">Não alocado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in pl.recurring_rows %}
+                <tr>
+                    <td class="ps-3">
+                        {{ row.supplier_name }}
+                        {% if row.tipologia == 'variavel' %}
+                        <span class="badge text-bg-secondary ms-1" style="font-size:0.6rem">Variável</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ row.frequencia_label }}
+                        {% if row.occurrences > 1 %}
+                        <span class="text-muted small">× {{ row.occurrences }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end fw-semibold">{{ "%.2f"|format(row.total_eur) }} €</td>
+                    {% for store in pl.stores %}
+                    <td class="text-end store-col">
+                        {% set amt = row.store_amounts.get(store.id, 0) %}
+                        {% if amt %}
+                        {{ "%.2f"|format(amt) }} €
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="text-end">
+                        {% if row.unallocated and row.unallocated | abs > 0.01 %}
+                        <span class="unalloc-warn">{{ "%.2f"|format(row.unallocated) }} €</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="pl-total-row">
+                        <td class="ps-3" colspan="2">TOTAL PROJECTADO RECORRENTES</td>
+                        <td class="text-end">{{ "%.2f"|format(pl.recurring_grand_total) }} €</td>
+                        {% for store in pl.stores %}
+                        <td class="text-end">
+                            {{ "%.2f"|format(pl.recurring_store_totals.get(store.id, 0)) }} €
+                        </td>
+                        {% endfor %}
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        <div class="card-footer small text-muted py-1">
+            ℹ️ Projeção calculada com base nas ocorrências no período seleccionado. Distribução por loja via volume de vendas (últimos 12 meses). Os valores reais constam das faturas acima quando emitidas.
+        </div>
+    </div>
+    {% endif %}
+
     {# ── Legend ──────────────────────────────────────────────────────── #}
     <div class="mt-3 small text-muted">
         <strong>Modos de distribuição de custos:</strong>
