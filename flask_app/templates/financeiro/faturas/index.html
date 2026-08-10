@@ -2227,6 +2227,11 @@ document.addEventListener('DOMContentLoaded', function() {
 function setInvStore(sel) {
     var id = sel.dataset.invId;
     var origValue = sel.dataset.original || '';
+    // Prevent the browser from auto-scrolling when disabled triggers an implicit blur.
+    var _savedY = window.scrollY;
+    var _scrollLock = function() { window.scrollTo({ top: _savedY, behavior: 'instant' }); };
+    window.addEventListener('scroll', _scrollLock, { passive: true });
+    setTimeout(function() { window.removeEventListener('scroll', _scrollLock); }, 300);
     sel.disabled = true;
     fetch('{{ _inv_api_prefix }}/' + id + '/set_store', {
         method: 'POST',
