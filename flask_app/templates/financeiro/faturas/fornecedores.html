@@ -983,7 +983,14 @@ function applyBulkEdit() {
 function inlineSave(supplierId, field, value, selectEl) {
     // Prevent the browser from auto-scrolling to the select after onchange
     var _savedY = window.scrollY;
-    requestAnimationFrame(function() { window.scrollTo({ top: _savedY, behavior: 'instant' }); });
+    // Blur immediately so the browser's "scroll focused element into view" pass
+    // does not run after our rAF restore.
+    selectEl.blur();
+    // Double rAF: the inner callback fires in the second paint frame, safely
+    // after any deferred browser scroll caused by the onChange/focus cycle.
+    requestAnimationFrame(function() {
+        requestAnimationFrame(function() { window.scrollTo({ top: _savedY, behavior: 'instant' }); });
+    });
 
     var fd = new FormData();
     fd.append('action', 'bulk_edit');
