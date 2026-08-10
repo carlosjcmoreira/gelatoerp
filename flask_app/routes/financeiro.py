@@ -34,6 +34,7 @@ FINANCEIRO_GROUPS = [
             {'key': 'variaveis_previsao', 'label': 'Variáveis de Previsão', 'icon': '🌡️', 'active': True,  'url_func': 'financeiro.variaveis_previsao'},
             {'key': 'previsao_30dias',   'label': 'Previsão 30 Dias',      'icon': '🔮', 'active': True,  'url_func': 'financeiro.previsao_30dias'},
             {'key': 'pl_por_loja',       'label': 'P&L por Loja',          'icon': '🏪', 'active': True,  'url_func': 'financeiro.pl_por_loja'},
+            {'key': 'orcamento',         'label': 'Orçamento',             'icon': '🎯', 'active': True,  'url_func': 'financeiro.orcamento'},
         ],
     },
     {
@@ -499,6 +500,156 @@ def distribuicao_centros_custo():
         allocations=allocations,
         sales_split=sales_split,
     )
+
+
+@financeiro_bp.route('/orcamento')
+@perm_required('acesso_financeiro')
+def orcamento():
+    from db.orcamento import get_orcamento
+    from db.centros_custo import get_cost_categories
+    from db.stores import get_all_stores
+
+    today = date.today()
+    stores = [s for s in get_all_stores() if s['is_active']]
+    categories = get_cost_categories(ativo_only=True)
+
+    try:
+        ano = int(request.args.get('ano', today.year))
+    except (ValueError, TypeError):
+        ano = today.year
+
+    store_id_raw = request.args.get('store_id', '').strip()
+    store_id = int(store_id_raw) if store_id_raw.isdigit() else None
+
+    budget = get_orcamento(ano, store_id=store_id)
+
+    anos = sorted({today.year - 1, today.year, today.year + 1, ano})
+    meses_pt = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+
+    return render_template(
+        'financeiro/orcamento.html',
+        stores=stores,
+        categories=categories,
+        ano=ano,
+        store_id=store_id,
+        budget=budget,
+        anos=anos,
+        meses_pt=meses_pt,
+    )
+
+
+@financeiro_bp.route('/orcamento/cell', methods=['POST'])
+@perm_required('acesso_financeiro')
+def orcamento_cell():
+    from flask import jsonify
+    from db.orcamento import upsert_orcamento
+
+    data = request.get_json(silent=True) or {}
+    try:
+        ano = int(data['ano'])
+        mes = int(data['mes'])
+        line_key = str(data['line_key']).strip()
+        raw_val = str(data.get('valor', 0)).replace(',', '.').strip()
+        valor = float(raw_val) if raw_val else 0.0
+        store_id_raw = data.get('store_id')
+        store_id = int(store_id_raw) if store_id_raw else None
+    except (KeyError, ValueError, TypeError) as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+    import math as _math
+    from db.orcamento import get_valid_line_keys
+    if not (1 <= mes <= 12 and 2000 <= ano <= 2100):
+        return jsonify({'ok': False, 'error': 'ano/mes inválido'}), 400
+    if not line_key:
+        return jsonify({'ok': False, 'error': 'line_key em branco'}), 400
+    if not _math.isfinite(valor) or valor < 0:
+        return jsonify({'ok': False, 'error': 'valor inválido (deve ser número finito ≥ 0)'}), 400
+    if line_key not in get_valid_line_keys():
+        return jsonify({'ok': False, 'error': f'line_key desconhecida: {line_key}'}), 400
+
+    upsert_orcamento(ano, mes, store_id, line_key, valor)
+    return jsonify({'ok': True})
+
+
+@financeiro_bp.route('/orcamento/import', methods=['POST'])
+@perm_required('acesso_financeiro')
+def orcamento_import():
+    import csv
+    import io
+    from db.orcamento import bulk_upsert_orcamento
+    from db.stores import get_store_id_by_name
+
+    f = request.files.get('csv_file')
+    if not f:
+        flash('Nenhum ficheiro enviado.', 'warning')
+        return redirect(url_for('financeiro.orcamento'))
+
+    try:
+        content = f.read().decode('utf-8-sig')
+        reader = csv.DictReader(io.StringIO(content))
+        rows = []
+        errors = []
+        import math as _math
+        from db.orcamento import get_valid_line_keys
+        valid_lks = get_valid_line_keys()  # fetch once outside the loop
+        for i, row in enumerate(reader, start=2):
+            try:
+                ano_v = int(row['ano'])
+                mes_v = int(row['mes'])
+                loja  = (row.get('loja') or '').strip()
+                lk    = (row.get('linha') or '').strip()
+                valor_str = str(row.get('valor', 0)).replace(',', '.').strip()
+                valor_v = float(valor_str) if valor_str else 0.0
+            except Exception as exc:
+                errors.append(f'Linha {i}: erro de conversão — {exc}')
+                continue
+
+            # Per-row range validation (before bulk persistence)
+            if not (2000 <= ano_v <= 2100):
+                errors.append(f'Linha {i}: ano inválido ({ano_v})')
+                continue
+            if not (1 <= mes_v <= 12):
+                errors.append(f'Linha {i}: mês inválido ({mes_v})')
+                continue
+            if not _math.isfinite(valor_v) or valor_v < 0:
+                errors.append(f'Linha {i}: valor inválido ("{row.get("valor")}")')
+                continue
+            if not lk:
+                errors.append(f'Linha {i}: coluna "linha" em branco')
+                continue
+            if lk not in valid_lks:
+                errors.append(
+                    f'Linha {i}: line_key desconhecida "{lk}" '
+                    f'(use vendas, cmvmc ou cat_<id>)'
+                )
+                continue
+
+            sid = None
+            if loja:
+                sid = get_store_id_by_name(loja)
+                if sid is None:
+                    errors.append(f'Linha {i}: loja "{loja}" não encontrada')
+                    continue
+
+            rows.append({'ano': ano_v, 'mes': mes_v, 'store_id': sid,
+                         'line_key': lk, 'valor_euros': valor_v})
+
+        count = bulk_upsert_orcamento(rows)
+        msg = f'{count} linha(s) importada(s) com sucesso.'
+        if errors:
+            msg += f' {len(errors)} erro(s): ' + '; '.join(errors[:5])
+            flash(msg, 'warning')
+        else:
+            flash(msg, 'success')
+    except Exception as exc:
+        flash(f'Erro ao processar CSV: {exc}', 'danger')
+
+    ano_arg = request.form.get('ano', str(date.today().year))
+    sid_arg  = request.form.get('store_id', '')
+    return redirect(url_for('financeiro.orcamento',
+                            ano=ano_arg,
+                            store_id=sid_arg or ''))
 
 
 @financeiro_bp.route('/clientes-b2b', methods=['GET', 'POST'])

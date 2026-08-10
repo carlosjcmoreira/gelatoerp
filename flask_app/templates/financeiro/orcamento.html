@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% block title %}Orçamento{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+
+  {# ── Header ──────────────────────────────────────────────────────────── #}
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <div>
+      <h4 class="mb-0">🎯 Orçamento</h4>
+      <p class="text-muted small mb-0">Defina os valores mensais de referência por loja e por linha. Estes valores serão consumidos pelo Mapa de Exploração (próxima fase) para comparar real vs orçamento.</p>
+    </div>
+    <form class="ms-auto d-flex gap-2 align-items-center" method="get" id="filterForm">
+      <select name="store_id" class="form-select form-select-sm" style="min-width:180px" onchange="this.form.submit()">
+        <option value="">Global (todas as lojas)</option>
+        {% for s in stores %}
+        <option value="{{ s.id }}" {% if store_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+      <select name="ano" class="form-select form-select-sm" style="min-width:90px" onchange="this.form.submit()">
+        {% for a in anos %}
+        <option value="{{ a }}" {% if a == ano %}selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+
+  {# flash messages #}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="alert alert-{{ 'danger' if cat == 'error' else cat }} alert-dismissible fade show py-2" role="alert">
+        {{ msg }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endwith %}
+
+  {# ── Budget grid ──────────────────────────────────────────────────────── #}
+  <div class="table-responsive shadow-sm rounded">
+    <table class="table table-sm table-bordered align-middle mb-0" id="orcamentoTable">
+      <thead class="table-dark">
+        <tr>
+          <th style="min-width:200px;position:sticky;left:0;z-index:2;background:#212529">Linha</th>
+          {% for m in meses_pt %}
+          <th class="text-center text-nowrap" style="min-width:90px">{{ m[:3] }}</th>
+          {% endfor %}
+          <th class="text-center text-nowrap" style="min-width:100px">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        {# ── Vendas ── #}
+        <tr class="table-success">
+          <td class="fw-bold" style="position:sticky;left:0;z-index:1;background:#d1e7dd">Vendas</td>
+          {% for m in range(1, 13) %}
+          {% set v = budget.get('vendas', {}).get(m) %}
+          <td class="p-1">
+            <input type="number" class="form-control form-control-sm budget-cell text-end"
+                   data-line="vendas" data-mes="{{ m }}"
+                   value="{{ v if v is not none else '' }}"
+                   step="0.01" min="0" placeholder="—">
+          </td>
+          {% endfor %}
+          <td class="text-end fw-bold text-nowrap" id="total-vendas">—</td>
+        </tr>
+
+        {# ── CMVMC ── #}
+        <tr class="table-warning">
+          <td class="fw-bold" style="position:sticky;left:0;z-index:1;background:#fff3cd">CMVMC</td>
+          {% for m in range(1, 13) %}
+          {% set v = budget.get('cmvmc', {}).get(m) %}
+          <td class="p-1">
+            <input type="number" class="form-control form-control-sm budget-cell text-end"
+                   data-line="cmvmc" data-mes="{{ m }}"
+                   value="{{ v if v is not none else '' }}"
+                   step="0.01" min="0" placeholder="—">
+          </td>
+          {% endfor %}
+          <td class="text-end fw-bold text-nowrap" id="total-cmvmc">—</td>
+        </tr>
+
+        {# ── Separator: Custos Operacionais ── #}
+        <tr class="table-secondary">
+          <td colspan="14" class="small fw-semibold py-1" style="position:sticky;left:0;z-index:1;background:#e2e3e5">
+            Custos Operacionais
+          </td>
+        </tr>
+
+        {# ── Cost category rows ── #}
+        {% for cat in categories %}
+        {% set lk = 'cat_' ~ cat.id %}
+        <tr>
+          <td class="{% if cat.parent_id %}ps-4 text-muted{% else %}fw-semibold{% endif %}"
+              style="position:sticky;left:0;z-index:1;background:#fff">
+            {% if cat.parent_id %}<span class="me-1 opacity-50">↳</span>{% endif %}
+            {{ cat.name }}
+          </td>
+          {% for m in range(1, 13) %}
+          {% set v = budget.get(lk, {}).get(m) %}
+          <td class="p-1">
+            <input type="number" class="form-control form-control-sm budget-cell text-end"
+                   data-line="{{ lk }}" data-mes="{{ m }}"
+                   value="{{ v if v is not none else '' }}"
+                   step="0.01" min="0" placeholder="—">
+          </td>
+          {% endfor %}
+          <td class="text-end fw-bold text-nowrap" id="total-{{ lk }}">—</td>
+        </tr>
+        {% endfor %}
+
+      </tbody>
+    </table>
+  </div>
+
+  {# ── Save indicator ───────────────────────────────────────────────────── #}
+  <div class="mt-2 text-muted small d-flex align-items-center gap-2" id="saveStatus" style="min-height:1.5rem">
+    <span class="spinner-border spinner-border-sm d-none" id="saveSpinner" role="status"></span>
+    <span id="saveMsg"></span>
+  </div>
+
+  {# ── CSV Import ───────────────────────────────────────────────────────── #}
+  <div class="card mt-4">
+    <div class="card-header fw-semibold">📂 Importar via CSV</div>
+    <div class="card-body">
+      <p class="small text-muted mb-2">
+        O ficheiro CSV deve ter as colunas: <code>ano,mes,loja,linha,valor</code><br>
+        Deixe <code>loja</code> em branco para orçamento global.<br>
+        Os valores de <code>linha</code> aceites são: <code>vendas</code>, <code>cmvmc</code>, ou <code>cat_&lt;id&gt;</code> (id da categoria de custo).
+      </p>
+      <form method="post" action="{{ url_for('financeiro.orcamento_import') }}"
+            enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-center">
+        <input type="hidden" name="ano" value="{{ ano }}">
+        <input type="hidden" name="store_id" value="{{ store_id or '' }}">
+        <input type="file" name="csv_file" accept=".csv,.txt" class="form-control form-control-sm"
+               style="max-width:320px" required>
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Importar</button>
+      </form>
+    </div>
+  </div>
+
+  {# ── Category reference ───────────────────────────────────────────────── #}
+  <details class="mt-3">
+    <summary class="small text-muted" style="cursor:pointer">Ver IDs das categorias de custo</summary>
+    <table class="table table-sm table-bordered mt-2" style="max-width:500px">
+      <thead class="table-light"><tr><th>line_key</th><th>Categoria</th></tr></thead>
+      <tbody>
+        <tr><td><code>vendas</code></td><td>Vendas (receita)</td></tr>
+        <tr><td><code>cmvmc</code></td><td>CMVMC (custo mercadoria)</td></tr>
+        {% for cat in categories %}
+        <tr>
+          <td><code>cat_{{ cat.id }}</code></td>
+          <td>{% if cat.parent_id %}<span class="text-muted">↳ </span>{% endif %}{{ cat.name }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </details>
+
+</div><!-- /container-fluid -->
+
+<script>
+(function () {
+  const ANO      = {{ ano | tojson }};
+  const STORE_ID = {{ store_id | tojson }};
+  const CELL_URL = {{ url_for('financeiro.orcamento_cell') | tojson }};
+
+  let _saveTimer = null;
+  let _pending   = 0;
+
+  function fmtEur(v) {
+    if (v <= 0) return '—';
+    // Show up to 2 decimal places, strip insignificant trailing zeros
+    var rounded = Math.round(v * 100) / 100;
+    return '€\u202f' + rounded.toLocaleString('pt-PT', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    });
+  }
+
+  function updateRowTotal(lineKey) {
+    const inputs = document.querySelectorAll(`.budget-cell[data-line="${lineKey}"]`);
+    let total = 0;
+    inputs.forEach(function (inp) {
+      const v = parseFloat(inp.value);
+      if (!isNaN(v) && v > 0) total += v;
+    });
+    const el = document.getElementById('total-' + lineKey);
+    if (el) el.textContent = fmtEur(total);
+  }
+
+  function setStatus(msg, ok) {
+    document.getElementById('saveSpinner').classList.add('d-none');
+    const msgEl = document.getElementById('saveMsg');
+    msgEl.textContent = msg;
+    msgEl.style.color = ok === false ? '#dc3545' : '#198754';
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(function () { msgEl.textContent = ''; }, 3000);
+  }
+
+  function saveCell(input) {
+    const lineKey = input.dataset.line;
+    const mes     = parseInt(input.dataset.mes, 10);
+    const valor   = parseFloat(input.value) || 0;
+
+    input.classList.remove('is-valid', 'is-invalid');
+    _pending++;
+    if (_pending > 0) {
+      document.getElementById('saveSpinner').classList.remove('d-none');
+      document.getElementById('saveMsg').textContent = 'A guardar…';
+      document.getElementById('saveMsg').style.color = '';
+    }
+
+    fetch(CELL_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ano: ANO, mes: mes, store_id: STORE_ID,
+        line_key: lineKey, valor: valor
+      })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      _pending = Math.max(0, _pending - 1);
+      if (data.ok) {
+        input.classList.add('is-valid');
+        setTimeout(function () { input.classList.remove('is-valid'); }, 1500);
+        if (_pending === 0) setStatus('Guardado ✓', true);
+      } else {
+        input.classList.add('is-invalid');
+        setStatus('Erro ao guardar: ' + (data.error || ''), false);
+      }
+    })
+    .catch(function () {
+      _pending = Math.max(0, _pending - 1);
+      input.classList.add('is-invalid');
+      setStatus('Erro de ligação', false);
+    });
+  }
+
+  document.querySelectorAll('.budget-cell').forEach(function (inp) {
+    // Compute initial row totals
+    updateRowTotal(inp.dataset.line);
+
+    // Save on blur
+    inp.addEventListener('blur', function () { saveCell(inp); });
+
+    // Enter key → move right across the same row
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const siblings = Array.from(
+          document.querySelectorAll('.budget-cell[data-line="' + inp.dataset.line + '"]')
+        );
+        const idx = siblings.indexOf(inp);
+        if (idx < siblings.length - 1) siblings[idx + 1].focus();
+      }
+      // Tab / Shift-Tab handled by browser natively (column-to-column within row)
+    });
+
+    // Update row total immediately on input (without waiting for save)
+    inp.addEventListener('input', function () { updateRowTotal(inp.dataset.line); });
+  });
+}());
+</script>
+{% endblock %}
