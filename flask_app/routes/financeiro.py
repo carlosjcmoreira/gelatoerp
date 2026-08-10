@@ -35,6 +35,7 @@ FINANCEIRO_GROUPS = [
             {'key': 'previsao_30dias',   'label': 'Previsão 30 Dias',      'icon': '🔮', 'active': True,  'url_func': 'financeiro.previsao_30dias'},
             {'key': 'pl_por_loja',       'label': 'P&L por Loja',          'icon': '🏪', 'active': True,  'url_func': 'financeiro.pl_por_loja'},
             {'key': 'orcamento',         'label': 'Orçamento',             'icon': '🎯', 'active': True,  'url_func': 'financeiro.orcamento'},
+            {'key': 'insights',          'label': 'Controlo de Custos',    'icon': '📈', 'active': True,  'url_func': 'financeiro.insights'},
         ],
     },
     {
@@ -552,6 +553,64 @@ def pl_por_loja():
         mapa=mapa,
         ano=ano,
         store_id=store_id,
+    )
+
+
+@financeiro_bp.route('/insights')
+@perm_required('acesso_financeiro')
+def insights():
+    from db.insights import get_financial_insights
+    from db.stores import get_all_stores
+
+    today = date.today()
+    try:
+        ano = int(request.args.get('ano', today.year))
+        if ano < 2000 or ano > 2100:
+            ano = today.year
+    except (ValueError, TypeError):
+        ano = today.year
+
+    store_id_raw = request.args.get('store_id', '').strip()
+    store_id = int(store_id_raw) if store_id_raw.isdigit() else None
+
+    active_stores = [s for s in get_all_stores() if s['is_active']]
+    data = get_financial_insights(ano, store_id=store_id)
+
+    # Pass chart payload as a separate dict so the template can use |tojson
+    # (Jinja's tojson HTML-escapes </script> etc., preventing script-breakout XSS)
+    chart_payload = {
+        'chart_labels':  data['chart_labels'],
+        'vendas_series': data['vendas_series'],
+        'vendas_aa_s':   data['vendas_aa_s'],
+        'bgt_vendas_s':  data['bgt_vendas_s'],
+        'cost_series':   data['cost_series'],
+        'total_costs_s': data['total_costs_s'],
+    }
+
+    # Year-aware period label so KPI cards and the header are unambiguous
+    MESES_PT_SHORT = ['', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
+                      'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+    current_m = data['current_m']
+    if ano < today.year:
+        period_label  = 'Anual'
+        period_detail = f'Jan–Dez {ano} (ano completo)'
+    elif ano > today.year:
+        period_label  = 'Projetado'
+        period_detail = f'Jan–Dez {ano} (ano futuro)'
+    else:
+        period_label  = 'YTD'
+        period_detail = (f'Jan–{MESES_PT_SHORT[current_m]} {ano}'
+                         f' (até {today.strftime("%d/%m/%Y")})')
+
+    return render_template(
+        'financeiro/insights.html',
+        data=data,
+        ano=ano,
+        store_id=store_id,
+        active_stores=active_stores,
+        chart_payload=chart_payload,
+        period_label=period_label,
+        period_detail=period_detail,
     )
 
 

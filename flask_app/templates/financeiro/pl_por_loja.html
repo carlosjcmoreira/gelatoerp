@@ -109,6 +109,8 @@ thead .col-label { z-index: 3; }
            class="btn btn-outline-secondary btn-sm px-2">›</a>
     </div>
     <div class="ms-auto d-flex gap-2">
+        <a href="{{ url_for('financeiro.insights', ano=ano, store_id=store_id or '') }}"
+           class="btn btn-outline-primary btn-sm">📈 Insights</a>
         {% set _fatura_url = url_for('compras.nova_fatura',
             prefill_loja=(mapa.store.name if mapa.store else ''),
             prefill_mes=(mapa.today.month if ano == mapa.today.year else '')) %}
@@ -182,7 +184,7 @@ thead .col-label { z-index: 3; }
     {% for mi in range(12) %}
     {% set m = mi + 1 %}
     {% set is_fut = (ano > mapa.today.year) or (ano == mapa.today.year and m > mapa.today.month) %}
-    <th class="text-end{% if is_fut %} future-val{% endif %}">{{ MESES[mi] }}</th>
+    <th id="m{{ m }}" class="text-end{% if is_fut %} future-val{% endif %}">{{ MESES[mi] }}</th>
     {% endfor %}
     <th class="text-end col-total">Total</th>
 </tr>

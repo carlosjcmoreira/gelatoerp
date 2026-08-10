@@ -1,0 +1,456 @@
+{% extends "base.html" %}
+{% set back_url = url_for("financeiro.index") %}
+
+{% block head %}
+<style>
+/* ── KPI cards ─────────────────────────────────────────────────────── */
+.kpi-card {
+    border-radius: .75rem;
+    padding: 1.1rem 1.4rem;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+}
+.kpi-label {
+    font-size: .7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--bs-secondary-color);
+    margin-bottom: .25rem;
+}
+.kpi-main {
+    font-size: 1.65rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+.kpi-sub {
+    font-size: .85rem;
+    color: var(--bs-secondary-color);
+    margin-top: .15rem;
+}
+.kpi-delta {
+    font-size: .9rem;
+    font-weight: 600;
+}
+.kpi-delta.pos { color: #198754; }
+.kpi-delta.neg { color: #dc3545; }
+
+/* ── Anomaly feed ──────────────────────────────────────────────────── */
+.anomaly-row { cursor: pointer; }
+.anomaly-row:hover td { background: rgba(0,0,0,.04); }
+.badge-mom    { background: #fd7e14; color: #fff; }
+.badge-budget { background: #dc3545; color: #fff; }
+
+/* ── Chart containers ──────────────────────────────────────────────── */
+.chart-box {
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-radius: .75rem;
+    padding: 1rem;
+}
+</style>
+{% endblock %}
+
+{% macro pct_badge(v, inv=false) %}
+{% if v is not none %}
+{% set pos = (v >= 0) if not inv else (v <= 0) %}
+<span class="kpi-delta {{ 'pos' if pos else 'neg' }}">
+    {{ '+' if v >= 0 else '' }}{{ '%.1f'|format(v) }}%
+</span>
+{% else %}<span class="text-muted small">—</span>{% endif %}
+{% endmacro %}
+
+{% macro e(v) %}{{ '%.0f'|format(v) }}{% endmacro %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+
+{# ── Header ───────────────────────────────────────────────────────────── #}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <h5 class="mb-0 me-1">📈 Controlo de Custos</h5>
+
+    {# Year nav #}
+    <a href="{{ url_for('financeiro.insights', ano=ano-1, store_id=store_id or '') }}"
+       class="btn btn-outline-secondary btn-sm px-2">‹</a>
+
+    <select class="form-select form-select-sm" style="width:auto"
+            onchange="location='{{ url_for('financeiro.insights') }}?ano='+this.value+'{% if store_id %}&store_id={{ store_id }}{% endif %}'">
+        {% for y in range(data.today.year, data.today.year - 4, -1) %}
+        <option value="{{ y }}" {{ 'selected' if y == ano }}>{{ y }}</option>
+        {% endfor %}
+    </select>
+
+    <a href="{{ url_for('financeiro.insights', ano=ano+1, store_id=store_id or '') }}"
+       class="btn btn-outline-secondary btn-sm px-2">›</a>
+
+    {# Store filter #}
+    <select class="form-select form-select-sm ms-2" style="width:auto"
+            onchange="location='{{ url_for('financeiro.insights') }}?ano={{ ano }}&store_id='+this.value">
+        <option value="">🌐 Consolidado</option>
+        {% for s in active_stores %}
+        <option value="{{ s.id }}" {{ 'selected' if store_id == s.id }}>{{ s.name }}</option>
+        {% endfor %}
+    </select>
+
+    <div class="ms-auto d-flex gap-2">
+        <a href="{{ url_for('financeiro.pl_por_loja', ano=ano, store_id=store_id or '') }}"
+           class="btn btn-outline-secondary btn-sm">🗺️ Mapa</a>
+        <a href="{{ url_for('financeiro.orcamento') }}"
+           class="btn btn-outline-secondary btn-sm">🎯 Orçamento</a>
+    </div>
+</div>
+
+{% set d = data %}
+{% set store_label = d.mapa.store.name if d.mapa.store else 'Consolidado' %}
+<p class="text-muted small mb-3">
+    {{ store_label }} — {{ period_detail }}
+</p>
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  KPI CARDS                                                            #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+<div class="row g-3 mb-4">
+
+    {# Card 1 — YTD Revenue vs Budget #}
+    <div class="col-6 col-md-3">
+    <div class="kpi-card h-100">
+        <div class="kpi-label">💰 Vendas {{ period_label }}</div>
+        <div class="kpi-main">{{ '%.0f'|format(d.ytd_vendas) }} €</div>
+        <div class="kpi-sub">
+            Orç. {{ '%.0f'|format(d.ytd_budget_vendas) }} €
+            {% if d.ytd_budget_vendas %}
+            {{ pct_badge(d.kpi_rev_vs_bgt) }}
+            <span class="kpi-delta {{ 'pos' if d.kpi_rev_vs_bgt_eur >= 0 else 'neg' }}" style="font-size:.8rem">
+                ({{ '%+.0f'|format(d.kpi_rev_vs_bgt_eur) }} €)
+            </span>
+            {% endif %}
+        </div>
+        <div class="kpi-sub">
+            AA {{ '%.0f'|format(d.ytd_vendas_aa) }} €
+            {% if d.ytd_vendas_aa %}
+            {{ pct_badge(d.kpi_rev_vs_aa) }}
+            {% endif %}
+        </div>
+    </div>
+    </div>
+
+    {# Card 2 — YTD EBITDA #}
+    <div class="col-6 col-md-3">
+    <div class="kpi-card h-100">
+        <div class="kpi-label">⚡ EBITDA {{ period_label }}</div>
+        <div class="kpi-main {{ 'text-success' if d.ytd_ebitda >= 0 else 'text-danger' }}">
+            {{ '%+.0f'|format(d.ytd_ebitda) }} €
+        </div>
+        <div class="kpi-sub">
+            {% if d.ebitda_pct_vendas is not none %}
+            {{ '%.1f'|format(d.ebitda_pct_vendas) }}% sobre vendas
+            {% endif %}
+        </div>
+        <div class="kpi-sub">
+            Orç. {{ '%+.0f'|format(d.ytd_budget_ebitda) }} €
+            {% if d.kpi_ebitda_vs_bgt is not none %}
+            {{ pct_badge(d.kpi_ebitda_vs_bgt) }}
+            <span class="kpi-delta {{ 'pos' if d.kpi_ebitda_vs_bgt_eur >= 0 else 'neg' }}" style="font-size:.8rem">
+                ({{ '%+.0f'|format(d.kpi_ebitda_vs_bgt_eur) }} €)
+            </span>
+            {% endif %}
+        </div>
+    </div>
+    </div>
+
+    {# Card 3 — Top cost category #}
+    <div class="col-6 col-md-3">
+    <div class="kpi-card h-100">
+        <div class="kpi-label">📦 Maior Custo YTD</div>
+        {% if d.top_cat_name %}
+        <div class="kpi-main" style="font-size:1.2rem">{{ d.top_cat_name }}</div>
+        <div class="kpi-sub">{{ '%.0f'|format(d.top_cat_eur) }} €</div>
+        <div class="kpi-sub">
+            {% if d.top_cat_pct is not none %}
+            <span class="fw-semibold">{{ '%.1f'|format(d.top_cat_pct) }}%</span> das vendas
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="kpi-main text-muted" style="font-size:1rem">Sem dados</div>
+        {% endif %}
+    </div>
+    </div>
+
+    {# Card 4 — Biggest MoM spike #}
+    <div class="col-6 col-md-3">
+    <div class="kpi-card h-100">
+        <div class="kpi-label">📊 Maior Subida MoM</div>
+        {% if d.max_mom_cat %}
+        <div class="kpi-main text-warning" style="font-size:1.2rem">+{{ '%.0f'|format(d.max_mom_delta) }} €</div>
+        <div class="kpi-sub">{{ d.max_mom_cat }}</div>
+        <div class="kpi-sub">em {{ d.max_mom_month_lbl }}</div>
+        {% else %}
+        <div class="kpi-main text-muted" style="font-size:1rem">Sem dados</div>
+        {% endif %}
+    </div>
+    </div>
+
+</div>{# /row KPIs #}
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  CHARTS ROW                                                           #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+<div class="row g-3 mb-4">
+
+    {# Sales vs AA vs Budget chart #}
+    <div class="col-12 col-xl-6">
+    <div class="chart-box">
+        <h6 class="mb-3 fw-semibold" style="font-size:.82rem">
+            Vendas Mensais — Real vs Orçamento vs Histórico AA
+        </h6>
+        <div id="chartVendas" style="height:280px;"></div>
+    </div>
+    </div>
+
+    {# Cost trend chart #}
+    <div class="col-12 col-xl-6">
+    <div class="chart-box">
+        <h6 class="mb-3 fw-semibold" style="font-size:.82rem">
+            Evolução de Custos Operacionais por Categoria
+        </h6>
+        <div id="chartCosts" style="height:280px;"></div>
+    </div>
+    </div>
+
+</div>
+
+{# ══════════════════════════════════════════════════════════════════════ #}
+{#  BUDGET DEVIATION TABLE + ANOMALY FEED                               #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+<div class="row g-3">
+
+    {# Budget Deviation Table #}
+    <div class="col-12 col-xl-6">
+    <div class="chart-box">
+        <h6 class="mb-3 fw-semibold" style="font-size:.82rem">
+            Desvio Orçamental YTD por Categoria
+        </h6>
+        {% if d.deviations %}
+        <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0" style="font-size:.8rem">
+            <thead>
+                <tr class="text-muted" style="font-size:.7rem">
+                    <th>Categoria</th>
+                    <th class="text-end">Real YTD</th>
+                    <th class="text-end">Orçamento YTD</th>
+                    <th class="text-end">Desvio €</th>
+                    <th class="text-end">Desvio %</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for dev in d.deviations %}
+            <tr class="table-{{ dev.status }}">
+                <td>
+                    {% if dev.status == 'danger' %}⛔{% elif dev.status == 'warning' %}⚠️{% elif dev.status == 'success' %}✅{% else %}–{% endif %}
+                    {{ dev.name }}
+                </td>
+                <td class="text-end">{{ '%.0f'|format(dev.ytd_actual) }} €</td>
+                <td class="text-end text-muted">{{ '%.0f'|format(dev.ytd_budget) }} €</td>
+                <td class="text-end fw-semibold {{ 'text-danger' if dev.dev_eur > 0 else 'text-success' }}">
+                    {{ '%+.0f'|format(dev.dev_eur) }} €
+                </td>
+                <td class="text-end fw-semibold {{ 'text-danger' if dev.dev_pct > 0 else 'text-success' }}">
+                    {{ '%+.1f'|format(dev.dev_pct) }}%
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">
+            Sem orçamento configurado — <a href="{{ url_for('financeiro.orcamento') }}">definir orçamento →</a>
+        </p>
+        {% endif %}
+    </div>
+    </div>
+
+    {# Anomaly Feed #}
+    <div class="col-12 col-xl-6">
+    <div class="chart-box">
+        <h6 class="mb-1 fw-semibold" style="font-size:.82rem">
+            🚨 Alertas de Custo
+        </h6>
+        <p class="text-muted small mb-3" style="font-size:.72rem">
+            Categorias com subida MoM &gt;20% ou desvio de orçamento &gt;15%.
+            Clica para abrir o mês no Mapa.
+        </p>
+        {% if d.anomalies %}
+        <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0" style="font-size:.8rem">
+            <thead>
+                <tr class="text-muted" style="font-size:.7rem">
+                    <th>Tipo</th>
+                    <th>Categoria</th>
+                    {% if not store_id %}<th>Loja</th>{% endif %}
+                    <th class="text-center">Mês</th>
+                    <th class="text-end">Real</th>
+                    <th class="text-end">Ref.</th>
+                    <th class="text-end">Overshoot</th>
+                    <th class="text-end">%</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for a in d.anomalies %}
+            {# Link opens that store's Mapa at the right month anchor #}
+            {% set mapa_sid = a.store_id if a.store_id else '' %}
+            {% set mapa_url = url_for('financeiro.pl_por_loja', ano=ano, store_id=mapa_sid) + '#m' + a.month|string %}
+            <tr class="anomaly-row" onclick="window.location='{{ mapa_url }}'"
+                title="Abrir Mapa — {{ a.store_name }} — {{ a.month_lbl }}">
+                <td>
+                    {% if a.kind == 'both' %}
+                    <span class="badge badge-budget" style="font-size:.65rem">MoM+Orç.</span>
+                    {% elif a.kind == 'mom' %}
+                    <span class="badge badge-mom" style="font-size:.65rem">MoM</span>
+                    {% else %}
+                    <span class="badge badge-budget" style="font-size:.65rem">Orç.</span>
+                    {% endif %}
+                </td>
+                <td class="fw-semibold">{{ a.cat_name }}</td>
+                {% if not store_id %}
+                <td class="text-muted" style="max-width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                    title="{{ a.store_name }}">{{ a.store_name }}</td>
+                {% endif %}
+                <td class="text-center">{{ a.month_lbl }}</td>
+                <td class="text-end">{{ '%.0f'|format(a.curr) }} €</td>
+                <td class="text-end text-muted">{{ '%.0f'|format(a.ref) }} €</td>
+                <td class="text-end text-danger fw-semibold">+{{ '%.0f'|format(a.overshoot) }} €</td>
+                <td class="text-end text-danger">+{{ '%.1f'|format(a.pct) }}%</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+            <div style="font-size:2rem">✅</div>
+            <div class="small mt-1">Sem alertas no período.</div>
+        </div>
+        {% endif %}
+    </div>
+    </div>
+
+</div>{# /row tables #}
+
+</div>{# /container #}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<script>
+(function () {
+const RAW = {{ chart_payload | tojson }};
+const isDark = () => document.documentElement.getAttribute('data-bs-theme') === 'dark';
+
+// ── Colour palette ───────────────────────────────────────────────────
+const PALETTE = [
+    '#4e79a7','#f28e2b','#e15759','#76b7b2','#59a14f',
+    '#edc948','#b07aa1','#ff9da7','#9c755f','#bab0ac',
+];
+
+// ── Plotly shared layout helpers ─────────────────────────────────────
+function baseLayout(title) {
+    const dark = isDark();
+    return {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor:  'rgba(0,0,0,0)',
+        font:          { color: dark ? '#dee2e6' : '#212529', size: 11 },
+        margin:        { l: 50, r: 10, t: 10, b: 30 },
+        legend:        { orientation: 'h', x: 0, y: -0.15, font: { size: 10 } },
+        xaxis: {
+            gridcolor:     dark ? '#343a40' : '#e9ecef',
+            linecolor:     dark ? '#495057' : '#ced4da',
+            tickfont:      { size: 10 },
+        },
+        yaxis: {
+            gridcolor:     dark ? '#343a40' : '#e9ecef',
+            linecolor:     dark ? '#495057' : '#ced4da',
+            tickfont:      { size: 10 },
+            tickformat:    ',.0f',
+        },
+        hovermode: 'x unified',
+    };
+}
+
+const CFG = { responsive: true, displayModeBar: false };
+
+// ── Chart 1: Vendas vs AA vs Budget ─────────────────────────────────
+function renderVendas() {
+    const labels = RAW.chart_labels;
+    const traces = [
+        {
+            name:  'Real',
+            x: labels, y: RAW.vendas_series,
+            type: 'scatter', mode: 'lines+markers',
+            line: { color: '#4e79a7', width: 2.5 },
+            marker: { size: 5 },
+        },
+        {
+            name:  'Histórico AA',
+            x: labels, y: RAW.vendas_aa_s,
+            type: 'scatter', mode: 'lines',
+            line: { color: '#bab0ac', width: 1.5, dash: 'dot' },
+        },
+        {
+            name:  'Orçamento',
+            x: labels, y: RAW.bgt_vendas_s,
+            type: 'scatter', mode: 'lines',
+            line: { color: '#f28e2b', width: 1.5, dash: 'dash' },
+        },
+    ];
+    Plotly.react('chartVendas', traces, baseLayout(), CFG);
+}
+
+// ── Chart 2: Cost trend (stacked area per category) ──────────────────
+function renderCosts() {
+    const labels = RAW.chart_labels;
+    const traces = RAW.cost_series.map((s, i) => ({
+        name:    s.name,
+        x:       labels,
+        y:       s.data,
+        type:    'scatter',
+        mode:    'lines',
+        stackgroup: 'costs',
+        fill:    'tonexty',
+        line:    { color: PALETTE[i % PALETTE.length], width: 1 },
+        fillcolor: PALETTE[i % PALETTE.length] + '55',
+    }));
+
+    // Overlay total costs as a thick line
+    if (RAW.total_costs_s && RAW.total_costs_s.some(v => v > 0)) {
+        traces.push({
+            name:  'Total Custos',
+            x:     labels,
+            y:     RAW.total_costs_s,
+            type:  'scatter',
+            mode:  'lines',
+            line:  { color: '#212529', width: 2, dash: 'solid' },
+            hoverinfo: 'skip',
+            showlegend: false,
+        });
+    }
+
+    if (!traces.length) {
+        document.getElementById('chartCosts').innerHTML =
+            '<p class="text-muted text-center small pt-4">Sem dados de custos.</p>';
+        return;
+    }
+
+    Plotly.react('chartCosts', traces, baseLayout(), CFG);
+}
+
+renderVendas();
+renderCosts();
+
+// ── Re-render on dark-mode toggle ───────────────────────────────────
+new MutationObserver(() => { renderVendas(); renderCosts(); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme'] });
+
+})();
+</script>
+{% endblock %}
