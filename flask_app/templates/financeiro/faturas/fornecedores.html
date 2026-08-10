@@ -172,6 +172,10 @@
             {% endfor %}
         </select>
         <span id="supplierCount" class="small text-muted ms-1"></span>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnClearFilters"
+                onclick="clearSupplierFilters()" style="display:none">
+            ✕ Limpar filtros
+        </button>
     </div>
     {% endif %}
 
@@ -698,11 +702,41 @@ var _FIELD_OPTIONS = {
 // ── Table filter (search + selects) ──────────────────────────────────────────
 var _totalSuppliers = 0;
 
+var _FILTER_KEY = 'fornecedores_filters';
+
+function _saveFilterState() {
+    var state = {
+        search:   document.getElementById('supplierSearch').value || '',
+        category: (document.getElementById('filterCategory') || {}).value || '',
+        store:    (document.getElementById('filterStore') || {}).value || '',
+        cc:       (document.getElementById('filterCC') || {}).value || ''
+    };
+    try { sessionStorage.setItem(_FILTER_KEY, JSON.stringify(state)); } catch(e) {}
+    // Show/hide clear button
+    var hasFilter = state.search || state.category || state.store || state.cc;
+    var btn = document.getElementById('btnClearFilters');
+    if (btn) btn.style.display = hasFilter ? '' : 'none';
+}
+
+function clearSupplierFilters() {
+    try { sessionStorage.removeItem(_FILTER_KEY); } catch(e) {}
+    var el;
+    el = document.getElementById('supplierSearch');   if (el) el.value = '';
+    el = document.getElementById('filterCategory');   if (el) el.value = '';
+    el = document.getElementById('filterStore');      if (el) el.value = '';
+    el = document.getElementById('filterCC');         if (el) el.value = '';
+    var btn = document.getElementById('btnClearFilters');
+    if (btn) btn.style.display = 'none';
+    filterSupplierTable();
+}
+
 function filterSupplierTable() {
     var q        = (document.getElementById('supplierSearch').value || '').toLowerCase().trim();
     var catVal   = (document.getElementById('filterCategory') || {}).value || '';
     var storeVal = (document.getElementById('filterStore') || {}).value || '';
     var ccVal    = (document.getElementById('filterCC') || {}).value || '';
+
+    _saveFilterState();
 
     var visible = 0;
 
@@ -780,6 +814,22 @@ document.addEventListener('DOMContentLoaded', function() {
     if (countEl && _totalSuppliers) {
         countEl.textContent = _totalSuppliers + ' fornecedor' + (_totalSuppliers !== 1 ? 'es' : '');
     }
+
+    // Restore saved filter state from sessionStorage
+    try {
+        var saved = sessionStorage.getItem(_FILTER_KEY);
+        if (saved) {
+            var state = JSON.parse(saved);
+            var el;
+            el = document.getElementById('supplierSearch');  if (el && state.search)   el.value = state.search;
+            el = document.getElementById('filterCategory');  if (el && state.category) el.value = state.category;
+            el = document.getElementById('filterStore');     if (el && state.store)    el.value = state.store;
+            el = document.getElementById('filterCC');        if (el && state.cc)       el.value = state.cc;
+            if (state.search || state.category || state.store || state.cc) {
+                filterSupplierTable();
+            }
+        }
+    } catch(e) {}
 });
 
 // ── View toggle ───────────────────────────────────────────────────────────────
