@@ -1980,13 +1980,15 @@ def fornecedores():
     if request.method == 'POST':
         action = request.form.get('action', '')
 
-        # Destructive / admin-only actions: require acesso_gestor
-        _ADMIN_ONLY_ACTIONS = {'delete', 'merge', 'bulk_merge', 'backfill', 'normalise', 'rename_variant'}
-        if action in _ADMIN_ONLY_ACTIONS:
+        # Bulk maintenance actions remain restricted to gestor/admin — they affect all data
+        _BULK_ADMIN_ACTIONS = {'backfill', 'normalise'}
+        if action in _BULK_ADMIN_ACTIONS:
             _u = session.get('user', {})
-            if not _u.get('acesso_gestor'):
+            if not (_u.get('acesso_gestor') or _u.get('acesso_administrativo')):
                 flash('Não tens permissão para realizar esta acção.', 'danger')
                 return redirect(url_for('faturas.fornecedores'))
+        # Supplier CRUD actions (delete, merge, rename) are allowed for
+        # acesso_compras and acesso_financeiro — enforced by the route decorator.
 
         if action == 'save':
             name = request.form.get('name', '').strip()

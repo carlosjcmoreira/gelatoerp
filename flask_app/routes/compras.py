@@ -502,7 +502,7 @@ def download_pdf(invoice_id: int):
 
 
 @compras_bp.route('/review-draft/<int:invoice_id>', methods=['GET', 'POST'])
-@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — review and submit OCR draft
+@any_perm_required('acesso_administrativo', 'acesso_compras', 'acesso_financeiro')  # min: acesso_compras/financeiro — review and submit OCR draft
 def review_draft(invoice_id):
     inv = get_invoice(invoice_id)
     if not inv or inv['status'] != 'draft':
