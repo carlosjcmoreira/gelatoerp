@@ -266,6 +266,7 @@
             {% else %}
             <div class="text-muted mb-1">Nenhum ticket associado.</div>
             {% endif %}
+            {% if user.acesso_contabilidade or user.acesso_gestor %}
             <div class="mt-2">
                 <button class="btn btn-outline-primary btn-sm" type="button"
                         data-bs-toggle="collapse"
@@ -294,6 +295,7 @@
                     </form>
                 </div>
             </div>
+            {% endif %}
         </div>
     </div>
 
@@ -505,7 +507,7 @@
                 + Adicionar linha
             </button>
             {% endif %}
-            {% if not inv.stock_registado_at and linhas %}
+            {% if not inv.stock_registado_at and linhas and user.acesso_gestor %}
             <button class="btn btn-success btn-sm"
                     data-bs-toggle="modal" data-bs-target="#cpmRegistarStockModal{{ inv.id }}">
                 📦 Registar stock
@@ -515,6 +517,7 @@
     </div>
 
     <!-- ── Zona de perigo ───────────────────────────────────── -->
+    {% if user.acesso_gestor %}
     <div class="card border-danger mb-3">
         <div class="card-body py-2 px-3">
             <form method="post" action="{{ url_for('faturas.eliminar', invoice_id=inv.id) }}"
@@ -524,6 +527,7 @@
             </form>
         </div>
     </div>
+    {% endif %}
 
     <button type="button" class="btn btn-outline-secondary btn-sm w-100 mb-2"
             onclick="bootstrap.Offcanvas.getInstance(document.getElementById('inv-panel'))?.hide()">
