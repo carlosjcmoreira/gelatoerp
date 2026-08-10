@@ -731,6 +731,7 @@ function clearSupplierFilters() {
 }
 
 function filterSupplierTable() {
+    var _savedScrollY = window.scrollY;  // lock scroll before DOM mutations
     var q        = (document.getElementById('supplierSearch').value || '').toLowerCase().trim();
     var catVal   = (document.getElementById('filterCategory') || {}).value || '';
     var storeVal = (document.getElementById('filterStore') || {}).value || '';
@@ -803,6 +804,10 @@ function filterSupplierTable() {
     }
 
     onRowCheck();  // refresh bulk-bar count after hiding rows
+
+    // Restore scroll position: hiding/showing rows changes document height and
+    // the browser scrolls to keep the active filter <select> in view.
+    window.scrollTo({ top: _savedScrollY, behavior: 'instant' });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -981,16 +986,16 @@ function applyBulkEdit() {
 
 // ── Inline cell save (AJAX) ───────────────────────────────────────────────────
 function inlineSave(supplierId, field, value, selectEl) {
-    // Prevent the browser from auto-scrolling to the select after onchange
+    // Prevent the browser from auto-scrolling after onchange/blur.
+    // Strategy: attach a scroll-lock listener BEFORE triggering blur so it
+    // catches any browser-initiated scroll, regardless of timing.
     var _savedY = window.scrollY;
-    // Blur immediately so the browser's "scroll focused element into view" pass
-    // does not run after our rAF restore.
+    var _scrollLock = function() { window.scrollTo({ top: _savedY, behavior: 'instant' }); };
+    window.addEventListener('scroll', _scrollLock, { passive: true });
+    // Remove the lock after 300 ms — enough for all focus/blur scroll passes.
+    setTimeout(function() { window.removeEventListener('scroll', _scrollLock); }, 300);
+
     selectEl.blur();
-    // Double rAF: the inner callback fires in the second paint frame, safely
-    // after any deferred browser scroll caused by the onChange/focus cycle.
-    requestAnimationFrame(function() {
-        requestAnimationFrame(function() { window.scrollTo({ top: _savedY, behavior: 'instant' }); });
-    });
 
     var fd = new FormData();
     fd.append('action', 'bulk_edit');
