@@ -1011,8 +1011,6 @@ def nova_fatura():
                 return redirect(url_for('compras.nova_fatura'))
 
         # ── Canal 3: Entrada Manual ───────────────────────────────────────────
-        supplier_name = request.form.get('supplier_name', '').strip()
-        supplier_nif = request.form.get('supplier_nif', '').strip() or None
         invoice_number = request.form.get('invoice_number', '').strip() or None
         amount_str = request.form.get('amount_eur', '').replace(',', '.')
         vat_str = request.form.get('vat_amount_eur', '').replace(',', '.') or '0'
@@ -1030,9 +1028,46 @@ def nova_fatura():
         if document_type not in _DTL:
             document_type = 'fatura'
 
-        if not supplier_name and document_type == 'fatura':
-            flash('Nome do fornecedor é obrigatório para faturas.', 'warning')
+        # ── Resolve supplier (structured selection — no silent auto-creation) ─
+        supplier_id_raw = request.form.get('supplier_id', '').strip()
+        is_new_supplier = request.form.get('is_new_supplier', '').strip() == '1'
+        supplier_id = None
+        supplier_name = ''
+        supplier_nif = None
+
+        if supplier_id_raw.isdigit():
+            # Existing supplier selected from the dropdown
+            from db.faturas import get_supplier_by_id as _get_sup_by_id
+            _s = _get_sup_by_id(int(supplier_id_raw))
+            if _s:
+                supplier_id = _s['id']
+                supplier_name = _s['name']
+                supplier_nif = _s.get('nif') or None
+            else:
+                flash('Fornecedor não encontrado. Seleciona um fornecedor válido.', 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+        elif is_new_supplier:
+            # User explicitly filled in the "Novo Fornecedor" form
+            supplier_name = request.form.get('supplier_name', '').strip()
+            supplier_nif = request.form.get('supplier_nif', '').strip() or None
+            if not supplier_name:
+                flash('Preenche o nome do fornecedor para criar um novo registo.', 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+            if document_type == 'fatura' and not supplier_nif:
+                flash('O NIF é obrigatório para criar um fornecedor em faturas.', 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+            try:
+                supplier_id = upsert_supplier(supplier_name, supplier_nif,
+                                              payment_method=payment_method or None)
+            except Exception as exc:
+                logging.warning('compras.nova_fatura: upsert_supplier failed: %s', exc)
+                flash(f'Erro ao criar fornecedor: {exc}', 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+        elif document_type == 'fatura':
+            flash('Seleciona um fornecedor existente ou cria um novo antes de registar a fatura.', 'warning')
             return redirect(url_for('compras.nova_fatura'))
+        # For non-invoice document types, a supplier is optional.
+
         try:
             amount_eur = float(amount_str)
         except (ValueError, TypeError):
@@ -1068,30 +1103,6 @@ def nova_fatura():
         if notes_raw:
             notes_parts.append(notes_raw)
         notes = ' | '.join(notes_parts) or None
-
-        # Resolve supplier by NIF — check canonical suppliers table and then aliases
-        # before creating a new record, to avoid duplicating a previously merged supplier.
-        # payment_method is NOT required for resolution; we only persist it when provided.
-        supplier_id = None
-        if supplier_nif:
-            try:
-                _s = get_supplier_by_nif(supplier_nif)
-                if not _s:
-                    _s = get_supplier_by_alias(supplier_name or '', supplier_nif)
-                if _s:
-                    supplier_id = _s['id']
-                    # If the found supplier's canonical NIF matches what OCR/user provided,
-                    # run upsert to persist the payment method preference (same as before).
-                    # Skip when resolved via alias (canonical NIF differs — avoid overwriting).
-                    if _s.get('nif') == supplier_nif and payment_method:
-                        upsert_supplier(supplier_name, supplier_nif,
-                                        payment_method=payment_method)
-                else:
-                    supplier_id = upsert_supplier(supplier_name, supplier_nif,
-                                                  payment_method=payment_method or None)
-            except Exception as exc:
-                logging.warning('compras.nova_fatura: supplier lookup/upsert failed for nif=%s: %s',
-                                supplier_nif, exc)
 
         try:
             invoice_id = create_invoice({

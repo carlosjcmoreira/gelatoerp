@@ -68,14 +68,41 @@
                     <button type="submit" class="btn btn-primary">Registar Documento</button>
                 </div>
                 <div class="mb-3">
-                    <label class="form-label small fw-semibold" id="supplier-label">Fornecedor / Entidade <span class="text-danger" id="supplier-required-mark">*</span></label>
-                    <input type="text" name="supplier_name" id="supplier_name" class="form-control form-control-sm"
-                           list="suppliers-list" placeholder="Nome do fornecedor ou entidade">
-                    <datalist id="suppliers-list">
+                    <label class="form-label small fw-semibold">Fornecedor / Entidade <span class="text-danger" id="supplier-required-mark">*</span></label>
+                    <select name="supplier_id" id="supplier_id_select" class="form-select form-select-sm"
+                            onchange="nfOnSupplierSelect(this)">
+                        <option value="">— seleccionar fornecedor —</option>
                         {% for s in suppliers %}
-                        <option value="{{ s.name }}">{{ s.name }}{% if s.nif %} (NIF: {{ s.nif }}){% endif %}</option>
+                        <option value="{{ s.id }}">{{ s.name }}{% if s.nif %} ({{ s.nif }}){% endif %}</option>
                         {% endfor %}
-                    </datalist>
+                    </select>
+                    <div class="mt-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                                id="nfNewSupplierBtn"
+                                onclick="nfToggleNewSupplier()">
+                            ➕ Criar novo fornecedor
+                        </button>
+                    </div>
+                </div>
+
+                <!-- New-supplier form (collapsed by default) -->
+                <div id="nfNewSupplierSection" class="border rounded p-3 mb-3 bg-light d-none">
+                    <input type="hidden" name="is_new_supplier" id="nfIsNewSupplier" value="">
+                    <div class="fw-semibold small mb-2">🆕 Novo Fornecedor</div>
+                    <div class="row g-2">
+                        <div class="col-12">
+                            <label class="form-label small">Nome <span class="text-danger">*</span></label>
+                            <input type="text" name="supplier_name" id="nfSupplierName"
+                                   class="form-control form-control-sm" placeholder="Nome do fornecedor">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">NIF <span class="text-danger" id="nfNifRequired">*</span></label>
+                            <input type="text" name="supplier_nif" id="nfSupplierNif"
+                                   class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789">
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-link btn-sm text-secondary p-0 mt-2"
+                            onclick="nfCancelNewSupplier()">✕ Cancelar</button>
                 </div>
 
                 <div class="mb-3">
@@ -91,12 +118,7 @@
 
                 <div id="supplier-extra-fields">
                     <div class="row g-2 mb-3">
-                        <div class="col-6">
-                            <label class="form-label small">NIF do Fornecedor</label>
-                            <input type="text" name="supplier_nif" class="form-control form-control-sm"
-                                   maxlength="20" placeholder="Ex: 123456789">
-                        </div>
-                        <div class="col-6">
+                        <div class="col-12">
                             <label class="form-label small">Método de Pagamento</label>
                             <select name="payment_method" class="form-select form-select-sm">
                                 <option value="">— Não especificado —</option>
@@ -199,7 +221,7 @@
     var vatField = document.getElementById('vat-field');
     var semIvaField = document.getElementById('sem-iva-field');
     var supplierReqMark = document.getElementById('supplier-required-mark');
-    var supplierInput = document.getElementById('supplier_name');
+    var supplierSelect = document.getElementById('supplier_id_select');
 
     function toggleFields() {
         var isFatura = (docTypeSelect.value === 'fatura');
@@ -207,11 +229,44 @@
         vatField.style.display = isFatura ? '' : 'none';
         semIvaField.style.display = isFatura ? '' : 'none';
         supplierReqMark.style.display = isFatura ? '' : 'none';
-        supplierInput.required = isFatura;
+        // NIF asterisk in new-supplier section also follows doc type
+        var nifReq = document.getElementById('nfNifRequired');
+        if (nifReq) nifReq.style.display = isFatura ? '' : 'none';
     }
 
     docTypeSelect.addEventListener('change', toggleFields);
     toggleFields();
 })();
+
+// ── New-supplier toggle helpers ────────────────────────────────────────────
+function nfOnSupplierSelect(sel) {
+    // When the user picks an existing supplier, close and clear the new-supplier form
+    if (sel.value) {
+        nfCancelNewSupplier();
+    }
+}
+
+function nfToggleNewSupplier() {
+    var section = document.getElementById('nfNewSupplierSection');
+    var isHidden = section.classList.contains('d-none');
+    if (isHidden) {
+        section.classList.remove('d-none');
+        // Clear the existing-supplier dropdown so its value isn't submitted
+        document.getElementById('supplier_id_select').value = '';
+        // Mark as new supplier
+        document.getElementById('nfIsNewSupplier').value = '1';
+        document.getElementById('nfSupplierName').focus();
+    } else {
+        nfCancelNewSupplier();
+    }
+}
+
+function nfCancelNewSupplier() {
+    var section = document.getElementById('nfNewSupplierSection');
+    section.classList.add('d-none');
+    document.getElementById('nfIsNewSupplier').value = '';
+    document.getElementById('nfSupplierName').value = '';
+    document.getElementById('nfSupplierNif').value = '';
+}
 </script>
 {% endblock %}
