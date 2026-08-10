@@ -158,14 +158,15 @@ def index():
             forn_status = ''
 
         # Default (empty) = show only active/pending invoices; 'all' = no filter
+        # exclude_gov=True: government/tax entities (AT, SS) are not commercial suppliers;
+        # exclude them from the grouped supplier view in both Financeiro and Compras contexts.
         _default_active = (forn_status == '')
         if _default_active:
-            from db.faturas import get_contas_por_fornecedor as _gcp
-            grupos = _gcp(status_filters=['pending_review', 'scheduled'])
+            grupos = get_contas_por_fornecedor(status_filters=['pending_review', 'scheduled'], exclude_gov=True)
         elif forn_status == 'all':
-            grupos = get_contas_por_fornecedor(status_filter=None)
+            grupos = get_contas_por_fornecedor(status_filter=None, exclude_gov=True)
         else:
-            grupos = get_contas_por_fornecedor(status_filter=forn_status)
+            grupos = get_contas_por_fornecedor(status_filter=forn_status, exclude_gov=True)
 
         # Fetch paid counts per supplier for badge (only when not already showing paid)
         forn_paid_counts = {}
@@ -201,8 +202,9 @@ def index():
         )
 
     if view == 'centro_custo':
-        # Group all non-draft invoices by centro_custo
-        all_invoices = get_invoices()
+        # Group all non-draft invoices by centro_custo.
+        # exclude_gov=True: AT/SS tax entities are not meaningful cost-centre entries.
+        all_invoices = get_invoices(exclude_gov=True)
         from collections import defaultdict
         grupos_cc = defaultdict(lambda: {'label': None, 'total': 0.0, 'count': 0, 'invoices': []})
         cc_map = {cc['id']: cc for cc in get_cost_centers(ativo_only=False)}
@@ -248,7 +250,8 @@ def index():
         from collections import defaultdict
         from db.centros_custo import get_cost_categories
         sem_categoria_only = request.args.get('sem_categoria') == '1'
-        all_invoices = get_invoices()
+        # exclude_gov=True: AT/SS tax entities are not meaningful cost-category entries.
+        all_invoices = get_invoices(exclude_gov=True)
         cat_map = {c['id']: c for c in get_cost_categories(ativo_only=False)}
         grupos_cat = defaultdict(lambda: {'label': None, 'total': 0.0, 'count': 0, 'invoices': []})
         for inv in all_invoices:

@@ -1981,7 +1981,8 @@ def get_paid_counts_by_supplier(supplier_names: list) -> dict:
 
 
 def get_contas_por_fornecedor(status_filter: str = None,
-                               status_filters: list = None) -> list:
+                               status_filters: list = None,
+                               exclude_gov: bool = False) -> list:
     """
     Returns a list of all non-draft invoices and credit notes, grouped by supplier.
     Each entry contains:
@@ -1997,6 +1998,8 @@ def get_contas_por_fornecedor(status_filter: str = None,
     status_filter:  single status string for backwards-compatible callers.
                     Ignored when status_filters is set.
                     Defaults to all non-draft invoices when both are None.
+    exclude_gov:    when True, exclude invoices from government/tax entities (AT, SS)
+                    identified by their NIF or the entidade_governamental flag.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -2011,6 +2014,16 @@ def get_contas_por_fornecedor(status_filter: str = None,
             params.append(status_filter)
         else:
             extra_where = ""
+        if exclude_gov:
+            extra_where += """
+            AND (
+                (i.supplier_nif IS NULL OR i.supplier_nif NOT IN %s)
+                AND NOT EXISTS (
+                    SELECT 1 FROM suppliers s
+                    WHERE s.id = i.supplier_id AND s.entidade_governamental = true
+                )
+            )"""
+            params.append(_GOV_NIFS)
         cursor.execute(f"""
             SELECT i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
                    i.invoice_number, i.amount_eur, i.vat_amount_eur,
