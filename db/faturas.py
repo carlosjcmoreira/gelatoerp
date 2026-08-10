@@ -231,6 +231,11 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                     WHERE id = %s
                 """, (name, category, store_id, notes,
                       payment_method, payment_terms, iban, supplier_id))
+                # Propagate canonical name to all already-linked invoices
+                cursor.execute(
+                    "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
+                    (name, supplier_id)
+                )
             else:
                 try:
                     cursor.execute("""
@@ -265,6 +270,11 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                         WHERE id = %s
                     """, (name, category, store_id, notes,
                           payment_method, payment_terms, iban, supplier_id))
+                    # Propagate canonical name to all already-linked invoices
+                    cursor.execute(
+                        "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
+                        (name, supplier_id)
+                    )
                     logger.info("upsert_supplier: resolved race condition for null-NIF supplier '%s' (id=%s)", name, supplier_id)
             conn.commit()
             try:
@@ -273,6 +283,11 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                 logger.warning('link_invoices_to_supplier_by_name failed (no-nif path) for supplier %s: %s', supplier_id, _exc)
             return supplier_id
         supplier_id = cursor.fetchone()[0]
+        # Propagate canonical name to all already-linked invoices (handles rename-via-upsert)
+        cursor.execute(
+            "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
+            (name, supplier_id)
+        )
         conn.commit()
     # Auto-link invoices whose supplier_name matches this supplier
     try:
