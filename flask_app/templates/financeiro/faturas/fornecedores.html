@@ -170,6 +170,38 @@
         </div>
         {% endif %}
 
+        <!-- ── Filter bar ──────────────────────────────────────────────────── -->
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            <div class="input-group input-group-sm" style="max-width:280px">
+                <span class="input-group-text">🔍</span>
+                <input type="search" id="supplierSearch" class="form-control form-control-sm"
+                       placeholder="Nome ou NIF…" autocomplete="off"
+                       oninput="filterSupplierTable()">
+            </div>
+            <select id="filterCategory" class="form-select form-select-sm" style="max-width:160px"
+                    onchange="filterSupplierTable()">
+                <option value="">Categoria (todas)</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}">{{ cat }}</option>
+                {% endfor %}
+            </select>
+            <select id="filterStore" class="form-select form-select-sm" style="max-width:150px"
+                    onchange="filterSupplierTable()">
+                <option value="">Loja (todas)</option>
+                {% for st in stores %}
+                <option value="{{ st.id }}">{{ st.name }}</option>
+                {% endfor %}
+            </select>
+            <select id="filterCC" class="form-select form-select-sm" style="max-width:160px"
+                    onchange="filterSupplierTable()">
+                <option value="">Centro Custo (todos)</option>
+                {% for cc in cost_centers %}
+                <option value="{{ cc.id }}">{{ cc.name }}</option>
+                {% endfor %}
+            </select>
+            <span id="supplierCount" class="small text-muted ms-1"></span>
+        </div>
+
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle" id="supplierTable">
                 <thead class="table-light">
@@ -191,7 +223,13 @@
                 </thead>
                 <tbody>
                 {% for s in suppliers %}
-                <tr data-sid="{{ s.id }}" class="supplier-row">
+                <tr data-sid="{{ s.id }}"
+                    data-name="{{ s.name | lower | e }}"
+                    data-nif="{{ (s.nif or '') | lower }}"
+                    data-category="{{ s.category or '' }}"
+                    data-store="{{ s.store_id or '' }}"
+                    data-cc="{{ s.centro_custo_id or '' }}"
+                    class="supplier-row">
                     {% if can_bulk_edit %}
                     <td>
                         <input type="checkbox" class="form-check-input row-cb" value="{{ s.id }}"
@@ -648,6 +686,64 @@ var _FIELD_OPTIONS = {
     ],
 };
 
+// ── Table filter (search + selects) ──────────────────────────────────────────
+var _totalSuppliers = 0;
+
+function filterSupplierTable() {
+    var q        = (document.getElementById('supplierSearch').value || '').toLowerCase().trim();
+    var catVal   = (document.getElementById('filterCategory') || {}).value || '';
+    var storeVal = (document.getElementById('filterStore') || {}).value || '';
+    var ccVal    = (document.getElementById('filterCC') || {}).value || '';
+
+    var rows    = document.querySelectorAll('#supplierTable tbody .supplier-row');
+    var visible = 0;
+
+    rows.forEach(function(row) {
+        var name     = (row.dataset.name     || '');
+        var nif      = (row.dataset.nif      || '');
+        var category = (row.dataset.category || '');
+        var store    = (row.dataset.store    || '');
+        var cc       = (row.dataset.cc       || '');
+
+        var matchText  = !q        || name.indexOf(q) !== -1 || nif.indexOf(q) !== -1;
+        var matchCat   = !catVal   || category === catVal;
+        var matchStore = !storeVal || store    === storeVal;
+        var matchCC    = !ccVal    || cc       === ccVal;
+
+        if (matchText && matchCat && matchStore && matchCC) {
+            row.style.display = '';
+            visible++;
+        } else {
+            row.style.display = 'none';
+            // uncheck hidden rows so they don't sneak into bulk actions
+            var cb = row.querySelector('.row-cb');
+            if (cb) cb.checked = false;
+        }
+    });
+
+    if (!_totalSuppliers) _totalSuppliers = rows.length;
+    var countEl = document.getElementById('supplierCount');
+    if (countEl) {
+        if (visible === _totalSuppliers) {
+            countEl.textContent = _totalSuppliers + ' fornecedor' + (_totalSuppliers !== 1 ? 'es' : '');
+        } else {
+            countEl.textContent = visible + ' de ' + _totalSuppliers + ' fornecedor' + (_totalSuppliers !== 1 ? 'es' : '');
+        }
+    }
+
+    onRowCheck();  // refresh bulk-bar count after hiding rows
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // init counter
+    var rows = document.querySelectorAll('#supplierTable tbody .supplier-row');
+    _totalSuppliers = rows.length;
+    var countEl = document.getElementById('supplierCount');
+    if (countEl && _totalSuppliers) {
+        countEl.textContent = _totalSuppliers + ' fornecedor' + (_totalSuppliers !== 1 ? 'es' : '');
+    }
+});
+
 // ── View toggle ───────────────────────────────────────────────────────────────
 function setView(mode) {
     var listView  = document.getElementById('listView');
@@ -676,8 +772,17 @@ function setView(mode) {
 })();
 
 // ── Checkbox helpers ──────────────────────────────────────────────────────────
+function _visibleRowCbs() {
+    // Only checkboxes whose parent row is currently visible
+    return Array.from(document.querySelectorAll('.row-cb')).filter(function(cb) {
+        var row = cb.closest('tr');
+        return row && row.style.display !== 'none';
+    });
+}
+
 function toggleSelectAll(cb) {
-    document.querySelectorAll('.row-cb').forEach(function(el) { el.checked = cb.checked; });
+    // Select / deselect only the visible rows
+    _visibleRowCbs().forEach(function(el) { el.checked = cb.checked; });
     onRowCheck();
 }
 
@@ -693,10 +798,12 @@ function onRowCheck() {
     } else {
         bar.classList.add('d-none');
     }
-    // uncheck selectAll if not all checked
-    var all = document.querySelectorAll('.row-cb');
+    // Reflect "all visible selected" state in the header checkbox
+    var visibleCbs = _visibleRowCbs();
     var selectAllCb = document.getElementById('selectAll');
-    if (selectAllCb) selectAllCb.checked = (all.length > 0 && checked.length === all.length);
+    if (selectAllCb) {
+        selectAllCb.checked = visibleCbs.length > 0 && visibleCbs.every(function(el) { return el.checked; });
+    }
 }
 
 function clearSelection() {
