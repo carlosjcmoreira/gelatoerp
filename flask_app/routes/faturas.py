@@ -1520,15 +1520,18 @@ def edit(invoice_id: int):
     supplier_id_form = request.form.get('supplier_id', '').strip()
     if supplier_id_form.isdigit():
         supplier_id = int(supplier_id_form)
-        # Back-fill name/nif from canonical supplier record when not submitted
-        if not supplier_name or not supplier_nif:
-            try:
-                _sup = get_supplier_by_id(supplier_id)
-                if _sup:
-                    supplier_name = supplier_name or _sup['name']
-                    supplier_nif = supplier_nif or (_sup['nif'] or '')
-            except Exception:
-                pass
+        # Always use the canonical name/nif from the suppliers table when a supplier_id
+        # is provided — the hidden supplier_name field may still hold the old supplier's
+        # name if the user just changed the dropdown, so we cannot rely on it.
+        # NIF is also set unconditionally: if the new supplier has no NIF the old value
+        # must be cleared, not kept, to avoid a mismatched name/NIF pair.
+        try:
+            _sup = get_supplier_by_id(supplier_id)
+            if _sup:
+                supplier_name = _sup['name']
+                supplier_nif = _sup.get('nif') or ''
+        except Exception:
+            pass
     elif supplier_nif and supplier_name:
         try:
             supplier_id = upsert_supplier(
