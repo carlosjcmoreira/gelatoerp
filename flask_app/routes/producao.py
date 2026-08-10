@@ -62,8 +62,7 @@ TABS = [
     {'id': 'por_sabor', 'label': 'Stock Gelado', 'icon': '🍨', 'url_endpoint': 'producao.por_sabor'},
     {'id': 'quebra', 'label': 'Registar Quebra de Produção', 'icon': '⚠️', 'url_endpoint': 'producao.registar_quebra'},
     {'id': 'dashboard', 'label': 'Dashboard Produção', 'icon': '📊', 'url_endpoint': 'producao.dashboard'},
-    {'id': 'receitas', 'label': 'Receitas de Gelado', 'icon': '📖', 'url_endpoint': 'producao.receitas'},
-    {'id': 'sabores_ativos', 'label': 'Sabores Ativos', 'icon': '✅', 'url_endpoint': 'producao.sabores_ativos'},
+    {'id': 'sabores_receitas', 'label': 'Sabores e Receitas', 'icon': '🍦', 'url_endpoint': 'producao.sabores_receitas'},
     {'id': 'movimentos_stock', 'label': 'Movimentos de Stock', 'icon': '📦', 'url_endpoint': 'producao.movimentos_stock'},
 ]
 
@@ -1173,9 +1172,9 @@ def ordem_remover():
     return redirect(url_for('producao.ordem'))
 
 
-@producao_bp.route('/receitas', methods=['GET', 'POST'])
+@producao_bp.route('/sabores-receitas', methods=['GET', 'POST'])
 @perm_required('acesso_producao')
-def receitas():
+def sabores_receitas():
     if request.method == 'POST':
         action = request.form.get('action', 'save')
 
@@ -1185,60 +1184,51 @@ def receitas():
             if nome and corrente:
                 success = add_receita_gelado(nome, corrente)
                 if success:
-                    flash('Receita adicionada!', 'success')
+                    flash('Sabor adicionado!', 'success')
                 else:
-                    flash('Receita já existe.', 'warning')
+                    flash('Já existe um sabor com esse nome de sistema.', 'warning')
             else:
-                flash('Preencha ambos os campos.', 'warning')
+                flash('Preencha os dois campos para adicionar um sabor.', 'warning')
         else:
             changes = 0
             receitas_list = get_all_receitas_gelado()
             for r in receitas_list:
-                new_val = request.form.get(f'nome_corrente_{r["id"]}', '')
-                if new_val != (r['nome_corrente'] or ''):
-                    update_receita_gelado(r['id'], r['nome'], new_val)
+                new_nome_corrente = request.form.get(f'nome_corrente_{r["id"]}', '').strip() or None
+                new_ativo = request.form.get(f'ativo_{r["id"]}') == 'on'
+                nome_corrente_changed = new_nome_corrente != (r['nome_corrente'] or None)
+                ativo_changed = new_ativo != r['ativo']
+                if nome_corrente_changed:
+                    update_receita_gelado(r['id'], r['nome'], new_nome_corrente)
+                if ativo_changed:
+                    update_receita_gelado_ativo(r['id'], new_ativo)
+                if nome_corrente_changed or ativo_changed:
                     changes += 1
             if changes > 0:
-                flash(f"{changes} receita(s) atualizada(s)!", "success")
+                flash(f"{changes} sabor(es) atualizado(s)!", "success")
             else:
                 flash("Nenhuma alteração detetada.", "info")
 
-        return redirect(url_for('producao.receitas'))
+        return redirect(url_for('producao.sabores_receitas'))
 
     receitas_list = get_all_receitas_gelado()
-    return render_template('producao/receitas.html',
-                           active_tab='receitas', tabs=_tabs_with_urls(),
+    receitas_list.sort(key=lambda r: (not r['ativo'], (r['nome_corrente'] or r['nome']).lower()))
+    return render_template('producao/sabores_receitas.html',
+                           active_tab='sabores_receitas', tabs=_tabs_with_urls(),
                            receitas=receitas_list)
+
+
+# ── Legacy redirects — keep old URLs working ─────────────────────────────────
+
+@producao_bp.route('/receitas', methods=['GET', 'POST'])
+@perm_required('acesso_producao')
+def receitas():
+    return redirect(url_for('producao.sabores_receitas'), 301)
 
 
 @producao_bp.route('/sabores-ativos', methods=['GET', 'POST'])
 @perm_required('acesso_producao')
 def sabores_ativos():
-    if request.method == 'POST':
-        changes = 0
-        receitas_list = get_all_receitas_gelado()
-        for r in receitas_list:
-            new_nome_corrente = request.form.get(f'nome_corrente_{r["id"]}', '').strip() or None
-            new_ativo = request.form.get(f'ativo_{r["id"]}') == 'on'
-            nome_corrente_changed = new_nome_corrente != (r['nome_corrente'] or None)
-            ativo_changed = new_ativo != r['ativo']
-            if nome_corrente_changed:
-                update_receita_gelado(r['id'], r['nome'], new_nome_corrente)
-            if ativo_changed:
-                update_receita_gelado_ativo(r['id'], new_ativo)
-            if nome_corrente_changed or ativo_changed:
-                changes += 1
-        if changes > 0:
-            flash(f"{changes} sabor(es) atualizado(s)!", "success")
-        else:
-            flash("Nenhuma alteração detetada.", "info")
-        return redirect(url_for('producao.sabores_ativos'))
-
-    receitas_list = get_all_receitas_gelado()
-    receitas_list.sort(key=lambda r: (not r['ativo'], (r['nome_corrente'] or r['nome']).lower()))
-    return render_template('producao/sabores_ativos.html',
-                           active_tab='sabores_ativos', tabs=_tabs_with_urls(),
-                           receitas=receitas_list)
+    return redirect(url_for('producao.sabores_receitas'), 301)
 
 
 @producao_bp.route('/movimentos-stock')

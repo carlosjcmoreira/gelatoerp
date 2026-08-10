@@ -111,6 +111,10 @@ def _seed_all_tiles():
             _conn.cursor().execute(
                 "DELETE FROM tile_config WHERE module = 'financeiro' AND tile_id = 'cashflow'"
             )
+            # Remove retired producao tiles (merged into sabores_receitas in task #612)
+            _conn.cursor().execute(
+                "DELETE FROM tile_config WHERE module = 'producao' AND tile_id IN ('receitas', 'sabores_ativos')"
+            )
             _conn.commit()
 
         logger.info("_seed_all_tiles: all module tiles seeded")

@@ -1,0 +1,92 @@
+{% extends "producao/tabs.html" %}
+
+{% block tab_content %}
+<h5 class="mb-1">🍦 Sabores e Receitas</h5>
+<p class="text-muted small mb-3">
+    Gere os sabores de gelado: define o nome usado pela equipa, e activa ou desactiva cada sabor.
+    Apenas sabores <strong>activos</strong> aparecem no plano de produção, pesagens e transferências.
+</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="alert alert-{{ category }} alert-dismissible py-2 mb-2" role="alert">
+    {{ message }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+{% endwith %}
+
+{% if receitas %}
+<form method="post" id="saboresReceitasForm">
+    <input type="hidden" name="action" value="save">
+    <div class="mb-3">
+        <button type="submit" class="btn btn-primary w-100">💾 Guardar Alterações</button>
+    </div>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:52px;" class="text-center">Activo</th>
+                    <th>Nome da Equipa</th>
+                    <th class="text-muted small">Nome (Sistema)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in receitas %}
+                <tr class="{% if not r.ativo %}opacity-50{% endif %}">
+                    <td class="text-center">
+                        <div class="form-check form-switch d-flex justify-content-center mb-0">
+                            <input class="form-check-input" type="checkbox"
+                                   name="ativo_{{ r.id }}" id="ativo_{{ r.id }}"
+                                   role="switch"
+                                   {% if r.ativo %}checked{% endif %}>
+                        </div>
+                    </td>
+                    <td>
+                        <input type="text" name="nome_corrente_{{ r.id }}"
+                               class="form-control form-control-sm"
+                               value="{{ r.nome_corrente or '' }}"
+                               placeholder="Nome usado pela equipa">
+                    </td>
+                    <td class="small text-muted align-middle">
+                        {{ r.nome }}
+                        {% if not r.ativo %}
+                        <span class="badge bg-secondary ms-1" style="font-size:.65rem">inactivo</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="mb-3">
+        <button type="submit" class="btn btn-primary w-100">💾 Guardar Alterações</button>
+    </div>
+</form>
+{% else %}
+<div class="alert alert-info">Sem sabores registados.</div>
+{% endif %}
+
+<hr>
+<h6 class="mb-2">➕ Adicionar Novo Sabor</h6>
+<p class="text-muted small mb-2">O nome do sistema é o identificador interno (único); o nome da equipa é o que aparece nas listas.</p>
+<form method="post">
+    <input type="hidden" name="action" value="add_receita">
+    <div class="row g-2 mb-2">
+        <div class="col-6">
+            <label class="form-label form-label-sm mb-1">Nome (Sistema)</label>
+            <input type="text" name="nova_receita" class="form-control form-control-sm"
+                   placeholder="ex: GELADO_MORANGO_V2" autocomplete="off">
+        </div>
+        <div class="col-6">
+            <label class="form-label form-label-sm mb-1">Nome da Equipa</label>
+            <input type="text" name="novo_corrente" class="form-control form-control-sm"
+                   placeholder="ex: Morango" autocomplete="off">
+        </div>
+    </div>
+    <div class="d-grid">
+        <button type="submit" class="btn btn-outline-secondary btn-sm">Adicionar Sabor</button>
+    </div>
+</form>
+
+{% endblock %}

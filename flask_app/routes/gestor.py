@@ -1921,8 +1921,7 @@ _TILE_MASTER = {
         {'id': 'por_sabor',         'icon': '🍨',  'default_label': 'Stock Gelado',                 'description': 'Consultar o stock atual de gelado por sabor em cada loja'},
         {'id': 'quebra',            'icon': '⚠️',  'default_label': 'Registar Quebra de Produção',  'description': 'Registar perdas ou desperdícios de gelado com motivo justificativo'},
         {'id': 'dashboard',         'icon': '📊',  'default_label': 'Dashboard Produção',           'description': 'Resumo visual de produção, transferências e stock por período'},
-        {'id': 'receitas',          'icon': '📖',  'default_label': 'Receitas de Gelado',           'description': 'Consultar e gerir as receitas e componentes de cada sabor'},
-        {'id': 'sabores_ativos',    'icon': '✅',  'default_label': 'Sabores Ativos',               'description': 'Lista dos sabores em produção ativa e respetivas tipologias'},
+        {'id': 'sabores_receitas',   'icon': '🍦',  'default_label': 'Sabores e Receitas',           'description': 'Gerir sabores de gelado: nome da equipa, ativar/desativar e adicionar novos sabores'},
     ],
     'vendas': [
         {'id': 'dashboard',         'icon': '📊',  'default_label': 'Resumo Diário',                'description': 'Resumo das vendas do dia por loja com totais e indicadores de performance'},
