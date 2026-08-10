@@ -1344,6 +1344,7 @@ def invoice_panel(invoice_id: int):
         inv_payment=inv_payment,
         audit_log=audit_log,
         doc_mimetype=doc_mimetype,
+        cost_centers=get_cost_centers(ativo_only=True),
     )
 
 
@@ -1512,6 +1513,8 @@ def edit(invoice_id: int):
     notes = request.form.get('notes', '').strip()
     status = request.form.get('status', inv['status'])
     document_type = request.form.get('document_type', inv.get('document_type', 'fatura'))
+    cc_raw = request.form.get('centro_custo_id', '').strip()
+    centro_custo_id = int(cc_raw) if cc_raw.isdigit() else None
     if document_type not in DOCUMENT_TYPE_LABELS:
         document_type = 'fatura'
 
@@ -1568,6 +1571,7 @@ def edit(invoice_id: int):
         'status': status,
         'notes': notes or None,
         'document_type': document_type,
+        'centro_custo_id': centro_custo_id,
     }, changed_by=_edit_user)
 
     flash('Documento actualizado.', 'success')
@@ -1973,6 +1977,22 @@ def download_pdf(invoice_id: int):
 
 
 # ── Suppliers management ───────────────────────────────────────────────────────
+
+@faturas_bp.route('/fornecedores/<int:supplier_id>/info')
+@any_perm_required('acesso_financeiro', 'acesso_compras')
+def supplier_info(supplier_id: int):
+    """Lightweight JSON endpoint: returns key supplier fields for JS pre-fill."""
+    sup = get_supplier_by_id(supplier_id)
+    if not sup:
+        return jsonify({'error': 'not_found'}), 404
+    return jsonify({
+        'id': sup['id'],
+        'name': sup['name'],
+        'centro_custo_id': sup.get('centro_custo_id'),
+        'payment_method': sup.get('payment_method'),
+        'payment_terms': sup.get('payment_terms'),
+    })
+
 
 @faturas_bp.route('/fornecedores', methods=['GET', 'POST'])
 @any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — supplier list/create/edit; destructive actions guarded below

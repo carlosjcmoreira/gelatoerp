@@ -244,6 +244,25 @@ function nfOnSupplierSelect(sel) {
     if (sel.value) {
         nfCancelNewSupplier();
     }
+
+    // Pre-fill centro de custo when the supplier has one configured
+    var supplierId = sel.value;
+    if (supplierId) {
+        var form = sel.closest('form');
+        var ccSel = form ? form.querySelector('select[name="centro_custo_id"]') : null;
+        if (ccSel && !ccSel.value) {
+            fetch('/financeiro/faturas/fornecedores/' + supplierId + '/info')
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(data) {
+                    // Stale-guard: only apply if the dropdown still shows the same supplier
+                    if (data && data.centro_custo_id && ccSel && !ccSel.value
+                            && sel.value === supplierId) {
+                        ccSel.value = String(data.centro_custo_id);
+                    }
+                })
+                .catch(function() {});
+        }
+    }
 }
 
 function nfToggleNewSupplier() {
