@@ -155,8 +155,36 @@ def update_supplier(supplier_id: int, name: str, nif: str = None, category: str 
               notes or None, payment_method or None, payment_terms or None,
               iban or None, supplier_id))
         updated = cursor.rowcount > 0
+        # Propagate the canonical name to all invoices linked to this supplier
+        if updated:
+            cursor.execute(
+                "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
+                (name, supplier_id)
+            )
         conn.commit()
     return updated
+
+
+def get_supplier_name_mismatches() -> list:
+    """Return invoices where supplier_name differs from the canonical suppliers.name.
+
+    Useful for diagnosing desynchronised denormalised data.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT i.id AS invoice_id,
+                   i.supplier_id,
+                   i.supplier_name AS stored_name,
+                   s.name         AS canonical_name
+            FROM invoices i
+            JOIN suppliers s ON s.id = i.supplier_id
+            WHERE i.supplier_id IS NOT NULL
+              AND i.supplier_name IS DISTINCT FROM s.name
+            ORDER BY s.name, i.id
+        """)
+        cols = [d[0] for d in cursor.description]
+        return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
 
 def upsert_supplier(name: str, nif: str = None, category: str = None,
