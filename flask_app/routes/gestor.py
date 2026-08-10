@@ -1943,6 +1943,7 @@ _TILE_MASTER = {
     ],
     'financeiro': [
         {'id': 'faturas',                     'icon': '📄',  'default_label': 'Documentos',                    'description': 'Gerir faturas de fornecedores, pagamentos, IVA e OCR automático de documentos'},
+        {'id': 'fornecedores',               'icon': '🏭',  'default_label': 'Fornecedores',                  'description': 'Gerir fornecedores: dados mestre, categorias, lojas, métodos de pagamento e prazos'},
         {'id': 'credito',                     'icon': '💳',  'default_label': 'Crédito',                       'description': 'Acompanhar contratos de crédito, parcelas e responsabilidades financeiras'},
         {'id': 'iva',                         'icon': '📋',  'default_label': 'IVA',                           'description': 'Consultar e gerir períodos de IVA e valores a regularizar com o Estado'},
         {'id': 'liquidez',                    'icon': '🏦',  'default_label': 'Tesouraria Previsional',        'description': 'Previsão de cash flow a 13 semanas por semana e por loja'},
