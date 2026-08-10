@@ -140,6 +140,42 @@
     {% endif %}
 
     <!-- ══════════════════════════════════════════════════════════════════
+         SHARED FILTER BAR — applies to both list and table views
+    ══════════════════════════════════════════════════════════════════════ -->
+    {% if suppliers %}
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <div class="input-group input-group-sm" style="max-width:280px">
+            <span class="input-group-text">🔍</span>
+            <input type="search" id="supplierSearch" class="form-control form-control-sm"
+                   placeholder="Nome ou NIF…" autocomplete="off"
+                   oninput="filterSupplierTable()">
+        </div>
+        <select id="filterCategory" class="form-select form-select-sm" style="max-width:160px"
+                onchange="filterSupplierTable()">
+            <option value="">Categoria (todas)</option>
+            {% for cat in categories %}
+            <option value="{{ cat }}">{{ cat }}</option>
+            {% endfor %}
+        </select>
+        <select id="filterStore" class="form-select form-select-sm" style="max-width:150px"
+                onchange="filterSupplierTable()">
+            <option value="">Loja (todas)</option>
+            {% for st in stores %}
+            <option value="{{ st.id }}">{{ st.name }}</option>
+            {% endfor %}
+        </select>
+        <select id="filterCC" class="form-select form-select-sm" style="max-width:160px"
+                onchange="filterSupplierTable()">
+            <option value="">Centro Custo (todos)</option>
+            {% for cc in cost_centers %}
+            <option value="{{ cc.id }}">{{ cc.name }}</option>
+            {% endfor %}
+        </select>
+        <span id="supplierCount" class="small text-muted ms-1"></span>
+    </div>
+    {% endif %}
+
+    <!-- ══════════════════════════════════════════════════════════════════
          TABLE VIEW — mass-edit (bulk actions restricted to gestor/admin)
     ══════════════════════════════════════════════════════════════════════ -->
     <div id="tableView" style="display:none">
@@ -169,38 +205,6 @@
             <span id="bulkFeedback" class="small text-success ms-2" style="display:none"></span>
         </div>
         {% endif %}
-
-        <!-- ── Filter bar ──────────────────────────────────────────────────── -->
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
-            <div class="input-group input-group-sm" style="max-width:280px">
-                <span class="input-group-text">🔍</span>
-                <input type="search" id="supplierSearch" class="form-control form-control-sm"
-                       placeholder="Nome ou NIF…" autocomplete="off"
-                       oninput="filterSupplierTable()">
-            </div>
-            <select id="filterCategory" class="form-select form-select-sm" style="max-width:160px"
-                    onchange="filterSupplierTable()">
-                <option value="">Categoria (todas)</option>
-                {% for cat in categories %}
-                <option value="{{ cat }}">{{ cat }}</option>
-                {% endfor %}
-            </select>
-            <select id="filterStore" class="form-select form-select-sm" style="max-width:150px"
-                    onchange="filterSupplierTable()">
-                <option value="">Loja (todas)</option>
-                {% for st in stores %}
-                <option value="{{ st.id }}">{{ st.name }}</option>
-                {% endfor %}
-            </select>
-            <select id="filterCC" class="form-select form-select-sm" style="max-width:160px"
-                    onchange="filterSupplierTable()">
-                <option value="">Centro Custo (todos)</option>
-                {% for cc in cost_centers %}
-                <option value="{{ cc.id }}">{{ cc.name }}</option>
-                {% endfor %}
-            </select>
-            <span id="supplierCount" class="small text-muted ms-1"></span>
-        </div>
 
         <div class="table-responsive">
             <table class="table table-sm table-hover align-middle" id="supplierTable">
@@ -335,7 +339,12 @@
         {% if suppliers %}
         <div class="list-group">
             {% for s in suppliers %}
-            <div class="list-group-item py-2 px-3">
+            <div class="list-group-item py-2 px-3 supplier-list-item"
+                 data-name="{{ s.name | lower | e }}"
+                 data-nif="{{ (s.nif or '') | lower }}"
+                 data-category="{{ s.category or '' }}"
+                 data-store="{{ s.store_id or '' }}"
+                 data-cc="{{ s.centro_custo_id or '' }}">
                 <div class="d-flex align-items-center justify-content-between gap-2">
                     <div class="flex-grow-1 min-width-0">
                         <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -695,9 +704,10 @@ function filterSupplierTable() {
     var storeVal = (document.getElementById('filterStore') || {}).value || '';
     var ccVal    = (document.getElementById('filterCC') || {}).value || '';
 
-    var rows    = document.querySelectorAll('#supplierTable tbody .supplier-row');
     var visible = 0;
 
+    // ── Table rows ────────────────────────────────────────────────────────────
+    var rows = document.querySelectorAll('#supplierTable tbody .supplier-row');
     rows.forEach(function(row) {
         var name     = (row.dataset.name     || '');
         var nif      = (row.dataset.nif      || '');
@@ -721,7 +731,34 @@ function filterSupplierTable() {
         }
     });
 
-    if (!_totalSuppliers) _totalSuppliers = rows.length;
+    // ── List cards ────────────────────────────────────────────────────────────
+    var cards = document.querySelectorAll('#listView .supplier-list-item');
+    var listVisible = 0;
+    cards.forEach(function(card) {
+        var name     = (card.dataset.name     || '');
+        var nif      = (card.dataset.nif      || '');
+        var category = (card.dataset.category || '');
+        var store    = (card.dataset.store    || '');
+        var cc       = (card.dataset.cc       || '');
+
+        var matchText  = !q        || name.indexOf(q) !== -1 || nif.indexOf(q) !== -1;
+        var matchCat   = !catVal   || category === catVal;
+        var matchStore = !storeVal || store    === storeVal;
+        var matchCC    = !ccVal    || cc       === ccVal;
+
+        if (matchText && matchCat && matchStore && matchCC) {
+            card.style.display = '';
+            listVisible++;
+        } else {
+            card.style.display = 'none';
+        }
+    });
+
+    // Use whichever view is active for the visible count (they should be equal)
+    var activeInList = document.getElementById('listView').style.display !== 'none';
+    visible = activeInList ? listVisible : visible;
+
+    if (!_totalSuppliers) _totalSuppliers = rows.length || cards.length;
     var countEl = document.getElementById('supplierCount');
     if (countEl) {
         if (visible === _totalSuppliers) {
@@ -735,9 +772,10 @@ function filterSupplierTable() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // init counter
-    var rows = document.querySelectorAll('#supplierTable tbody .supplier-row');
-    _totalSuppliers = rows.length;
+    // init counter from whichever set is non-empty
+    var rows  = document.querySelectorAll('#supplierTable tbody .supplier-row');
+    var cards = document.querySelectorAll('#listView .supplier-list-item');
+    _totalSuppliers = rows.length || cards.length;
     var countEl = document.getElementById('supplierCount');
     if (countEl && _totalSuppliers) {
         countEl.textContent = _totalSuppliers + ' fornecedor' + (_totalSuppliers !== 1 ? 'es' : '');
