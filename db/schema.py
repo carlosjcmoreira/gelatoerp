@@ -4351,3 +4351,39 @@ def run_migrations_supplier_entidade_governamental():
                 conn.rollback()
             except Exception:
                 pass
+
+
+_LOCK_SUPPLIER_CENTRO_CUSTO = 202702
+
+
+def run_migrations_supplier_centro_custo():
+    """Add centro_custo_id FK to suppliers (default cost centre per supplier).
+
+    Runs after run_migrations_centros_custo so cost_centers table is guaranteed
+    to exist.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_SUPPLIER_CENTRO_CUSTO,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_supplier_centro_custo: lock held, skipping")
+            return
+        try:
+            cursor.execute("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'suppliers' AND column_name = 'centro_custo_id'
+            """)
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    ALTER TABLE suppliers
+                    ADD COLUMN centro_custo_id INTEGER REFERENCES cost_centers(id) ON DELETE SET NULL
+                """)
+                logger.info("run_migrations_supplier_centro_custo: column added")
+            conn.commit()
+            logger.info("run_migrations_supplier_centro_custo: complete")
+        except Exception as exc:
+            logger.error("run_migrations_supplier_centro_custo failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass

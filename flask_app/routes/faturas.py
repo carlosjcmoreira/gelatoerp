@@ -43,7 +43,8 @@ from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair
                         get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias,
                         get_invoice_status_labels_map, get_invoice_audit_log,
                         get_invoice_deletion_log,
-                        get_saved_views, save_view, delete_saved_view)
+                        get_saved_views, save_view, delete_saved_view,
+                        patch_supplier)
 from flask_app.utils.finance import (
     parse_date as _parse_date,
     parse_float as _parse_float,
@@ -2001,6 +2002,8 @@ def fornecedores():
             payment_method = request.form.get('payment_method', '').strip() or None
             payment_terms = request.form.get('payment_terms', '').strip() or None
             iban = request.form.get('iban', '').strip() or None
+            _cc_raw = request.form.get('centro_custo_id', '').strip()
+            centro_custo_id = int(_cc_raw) if _cc_raw.isdigit() else None
             supplier_id_raw = request.form.get('supplier_id', '').strip()
             if not name:
                 flash('Nome do fornecedor é obrigatório.', 'warning')
@@ -2009,13 +2012,15 @@ def fornecedores():
                 update_supplier(int(supplier_id_raw), name=name, nif=nif or None,
                                 category=category or None, store_id=store_id,
                                 notes=notes or None, payment_method=payment_method,
-                                payment_terms=payment_terms, iban=iban)
+                                payment_terms=payment_terms, iban=iban,
+                                centro_custo_id=centro_custo_id)
                 flash(f'Fornecedor "{name}" actualizado.', 'success')
             else:
                 upsert_supplier(name=name, nif=nif or None, category=category or None,
                                 store_id=store_id, notes=notes or None,
                                 payment_method=payment_method,
-                                payment_terms=payment_terms, iban=iban)
+                                payment_terms=payment_terms, iban=iban,
+                                centro_custo_id=centro_custo_id)
                 flash(f'Fornecedor "{name}" criado.', 'success')
             return redirect(url_for('faturas.fornecedores'))
 
@@ -2146,6 +2151,27 @@ def fornecedores():
                     flash(f'Alias "{alias_name}" já existe ou não foi possível adicionar.', 'warning')
             return redirect(url_for('faturas.fornecedores'))
 
+        elif action == 'bulk_edit':
+            from flask import jsonify as _jsonify
+            _u = session.get('user', {})
+            if not (_u.get('acesso_gestor') or _u.get('acesso_administrativo')):
+                return _jsonify({'ok': False, 'error': 'Sem permissão para edição em massa.'}), 403
+            _BULK_EDIT_FIELDS = {'category', 'store_id', 'payment_method', 'payment_terms', 'centro_custo_id'}
+            field = request.form.get('field', '').strip()
+            if field not in _BULK_EDIT_FIELDS:
+                return _jsonify({'ok': False, 'error': 'Campo inválido'}), 400
+            raw_value = request.form.get('value', '').strip()
+            # Coerce integer fields; treat empty string as NULL
+            if field in ('store_id', 'centro_custo_id'):
+                value = int(raw_value) if raw_value.isdigit() else None
+            else:
+                value = raw_value or None
+            supplier_ids = [int(s) for s in request.form.getlist('supplier_ids[]') if s.isdigit()]
+            if not supplier_ids:
+                return _jsonify({'ok': False, 'error': 'Nenhum fornecedor seleccionado'}), 400
+            updated = sum(1 for sid in supplier_ids if patch_supplier(sid, **{field: value}))
+            return _jsonify({'ok': True, 'updated': updated})
+
     suppliers = get_suppliers_with_invoice_count()
     categories = INVOICE_CATEGORIES
     unlinked_names = get_unlinked_supplier_names()
@@ -2155,6 +2181,9 @@ def fornecedores():
         logger.warning('get_duplicate_supplier_suggestions failed: %s', _dup_exc)
         duplicate_pairs = []
     supplier_aliases = get_all_supplier_aliases()
+    cost_centers = get_cost_centers(ativo_only=True)
+    _usr = session.get('user', {})
+    can_bulk_edit = bool(_usr.get('acesso_gestor') or _usr.get('acesso_administrativo'))
     return render_template(
         'financeiro/faturas/fornecedores.html',
         suppliers=suppliers,
@@ -2165,6 +2194,8 @@ def fornecedores():
         unlinked_names=unlinked_names,
         duplicate_pairs=duplicate_pairs,
         supplier_aliases=supplier_aliases,
+        cost_centers=cost_centers,
+        can_bulk_edit=can_bulk_edit,
     )
 
 

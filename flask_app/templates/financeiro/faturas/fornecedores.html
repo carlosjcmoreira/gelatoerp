@@ -4,8 +4,13 @@
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
     <div class="d-flex align-items-center justify-content-between mb-3 gap-2 flex-wrap">
-        <h5 class="mb-0">🏢 Fornecedores</h5>
-        <div class="d-flex gap-2 flex-wrap">
+        <h5 class="mb-0">🏭 Fornecedores</h5>
+        <div class="d-flex gap-2 flex-wrap align-items-center">
+            <!-- View toggle -->
+            <div class="btn-group btn-group-sm" role="group">
+                <button type="button" id="btnListView" class="btn btn-primary" onclick="setView('list')">☰ Lista</button>
+                <button type="button" id="btnTableView" class="btn btn-outline-primary" onclick="setView('table')">⊞ Tabela</button>
+            </div>
             <form method="post" class="d-inline">
                 <input type="hidden" name="action" value="normalise">
                 <button type="submit" class="btn btn-outline-success btn-sm"
@@ -134,115 +139,272 @@
     </div>
     {% endif %}
 
-    {% if suppliers %}
-    <div class="list-group">
-        {% for s in suppliers %}
-        <div class="list-group-item py-2 px-3">
-            <div class="d-flex align-items-center justify-content-between gap-2">
-                <div class="flex-grow-1 min-width-0">
-                    <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="fw-semibold">{{ s.name }}</span>
+    <!-- ══════════════════════════════════════════════════════════════════
+         TABLE VIEW — mass-edit (bulk actions restricted to gestor/admin)
+    ══════════════════════════════════════════════════════════════════════ -->
+    <div id="tableView" style="display:none">
+        {% if suppliers %}
+
+        {% if can_bulk_edit %}
+        <!-- Bulk action bar — gestor/admin only (shown when ≥1 row selected) -->
+        <div id="bulkBar" class="d-none sticky-top bg-body border rounded shadow-sm px-3 py-2 mb-3 d-flex flex-wrap gap-2 align-items-center" style="top:56px;z-index:900">
+            <span class="fw-semibold small text-primary" id="bulkBarCount">0 selecionados</span>
+            <select id="bulkField" class="form-select form-select-sm" style="max-width:180px">
+                <option value="">— Campo a alterar —</option>
+                <option value="category">Categoria</option>
+                <option value="store_id">Loja</option>
+                <option value="payment_method">Método de Pagamento</option>
+                <option value="payment_terms">Prazo de Pagamento</option>
+                <option value="centro_custo_id">Centro de Custo</option>
+            </select>
+            <select id="bulkValue" class="form-select form-select-sm" style="max-width:220px" disabled>
+                <option value="">— Escolher valor —</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="applyBulkEdit()" id="bulkApplyBtn" disabled>
+                Aplicar
+            </button>
+            <button class="btn btn-outline-secondary btn-sm ms-auto" onclick="clearSelection()">
+                Limpar seleção
+            </button>
+            <span id="bulkFeedback" class="small text-success ms-2" style="display:none"></span>
+        </div>
+        {% endif %}
+
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle" id="supplierTable">
+                <thead class="table-light">
+                    <tr>
+                        {% if can_bulk_edit %}
+                        <th style="width:36px">
+                            <input type="checkbox" class="form-check-input" id="selectAll" onchange="toggleSelectAll(this)">
+                        </th>
+                        {% endif %}
+                        <th>Nome</th>
+                        <th class="d-none d-sm-table-cell">NIF</th>
+                        <th>Categoria</th>
+                        <th class="d-none d-md-table-cell">Loja</th>
+                        <th class="d-none d-md-table-cell">Método Pag.</th>
+                        <th class="d-none d-lg-table-cell">Prazo Pag.</th>
+                        <th class="d-none d-lg-table-cell">Centro Custo</th>
+                        <th style="width:40px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for s in suppliers %}
+                <tr data-sid="{{ s.id }}" class="supplier-row">
+                    {% if can_bulk_edit %}
+                    <td>
+                        <input type="checkbox" class="form-check-input row-cb" value="{{ s.id }}"
+                               onchange="onRowCheck()">
+                    </td>
+                    {% endif %}
+                    <td>
+                        <div class="fw-semibold small">{{ s.name }}</div>
                         {% if s.invoice_count > 0 %}
                         <a href="{{ url_for('faturas.index') }}?supplier_id={{ s.id }}"
-                           class="badge bg-primary text-decoration-none"
-                           title="Ver faturas deste fornecedor">
-                            {{ s.invoice_count }} fatura{{ 's' if s.invoice_count != 1 else '' }}
+                           class="badge bg-primary text-decoration-none" style="font-size:.65rem">
+                            {{ s.invoice_count }} fat.
                         </a>
-                        <span class="badge bg-success bg-opacity-75"
-                              title="Total gasto (faturas não rascunho)">
-                            {{ '%.2f'|format(s.total_spend) }} €
-                        </span>
                         {% else %}
-                        <span class="badge bg-secondary bg-opacity-50 text-secondary">sem faturas</span>
+                        <span class="badge bg-secondary bg-opacity-40 text-secondary" style="font-size:.65rem">sem faturas</span>
                         {% endif %}
-                    </div>
-                    <div class="small text-muted">
-                        {% if s.nif %}NIF: {{ s.nif }}{% else %}<em class="text-warning">sem NIF</em>{% endif %}
-                        {%- set _extra_nifs = supplier_aliases.get(s.id, []) | selectattr('alias_nif') | map(attribute='alias_nif') | select | list %}
-                        {%- set _extra_nifs = _extra_nifs | reject('equalto', s.nif) | list %}
-                        {%- set _extra_nifs = _extra_nifs | unique | list %}
-                        {%- for _nif in _extra_nifs %}
-                        <span class="badge bg-info bg-opacity-25 text-dark ms-1"
-                              title="NIF adicional (de fusão anterior)">+NIF: {{ _nif }}</span>
-                        {%- endfor %}
-                        {% if s.category %} · {{ s.category }}{% endif %}
-                        {% if s.store_name %} · {{ s.store_name }}{% endif %}
-                        {% if s.payment_method %} · {{ payment_method_labels.get(s.payment_method, s.payment_method) }}{% endif %}
-                        {% if s.payment_terms %} · {{ payment_terms_labels.get(s.payment_terms, s.payment_terms) }}{% endif %}
-                    </div>
-                    {% if s.iban %}<div class="small text-muted">IBAN: {{ s.iban }}</div>{% endif %}
-                    {% if s.notes %}<div class="small text-muted fst-italic">{{ s.notes }}</div>{% endif %}
-                    {% set aliases = supplier_aliases.get(s.id, []) %}
-                    <div class="mt-1">
-                        <button class="btn btn-link btn-sm p-0 text-muted small"
-                                type="button"
-                                data-bs-toggle="collapse"
-                                data-bs-target="#aliases-{{ s.id }}"
-                                aria-expanded="false"
-                                aria-controls="aliases-{{ s.id }}">
-                            🏷 Aliases ({{ aliases | length }})
-                        </button>
-                        <div class="collapse" id="aliases-{{ s.id }}">
-                            <div class="mt-1 ps-2 border-start border-secondary">
-                                {% if aliases %}
-                                <div class="d-flex flex-column gap-1 mb-2">
-                                    {% for a in aliases %}
-                                    <div class="d-flex align-items-center gap-2">
-                                        {% if a.alias_name.startswith('__nif__') %}
-                                        <span class="small text-muted fst-italic">NIF adicional: {{ a.alias_nif }}</span>
-                                        {% else %}
-                                        <span class="small">{{ a.alias_name }}{% if a.alias_nif %} <span class="text-muted">(NIF: {{ a.alias_nif }})</span>{% endif %}
-                                            {% if a.source == 'manual' %}<span class="badge bg-secondary bg-opacity-50 ms-1" style="font-size:.65rem">manual</span>{% endif %}
-                                        </span>
-                                        {% endif %}
-                                        <form method="post" class="d-inline" onsubmit="return confirm('Eliminar alias?')">
-                                            <input type="hidden" name="action" value="delete_alias">
-                                            <input type="hidden" name="alias_id" value="{{ a.id }}">
-                                            <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar alias" style="font-size:.8rem">✕</button>
-                                        </form>
+                    </td>
+                    <td class="d-none d-sm-table-cell small text-muted">
+                        {% if s.nif %}{{ s.nif }}{% else %}<em class="text-warning">—</em>{% endif %}
+                    </td>
+
+                    {# ── Editable cells: inline dropdowns for gestor/admin; static text for others ── #}
+                    {% if can_bulk_edit %}
+                    <td data-field="category" data-sid="{{ s.id }}">
+                        <select class="form-select form-select-sm inline-cell-select"
+                                onchange="inlineSave({{ s.id }}, 'category', this.value, this)"
+                                style="min-width:110px;font-size:.8rem">
+                            <option value="">— —</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}" {% if s.category == cat %}selected{% endif %}>{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td class="d-none d-md-table-cell" data-field="store_id" data-sid="{{ s.id }}">
+                        <select class="form-select form-select-sm inline-cell-select"
+                                onchange="inlineSave({{ s.id }}, 'store_id', this.value, this)"
+                                style="min-width:100px;font-size:.8rem">
+                            <option value="">Todas</option>
+                            {% for st in stores %}
+                            <option value="{{ st.id }}" {% if s.store_id == st.id %}selected{% endif %}>{{ st.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td class="d-none d-md-table-cell" data-field="payment_method" data-sid="{{ s.id }}">
+                        <select class="form-select form-select-sm inline-cell-select"
+                                onchange="inlineSave({{ s.id }}, 'payment_method', this.value, this)"
+                                style="min-width:120px;font-size:.8rem">
+                            <option value="">— —</option>
+                            {% for val, label in payment_method_labels.items() %}
+                            <option value="{{ val }}" {% if s.payment_method == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td class="d-none d-lg-table-cell" data-field="payment_terms" data-sid="{{ s.id }}">
+                        <select class="form-select form-select-sm inline-cell-select"
+                                onchange="inlineSave({{ s.id }}, 'payment_terms', this.value, this)"
+                                style="min-width:100px;font-size:.8rem">
+                            <option value="">— —</option>
+                            {% for val, label in payment_terms_labels.items() %}
+                            <option value="{{ val }}" {% if s.payment_terms == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td class="d-none d-lg-table-cell" data-field="centro_custo_id" data-sid="{{ s.id }}">
+                        <select class="form-select form-select-sm inline-cell-select"
+                                onchange="inlineSave({{ s.id }}, 'centro_custo_id', this.value, this)"
+                                style="min-width:110px;font-size:.8rem">
+                            <option value="">— Sem centro —</option>
+                            {% for cc in cost_centers %}
+                            <option value="{{ cc.id }}" {% if s.centro_custo_id == cc.id %}selected{% endif %}>{{ cc.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    {% else %}
+                    {# Read-only cells for non-gestor users #}
+                    <td class="small">{{ s.category or '—' }}</td>
+                    <td class="d-none d-md-table-cell small">{{ s.store_name or 'Todas' }}</td>
+                    <td class="d-none d-md-table-cell small">{{ payment_method_labels.get(s.payment_method, s.payment_method or '—') }}</td>
+                    <td class="d-none d-lg-table-cell small">{{ payment_terms_labels.get(s.payment_terms, s.payment_terms or '—') }}</td>
+                    <td class="d-none d-lg-table-cell small">{{ s.centro_custo_name or '—' }}</td>
+                    {% endif %}
+
+                    <td>
+                        <button class="btn btn-outline-secondary btn-sm py-0 px-1"
+                                data-s='{{ s|tojson }}'
+                                onclick="editSupplier(JSON.parse(this.dataset.s))"
+                                title="Editar todos os campos">✏️</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-5"><p>Nenhum fornecedor registado.</p></div>
+        {% endif %}
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════════════
+         LIST VIEW — existing card list
+    ══════════════════════════════════════════════════════════════════════ -->
+    <div id="listView">
+        {% if suppliers %}
+        <div class="list-group">
+            {% for s in suppliers %}
+            <div class="list-group-item py-2 px-3">
+                <div class="d-flex align-items-center justify-content-between gap-2">
+                    <div class="flex-grow-1 min-width-0">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="fw-semibold">{{ s.name }}</span>
+                            {% if s.invoice_count > 0 %}
+                            <a href="{{ url_for('faturas.index') }}?supplier_id={{ s.id }}"
+                               class="badge bg-primary text-decoration-none"
+                               title="Ver faturas deste fornecedor">
+                                {{ s.invoice_count }} fatura{{ 's' if s.invoice_count != 1 else '' }}
+                            </a>
+                            <span class="badge bg-success bg-opacity-75"
+                                  title="Total gasto (faturas não rascunho)">
+                                {{ '%.2f'|format(s.total_spend) }} €
+                            </span>
+                            {% else %}
+                            <span class="badge bg-secondary bg-opacity-50 text-secondary">sem faturas</span>
+                            {% endif %}
+                        </div>
+                        <div class="small text-muted">
+                            {% if s.nif %}NIF: {{ s.nif }}{% else %}<em class="text-warning">sem NIF</em>{% endif %}
+                            {%- set _extra_nifs = supplier_aliases.get(s.id, []) | selectattr('alias_nif') | map(attribute='alias_nif') | select | list %}
+                            {%- set _extra_nifs = _extra_nifs | reject('equalto', s.nif) | list %}
+                            {%- set _extra_nifs = _extra_nifs | unique | list %}
+                            {%- for _nif in _extra_nifs %}
+                            <span class="badge bg-info bg-opacity-25 text-dark ms-1"
+                                  title="NIF adicional (de fusão anterior)">+NIF: {{ _nif }}</span>
+                            {%- endfor %}
+                            {% if s.category %} · {{ s.category }}{% endif %}
+                            {% if s.store_name %} · {{ s.store_name }}{% endif %}
+                            {% if s.payment_method %} · {{ payment_method_labels.get(s.payment_method, s.payment_method) }}{% endif %}
+                            {% if s.payment_terms %} · {{ payment_terms_labels.get(s.payment_terms, s.payment_terms) }}{% endif %}
+                            {% if s.centro_custo_name %} · <span class="badge bg-info bg-opacity-25 text-dark" style="font-size:.7rem">{{ s.centro_custo_name }}</span>{% endif %}
+                        </div>
+                        {% if s.iban %}<div class="small text-muted">IBAN: {{ s.iban }}</div>{% endif %}
+                        {% if s.notes %}<div class="small text-muted fst-italic">{{ s.notes }}</div>{% endif %}
+                        {% set aliases = supplier_aliases.get(s.id, []) %}
+                        <div class="mt-1">
+                            <button class="btn btn-link btn-sm p-0 text-muted small"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#aliases-{{ s.id }}"
+                                    aria-expanded="false"
+                                    aria-controls="aliases-{{ s.id }}">
+                                🏷 Aliases ({{ aliases | length }})
+                            </button>
+                            <div class="collapse" id="aliases-{{ s.id }}">
+                                <div class="mt-1 ps-2 border-start border-secondary">
+                                    {% if aliases %}
+                                    <div class="d-flex flex-column gap-1 mb-2">
+                                        {% for a in aliases %}
+                                        <div class="d-flex align-items-center gap-2">
+                                            {% if a.alias_name.startswith('__nif__') %}
+                                            <span class="small text-muted fst-italic">NIF adicional: {{ a.alias_nif }}</span>
+                                            {% else %}
+                                            <span class="small">{{ a.alias_name }}{% if a.alias_nif %} <span class="text-muted">(NIF: {{ a.alias_nif }})</span>{% endif %}
+                                                {% if a.source == 'manual' %}<span class="badge bg-secondary bg-opacity-50 ms-1" style="font-size:.65rem">manual</span>{% endif %}
+                                            </span>
+                                            {% endif %}
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Eliminar alias?')">
+                                                <input type="hidden" name="action" value="delete_alias">
+                                                <input type="hidden" name="alias_id" value="{{ a.id }}">
+                                                <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar alias" style="font-size:.8rem">✕</button>
+                                            </form>
+                                        </div>
+                                        {% endfor %}
                                     </div>
-                                    {% endfor %}
+                                    {% else %}
+                                    <p class="small text-muted mb-2">Sem aliases.</p>
+                                    {% endif %}
+                                    <form method="post" class="d-flex gap-1 align-items-center flex-wrap">
+                                        <input type="hidden" name="action" value="add_alias">
+                                        <input type="hidden" name="supplier_id" value="{{ s.id }}">
+                                        <input type="text" name="alias_name" class="form-control form-control-sm"
+                                               style="max-width:220px" placeholder="Novo alias…" required>
+                                        <button type="submit" class="btn btn-outline-secondary btn-sm">+ Adicionar</button>
+                                    </form>
                                 </div>
-                                {% else %}
-                                <p class="small text-muted mb-2">Sem aliases.</p>
-                                {% endif %}
-                                <form method="post" class="d-flex gap-1 align-items-center flex-wrap">
-                                    <input type="hidden" name="action" value="add_alias">
-                                    <input type="hidden" name="supplier_id" value="{{ s.id }}">
-                                    <input type="text" name="alias_name" class="form-control form-control-sm"
-                                           style="max-width:220px" placeholder="Novo alias…" required>
-                                    <button type="submit" class="btn btn-outline-secondary btn-sm">+ Adicionar</button>
-                                </form>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="d-flex gap-1 flex-shrink-0">
-                    <button class="btn btn-outline-secondary btn-sm"
-                            data-s='{{ s|tojson }}'
-                            onclick="editSupplier(JSON.parse(this.dataset.s))">
-                        ✏️
-                    </button>
-                    <button class="btn btn-outline-primary btn-sm"
-                            onclick="openMerge({{ s.id }}, '{{ s.name | e }}')"
-                            title="Fundir com outro fornecedor">
-                        🔀
-                    </button>
-                    <form method="post" onsubmit="return confirm('Eliminar fornecedor?')">
-                        <input type="hidden" name="action" value="delete">
-                        <input type="hidden" name="supplier_id" value="{{ s.id }}">
-                        <button type="submit" class="btn btn-outline-danger btn-sm">🗑</button>
-                    </form>
+                    <div class="d-flex gap-1 flex-shrink-0">
+                        <button class="btn btn-outline-secondary btn-sm"
+                                data-s='{{ s|tojson }}'
+                                onclick="editSupplier(JSON.parse(this.dataset.s))">
+                            ✏️
+                        </button>
+                        <button class="btn btn-outline-primary btn-sm"
+                                onclick="openMerge({{ s.id }}, '{{ s.name | e }}')"
+                                title="Fundir com outro fornecedor">
+                            🔀
+                        </button>
+                        <form method="post" onsubmit="return confirm('Eliminar fornecedor?')">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="supplier_id" value="{{ s.id }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">🗑</button>
+                        </form>
+                    </div>
                 </div>
             </div>
+            {% endfor %}
         </div>
-        {% endfor %}
+        {% else %}
+        <div class="text-center text-muted py-5">
+            <p>Nenhum fornecedor registado.</p>
+        </div>
+        {% endif %}
     </div>
-    {% else %}
-    <div class="text-center text-muted py-5">
-        <p>Nenhum fornecedor registado.</p>
-    </div>
-    {% endif %}
 </div>
 
 <!-- Modal: Add/Edit supplier -->
@@ -300,6 +462,15 @@
                                 <option value="">— Seleccionar —</option>
                                 {% for val, label in payment_terms_labels.items() %}
                                 <option value="{{ val }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Centro de Custo</label>
+                            <select name="centro_custo_id" id="sCentroCusto" class="form-select form-select-sm">
+                                <option value="">— Sem centro —</option>
+                                {% for cc in cost_centers %}
+                                <option value="{{ cc.id }}">{{ cc.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -394,7 +565,6 @@
                     <div class="list-group">
                     {% for pair in duplicate_pairs %}
                     {% set i = loop.index0 %}
-                    {# Default: fewer invoices → source (deleted); more invoices → target (kept) #}
                     {% if pair.a.invoice_count <= pair.b.invoice_count %}
                     {% set def_src = pair.a %} {% set def_tgt = pair.b %}
                     {% else %}
@@ -454,14 +624,200 @@
 
 {% block scripts %}
 <script>
+// ── Bulk edit field/value options ─────────────────────────────────────────────
+var _FIELD_OPTIONS = {
+    category: [
+        { value: '', label: '— Sem categoria —' },
+        {% for cat in categories %}{ value: {{ cat|tojson }}, label: {{ cat|tojson }} },{% endfor %}
+    ],
+    store_id: [
+        { value: '', label: 'Todas as lojas' },
+        {% for st in stores %}{ value: '{{ st.id }}', label: {{ st.name|tojson }} },{% endfor %}
+    ],
+    payment_method: [
+        { value: '', label: '— Sem método —' },
+        {% for val, label in payment_method_labels.items() %}{ value: {{ val|tojson }}, label: {{ label|tojson }} },{% endfor %}
+    ],
+    payment_terms: [
+        { value: '', label: '— Sem prazo —' },
+        {% for val, label in payment_terms_labels.items() %}{ value: {{ val|tojson }}, label: {{ label|tojson }} },{% endfor %}
+    ],
+    centro_custo_id: [
+        { value: '', label: '— Sem centro —' },
+        {% for cc in cost_centers %}{ value: '{{ cc.id }}', label: {{ cc.name|tojson }} },{% endfor %}
+    ],
+};
+
+// ── View toggle ───────────────────────────────────────────────────────────────
+function setView(mode) {
+    var listView  = document.getElementById('listView');
+    var tableView = document.getElementById('tableView');
+    var btnList   = document.getElementById('btnListView');
+    var btnTable  = document.getElementById('btnTableView');
+    if (mode === 'table') {
+        listView.style.display  = 'none';
+        tableView.style.display = '';
+        btnList.className  = 'btn btn-outline-primary';
+        btnTable.className = 'btn btn-primary';
+        localStorage.setItem('fornecedores_view', 'table');
+    } else {
+        listView.style.display  = '';
+        tableView.style.display = 'none';
+        btnList.className  = 'btn btn-primary';
+        btnTable.className = 'btn btn-outline-primary';
+        localStorage.setItem('fornecedores_view', 'list');
+    }
+}
+
+// Restore last chosen view
+(function() {
+    var saved = localStorage.getItem('fornecedores_view');
+    if (saved === 'table') setView('table');
+})();
+
+// ── Checkbox helpers ──────────────────────────────────────────────────────────
+function toggleSelectAll(cb) {
+    document.querySelectorAll('.row-cb').forEach(function(el) { el.checked = cb.checked; });
+    onRowCheck();
+}
+
+function onRowCheck() {
+    var checked = document.querySelectorAll('.row-cb:checked');
+    var bar = document.getElementById('bulkBar');
+    var countEl = document.getElementById('bulkBarCount');
+    var n = checked.length;
+    if (n > 0) {
+        bar.classList.remove('d-none');
+        bar.style.display = '';
+        countEl.textContent = n + ' selecionado' + (n !== 1 ? 's' : '');
+    } else {
+        bar.classList.add('d-none');
+    }
+    // uncheck selectAll if not all checked
+    var all = document.querySelectorAll('.row-cb');
+    var selectAllCb = document.getElementById('selectAll');
+    if (selectAllCb) selectAllCb.checked = (all.length > 0 && checked.length === all.length);
+}
+
+function clearSelection() {
+    document.querySelectorAll('.row-cb').forEach(function(el) { el.checked = false; });
+    var selectAllCb = document.getElementById('selectAll');
+    if (selectAllCb) selectAllCb.checked = false;
+    onRowCheck();
+}
+
+// ── Bulk field/value selector ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+    var fieldSel = document.getElementById('bulkField');
+    var valueSel = document.getElementById('bulkValue');
+    var applyBtn = document.getElementById('bulkApplyBtn');
+    if (!fieldSel) return;
+
+    fieldSel.addEventListener('change', function() {
+        var field = fieldSel.value;
+        valueSel.innerHTML = '';
+        if (!field) {
+            valueSel.disabled = true;
+            applyBtn.disabled = true;
+            return;
+        }
+        var opts = _FIELD_OPTIONS[field] || [];
+        opts.forEach(function(o) {
+            var el = document.createElement('option');
+            el.value = o.value;
+            el.textContent = o.label;
+            valueSel.appendChild(el);
+        });
+        valueSel.disabled = false;
+        applyBtn.disabled = false;
+    });
+});
+
+// ── Bulk apply (AJAX) ─────────────────────────────────────────────────────────
+function applyBulkEdit() {
+    var field = document.getElementById('bulkField').value;
+    var value = document.getElementById('bulkValue').value;
+    var checked = document.querySelectorAll('.row-cb:checked');
+    if (!field || !checked.length) return;
+
+    var ids = Array.from(checked).map(function(el) { return el.value; });
+    var fd = new FormData();
+    fd.append('action', 'bulk_edit');
+    fd.append('field', field);
+    fd.append('value', value);
+    ids.forEach(function(id) { fd.append('supplier_ids[]', id); });
+
+    var btn = document.getElementById('bulkApplyBtn');
+    var fb  = document.getElementById('bulkFeedback');
+    btn.disabled = true;
+    btn.textContent = '…';
+
+    fetch(window.location.pathname, { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.ok) {
+                // Update visible cells in the table
+                ids.forEach(function(sid) {
+                    var cell = document.querySelector(
+                        'td[data-field="' + field + '"][data-sid="' + sid + '"] select'
+                    );
+                    if (cell) cell.value = value;
+                });
+                fb.textContent = '✓ ' + data.updated + ' actualizado(s)';
+                fb.style.display = '';
+                fb.className = 'small text-success ms-2';
+                setTimeout(function() { fb.style.display = 'none'; }, 3000);
+            } else {
+                fb.textContent = '✗ ' + (data.error || 'Erro');
+                fb.style.display = '';
+                fb.className = 'small text-danger ms-2';
+            }
+        })
+        .catch(function() {
+            fb.textContent = '✗ Erro de rede';
+            fb.style.display = '';
+            fb.className = 'small text-danger ms-2';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.textContent = 'Aplicar';
+        });
+}
+
+// ── Inline cell save (AJAX) ───────────────────────────────────────────────────
+function inlineSave(supplierId, field, value, selectEl) {
+    var fd = new FormData();
+    fd.append('action', 'bulk_edit');
+    fd.append('field', field);
+    fd.append('value', value);
+    fd.append('supplier_ids[]', supplierId);
+
+    selectEl.style.opacity = '0.5';
+    fetch(window.location.pathname, { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            selectEl.style.opacity = '1';
+            if (data.ok) {
+                selectEl.classList.remove('is-invalid');
+                selectEl.classList.add('is-valid');
+                setTimeout(function() { selectEl.classList.remove('is-valid'); }, 1500);
+            } else {
+                selectEl.classList.add('is-invalid');
+            }
+        })
+        .catch(function() {
+            selectEl.style.opacity = '1';
+            selectEl.classList.add('is-invalid');
+        });
+}
+
+// ── Modal helpers ─────────────────────────────────────────────────────────────
 function openMerge(sourceId, sourceName) {
     var srcSelect = document.getElementById('mergeSourceId');
     var tgtSelect = document.getElementById('mergeTargetId');
     if (srcSelect) srcSelect.value = sourceId;
-    // Pre-clear target so user picks intentionally
     if (tgtSelect) tgtSelect.value = '';
-    var modal = new bootstrap.Modal(document.getElementById('modalMerge'));
-    modal.show();
+    new bootstrap.Modal(document.getElementById('modalMerge')).show();
 }
 
 function openMergePreset(srcId, tgtId) {
@@ -469,8 +825,7 @@ function openMergePreset(srcId, tgtId) {
     var tgtSelect = document.getElementById('mergeTargetId');
     if (srcSelect) srcSelect.value = srcId;
     if (tgtSelect) tgtSelect.value = tgtId;
-    var modal = new bootstrap.Modal(document.getElementById('modalMerge'));
-    modal.show();
+    new bootstrap.Modal(document.getElementById('modalMerge')).show();
 }
 
 function editSupplier(s) {
@@ -482,10 +837,10 @@ function editSupplier(s) {
     document.getElementById('sStore').value         = s.store_id      || '';
     document.getElementById('sPaymentMethod').value = s.payment_method || '';
     document.getElementById('sPaymentTerms').value  = s.payment_terms  || '';
+    document.getElementById('sCentroCusto').value   = s.centro_custo_id || '';
     document.getElementById('sIban').value          = s.iban          || '';
     document.getElementById('sNotes').value         = s.notes         || '';
-    var modal = new bootstrap.Modal(document.getElementById('modalAdd'));
-    modal.show();
+    new bootstrap.Modal(document.getElementById('modalAdd')).show();
 }
 
 function prefillNew(name, nif) {
@@ -497,6 +852,7 @@ function prefillNew(name, nif) {
     document.getElementById('sStore').value         = '';
     document.getElementById('sPaymentMethod').value = '';
     document.getElementById('sPaymentTerms').value  = '';
+    document.getElementById('sCentroCusto').value   = '';
     document.getElementById('sIban').value          = '';
     document.getElementById('sNotes').value         = '';
 }
@@ -510,11 +866,8 @@ function bulkToggleDir(i) {
     var srcCnt  = document.getElementById('src-cnt-' + i);
     var tgtCnt  = document.getElementById('tgt-cnt-' + i);
     if (!srcId) return;
-    // Swap ids
     var tmpId = srcId.value; srcId.value = tgtId.value; tgtId.value = tmpId;
-    // Swap display names
     var tmpName = srcName.textContent; srcName.textContent = tgtName.textContent; tgtName.textContent = tmpName;
-    // Swap counts in badges
     var srcBadge = srcName.parentElement;
     var tgtBadge = tgtName.parentElement;
     var tmpCnt = srcCnt.value; srcCnt.value = tgtCnt.value; tgtCnt.value = tmpCnt;
