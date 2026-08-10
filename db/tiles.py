@@ -55,6 +55,18 @@ def run_migrations_tile_config():
                 ON CONFLICT (module, tile_id) DO NOTHING
             """, (module, tile_id, label))
 
+        # One-shot rename: "Débitos Diretos" → "Custos Recorrentes ♻️"
+        # Only touches rows with the exact old label so intentional user renames
+        # are never overwritten.
+        cursor.execute("""
+            UPDATE tile_config
+               SET label = 'Custos Recorrentes ♻️', updated_at = NOW()
+             WHERE module = 'financeiro'
+               AND tile_id = 'debitos'
+               AND label IN ('Débitos Diretos', 'Débitos diretos', 'Debitos Diretos',
+                             'Débitos Diretos ', 'debitos diretos')
+        """)
+
         conn.commit()
         logger.info("run_migrations_tile_config: tile_config ready")
 
