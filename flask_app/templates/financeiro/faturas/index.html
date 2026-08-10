@@ -309,7 +309,58 @@
 
 {% elif view == 'centro_custo' %}
     <!-- ── Por Centro de Custo view ─────────────────────────────────────── -->
-    <p class="text-muted small mb-3">Todos os documentos agrupados por centro de custo.</p>
+    <script>
+    /* Persist cc_status filter preference across visits (localStorage) */
+    (function () {
+      var LS_KEY = 'cc_status_pref';
+      var params = new URLSearchParams(window.location.search);
+      if (!params.has('cc_status')) {
+        var saved = localStorage.getItem(LS_KEY);
+        if (saved) {
+          params.set('cc_status', saved);
+          window.location.replace('?' + params.toString());
+          document.write('');
+          return;
+        }
+      }
+      document.addEventListener('DOMContentLoaded', function () {
+        var sel = document.querySelector('select[name="cc_status"]');
+        if (sel) {
+          sel.addEventListener('change', function () {
+            if (this.value) {
+              localStorage.setItem(LS_KEY, this.value);
+            } else {
+              localStorage.removeItem(LS_KEY);
+            }
+          });
+        }
+      });
+    })();
+    </script>
+    <p class="text-muted small mb-2">Todos os documentos agrupados por centro de custo.</p>
+
+    <!-- Status filter bar -->
+    <form method="get" class="mb-3" data-no-loading>
+        <input type="hidden" name="view" value="centro_custo">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select name="cc_status" class="form-select form-select-sm" style="width:auto; min-width:180px"
+                    onchange="this.form.submit()">
+                <option value="" {% if cc_status == '' %}selected{% endif %}>📋 Em aberto (por defeito)</option>
+                <option value="overdue" {% if cc_status == 'overdue' %}selected{% endif %}>⚠️ Vencido</option>
+                <option value="pending_review" {% if cc_status == 'pending_review' %}selected{% endif %}>🕐 Por confirmar</option>
+                <option value="scheduled" {% if cc_status == 'scheduled' %}selected{% endif %}>🗓 Agendado</option>
+                <option value="paid" {% if cc_status == 'paid' %}selected{% endif %}>✅ Pago</option>
+                <option value="cancelled" {% if cc_status == 'cancelled' %}selected{% endif %}>🚫 Cancelado</option>
+                <option value="all" {% if cc_status == 'all' %}selected{% endif %}>🗂 Todos os estados</option>
+            </select>
+            {% if cc_status and cc_status != '' %}
+            <a href="{{ url_for('faturas.index', view='centro_custo') }}" class="btn btn-outline-secondary btn-sm"
+               onclick="localStorage.removeItem('cc_status_pref')">✕ Repor</a>
+            {% endif %}
+            <span class="text-muted small ms-1">{{ grupos_cc|length }} centro{{ 's' if grupos_cc|length != 1 }}</span>
+        </div>
+    </form>
+
     {% if grupos_cc %}
     {% for grupo in grupos_cc %}
     <div class="card mb-3">
@@ -364,13 +415,69 @@
     {% endfor %}
     {% else %}
     <div class="text-center text-muted py-5">
-        <p>Nenhum documento registado.</p>
+        <div style="font-size:2rem;">📂</div>
+        <p class="mt-2">{% if cc_status %}Nenhum documento com o estado selecionado.{% else %}Nenhum documento registado.{% endif %}</p>
+        {% if cc_status %}
+        <a href="{{ url_for('faturas.index', view='centro_custo') }}" class="btn btn-outline-secondary btn-sm"
+           onclick="localStorage.removeItem('cc_status_pref')">✕ Limpar filtro</a>
+        {% endif %}
     </div>
     {% endif %}
 
 {% elif view == 'categoria_custo' %}
     <!-- ── Por Categoria de Custo view ──────────────────────────────────── -->
-    <p class="text-muted small mb-3">Todos os documentos agrupados por categoria de custo.</p>
+    <script>
+    /* Persist cat_status filter preference across visits (localStorage) */
+    (function () {
+      var LS_KEY = 'cat_status_pref';
+      var params = new URLSearchParams(window.location.search);
+      if (!params.has('cat_status')) {
+        var saved = localStorage.getItem(LS_KEY);
+        if (saved) {
+          params.set('cat_status', saved);
+          window.location.replace('?' + params.toString());
+          document.write('');
+          return;
+        }
+      }
+      document.addEventListener('DOMContentLoaded', function () {
+        var sel = document.querySelector('select[name="cat_status"]');
+        if (sel) {
+          sel.addEventListener('change', function () {
+            if (this.value) {
+              localStorage.setItem(LS_KEY, this.value);
+            } else {
+              localStorage.removeItem(LS_KEY);
+            }
+          });
+        }
+      });
+    })();
+    </script>
+    <p class="text-muted small mb-2">Todos os documentos agrupados por categoria de custo.</p>
+
+    <!-- Status filter bar -->
+    <form method="get" class="mb-3" data-no-loading>
+        <input type="hidden" name="view" value="categoria_custo">
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <select name="cat_status" class="form-select form-select-sm" style="width:auto; min-width:180px"
+                    onchange="this.form.submit()">
+                <option value="" {% if cat_status == '' %}selected{% endif %}>📋 Em aberto (por defeito)</option>
+                <option value="overdue" {% if cat_status == 'overdue' %}selected{% endif %}>⚠️ Vencido</option>
+                <option value="pending_review" {% if cat_status == 'pending_review' %}selected{% endif %}>🕐 Por confirmar</option>
+                <option value="scheduled" {% if cat_status == 'scheduled' %}selected{% endif %}>🗓 Agendado</option>
+                <option value="paid" {% if cat_status == 'paid' %}selected{% endif %}>✅ Pago</option>
+                <option value="cancelled" {% if cat_status == 'cancelled' %}selected{% endif %}>🚫 Cancelado</option>
+                <option value="all" {% if cat_status == 'all' %}selected{% endif %}>🗂 Todos os estados</option>
+            </select>
+            {% if cat_status and cat_status != '' %}
+            <a href="{{ url_for('faturas.index', view='categoria_custo') }}" class="btn btn-outline-secondary btn-sm"
+               onclick="localStorage.removeItem('cat_status_pref')">✕ Repor</a>
+            {% endif %}
+            <span class="text-muted small ms-1">{{ grupos_cat|length }} categoria{{ 's' if grupos_cat|length != 1 }}</span>
+        </div>
+    </form>
+
     {% if grupos_cat %}
     {% for grupo in grupos_cat %}
     <div class="card mb-3">
@@ -425,7 +532,12 @@
     {% endfor %}
     {% else %}
     <div class="text-center text-muted py-5">
-        <p>Nenhum documento registado.</p>
+        <div style="font-size:2rem;">🏷</div>
+        <p class="mt-2">{% if cat_status %}Nenhum documento com o estado selecionado.{% else %}Nenhum documento registado.{% endif %}</p>
+        {% if cat_status %}
+        <a href="{{ url_for('faturas.index', view='categoria_custo') }}" class="btn btn-outline-secondary btn-sm"
+           onclick="localStorage.removeItem('cat_status_pref')">✕ Limpar filtro</a>
+        {% endif %}
     </div>
     {% endif %}
 

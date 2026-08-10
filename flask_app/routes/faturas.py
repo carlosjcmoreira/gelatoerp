@@ -204,11 +204,34 @@ def index():
     if view == 'centro_custo':
         # Group all non-draft invoices by centro_custo.
         # exclude_gov=True: AT/SS tax entities are not meaningful cost-centre entries.
+        _valid_cc_statuses = ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', 'all', '')
+        cc_status = request.args.get('cc_status', '').strip()
+        if cc_status not in _valid_cc_statuses:
+            cc_status = ''
         all_invoices = get_invoices(exclude_gov=True)
         from collections import defaultdict
         grupos_cc = defaultdict(lambda: {'label': None, 'total': 0.0, 'count': 0, 'invoices': []})
         cc_map = {cc['id']: cc for cc in get_cost_centers(ativo_only=False)}
         for inv in all_invoices:
+            is_overdue = inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today
+            if is_overdue:
+                inv['display_status'] = 'overdue'
+                inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
+            else:
+                inv['display_status'] = inv['status']
+            # Apply status filter
+            if cc_status == '' and inv['status'] not in ('pending_review', 'scheduled'):
+                continue
+            elif cc_status == 'overdue' and not is_overdue:
+                continue
+            elif cc_status == 'pending_review' and inv['status'] != 'pending_review':
+                continue
+            elif cc_status == 'scheduled' and inv['status'] != 'scheduled':
+                continue
+            elif cc_status == 'paid' and inv['status'] != 'paid':
+                continue
+            elif cc_status == 'cancelled' and inv['status'] != 'cancelled':
+                continue
             cc_id = inv.get('centro_custo_id')
             key = cc_id or 'sem_centro'
             if grupos_cc[key]['label'] is None:
@@ -217,11 +240,6 @@ def index():
                     grupos_cc[key]['label'] = f"{cc['code']} — {cc['name']}"
                 else:
                     grupos_cc[key]['label'] = 'Sem centro de custo'
-            if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
-                inv['display_status'] = 'overdue'
-                inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
-            else:
-                inv['display_status'] = inv['status']
             grupos_cc[key]['invoices'].append(inv)
             grupos_cc[key]['total'] += float(inv.get('amount_eur') or 0)
             grupos_cc[key]['count'] += 1
@@ -244,12 +262,17 @@ def index():
             centro_custo_filter=None,
             categoria_custo_filter=None,
             document_type_labels=DOCUMENT_TYPE_LABELS,
+            cc_status=cc_status,
         )
 
     if view == 'categoria_custo':
         from collections import defaultdict
         from db.centros_custo import get_cost_categories
         sem_categoria_only = request.args.get('sem_categoria') == '1'
+        _valid_cat_statuses = ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', 'all', '')
+        cat_status = request.args.get('cat_status', '').strip()
+        if cat_status not in _valid_cat_statuses:
+            cat_status = ''
         # exclude_gov=True: AT/SS tax entities are not meaningful cost-category entries.
         all_invoices = get_invoices(exclude_gov=True)
         cat_map = {c['id']: c for c in get_cost_categories(ativo_only=False)}
@@ -258,6 +281,25 @@ def index():
             cat_id = inv.get('categoria_custo_id')
             if sem_categoria_only and cat_id:
                 continue
+            is_overdue = inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today
+            if is_overdue:
+                inv['display_status'] = 'overdue'
+                inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
+            else:
+                inv['display_status'] = inv['status']
+            # Apply status filter
+            if cat_status == '' and inv['status'] not in ('pending_review', 'scheduled'):
+                continue
+            elif cat_status == 'overdue' and not is_overdue:
+                continue
+            elif cat_status == 'pending_review' and inv['status'] != 'pending_review':
+                continue
+            elif cat_status == 'scheduled' and inv['status'] != 'scheduled':
+                continue
+            elif cat_status == 'paid' and inv['status'] != 'paid':
+                continue
+            elif cat_status == 'cancelled' and inv['status'] != 'cancelled':
+                continue
             key = cat_id or 'sem_categoria'
             if grupos_cat[key]['label'] is None:
                 if cat_id and cat_id in cat_map:
@@ -265,11 +307,6 @@ def index():
                     grupos_cat[key]['label'] = cat['name']
                 else:
                     grupos_cat[key]['label'] = 'Sem categoria'
-            if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
-                inv['display_status'] = 'overdue'
-                inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
-            else:
-                inv['display_status'] = inv['status']
             grupos_cat[key]['invoices'].append(inv)
             grupos_cat[key]['total'] += float(inv.get('amount_eur') or 0)
             grupos_cat[key]['count'] += 1
@@ -292,6 +329,7 @@ def index():
             categoria_custo_filter=None,
             sem_categoria_only=sem_categoria_only,
             document_type_labels=DOCUMENT_TYPE_LABELS,
+            cat_status=cat_status,
         )
 
     import calendar as _calendar
