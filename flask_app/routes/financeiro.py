@@ -573,8 +573,14 @@ def insights():
     store_id_raw = request.args.get('store_id', '').strip()
     store_id = int(store_id_raw) if store_id_raw.isdigit() else None
 
+    from db.faturas import get_invoices_sem_categoria_summary
     active_stores = [s for s in get_all_stores() if s['is_active']]
     data = get_financial_insights(ano, store_id=store_id)
+    # Always consolidated: the classify destination (view=categoria_custo) shows
+    # all stores and excludes government entities — scoping by store would mislead.
+    uncat = get_invoices_sem_categoria_summary()
+    sem_categoria_count = uncat['count']
+    sem_categoria_amount = uncat['amount']
 
     # Pass chart payload as a separate dict so the template can use |tojson
     # (Jinja's tojson HTML-escapes </script> etc., preventing script-breakout XSS)
@@ -611,6 +617,8 @@ def insights():
         chart_payload=chart_payload,
         period_label=period_label,
         period_detail=period_detail,
+        sem_categoria_count=sem_categoria_count,
+        sem_categoria_amount=sem_categoria_amount,
     )
 
 

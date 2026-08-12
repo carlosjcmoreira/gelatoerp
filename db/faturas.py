@@ -1366,6 +1366,32 @@ def count_invoices_sem_categoria() -> int:
         return int(cursor.fetchone()[0])
 
 
+def get_invoices_sem_categoria_summary() -> dict:
+    """Return {count, amount} for classifiable (pending_review/scheduled) invoices
+    without a categoria_custo_id, excluding government/tax entities (AT, SS).
+
+    Uses the same eligibility contract as the categoria_custo view with
+    sem_categoria=1 (exclude_gov=True, status in pending_review/scheduled,
+    no store filter), so the banner count/amount matches exactly what the
+    'Ir classificar' link destination shows.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*), COALESCE(SUM(i.amount_eur), 0)
+            FROM invoices i
+            WHERE i.categoria_custo_id IS NULL
+              AND i.status IN ('pending_review', 'scheduled')
+              AND (i.supplier_nif IS NULL OR i.supplier_nif NOT IN %s)
+              AND NOT EXISTS (
+                  SELECT 1 FROM suppliers s
+                  WHERE s.id = i.supplier_id AND s.entidade_governamental = true
+              )
+        """, (_GOV_NIFS,))
+        row = cursor.fetchone()
+    return {'count': int(row[0]), 'amount': float(row[1])}
+
+
 def get_invoices_type_totals() -> dict:
     """Return a {document_type: {count, total}} dict for all non-draft invoices.
 

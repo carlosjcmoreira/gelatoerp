@@ -193,6 +193,27 @@
 </div>{# /row KPIs #}
 
 {# ══════════════════════════════════════════════════════════════════════ #}
+{#  SEM CATEGORIA WARNING BANNER                                         #}
+{# ══════════════════════════════════════════════════════════════════════ #}
+{% if sem_categoria_count > 0 %}
+<div class="alert alert-warning d-flex flex-wrap align-items-center gap-3 mb-4 py-2 px-3" style="border-radius:.75rem">
+    <div class="fs-5">⚠️</div>
+    <div class="flex-grow-1">
+        <span class="fw-semibold">Faturas sem categoria</span>
+        <span class="badge bg-warning text-dark ms-1">{{ sem_categoria_count }}</span>
+        <span class="text-muted small ms-2">
+            — {{ '%.0f'|format(sem_categoria_amount) }} € por classificar (todas as lojas).
+            Estas faturas estão incluídas nos Custos Totais e EBITDA mas não aparecem nas tendências por categoria.
+        </span>
+    </div>
+    <a href="{{ url_for('faturas.index', view='categoria_custo', sem_categoria='1', cat_status='') }}"
+       class="btn btn-warning btn-sm fw-semibold text-nowrap">
+        Ir classificar →
+    </a>
+</div>
+{% endif %}
+
+{# ══════════════════════════════════════════════════════════════════════ #}
 {#  CHARTS ROW                                                           #}
 {# ══════════════════════════════════════════════════════════════════════ #}
 <div class="row g-3 mb-4">
