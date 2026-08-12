@@ -1217,6 +1217,37 @@ def sabores_receitas():
                            receitas=receitas_list)
 
 
+@producao_bp.route('/sabores-receitas/save-row', methods=['POST'])
+@perm_required('acesso_producao')
+def sabores_receitas_save_row():
+    """AJAX endpoint — save a single recipe row.
+
+    Expects JSON: {id: int, nome_corrente: str|null, ativo: bool}
+    Returns JSON: {ok: true} or {ok: false, error: "..."}
+    """
+    from flask import jsonify
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        row_id = int(data.get('id', 0))
+        if not row_id:
+            return jsonify({'ok': False, 'error': 'id inválido'}), 400
+
+        nome_corrente = (data.get('nome_corrente') or '').strip() or None
+        ativo = bool(data.get('ativo', False))
+
+        update_receita_gelado_ativo(row_id, ativo)
+        # Fetch current nome so we don't overwrite it with None accidentally
+        receitas = get_all_receitas_gelado()
+        current = next((r for r in receitas if r['id'] == row_id), None)
+        if current is None:
+            return jsonify({'ok': False, 'error': 'sabor não encontrado'}), 404
+        update_receita_gelado(row_id, current['nome'], nome_corrente)
+
+        return jsonify({'ok': True})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+
+
 # ── Legacy redirects — keep old URLs working ─────────────────────────────────
 
 @producao_bp.route('/receitas', methods=['GET', 'POST'])

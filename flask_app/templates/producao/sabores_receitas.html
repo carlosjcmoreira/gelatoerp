@@ -17,52 +17,160 @@
 {% endwith %}
 
 {% if receitas %}
-<form method="post" id="saboresReceitasForm">
-    <input type="hidden" name="action" value="save">
-    <div class="mb-3">
-        <button type="submit" class="btn btn-primary w-100">💾 Guardar Alterações</button>
-    </div>
-    <div class="table-responsive mb-3">
-        <table class="table table-sm align-middle">
-            <thead class="table-light">
-                <tr>
-                    <th style="width:52px;" class="text-center">Activo</th>
-                    <th>Nome da Equipa</th>
-                    <th class="text-muted small">Nome (Sistema)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in receitas %}
-                <tr class="{% if not r.ativo %}opacity-50{% endif %}">
-                    <td class="text-center">
-                        <div class="form-check form-switch d-flex justify-content-center mb-0">
-                            <input class="form-check-input" type="checkbox"
-                                   name="ativo_{{ r.id }}" id="ativo_{{ r.id }}"
-                                   role="switch"
-                                   {% if r.ativo %}checked{% endif %}>
-                        </div>
-                    </td>
-                    <td>
-                        <input type="text" name="nome_corrente_{{ r.id }}"
-                               class="form-control form-control-sm"
-                               value="{{ r.nome_corrente or '' }}"
-                               placeholder="Nome usado pela equipa">
-                    </td>
-                    <td class="small text-muted align-middle">
-                        {{ r.nome }}
-                        {% if not r.ativo %}
-                        <span class="badge bg-secondary ms-1" style="font-size:.65rem">inactivo</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    <div class="mb-3">
-        <button type="submit" class="btn btn-primary w-100">💾 Guardar Alterações</button>
-    </div>
-</form>
+{#
+  Note: auto-save requires JavaScript. The server-side POST action=save route
+  is retained so that direct form submissions (e.g. from curl or server tests)
+  continue to work, but no fallback form is rendered in the UI because an
+  invisible form with display:none is not a usable fallback.
+#}
+<div class="table-responsive mb-3">
+    <table class="table table-sm align-middle" id="saboresTable">
+        <thead class="table-light">
+            <tr>
+                <th style="width:52px;" class="text-center">Activo</th>
+                <th>Nome da Equipa</th>
+                <th class="text-muted small">Nome (Sistema)</th>
+                <th style="width:90px;" class="text-end text-muted small">Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in receitas %}
+            <tr id="row-{{ r.id }}" class="{% if not r.ativo %}opacity-50{% endif %}">
+                <td class="text-center">
+                    <div class="form-check form-switch d-flex justify-content-center mb-0">
+                        <input class="form-check-input sr-ativo" type="checkbox"
+                               id="ativo_{{ r.id }}"
+                               data-id="{{ r.id }}"
+                               role="switch"
+                               {% if r.ativo %}checked{% endif %}>
+                    </div>
+                </td>
+                <td>
+                    <input type="text" id="nome_corrente_{{ r.id }}"
+                           class="form-control form-control-sm sr-nome"
+                           data-id="{{ r.id }}"
+                           value="{{ r.nome_corrente or '' }}"
+                           placeholder="Nome usado pela equipa">
+                </td>
+                <td class="small text-muted align-middle">
+                    {{ r.nome }}
+                    {# Badge rendered on every row; JS toggles display so active→inactive works #}
+                    <span class="badge bg-secondary ms-1 sr-inactivo-badge"
+                          style="font-size:.65rem;display:{{ 'inline' if not r.ativo else 'none' }}">inactivo</span>
+                </td>
+                <td class="text-end" id="status-{{ r.id }}"></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+(function () {
+    'use strict';
+    const SAVE_URL    = "{{ url_for('producao.sabores_receitas_save_row') }}";
+    const DEBOUNCE_MS = 800;
+
+    // Per-row concurrency control:
+    //   inFlight[id] = true while a fetch is running for that row.
+    //   hasPending[id] = true if a newer change arrived while a fetch was running.
+    // When the fetch settles, if hasPending[id] is set we immediately trigger
+    // another save using the freshest DOM values — guaranteeing the last edit wins.
+    const inFlight  = {};
+    const hasPending = {};
+
+    // ── Status helpers ────────────────────────────────────────────────
+    function setStatus(id, html, fadeDelay) {
+        const el = document.getElementById('status-' + id);
+        if (!el) return;
+        clearTimeout(el._fadeTimer);
+        el.innerHTML = html;
+        if (fadeDelay) {
+            el._fadeTimer = setTimeout(function () { el.innerHTML = ''; }, fadeDelay);
+        }
+    }
+
+    // ── Core save (serialised per row) ────────────────────────────────
+    async function saveRow(id) {
+        // If a save is already running, record that another one is needed
+        // and bail — the post-flight check will call us again.
+        if (inFlight[id]) {
+            hasPending[id] = true;
+            return;
+        }
+
+        const ativoEl = document.getElementById('ativo_' + id);
+        const nomeEl  = document.getElementById('nome_corrente_' + id);
+        if (!ativoEl || !nomeEl) return;
+
+        // Snapshot DOM state at the moment this save fires
+        const ativo         = ativoEl.checked;
+        const nome_corrente = nomeEl.value.trim() || null;
+
+        inFlight[id] = true;
+        setStatus(id, '<span class="text-muted" style="font-size:.75rem">A guardar…</span>');
+
+        try {
+            const resp = await fetch(SAVE_URL, {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ id, ativo, nome_corrente }),
+            });
+            const json = await resp.json();
+
+            if (json.ok) {
+                // Update row appearance to reflect saved state
+                const row = document.getElementById('row-' + id);
+                if (row) row.classList.toggle('opacity-50', !ativo);
+                const badge = document.querySelector('#row-' + id + ' .sr-inactivo-badge');
+                if (badge) badge.style.display = ativo ? 'none' : 'inline';
+
+                setStatus(id,
+                    '<span class="text-success" style="font-size:.75rem">✓ Guardado</span>',
+                    2500);
+            } else {
+                setStatus(id,
+                    '<span class="text-danger" style="font-size:.75rem" title="' +
+                    (json.error || 'erro desconhecido') + '">Erro ⚠</span>',
+                    5000);
+            }
+        } catch (_e) {
+            setStatus(id,
+                '<span class="text-danger" style="font-size:.75rem">Erro ⚠</span>',
+                5000);
+        } finally {
+            inFlight[id] = false;
+            // If a newer change arrived while this request was in-flight,
+            // fire another save immediately with the current DOM state.
+            if (hasPending[id]) {
+                hasPending[id] = false;
+                saveRow(id);
+            }
+        }
+    }
+
+    // ── Checkbox: save immediately on change ──────────────────────────
+    document.querySelectorAll('.sr-ativo').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+            saveRow(parseInt(this.dataset.id, 10));
+        });
+    });
+
+    // ── Text inputs: debounce on input, flush on blur ─────────────────
+    document.querySelectorAll('.sr-nome').forEach(function (inp) {
+        inp.addEventListener('input', function () {
+            const id = parseInt(this.dataset.id, 10);
+            clearTimeout(inp._saveTimer);
+            inp._saveTimer = setTimeout(function () { saveRow(id); }, DEBOUNCE_MS);
+        });
+        inp.addEventListener('blur', function () {
+            const id = parseInt(this.dataset.id, 10);
+            clearTimeout(inp._saveTimer);   // cancel pending debounce
+            saveRow(id);                    // flush immediately
+        });
+    });
+})();
+</script>
 {% else %}
 <div class="alert alert-info">Sem sabores registados.</div>
 {% endif %}
