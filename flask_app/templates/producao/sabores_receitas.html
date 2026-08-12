@@ -70,6 +70,8 @@
     'use strict';
     const SAVE_URL    = "{{ url_for('producao.sabores_receitas_save_row') }}";
     const DEBOUNCE_MS = 800;
+    // Retry back-off delays in milliseconds (up to 2 retries)
+    const RETRY_DELAYS = [1000, 3000];
 
     // Per-row concurrency control:
     //   inFlight[id] = true while a fetch is running for that row.
@@ -90,7 +92,33 @@
         }
     }
 
-    // ── Core save (serialised per row) ────────────────────────────────
+    function setErrorStatus(id, message) {
+        const el = document.getElementById('status-' + id);
+        if (!el) return;
+        clearTimeout(el._fadeTimer);
+        // Render a clickable error badge — clicking it forces an immediate retry
+        el.innerHTML =
+            '<span class="text-danger" style="font-size:.75rem;cursor:pointer" ' +
+            'title="' + (message || 'Erro ao guardar. Clique para tentar novamente.') + '" ' +
+            'data-retry-id="' + id + '">Erro ⚠ <u style="font-size:.7rem">Tentar</u></span>';
+    }
+
+    // ── Single-attempt fetch ──────────────────────────────────────────
+    // Returns { ok: true } on success, throws on network error or server error.
+    async function attemptSave(id, ativo, nome_corrente) {
+        const resp = await fetch(SAVE_URL, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ id, ativo, nome_corrente }),
+        });
+        const json = await resp.json();
+        if (!json.ok) {
+            throw new Error(json.error || 'erro desconhecido');
+        }
+        return json;
+    }
+
+    // ── Core save with retry (serialised per row) ─────────────────────
     async function saveRow(id) {
         // If a save is already running, record that another one is needed
         // and bail — the post-flight check will call us again.
@@ -110,44 +138,68 @@
         inFlight[id] = true;
         setStatus(id, '<span class="text-muted" style="font-size:.75rem">A guardar…</span>');
 
-        try {
-            const resp = await fetch(SAVE_URL, {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify({ id, ativo, nome_corrente }),
-            });
-            const json = await resp.json();
+        let lastError = null;
+        let succeeded = false;
 
-            if (json.ok) {
-                // Update row appearance to reflect saved state
-                const row = document.getElementById('row-' + id);
-                if (row) row.classList.toggle('opacity-50', !ativo);
-                const badge = document.querySelector('#row-' + id + ' .sr-inactivo-badge');
-                if (badge) badge.style.display = ativo ? 'none' : 'inline';
-
-                setStatus(id,
-                    '<span class="text-success" style="font-size:.75rem">✓ Guardado</span>',
-                    2500);
-            } else {
-                setStatus(id,
-                    '<span class="text-danger" style="font-size:.75rem" title="' +
-                    (json.error || 'erro desconhecido') + '">Erro ⚠</span>',
-                    5000);
-            }
-        } catch (_e) {
-            setStatus(id,
-                '<span class="text-danger" style="font-size:.75rem">Erro ⚠</span>',
-                5000);
-        } finally {
-            inFlight[id] = false;
-            // If a newer change arrived while this request was in-flight,
-            // fire another save immediately with the current DOM state.
-            if (hasPending[id]) {
-                hasPending[id] = false;
-                saveRow(id);
+        // First attempt + up to RETRY_DELAYS.length retries
+        for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            try {
+                await attemptSave(id, ativo, nome_corrente);
+                succeeded = true;
+                break;
+            } catch (e) {
+                lastError = e;
+                if (attempt < RETRY_DELAYS.length) {
+                    // Show a "retrying" indicator during the back-off wait
+                    const delayS = RETRY_DELAYS[attempt] / 1000;
+                    setStatus(id,
+                        '<span class="text-warning" style="font-size:.75rem">' +
+                        'Erro — a tentar em ' + delayS + 's…</span>');
+                    await new Promise(function (resolve) {
+                        setTimeout(resolve, RETRY_DELAYS[attempt]);
+                    });
+                    // If a newer pending save arrived during back-off, abort retries —
+                    // the pending save will use fresh DOM values and start fresh.
+                    if (hasPending[id]) break;
+                    setStatus(id,
+                        '<span class="text-muted" style="font-size:.75rem">A guardar…</span>');
+                }
             }
         }
+
+        if (succeeded) {
+            // Update row appearance to reflect saved state
+            const row = document.getElementById('row-' + id);
+            if (row) row.classList.toggle('opacity-50', !ativo);
+            const badge = document.querySelector('#row-' + id + ' .sr-inactivo-badge');
+            if (badge) badge.style.display = ativo ? 'none' : 'inline';
+
+            setStatus(id,
+                '<span class="text-success" style="font-size:.75rem">✓ Guardado</span>',
+                2500);
+        } else if (!hasPending[id]) {
+            // All retries exhausted and no newer save is queued — show sticky error
+            setErrorStatus(id, lastError ? lastError.message : null);
+        }
+
+        inFlight[id] = false;
+        // If a newer change arrived while this request was in-flight (or during
+        // back-off), fire another save immediately with the current DOM state.
+        if (hasPending[id]) {
+            hasPending[id] = false;
+            saveRow(id);
+        }
     }
+
+    // ── Retry-on-click: delegate from the status column ───────────────
+    document.getElementById('saboresTable').addEventListener('click', function (e) {
+        const span = e.target.closest('[data-retry-id]');
+        if (!span) return;
+        const id = parseInt(span.dataset.retryId, 10);
+        if (!inFlight[id]) {
+            saveRow(id);
+        }
+    });
 
     // ── Checkbox: save immediately on change ──────────────────────────
     document.querySelectorAll('.sr-ativo').forEach(function (cb) {
