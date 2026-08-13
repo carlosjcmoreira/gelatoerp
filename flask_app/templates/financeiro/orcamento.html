@@ -8,7 +8,14 @@
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     <div>
       <h4 class="mb-0">🎯 Orçamento</h4>
-      <p class="text-muted small mb-0">Defina os valores mensais de referência por loja e por linha. Estes valores serão consumidos pelo Mapa de Exploração (próxima fase) para comparar real vs orçamento.</p>
+      {% if is_global %}
+      <p class="text-muted small mb-0">
+        Vista consolidada — somatório automático de todas as lojas.
+        <strong>Para editar, seleccione uma loja.</strong>
+      </p>
+      {% else %}
+      <p class="text-muted small mb-0">Defina os valores mensais de referência por loja e por linha. Estes valores serão consumidos pelo Mapa de Exploração para comparar real vs orçamento.</p>
+      {% endif %}
     </div>
     <form class="ms-auto d-flex gap-2 align-items-center" method="get" id="filterForm">
       <select name="store_id" class="form-select form-select-sm" style="min-width:180px" onchange="this.form.submit()">
@@ -49,16 +56,23 @@
       </thead>
       <tbody>
 
+        {# ── Shared macro: one cell, editable or read-only depending on view ── #}
+        {# is_global is set in the route and controls read-only rendering       #}
+
         {# ── Vendas ── #}
         <tr class="table-success">
           <td class="fw-bold" style="position:sticky;left:0;z-index:1;background:#d1e7dd">Vendas</td>
           {% for m in range(1, 13) %}
           {% set v = budget.get('vendas', {}).get(m) %}
-          <td class="p-1">
-            <input type="number" class="form-control form-control-sm budget-cell text-end"
-                   data-line="vendas" data-mes="{{ m }}"
-                   value="{{ v if v is not none else '' }}"
-                   step="0.01" min="0" placeholder="—">
+          <td class="p-1 text-end">
+            {% if is_global %}
+              <span class="text-nowrap fw-semibold">{{ '%.2f'|format(v) if v else '—' }}</span>
+            {% else %}
+              <input type="number" class="form-control form-control-sm budget-cell text-end"
+                     data-line="vendas" data-mes="{{ m }}"
+                     value="{{ v if v is not none else '' }}"
+                     step="0.01" min="0" placeholder="—">
+            {% endif %}
           </td>
           {% endfor %}
           <td class="text-end fw-bold text-nowrap" id="total-vendas">—</td>
@@ -69,11 +83,15 @@
           <td class="fw-bold" style="position:sticky;left:0;z-index:1;background:#fff3cd">CMVMC</td>
           {% for m in range(1, 13) %}
           {% set v = budget.get('cmvmc', {}).get(m) %}
-          <td class="p-1">
-            <input type="number" class="form-control form-control-sm budget-cell text-end"
-                   data-line="cmvmc" data-mes="{{ m }}"
-                   value="{{ v if v is not none else '' }}"
-                   step="0.01" min="0" placeholder="—">
+          <td class="p-1 text-end">
+            {% if is_global %}
+              <span class="text-nowrap fw-semibold">{{ '%.2f'|format(v) if v else '—' }}</span>
+            {% else %}
+              <input type="number" class="form-control form-control-sm budget-cell text-end"
+                     data-line="cmvmc" data-mes="{{ m }}"
+                     value="{{ v if v is not none else '' }}"
+                     step="0.01" min="0" placeholder="—">
+            {% endif %}
           </td>
           {% endfor %}
           <td class="text-end fw-bold text-nowrap" id="total-cmvmc">—</td>
@@ -97,11 +115,15 @@
           </td>
           {% for m in range(1, 13) %}
           {% set v = budget.get(lk, {}).get(m) %}
-          <td class="p-1">
-            <input type="number" class="form-control form-control-sm budget-cell text-end"
-                   data-line="{{ lk }}" data-mes="{{ m }}"
-                   value="{{ v if v is not none else '' }}"
-                   step="0.01" min="0" placeholder="—">
+          <td class="p-1 text-end">
+            {% if is_global %}
+              <span class="text-nowrap">{{ '%.2f'|format(v) if v else '—' }}</span>
+            {% else %}
+              <input type="number" class="form-control form-control-sm budget-cell text-end"
+                     data-line="{{ lk }}" data-mes="{{ m }}"
+                     value="{{ v if v is not none else '' }}"
+                     step="0.01" min="0" placeholder="—">
+            {% endif %}
           </td>
           {% endfor %}
           <td class="text-end fw-bold text-nowrap" id="total-{{ lk }}">—</td>
@@ -112,19 +134,19 @@
     </table>
   </div>
 
-  {# ── Save indicator ───────────────────────────────────────────────────── #}
+  {% if not is_global %}
+  {# ── Save indicator (per-store editing only) ─────────────────────────── #}
   <div class="mt-2 text-muted small d-flex align-items-center gap-2" id="saveStatus" style="min-height:1.5rem">
     <span class="spinner-border spinner-border-sm d-none" id="saveSpinner" role="status"></span>
     <span id="saveMsg"></span>
   </div>
 
-  {# ── CSV Import ───────────────────────────────────────────────────────── #}
+  {# ── CSV Import (per-store editing only) ──────────────────────────────── #}
   <div class="card mt-4">
     <div class="card-header fw-semibold">📂 Importar via CSV</div>
     <div class="card-body">
       <p class="small text-muted mb-2">
         O ficheiro CSV deve ter as colunas: <code>ano,mes,loja,linha,valor</code><br>
-        Deixe <code>loja</code> em branco para orçamento global.<br>
         Os valores de <code>linha</code> aceites são: <code>vendas</code>, <code>cmvmc</code>, ou <code>cat_&lt;id&gt;</code> (id da categoria de custo).
       </p>
       <form method="post" action="{{ url_for('financeiro.orcamento_import') }}"
@@ -137,6 +159,11 @@
       </form>
     </div>
   </div>
+  {% else %}
+  <p class="mt-3 text-muted small">
+    💡 O Global é calculado automaticamente. Para editar os valores, seleccione uma loja no selector acima.
+  </p>
+  {% endif %}
 
   {# ── Category reference ───────────────────────────────────────────────── #}
   <details class="mt-3">
@@ -160,16 +187,10 @@
 
 <script>
 (function () {
-  const ANO      = {{ ano | tojson }};
-  const STORE_ID = {{ store_id | tojson }};
-  const CELL_URL = {{ url_for('financeiro.orcamento_cell') | tojson }};
-
-  let _saveTimer = null;
-  let _pending   = 0;
+  const IS_GLOBAL = {{ is_global | tojson }};
 
   function fmtEur(v) {
     if (v <= 0) return '—';
-    // Show up to 2 decimal places, strip insignificant trailing zeros
     var rounded = Math.round(v * 100) / 100;
     return '€\u202f' + rounded.toLocaleString('pt-PT', {
       minimumFractionDigits: 0,
@@ -177,16 +198,55 @@
     });
   }
 
+  // ── Row totals ────────────────────────────────────────────────────────
+  // In global view, sum the text spans; in per-store view, sum the inputs.
   function updateRowTotal(lineKey) {
-    const inputs = document.querySelectorAll(`.budget-cell[data-line="${lineKey}"]`);
     let total = 0;
-    inputs.forEach(function (inp) {
-      const v = parseFloat(inp.value);
-      if (!isNaN(v) && v > 0) total += v;
-    });
+    if (IS_GLOBAL) {
+      document.querySelectorAll('#orcamentoTable tbody tr').forEach(function (row) {
+        // Find total cell for this line key by its id
+      });
+      // Read from rendered span text for each cell in this logical row
+      // We use a data attribute approach: spans carry no data-line, so we
+      // identify the total cell by id and sum its siblings' text content.
+      const totalEl = document.getElementById('total-' + lineKey);
+      if (!totalEl) return;
+      const row = totalEl.closest('tr');
+      if (!row) return;
+      row.querySelectorAll('td span.text-nowrap, td span.fw-semibold').forEach(function (sp) {
+        const txt = sp.textContent.trim();
+        if (txt && txt !== '—') {
+          const v = parseFloat(txt.replace(',', '.'));
+          if (!isNaN(v)) total += v;
+        }
+      });
+    } else {
+      document.querySelectorAll(`.budget-cell[data-line="${lineKey}"]`).forEach(function (inp) {
+        const v = parseFloat(inp.value);
+        if (!isNaN(v) && v > 0) total += v;
+      });
+    }
     const el = document.getElementById('total-' + lineKey);
     if (el) el.textContent = fmtEur(total);
   }
+
+  if (IS_GLOBAL) {
+    // ── Global view: compute row totals from read-only spans ─────────────
+    // Collect all unique line keys from total-cell IDs and sum each row.
+    document.querySelectorAll('[id^="total-"]').forEach(function (el) {
+      const lineKey = el.id.replace('total-', '');
+      updateRowTotal(lineKey);
+    });
+    return; // No save logic needed in global view
+  }
+
+  // ── Per-store view: full save / keyboard UX ───────────────────────────
+  const ANO      = {{ ano | tojson }};
+  const STORE_ID = {{ store_id | tojson }};
+  const CELL_URL = {{ url_for('financeiro.orcamento_cell') | tojson }};
+
+  let _saveTimer = null;
+  let _pending   = 0;
 
   function setStatus(msg, ok) {
     document.getElementById('saveSpinner').classList.add('d-none');
@@ -238,13 +298,10 @@
   }
 
   document.querySelectorAll('.budget-cell').forEach(function (inp) {
-    // Compute initial row totals
     updateRowTotal(inp.dataset.line);
 
-    // Save on blur
     inp.addEventListener('blur', function () { saveCell(inp); });
 
-    // Enter key → move right across the same row
     inp.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -254,10 +311,8 @@
         const idx = siblings.indexOf(inp);
         if (idx < siblings.length - 1) siblings[idx + 1].focus();
       }
-      // Tab / Shift-Tab handled by browser natively (column-to-column within row)
     });
 
-    // Update row total immediately on input (without waiting for save)
     inp.addEventListener('input', function () { updateRowTotal(inp.dataset.line); });
   });
 }());

@@ -689,7 +689,7 @@ def distribuicao_centros_custo():
 @financeiro_bp.route('/orcamento')
 @perm_required('acesso_financeiro')
 def orcamento():
-    from db.orcamento import get_orcamento
+    from db.orcamento import get_orcamento, get_orcamento_all_stores
     from db.centros_custo import get_cost_categories
     from db.stores import get_all_stores
 
@@ -705,7 +705,16 @@ def orcamento():
     store_id_raw = request.args.get('store_id', '').strip()
     store_id = int(store_id_raw) if store_id_raw.isdigit() else None
 
-    budget = get_orcamento(ano, store_id=store_id)
+    is_global = store_id is None
+
+    if is_global:
+        # Global view: compute as the sum of all stores — not the legacy
+        # store_id IS NULL rows.  get_orcamento_all_stores() returns the
+        # None key pre-computed as the month-by-month sum of all stores.
+        all_budgets = get_orcamento_all_stores(ano)
+        budget = all_budgets.get(None, {})
+    else:
+        budget = get_orcamento(ano, store_id=store_id)
 
     anos = sorted({today.year - 1, today.year, today.year + 1, ano})
     meses_pt = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -717,6 +726,7 @@ def orcamento():
         categories=categories,
         ano=ano,
         store_id=store_id,
+        is_global=is_global,
         budget=budget,
         anos=anos,
         meses_pt=meses_pt,

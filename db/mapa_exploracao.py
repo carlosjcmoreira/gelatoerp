@@ -154,13 +154,14 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
     # ── Budget merge ───────────────────────────────────────────────────────
 
     def _bgt(sid):
-        """Merge global + store-specific budget (store overrides global)."""
-        g = budget_all.get(None, {})
-        s = budget_all.get(sid, {}) if sid is not None else {}
-        merged: dict = {}
-        for lk in set(list(g) + list(s)):
-            merged[lk] = {**g.get(lk, {}), **s.get(lk, {})}
-        return merged
+        """Return the store-specific budget only — no global fallback.
+
+        Under the new semantics, Global = Σ stores.  Merging the aggregate
+        global back into each store's budget would inflate the consolidated
+        total whenever a store has missing months.  If a store has no budget
+        set it contributes zero, which is the correct and visible behaviour.
+        """
+        return budget_all.get(sid, {}) if sid is not None else {}
 
     # ─────────────────────────────────────────────────────────────────────
     # Per-store view
@@ -257,23 +258,12 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
                 cat_unalloc[m] = res
         unallocated_costs[cid] = cat_unalloc   # empty dict if fully allocated
 
-    # ── Consolidated budget: sum of each active store's effective budget ──────
-    # Each store's effective budget for a (line_key, month) is:
-    #   the store-specific value if one was entered, else the global fallback.
-    # Summing across stores gives the expected consolidated target.
-    def _cons_budget():
-        cb: dict = {}
-        for sid in store_ids:
-            s = budget_all.get(sid, {})
-            g = budget_all.get(None, {})
-            for lk in set(list(s) + list(g)):
-                # Per-month effective value for this store
-                eff = {**g.get(lk, {}), **s.get(lk, {})}
-                for m, v in eff.items():
-                    cb.setdefault(lk, {})[m] = round(cb.get(lk, {}).get(m, 0) + v, 2)
-        return cb
-
-    cons_bgt = _cons_budget()
+    # ── Consolidated budget ───────────────────────────────────────────────────
+    # budget_all[None] is already the month-by-month sum of all active stores,
+    # computed by get_orcamento_all_stores().  Use it directly; do NOT merge
+    # the aggregate back into individual store rows, which would double-count
+    # whenever stores have missing months.
+    cons_bgt = budget_all.get(None, {})
 
     return {
         'mode': 'consolidated',

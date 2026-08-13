@@ -96,20 +96,41 @@ def get_orcamento(ano: int, store_id=None) -> dict:
 def get_orcamento_all_stores(ano: int) -> dict:
     """Return {store_id_or_None: {line_key: {month: valor}}} for a full year.
 
-    Useful for consolidated mapa where we need every store's budget at once.
+    The None key (Global) is the month-by-month SUM of all active stores —
+    not the legacy store_id IS NULL rows, which are no longer read here.
+    This mirrors the user expectation that "Global = somatório de todas as lojas".
+
+    Useful for consolidated mapa / insights where every store's budget is needed
+    at once, and the None entry drives the consolidated P&L comparison.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
+        # Fetch only ACTIVE-store rows (join ensures inactive stores are excluded).
+        # store_id IS NULL (legacy global rows) are intentionally not read here.
         cursor.execute(
-            "SELECT store_id, line_key, mes, valor_euros FROM orcamento WHERE ano = %s",
+            "SELECT o.store_id, o.line_key, o.mes, o.valor_euros "
+            "FROM orcamento o "
+            "JOIN stores s ON s.id = o.store_id AND s.is_active = TRUE "
+            "WHERE o.ano = %s",
             (ano,)
         )
         rows = cursor.fetchall()
 
     result: dict = {}
     for store_id, line_key, mes, valor in rows:
-        key = store_id  # None for global
-        result.setdefault(key, {}).setdefault(line_key, {})[mes] = float(valor)
+        result.setdefault(store_id, {}).setdefault(line_key, {})[mes] = float(valor)
+
+    # Compute Global (None) as the month-by-month sum of all active stores.
+    # This replaces the legacy store_id IS NULL rows as the authoritative
+    # consolidated budget target used by the Mapa and Insights consumers.
+    global_budget: dict = {}
+    for store_data in result.values():
+        for lk, months in store_data.items():
+            for m, v in months.items():
+                global_budget.setdefault(lk, {})[m] = \
+                    round(global_budget.get(lk, {}).get(m, 0.0) + v, 2)
+    result[None] = global_budget
+
     return result
 
 

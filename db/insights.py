@@ -180,10 +180,14 @@ def get_financial_insights(ano: int, store_id=None) -> dict:
     # else global budget (same effective-budget logic as _bgt() in mapa_exploracao).
 
     def _build_per_store_budgets():
-        """Return {store_id: {cat_id: {month: float}}} using store-specific + global budget."""
+        """Return {store_id: {cat_id: {month: float}}} using per-store budgets only.
+
+        No global fallback: under the new semantics Global = Σ stores, so
+        merging the aggregate back into each store's budget would inflate
+        anomaly thresholds for stores that have missing months.
+        """
         from db.orcamento import get_orcamento_all_stores
         budget_all = get_orcamento_all_stores(ano)
-        g = budget_all.get(None, {})
         result = {}
         for s in mapa['stores']:
             sid = s['id']
@@ -191,10 +195,7 @@ def get_financial_insights(ano: int, store_id=None) -> dict:
             store_cat_bgt: dict = {}
             for cat in mapa['categories']:
                 lk = f'cat_{cat["id"]}'
-                g_months = g.get(lk, {})
-                s_months = s_bgt.get(lk, {})
-                # Store-specific overrides global month-by-month
-                store_cat_bgt[cat['id']] = {**g_months, **s_months}
+                store_cat_bgt[cat['id']] = dict(s_bgt.get(lk, {}))
             result[sid] = store_cat_bgt
         return result
 
