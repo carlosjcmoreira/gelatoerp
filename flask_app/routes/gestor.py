@@ -734,6 +734,7 @@ def aliases_produto():
     from db.vendas_diarias import (
         get_produto_aliases_with_ids,
         get_produto_names_by_activity,
+        get_produto_alias_match_counts,
         add_produto_alias,
     )
     if request.method == 'POST':
@@ -753,10 +754,12 @@ def aliases_produto():
         return redirect(url_for('gestor.aliases_produto'))
 
     aliases  = get_produto_aliases_with_ids()
+    alias_counts = get_produto_alias_match_counts([a['nome_antigo'] for a in aliases])
     produtos = get_produto_names_by_activity()
     return render_template(
         'gestor/aliases_produto.html',
         aliases=aliases,
+        alias_counts=alias_counts,
         active_products=produtos['active'],
         historic_products=produtos['historic'],
     )

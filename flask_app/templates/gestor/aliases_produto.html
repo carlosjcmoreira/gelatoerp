@@ -29,15 +29,17 @@
             <table class="table table-sm table-hover mb-0 align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th class="ps-3" style="width:38%">Nome antigo <span class="text-muted fw-normal">(POS histórico)</span></th>
-                        <th style="width:38%">Nome actual <span class="text-muted fw-normal">(agregado como)</span></th>
-                        <th class="text-muted" style="width:14%">Criado em</th>
-                        <th style="width:10%"></th>
+                        <th class="ps-3" style="width:35%">Nome antigo <span class="text-muted fw-normal">(POS histórico)</span></th>
+                        <th style="width:35%">Nome actual <span class="text-muted fw-normal">(agregado como)</span></th>
+                        <th style="width:18%" title="Linhas de vendas nos dados históricos que correspondem a este nome">Correspondências</th>
+                        <th class="text-muted" style="width:7%">Criado em</th>
+                        <th style="width:5%"></th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for a in aliases %}
-                    <tr>
+                    {% set cnt = alias_counts.get(a.nome_antigo, -1) %}
+                    <tr class="{{ 'table-danger' if cnt == 0 else '' }}">
                         <td class="ps-3">
                             <span class="badge bg-light text-secondary border me-1">histórico</span>
                             <span class="font-monospace small">{{ a.nome_antigo }}</span>
@@ -45,6 +47,21 @@
                         <td>
                             <span class="text-success me-1">→</span>
                             <span class="font-monospace small fw-semibold">{{ a.nome_atual }}</span>
+                        </td>
+                        <td>
+                            {% if cnt == 0 %}
+                            <span class="badge bg-danger text-white"
+                                  title="Este nome não existe nos dados do POS — verifique se o nome está correcto (incluindo maiúsculas e sufixos como '(2 Sabores)')">
+                                ⚠️ 0 correspondências
+                            </span>
+                            {% elif cnt > 0 %}
+                            <span class="badge bg-success-subtle text-success border border-success-subtle"
+                                  title="{{ cnt }} linhas nos dados de vendas correspondem a este nome">
+                                ✓ {{ cnt }}
+                            </span>
+                            {% else %}
+                            <span class="text-muted small">—</span>
+                            {% endif %}
                         </td>
                         <td class="text-muted small">
                             {{ a.created_at.strftime('%d/%m/%Y') if a.created_at else '—' }}

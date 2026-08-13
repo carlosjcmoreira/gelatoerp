@@ -67,6 +67,36 @@ def get_produto_aliases_with_ids() -> list:
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
+def get_produto_alias_match_counts(nomes_antigos: list) -> dict:
+    """Return {nome_antigo: count} of rows in vendas_detalhe + sales_historico for each name.
+
+    Used to warn managers when an alias old-name doesn't match any real POS record.
+    Counts across both tables so historical-only products (only in sales_historico)
+    are also detected correctly.
+    Returns 0 for any name not found in either table.
+    """
+    if not nomes_antigos:
+        return {}
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT produto, COUNT(*) AS cnt
+            FROM (
+                SELECT produto FROM vendas_detalhe
+                UNION ALL
+                SELECT produto FROM sales_historico
+            ) t
+            WHERE produto = ANY(%s)
+            GROUP BY produto
+            """,
+            (nomes_antigos,),
+        )
+        found = {row[0]: row[1] for row in cur.fetchall()}
+    # Ensure every requested name has an entry (0 if missing from both tables)
+    return {n: found.get(n, 0) for n in nomes_antigos}
+
+
 def get_produto_names_by_activity() -> dict:
     """Return {'active': [...], 'historic': [...]} from vendas_detalhe.
 
