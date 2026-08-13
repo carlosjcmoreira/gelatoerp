@@ -58,6 +58,7 @@ from db.orcamento import run_migrations_orcamento
 from db.faturas import run_migrations_saved_invoice_views, run_migrations_invoice_audit_complete
 from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clientes
 from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
+from db.schema import run_migrations_drop_supplier_category
 
 
 def _start_sheets_sync_scheduler():
@@ -207,6 +208,7 @@ def create_app():
         run_migrations_orcamento()
         run_migrations_cost_category_is_cmvmc()
         run_migrations_supplier_categoria_custo()
+        run_migrations_drop_supplier_category()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()

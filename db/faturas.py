@@ -61,7 +61,7 @@ def get_suppliers(only_active: bool = False) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+            SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
                    s.centro_custo_id, cc.name AS centro_custo_name
             FROM suppliers s
@@ -70,10 +70,10 @@ def get_suppliers(only_active: bool = False) -> list:
             ORDER BY s.name
         """)
         rows = cursor.fetchall()
-    return [{'id': r[0], 'name': r[1], 'nif': r[2], 'category': r[3],
-             'store_id': r[4], 'notes': r[5], 'store_name': r[6],
-             'payment_method': r[7], 'payment_terms': r[8], 'iban': r[9],
-             'centro_custo_id': r[10], 'centro_custo_name': r[11]} for r in rows]
+    return [{'id': r[0], 'name': r[1], 'nif': r[2],
+             'store_id': r[3], 'notes': r[4], 'store_name': r[5],
+             'payment_method': r[6], 'payment_terms': r[7], 'iban': r[8],
+             'centro_custo_id': r[9], 'centro_custo_name': r[10]} for r in rows]
 
 
 def _normalize_nif(nif) -> str:
@@ -102,7 +102,7 @@ def get_supplier_by_nif(nif: str) -> dict:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+            SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
                    s.centro_custo_id, cc.name AS centro_custo_name
             FROM suppliers s
@@ -112,10 +112,10 @@ def get_supplier_by_nif(nif: str) -> dict:
         """, (nif,))
         row = cursor.fetchone()
     if row:
-        return {'id': row[0], 'name': row[1], 'nif': row[2], 'category': row[3],
-                'store_id': row[4], 'notes': row[5], 'store_name': row[6],
-                'payment_method': row[7], 'payment_terms': row[8], 'iban': row[9],
-                'centro_custo_id': row[10], 'centro_custo_name': row[11]}
+        return {'id': row[0], 'name': row[1], 'nif': row[2],
+                'store_id': row[3], 'notes': row[4], 'store_name': row[5],
+                'payment_method': row[6], 'payment_terms': row[7], 'iban': row[8],
+                'centro_custo_id': row[9], 'centro_custo_name': row[10]}
     return None
 
 
@@ -123,7 +123,7 @@ def get_supplier_by_id(supplier_id: int) -> dict:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+            SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
                    s.centro_custo_id, cc.name AS centro_custo_name,
                    s.categoria_custo_id, ccat.name AS categoria_custo_name
@@ -135,11 +135,11 @@ def get_supplier_by_id(supplier_id: int) -> dict:
         """, (supplier_id,))
         row = cursor.fetchone()
     if row:
-        return {'id': row[0], 'name': row[1], 'nif': row[2], 'category': row[3],
-                'store_id': row[4], 'notes': row[5], 'store_name': row[6],
-                'payment_method': row[7], 'payment_terms': row[8], 'iban': row[9],
-                'centro_custo_id': row[10], 'centro_custo_name': row[11],
-                'categoria_custo_id': row[12], 'categoria_custo_name': row[13]}
+        return {'id': row[0], 'name': row[1], 'nif': row[2],
+                'store_id': row[3], 'notes': row[4], 'store_name': row[5],
+                'payment_method': row[6], 'payment_terms': row[7], 'iban': row[8],
+                'centro_custo_id': row[9], 'centro_custo_name': row[10],
+                'categoria_custo_id': row[11], 'categoria_custo_name': row[12]}
     return None
 
 
@@ -190,7 +190,7 @@ def patch_supplier(supplier_id: int, **fields) -> bool:
     Allowed field names: category, store_id, payment_method, payment_terms,
     centro_custo_id.  Returns True if a row was updated.
     """
-    _ALLOWED = {'category', 'store_id', 'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
+    _ALLOWED = {'store_id', 'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
     to_set = {k: v for k, v in fields.items() if k in _ALLOWED}
     if not to_set:
         return False
@@ -450,7 +450,7 @@ def get_supplier_by_alias(name: str, nif: str = None) -> dict:
             cursor = conn.cursor()
             if nif:
                 cursor.execute("""
-                    SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+                    SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                            st.name AS store_name, s.payment_method, s.payment_terms, s.iban
                     FROM supplier_aliases a
                     JOIN suppliers s ON s.id = a.supplier_id
@@ -460,7 +460,7 @@ def get_supplier_by_alias(name: str, nif: str = None) -> dict:
                 """, (name, nif))
             else:
                 cursor.execute("""
-                    SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+                    SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                            st.name AS store_name, s.payment_method, s.payment_terms, s.iban
                     FROM supplier_aliases a
                     JOIN suppliers s ON s.id = a.supplier_id
@@ -470,9 +470,9 @@ def get_supplier_by_alias(name: str, nif: str = None) -> dict:
                 """, (name,))
             row = cursor.fetchone()
         if row:
-            return {'id': row[0], 'name': row[1], 'nif': row[2], 'category': row[3],
-                    'store_id': row[4], 'notes': row[5], 'store_name': row[6],
-                    'payment_method': row[7], 'payment_terms': row[8], 'iban': row[9]}
+            return {'id': row[0], 'name': row[1], 'nif': row[2],
+                    'store_id': row[3], 'notes': row[4], 'store_name': row[5],
+                    'payment_method': row[6], 'payment_terms': row[7], 'iban': row[8]}
     except Exception:
         pass  # alias table may not exist yet
     return None
@@ -654,7 +654,7 @@ def get_supplier_by_name(name: str) -> dict:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+            SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
@@ -663,9 +663,9 @@ def get_supplier_by_name(name: str) -> dict:
         """, (name,))
         row = cursor.fetchone()
     if row:
-        return {'id': row[0], 'name': row[1], 'nif': row[2], 'category': row[3],
-                'store_id': row[4], 'notes': row[5], 'store_name': row[6],
-                'payment_method': row[7], 'payment_terms': row[8], 'iban': row[9]}
+        return {'id': row[0], 'name': row[1], 'nif': row[2],
+                'store_id': row[3], 'notes': row[4], 'store_name': row[5],
+                'payment_method': row[6], 'payment_terms': row[7], 'iban': row[8]}
     return None
 
 
@@ -749,7 +749,7 @@ def get_suppliers_with_invoice_count() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+            SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
                    COUNT(i.id) AS invoice_count,
                    COALESCE(SUM(i.amount_eur), 0) AS total_spend,
@@ -760,20 +760,20 @@ def get_suppliers_with_invoice_count() -> list:
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
             LEFT JOIN cost_categories ccat ON s.categoria_custo_id = ccat.id
             LEFT JOIN invoices i ON i.supplier_id = s.id AND i.status != 'draft'
-            GROUP BY s.id, s.name, s.nif, s.category, s.store_id, s.notes,
+            GROUP BY s.id, s.name, s.nif, s.store_id, s.notes,
                      st.name, s.payment_method, s.payment_terms, s.iban,
                      s.centro_custo_id, cc.name,
                      s.categoria_custo_id, ccat.name
             ORDER BY s.name
         """)
         rows = cursor.fetchall()
-    return [{'id': r[0], 'name': r[1], 'nif': r[2], 'category': r[3],
-             'store_id': r[4], 'notes': r[5], 'store_name': r[6],
-             'payment_method': r[7], 'payment_terms': r[8], 'iban': r[9],
-             'invoice_count': int(r[10]),
-             'total_spend': float(r[11]),
-             'centro_custo_id': r[12], 'centro_custo_name': r[13],
-             'categoria_custo_id': r[14], 'categoria_custo_name': r[15]} for r in rows]
+    return [{'id': r[0], 'name': r[1], 'nif': r[2],
+             'store_id': r[3], 'notes': r[4], 'store_name': r[5],
+             'payment_method': r[6], 'payment_terms': r[7], 'iban': r[8],
+             'invoice_count': int(r[9]),
+             'total_spend': float(r[10]),
+             'centro_custo_id': r[11], 'centro_custo_name': r[12],
+             'categoria_custo_id': r[13], 'categoria_custo_name': r[14]} for r in rows]
 
 
 def backfill_supplier_ids() -> dict:

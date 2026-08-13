@@ -1250,7 +1250,6 @@ def run_faturas_migrations():
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(255) NOT NULL,
                 nif VARCHAR(20) NOT NULL UNIQUE,
-                category VARCHAR(100),
                 store_id INTEGER REFERENCES stores(id),
                 notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -4383,21 +4382,26 @@ def run_migrations_supplier_categoria_custo():
                         REFERENCES cost_categories(id) ON DELETE SET NULL
                 """)
                 logger.info("run_migrations_supplier_categoria_custo: column added")
-                # Best-effort backfill from legacy text category field
+                # Best-effort backfill from legacy text category field (only if column still exists)
                 cursor.execute("""
-                    UPDATE suppliers s
-                    SET categoria_custo_id = cc.id
-                    FROM cost_categories cc
-                    WHERE s.categoria_custo_id IS NULL
-                      AND s.category IS NOT NULL
-                      AND cc.name ILIKE s.category
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'suppliers' AND column_name = 'category'
                 """)
-                affected = cursor.rowcount
-                if affected:
-                    logger.info(
-                        "run_migrations_supplier_categoria_custo: backfilled %d suppliers",
-                        affected,
-                    )
+                if cursor.fetchone() is not None:
+                    cursor.execute("""
+                        UPDATE suppliers s
+                        SET categoria_custo_id = cc.id
+                        FROM cost_categories cc
+                        WHERE s.categoria_custo_id IS NULL
+                          AND s.category IS NOT NULL
+                          AND cc.name ILIKE s.category
+                    """)
+                    affected = cursor.rowcount
+                    if affected:
+                        logger.info(
+                            "run_migrations_supplier_categoria_custo: backfilled %d suppliers",
+                            affected,
+                        )
             conn.commit()
             logger.info("run_migrations_supplier_categoria_custo: complete")
         except Exception as exc:
@@ -4546,6 +4550,48 @@ def run_migrations_supplier_centro_custo():
             logger.info("run_migrations_supplier_centro_custo: complete")
         except Exception as exc:
             logger.error("run_migrations_supplier_centro_custo failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
+_LOCK_DROP_SUPPLIER_CATEGORY = 685685
+
+
+def run_migrations_drop_supplier_category():
+    """Idempotent: drop the legacy suppliers.category free-text column.
+
+    The column is no longer read or written by any code path; the FK
+    categoria_custo_id is the authoritative category reference.  Dropping it
+    removes any risk of stale free-text values causing confusion.
+
+    Uses advisory lock 685685 to serialise concurrent worker executions.
+    Safe to call repeatedly — IF NOT EXISTS / column-existence checks make it
+    a no-op once the column is gone.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", (_LOCK_DROP_SUPPLIER_CATEGORY,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_drop_supplier_category: lock held, skipping")
+                return
+            # Check whether the column still exists before attempting DROP
+            cursor.execute("""
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'suppliers'
+                  AND column_name = 'category'
+            """)
+            if cursor.fetchone() is None:
+                logger.info("run_migrations_drop_supplier_category: column already absent, nothing to do")
+                return
+            cursor.execute("ALTER TABLE suppliers DROP COLUMN IF EXISTS category")
+            conn.commit()
+            logger.info("run_migrations_drop_supplier_category: suppliers.category dropped")
+        except Exception as exc:
+            logger.error("run_migrations_drop_supplier_category failed: %s", exc)
             try:
                 conn.rollback()
             except Exception:

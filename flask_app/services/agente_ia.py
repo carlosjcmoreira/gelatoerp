@@ -100,8 +100,8 @@ invoices(id, supplier_name VARCHAR, invoice_number VARCHAR,
   — faturas de fornecedores
   — status: 'draft', 'pending_review', 'scheduled', 'paid'
 
-suppliers(id, name VARCHAR, nif VARCHAR, category VARCHAR,
-          payment_terms INT, iban VARCHAR)
+suppliers(id, name VARCHAR, nif VARCHAR,
+          payment_terms INT, iban VARCHAR, categoria_custo_id INT)
 
 invoice_payments(id, invoice_id INT, amount_paid NUMERIC,
                  payment_date DATE, confirmed_date DATE)

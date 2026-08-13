@@ -2231,7 +2231,7 @@ def fornecedores():
             _u = session.get('user', {})
             if not (_u.get('acesso_gestor') or _u.get('acesso_administrativo')):
                 return _jsonify({'ok': False, 'error': 'Sem permissão para edição em massa.'}), 403
-            _BULK_EDIT_FIELDS = {'category', 'store_id', 'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
+            _BULK_EDIT_FIELDS = {'store_id', 'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
             field = request.form.get('field', '').strip()
             if field not in _BULK_EDIT_FIELDS:
                 return _jsonify({'ok': False, 'error': 'Campo inválido'}), 400
