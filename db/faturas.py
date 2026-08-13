@@ -148,7 +148,12 @@ def update_supplier(supplier_id: int, name: str, nif: str = None, category: str 
                     payment_method: str = None, payment_terms: str = None,
                     iban: str = None, centro_custo_id: int = None,
                     categoria_custo_id: int = None) -> bool:
-    """Update an existing supplier by primary key. Returns True if a row was updated."""
+    """Update an existing supplier by primary key. Returns True if a row was updated.
+
+    The ``category`` parameter is accepted for backward compatibility but is
+    intentionally ignored — the legacy free-text column is no longer written;
+    use ``categoria_custo_id`` (FK) instead.
+    """
     nif = _normalize_nif(nif)
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -156,7 +161,6 @@ def update_supplier(supplier_id: int, name: str, nif: str = None, category: str 
             UPDATE suppliers
             SET name = %s,
                 nif = %s,
-                category = %s,
                 store_id = %s,
                 notes = %s,
                 payment_method = %s,
@@ -166,7 +170,7 @@ def update_supplier(supplier_id: int, name: str, nif: str = None, category: str 
                 categoria_custo_id = %s,
                 updated_at = NOW()
             WHERE id = %s
-        """, (name, nif or None, category or None, store_id,
+        """, (name, nif or None, store_id,
               notes or None, payment_method or None, payment_terms or None,
               iban or None, centro_custo_id or None, categoria_custo_id or None, supplier_id))
         updated = cursor.rowcount > 0
@@ -230,18 +234,23 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                     payment_method: str = None, payment_terms: str = None,
                     iban: str = None, centro_custo_id: int = None,
                     categoria_custo_id: int = None) -> int:
+    """Insert or update a supplier row.
+
+    The ``category`` parameter is accepted for backward compatibility but is
+    intentionally ignored — the legacy free-text column is no longer written;
+    use ``categoria_custo_id`` (FK) instead.
+    """
     nif = _normalize_nif(nif)
     with db_connection() as conn:
         cursor = conn.cursor()
         if nif:
             cursor.execute("""
-                INSERT INTO suppliers (name, nif, category, store_id, notes,
+                INSERT INTO suppliers (name, nif, store_id, notes,
                                        payment_method, payment_terms, iban,
                                        centro_custo_id, categoria_custo_id, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
                     name = EXCLUDED.name,
-                    category = EXCLUDED.category,
                     store_id = EXCLUDED.store_id,
                     notes = EXCLUDED.notes,
                     payment_method = COALESCE(EXCLUDED.payment_method, suppliers.payment_method),
@@ -251,7 +260,7 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                     categoria_custo_id = COALESCE(EXCLUDED.categoria_custo_id, suppliers.categoria_custo_id),
                     updated_at = NOW()
                 RETURNING id
-            """, (name, nif, category, store_id, notes, payment_method, payment_terms, iban, centro_custo_id or None, categoria_custo_id or None))
+            """, (name, nif, store_id, notes, payment_method, payment_terms, iban, centro_custo_id or None, categoria_custo_id or None))
         else:
             # No NIF — look up by name first to avoid duplicates
             cursor.execute(
@@ -263,7 +272,6 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                 cursor.execute("""
                     UPDATE suppliers SET
                         name = %s,
-                        category = COALESCE(%s, category),
                         store_id = COALESCE(%s, store_id),
                         notes = COALESCE(%s, notes),
                         payment_method = COALESCE(%s, payment_method),
@@ -273,7 +281,7 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                         categoria_custo_id = COALESCE(%s, categoria_custo_id),
                         updated_at = NOW()
                     WHERE id = %s
-                """, (name, category, store_id, notes,
+                """, (name, store_id, notes,
                       payment_method, payment_terms, iban,
                       centro_custo_id or None, categoria_custo_id or None, supplier_id))
                 # Propagate canonical name to all already-linked invoices
@@ -284,12 +292,12 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
             else:
                 try:
                     cursor.execute("""
-                        INSERT INTO suppliers (name, category, store_id, notes,
+                        INSERT INTO suppliers (name, store_id, notes,
                                                payment_method, payment_terms, iban,
                                                centro_custo_id, categoria_custo_id, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
                         RETURNING id
-                    """, (name, category, store_id, notes, payment_method, payment_terms, iban,
+                    """, (name, store_id, notes, payment_method, payment_terms, iban,
                           centro_custo_id or None, categoria_custo_id or None))
                     supplier_id = cursor.fetchone()[0]
                 except psycopg2.errors.UniqueViolation:
@@ -307,7 +315,6 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                     cursor.execute("""
                         UPDATE suppliers SET
                             name = %s,
-                            category = COALESCE(%s, category),
                             store_id = COALESCE(%s, store_id),
                             notes = COALESCE(%s, notes),
                             payment_method = COALESCE(%s, payment_method),
@@ -317,7 +324,7 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                             categoria_custo_id = COALESCE(%s, categoria_custo_id),
                             updated_at = NOW()
                         WHERE id = %s
-                    """, (name, category, store_id, notes,
+                    """, (name, store_id, notes,
                           payment_method, payment_terms, iban,
                           centro_custo_id or None, categoria_custo_id or None, supplier_id))
                     # Propagate canonical name to all already-linked invoices

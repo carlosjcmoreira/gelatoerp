@@ -2066,7 +2066,6 @@ def fornecedores():
         if action == 'save':
             name = request.form.get('name', '').strip()
             nif = ''.join(c for c in request.form.get('nif', '') if c.isdigit())
-            category = request.form.get('category', '').strip()
             store_id = request.form.get('store_id', '') or None
             if store_id:
                 store_id = int(store_id)
@@ -2084,14 +2083,14 @@ def fornecedores():
             elif supplier_id_raw.isdigit():
                 from db.faturas import update_supplier
                 update_supplier(int(supplier_id_raw), name=name, nif=nif or None,
-                                category=category or None, store_id=store_id,
+                                store_id=store_id,
                                 notes=notes or None, payment_method=payment_method,
                                 payment_terms=payment_terms, iban=iban,
                                 centro_custo_id=centro_custo_id,
                                 categoria_custo_id=categoria_custo_id)
                 flash(f'Fornecedor "{name}" actualizado.', 'success')
             else:
-                upsert_supplier(name=name, nif=nif or None, category=category or None,
+                upsert_supplier(name=name, nif=nif or None,
                                 store_id=store_id, notes=notes or None,
                                 payment_method=payment_method,
                                 payment_terms=payment_terms, iban=iban,
