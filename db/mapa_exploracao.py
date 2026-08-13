@@ -4,8 +4,9 @@ Provides monthly sales, CMVMC, and cost-category data for a full calendar year,
 merged with budget (orcamento) and prior-year figures.  Supports both a
 per-store view (store_id given) and a consolidated view (store_id=None).
 
-CMVMC detection: any cost_category whose name contains "matéria" or "cmvmc"
-(case-insensitive) is classified as CMVMC and shown in the CMVMC row rather
+CMVMC detection: cost categories with the explicit `is_cmvmc = TRUE` flag
+(set via the category management UI at /financeiro/categorias) are classified
+as CMVMC and shown in the CMVMC row rather
 than in the Custos de Operação section (avoiding double-counting).
 """
 
@@ -14,14 +15,6 @@ from datetime import date
 from db.connection import db_connection
 
 logger = logging.getLogger(__name__)
-
-_CMVMC_PATTERNS = ('matéria', 'materia', 'cmvmc')
-
-
-def _is_cmvmc(cat_name: str) -> bool:
-    name_lower = (cat_name or '').lower()
-    return any(p in name_lower for p in _CMVMC_PATTERNS)
-
 
 def get_mapa_exploracao(ano: int, store_id=None) -> dict:
     """Return all data needed to render the 12-month Mapa de Exploração.
@@ -43,8 +36,10 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
     store_ids = [s['id'] for s in active_stores]
     all_cats = [dict(c) for c in get_cost_categories(ativo_only=True)]
 
-    # Split categories: CMVMC vs operating costs
-    cmvmc_cat_ids = {c['id'] for c in all_cats if _is_cmvmc(c['name'])}
+    # Split categories: CMVMC vs operating costs.
+    # is_cmvmc is an explicit DB flag set in the category management UI;
+    # name-pattern heuristics have been removed.
+    cmvmc_cat_ids = {c['id'] for c in all_cats if c.get('is_cmvmc')}
     categories = [c for c in all_cats if c['id'] not in cmvmc_cat_ids]
 
     allocations = get_all_allocations()

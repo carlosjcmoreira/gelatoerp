@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_cost_categories, get_cost_categories_tree,
     create_cost_category, update_cost_category, toggle_cost_category,
+    toggle_cost_category_cmvmc,
 )
 
 categorias_custo_bp = Blueprint('categorias_custo', __name__)
@@ -46,6 +47,15 @@ def index():
             try:
                 toggle_cost_category(cat_id, ativo)
                 estado = 'activada' if ativo else 'desactivada'
+                flash(f'Categoria {estado}.', 'success')
+            except Exception as exc:
+                flash(f'Erro: {exc}', 'danger')
+        elif action == 'toggle_cmvmc':
+            cat_id = int(request.form.get('cat_id', 0))
+            is_cmvmc = request.form.get('is_cmvmc', '0') == '1'
+            try:
+                toggle_cost_category_cmvmc(cat_id, is_cmvmc)
+                estado = 'marcada como CMVMC' if is_cmvmc else 'removida do CMVMC'
                 flash(f'Categoria {estado}.', 'success')
             except Exception as exc:
                 flash(f'Erro: {exc}', 'danger')

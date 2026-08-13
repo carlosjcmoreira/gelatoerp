@@ -40,6 +40,10 @@
         </div>
     </div>
 
+    <div class="alert alert-info py-2 small mb-3" role="alert">
+        <strong>CMVMC</strong> — As categorias marcadas com o badge <span class="badge text-bg-warning border border-warning-subtle ms-1" style="font-size:0.65rem">CMVMC</span> contribuem para a linha <em>Custo da Mercadoria Vendida / Matéria-prima</em> no Mapa de Exploração. Use o botão <em>CMVMC</em> para activar ou desactivar esta marcação.
+    </div>
+
     <div class="card">
         <div class="card-header small fw-semibold">Hierarquia de Categorias</div>
         <div class="list-group list-group-flush">
@@ -48,6 +52,9 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
                         <strong class="small">{{ cat.name }}</strong>
+                        {% if cat.is_cmvmc %}
+                        <span class="badge text-bg-warning border border-warning-subtle ms-1" style="font-size:0.65rem">CMVMC</span>
+                        {% endif %}
                         {% if not cat.ativo %}
                         <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle ms-1 small">Inactiva</span>
                         {% endif %}
@@ -57,6 +64,16 @@
                                 data-bs-toggle="modal" data-bs-target="#editModal"
                                 data-id="{{ cat.id }}" data-name="{{ cat.name }}"
                                 data-parent="">Editar</button>
+                        <form method="post" class="d-inline">
+                            <input type="hidden" name="action" value="toggle_cmvmc">
+                            <input type="hidden" name="cat_id" value="{{ cat.id }}">
+                            <input type="hidden" name="is_cmvmc" value="{{ '0' if cat.is_cmvmc else '1' }}">
+                            <button type="submit"
+                                    class="btn btn-sm py-0 px-2 small {{ 'btn-warning' if cat.is_cmvmc else 'btn-outline-warning' }}"
+                                    title="{{ 'Remover marcação CMVMC' if cat.is_cmvmc else 'Marcar como CMVMC (Matéria-prima)' }}">
+                                CMVMC
+                            </button>
+                        </form>
                         <form method="post" class="d-inline">
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="cat_id" value="{{ cat.id }}">
@@ -72,6 +89,9 @@
                     {% for sub in cat.children %}
                     <div class="d-flex justify-content-between align-items-center py-1 border-top border-light">
                         <span class="small text-muted">↳ {{ sub.name }}
+                            {% if sub.is_cmvmc %}
+                            <span class="badge text-bg-warning border border-warning-subtle ms-1" style="font-size:0.65rem">CMVMC</span>
+                            {% endif %}
                             {% if not sub.ativo %}
                             <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle ms-1" style="font-size:0.65rem">Inactiva</span>
                             {% endif %}
@@ -81,6 +101,16 @@
                                     data-bs-toggle="modal" data-bs-target="#editModal"
                                     data-id="{{ sub.id }}" data-name="{{ sub.name }}"
                                     data-parent="{{ sub.parent_id }}">Editar</button>
+                            <form method="post" class="d-inline">
+                                <input type="hidden" name="action" value="toggle_cmvmc">
+                                <input type="hidden" name="cat_id" value="{{ sub.id }}">
+                                <input type="hidden" name="is_cmvmc" value="{{ '0' if sub.is_cmvmc else '1' }}">
+                                <button type="submit"
+                                        class="btn btn-sm py-0 px-1 small {{ 'btn-warning' if sub.is_cmvmc else 'btn-outline-warning' }}"
+                                        title="{{ 'Remover marcação CMVMC' if sub.is_cmvmc else 'Marcar como CMVMC' }}">
+                                    CMVMC
+                                </button>
+                            </form>
                             <form method="post" class="d-inline">
                                 <input type="hidden" name="action" value="toggle">
                                 <input type="hidden" name="cat_id" value="{{ sub.id }}">

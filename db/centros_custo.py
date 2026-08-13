@@ -327,6 +327,17 @@ def toggle_cost_category(cat_id: int, ativo: bool):
         conn.commit()
 
 
+def toggle_cost_category_cmvmc(cat_id: int, is_cmvmc: bool):
+    """Set or clear the is_cmvmc flag on a cost category."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            'UPDATE cost_categories SET is_cmvmc=%s, updated_at=NOW() WHERE id=%s',
+            (is_cmvmc, cat_id)
+        )
+        conn.commit()
+
+
 # ── Colaboradores ─────────────────────────────────────────────────────────────
 
 def get_colaboradores(ativo_only: bool = False):

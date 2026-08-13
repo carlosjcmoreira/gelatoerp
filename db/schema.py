@@ -4355,6 +4355,65 @@ def run_migrations_supplier_entidade_governamental():
 
 _LOCK_SUPPLIER_CENTRO_CUSTO = 202702
 
+_LOCK_COST_CATEGORY_IS_CMVMC = 202703
+
+
+def run_migrations_cost_category_is_cmvmc():
+    """Add is_cmvmc flag to cost_categories and perform a one-time legacy seed.
+
+    Advisory lock 202703.
+
+    The name-pattern seed (marking existing "Matéria Prima" / "cmvmc" categories)
+    runs ONLY when the column is first added to the schema.  On subsequent startups
+    the column already exists so the block is skipped entirely, preserving any
+    administrator changes made via the UI.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_COST_CATEGORY_IS_CMVMC,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_cost_category_is_cmvmc: lock held, skipping")
+            return
+        try:
+            cursor.execute("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'cost_categories' AND column_name = 'is_cmvmc'
+            """)
+            if cursor.fetchone()[0] == 0:
+                # Column does not exist yet — add it and seed legacy categories.
+                cursor.execute("""
+                    ALTER TABLE cost_categories
+                    ADD COLUMN is_cmvmc BOOLEAN NOT NULL DEFAULT FALSE
+                """)
+                logger.info("run_migrations_cost_category_is_cmvmc: column added")
+
+                # One-time seed: categories whose name matched the old heuristic
+                # are pre-marked as CMVMC so existing data is not disrupted.
+                # This block never runs again after this startup.
+                cursor.execute("""
+                    UPDATE cost_categories
+                    SET is_cmvmc = TRUE
+                    WHERE LOWER(name) LIKE '%mat_ria%'
+                       OR LOWER(name) LIKE '%materia%'
+                       OR LOWER(name) LIKE '%cmvmc%'
+                """)
+                affected = cursor.rowcount
+                logger.info(
+                    "run_migrations_cost_category_is_cmvmc: seeded is_cmvmc=TRUE for %d categories",
+                    affected,
+                )
+            else:
+                logger.info("run_migrations_cost_category_is_cmvmc: column exists, skipping seed")
+
+            conn.commit()
+            logger.info("run_migrations_cost_category_is_cmvmc: complete")
+        except Exception as exc:
+            logger.error("run_migrations_cost_category_is_cmvmc failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
 
 _LOCK_CUSTOS_RECORRENTES = 202620
 
