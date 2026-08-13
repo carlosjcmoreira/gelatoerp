@@ -2040,6 +2040,8 @@ def fornecedores():
             iban = request.form.get('iban', '').strip() or None
             _cc_raw = request.form.get('centro_custo_id', '').strip()
             centro_custo_id = int(_cc_raw) if _cc_raw.isdigit() else None
+            _ccat_raw = request.form.get('categoria_custo_id', '').strip()
+            categoria_custo_id = int(_ccat_raw) if _ccat_raw.isdigit() else None
             supplier_id_raw = request.form.get('supplier_id', '').strip()
             if not name:
                 flash('Nome do fornecedor é obrigatório.', 'warning')
@@ -2049,14 +2051,16 @@ def fornecedores():
                                 category=category or None, store_id=store_id,
                                 notes=notes or None, payment_method=payment_method,
                                 payment_terms=payment_terms, iban=iban,
-                                centro_custo_id=centro_custo_id)
+                                centro_custo_id=centro_custo_id,
+                                categoria_custo_id=categoria_custo_id)
                 flash(f'Fornecedor "{name}" actualizado.', 'success')
             else:
                 upsert_supplier(name=name, nif=nif or None, category=category or None,
                                 store_id=store_id, notes=notes or None,
                                 payment_method=payment_method,
                                 payment_terms=payment_terms, iban=iban,
-                                centro_custo_id=centro_custo_id)
+                                centro_custo_id=centro_custo_id,
+                                categoria_custo_id=categoria_custo_id)
                 flash(f'Fornecedor "{name}" criado.', 'success')
             return redirect(url_for('faturas.fornecedores'))
 
@@ -2192,13 +2196,13 @@ def fornecedores():
             _u = session.get('user', {})
             if not (_u.get('acesso_gestor') or _u.get('acesso_administrativo')):
                 return _jsonify({'ok': False, 'error': 'Sem permissão para edição em massa.'}), 403
-            _BULK_EDIT_FIELDS = {'category', 'store_id', 'payment_method', 'payment_terms', 'centro_custo_id'}
+            _BULK_EDIT_FIELDS = {'category', 'store_id', 'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
             field = request.form.get('field', '').strip()
             if field not in _BULK_EDIT_FIELDS:
                 return _jsonify({'ok': False, 'error': 'Campo inválido'}), 400
             raw_value = request.form.get('value', '').strip()
             # Coerce integer fields; treat empty string as NULL
-            if field in ('store_id', 'centro_custo_id'):
+            if field in ('store_id', 'centro_custo_id', 'categoria_custo_id'):
                 value = int(raw_value) if raw_value.isdigit() else None
             else:
                 value = raw_value or None
@@ -2210,6 +2214,8 @@ def fornecedores():
 
     suppliers = get_suppliers_with_invoice_count()
     categories = INVOICE_CATEGORIES
+    from db.centros_custo import get_cost_categories as _get_cost_cats
+    cost_categories = _get_cost_cats(ativo_only=True)
     unlinked_names = get_unlinked_supplier_names()
     try:
         duplicate_pairs = get_duplicate_supplier_suggestions(suppliers)
@@ -2224,6 +2230,7 @@ def fornecedores():
         'financeiro/faturas/fornecedores.html',
         suppliers=suppliers,
         categories=categories,
+        cost_categories=cost_categories,
         stores=stores,
         payment_method_labels=PAYMENT_METHOD_LABELS,
         payment_terms_labels=PAYMENT_TERMS_LABELS,

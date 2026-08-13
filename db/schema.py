@@ -4355,6 +4355,59 @@ def run_migrations_supplier_entidade_governamental():
 
 _LOCK_SUPPLIER_CENTRO_CUSTO = 202702
 
+_LOCK_SUPPLIER_CATEGORIA_CUSTO = 202704
+
+
+def run_migrations_supplier_categoria_custo():
+    """Add categoria_custo_id FK to suppliers (default cost category per supplier).
+
+    Advisory lock 202704.  Column add is idempotent.  Best-effort backfill from
+    the legacy text `category` field: an ILIKE match against cost_categories.name
+    fills rows where the name matches exactly (case-insensitive).
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_SUPPLIER_CATEGORIA_CUSTO,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_supplier_categoria_custo: lock held, skipping")
+            return
+        try:
+            cursor.execute("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = 'suppliers' AND column_name = 'categoria_custo_id'
+            """)
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    ALTER TABLE suppliers
+                    ADD COLUMN categoria_custo_id INTEGER
+                        REFERENCES cost_categories(id) ON DELETE SET NULL
+                """)
+                logger.info("run_migrations_supplier_categoria_custo: column added")
+                # Best-effort backfill from legacy text category field
+                cursor.execute("""
+                    UPDATE suppliers s
+                    SET categoria_custo_id = cc.id
+                    FROM cost_categories cc
+                    WHERE s.categoria_custo_id IS NULL
+                      AND s.category IS NOT NULL
+                      AND cc.name ILIKE s.category
+                """)
+                affected = cursor.rowcount
+                if affected:
+                    logger.info(
+                        "run_migrations_supplier_categoria_custo: backfilled %d suppliers",
+                        affected,
+                    )
+            conn.commit()
+            logger.info("run_migrations_supplier_categoria_custo: complete")
+        except Exception as exc:
+            logger.error("run_migrations_supplier_categoria_custo failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
 _LOCK_COST_CATEGORY_IS_CMVMC = 202703
 
 

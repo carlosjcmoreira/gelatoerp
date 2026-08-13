@@ -153,8 +153,8 @@
         <select id="filterCategory" class="form-select form-select-sm" style="max-width:160px"
                 onchange="filterSupplierTable()">
             <option value="">Categoria (todas)</option>
-            {% for cat in categories %}
-            <option value="{{ cat }}">{{ cat }}</option>
+            {% for cc in cost_categories %}
+            <option value="{{ cc.id }}">{{ cc.name }}</option>
             {% endfor %}
         </select>
         <select id="filterStore" class="form-select form-select-sm" style="max-width:150px"
@@ -191,7 +191,7 @@
             <span class="fw-semibold small text-primary" id="bulkBarCount">0 selecionados</span>
             <select id="bulkField" class="form-select form-select-sm" style="max-width:180px">
                 <option value="">— Campo a alterar —</option>
-                <option value="category">Categoria</option>
+                <option value="categoria_custo_id">Categoria</option>
                 <option value="store_id">Loja</option>
                 <option value="payment_method">Método de Pagamento</option>
                 <option value="payment_terms">Prazo de Pagamento</option>
@@ -234,7 +234,7 @@
                 <tr data-sid="{{ s.id }}"
                     data-name="{{ s.name | lower | e }}"
                     data-nif="{{ (s.nif or '') | lower }}"
-                    data-category="{{ s.category or '' }}"
+                    data-categoria-custo-id="{{ s.categoria_custo_id or '' }}"
                     data-store="{{ s.store_id or '' }}"
                     data-cc="{{ s.centro_custo_id or '' }}"
                     class="supplier-row">
@@ -261,13 +261,13 @@
 
                     {# ── Editable cells: inline dropdowns for gestor/admin; static text for others ── #}
                     {% if can_bulk_edit %}
-                    <td data-field="category" data-sid="{{ s.id }}">
+                    <td data-field="categoria_custo_id" data-sid="{{ s.id }}">
                         <select class="form-select form-select-sm inline-cell-select"
-                                onchange="inlineSave({{ s.id }}, 'category', this.value, this)"
+                                onchange="inlineSave({{ s.id }}, 'categoria_custo_id', this.value, this)"
                                 style="min-width:110px;font-size:.8rem">
                             <option value="">— —</option>
-                            {% for cat in categories %}
-                            <option value="{{ cat }}" {% if s.category == cat %}selected{% endif %}>{{ cat }}</option>
+                            {% for cc in cost_categories %}
+                            <option value="{{ cc.id }}" {% if s.categoria_custo_id == cc.id %}selected{% endif %}>{{ cc.name }}</option>
                             {% endfor %}
                         </select>
                     </td>
@@ -346,7 +346,7 @@
             <div class="list-group-item py-2 px-3 supplier-list-item"
                  data-name="{{ s.name | lower | e }}"
                  data-nif="{{ (s.nif or '') | lower }}"
-                 data-category="{{ s.category or '' }}"
+                 data-categoria-custo-id="{{ s.categoria_custo_id or '' }}"
                  data-store="{{ s.store_id or '' }}"
                  data-cc="{{ s.centro_custo_id or '' }}">
                 <div class="d-flex align-items-center justify-content-between gap-2">
@@ -376,7 +376,7 @@
                             <span class="badge bg-info bg-opacity-25 text-dark ms-1"
                                   title="NIF adicional (de fusão anterior)">+NIF: {{ _nif }}</span>
                             {%- endfor %}
-                            {% if s.category %} · {{ s.category }}{% endif %}
+                            {% if s.categoria_custo_name %} · {{ s.categoria_custo_name }}{% elif s.category %} · {{ s.category }}{% endif %}
                             {% if s.store_name %} · {{ s.store_name }}{% endif %}
                             {% if s.payment_method %} · {{ payment_method_labels.get(s.payment_method, s.payment_method) }}{% endif %}
                             {% if s.payment_terms %} · {{ payment_terms_labels.get(s.payment_terms, s.payment_terms) }}{% endif %}
@@ -482,10 +482,10 @@
                         </div>
                         <div class="col-12 col-sm-6">
                             <label class="form-label small">Categoria</label>
-                            <select name="category" id="sCategory" class="form-select form-select-sm">
+                            <select name="categoria_custo_id" id="sCategory" class="form-select form-select-sm">
                                 <option value="">— Seleccionar —</option>
-                                {% for cat in categories %}
-                                <option value="{{ cat }}">{{ cat }}</option>
+                                {% for cc in cost_categories %}
+                                <option value="{{ cc.id }}">{{ cc.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -677,9 +677,9 @@
 <script>
 // ── Bulk edit field/value options ─────────────────────────────────────────────
 var _FIELD_OPTIONS = {
-    category: [
+    categoria_custo_id: [
         { value: '', label: '— Sem categoria —' },
-        {% for cat in categories %}{ value: {{ cat|tojson }}, label: {{ cat|tojson }} },{% endfor %}
+        {% for cc in cost_categories %}{ value: '{{ cc.id }}', label: {{ cc.name|tojson }} },{% endfor %}
     ],
     store_id: [
         { value: '', label: 'Todas as lojas' },
@@ -744,14 +744,14 @@ function filterSupplierTable() {
     // ── Table rows ────────────────────────────────────────────────────────────
     var rows = document.querySelectorAll('#supplierTable tbody .supplier-row');
     rows.forEach(function(row) {
-        var name     = (row.dataset.name     || '');
-        var nif      = (row.dataset.nif      || '');
-        var category = (row.dataset.category || '');
-        var store    = (row.dataset.store    || '');
-        var cc       = (row.dataset.cc       || '');
+        var name     = (row.dataset.name              || '');
+        var nif      = (row.dataset.nif               || '');
+        var catId    = (row.dataset.categoriaCustoId  || '');
+        var store    = (row.dataset.store             || '');
+        var cc       = (row.dataset.cc                || '');
 
         var matchText  = !q        || name.indexOf(q) !== -1 || nif.indexOf(q) !== -1;
-        var matchCat   = !catVal   || category === catVal;
+        var matchCat   = !catVal   || catId == catVal;
         var matchStore = !storeVal || store    === storeVal;
         var matchCC    = !ccVal    || cc       === ccVal;
 
@@ -770,14 +770,14 @@ function filterSupplierTable() {
     var cards = document.querySelectorAll('#listView .supplier-list-item');
     var listVisible = 0;
     cards.forEach(function(card) {
-        var name     = (card.dataset.name     || '');
-        var nif      = (card.dataset.nif      || '');
-        var category = (card.dataset.category || '');
-        var store    = (card.dataset.store    || '');
-        var cc       = (card.dataset.cc       || '');
+        var name     = (card.dataset.name              || '');
+        var nif      = (card.dataset.nif               || '');
+        var catId    = (card.dataset.categoriaCustoId  || '');
+        var store    = (card.dataset.store             || '');
+        var cc       = (card.dataset.cc                || '');
 
         var matchText  = !q        || name.indexOf(q) !== -1 || nif.indexOf(q) !== -1;
-        var matchCat   = !catVal   || category === catVal;
+        var matchCat   = !catVal   || catId == catVal;
         var matchStore = !storeVal || store    === storeVal;
         var matchCC    = !ccVal    || cc       === ccVal;
 
@@ -1041,10 +1041,10 @@ function openMergePreset(srcId, tgtId) {
 
 function editSupplier(s) {
     document.getElementById('modalAddTitle').textContent = 'Editar Fornecedor';
-    document.getElementById('sSupplierId').value    = s.id            || '';
-    document.getElementById('sName').value          = s.name          || '';
-    document.getElementById('sNif').value           = s.nif           || '';
-    document.getElementById('sCategory').value      = s.category      || '';
+    document.getElementById('sSupplierId').value    = s.id                   || '';
+    document.getElementById('sName').value          = s.name                 || '';
+    document.getElementById('sNif').value           = s.nif                  || '';
+    document.getElementById('sCategory').value      = s.categoria_custo_id   || '';
     document.getElementById('sStore').value         = s.store_id      || '';
     document.getElementById('sPaymentMethod').value = s.payment_method || '';
     document.getElementById('sPaymentTerms').value  = s.payment_terms  || '';

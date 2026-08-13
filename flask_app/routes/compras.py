@@ -676,6 +676,14 @@ def review_draft(invoice_id):
                 flash('Selecciona um fornecedor existente ou cria um novo antes de registar.', 'warning')
                 return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
 
+        # Auto-populate categoria_custo_id from the resolved supplier's default if
+        # the user left the field blank (OCR or manual review form without explicit pick).
+        if supplier_id and not categoria_custo_id:
+            from db.faturas import get_supplier_by_id as _gsbi_cat
+            _sup_data = _gsbi_cat(supplier_id)
+            if _sup_data and _sup_data.get('categoria_custo_id'):
+                categoria_custo_id = _sup_data['categoria_custo_id']
+
         update_invoice(invoice_id, {
             'supplier_id': supplier_id,
             'supplier_name': supplier_name,
@@ -1043,6 +1051,9 @@ def nova_fatura():
                 supplier_id = _s['id']
                 supplier_name = _s['name']
                 supplier_nif = _s.get('nif') or None
+                # Auto-populate categoria_custo_id from supplier default if user didn't set one
+                if not categoria_custo_id and _s.get('categoria_custo_id'):
+                    categoria_custo_id = _s['categoria_custo_id']
             else:
                 flash('Fornecedor não encontrado. Seleciona um fornecedor válido.', 'warning')
                 return redirect(url_for('compras.nova_fatura'))

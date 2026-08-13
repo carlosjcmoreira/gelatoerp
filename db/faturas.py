@@ -125,10 +125,12 @@ def get_supplier_by_id(supplier_id: int) -> dict:
         cursor.execute("""
             SELECT s.id, s.name, s.nif, s.category, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
-                   s.centro_custo_id, cc.name AS centro_custo_name
+                   s.centro_custo_id, cc.name AS centro_custo_name,
+                   s.categoria_custo_id, ccat.name AS categoria_custo_name
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
+            LEFT JOIN cost_categories ccat ON s.categoria_custo_id = ccat.id
             WHERE s.id = %s
         """, (supplier_id,))
         row = cursor.fetchone()
@@ -136,14 +138,16 @@ def get_supplier_by_id(supplier_id: int) -> dict:
         return {'id': row[0], 'name': row[1], 'nif': row[2], 'category': row[3],
                 'store_id': row[4], 'notes': row[5], 'store_name': row[6],
                 'payment_method': row[7], 'payment_terms': row[8], 'iban': row[9],
-                'centro_custo_id': row[10], 'centro_custo_name': row[11]}
+                'centro_custo_id': row[10], 'centro_custo_name': row[11],
+                'categoria_custo_id': row[12], 'categoria_custo_name': row[13]}
     return None
 
 
 def update_supplier(supplier_id: int, name: str, nif: str = None, category: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
-                    iban: str = None, centro_custo_id: int = None) -> bool:
+                    iban: str = None, centro_custo_id: int = None,
+                    categoria_custo_id: int = None) -> bool:
     """Update an existing supplier by primary key. Returns True if a row was updated."""
     nif = _normalize_nif(nif)
     with db_connection() as conn:
@@ -159,11 +163,12 @@ def update_supplier(supplier_id: int, name: str, nif: str = None, category: str 
                 payment_terms = %s,
                 iban = %s,
                 centro_custo_id = %s,
+                categoria_custo_id = %s,
                 updated_at = NOW()
             WHERE id = %s
         """, (name, nif or None, category or None, store_id,
               notes or None, payment_method or None, payment_terms or None,
-              iban or None, centro_custo_id or None, supplier_id))
+              iban or None, centro_custo_id or None, categoria_custo_id or None, supplier_id))
         updated = cursor.rowcount > 0
         # Propagate the canonical name to all invoices linked to this supplier
         if updated:
@@ -181,7 +186,7 @@ def patch_supplier(supplier_id: int, **fields) -> bool:
     Allowed field names: category, store_id, payment_method, payment_terms,
     centro_custo_id.  Returns True if a row was updated.
     """
-    _ALLOWED = {'category', 'store_id', 'payment_method', 'payment_terms', 'centro_custo_id'}
+    _ALLOWED = {'category', 'store_id', 'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
     to_set = {k: v for k, v in fields.items() if k in _ALLOWED}
     if not to_set:
         return False
@@ -223,7 +228,8 @@ def get_supplier_name_mismatches() -> list:
 def upsert_supplier(name: str, nif: str = None, category: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
-                    iban: str = None, centro_custo_id: int = None) -> int:
+                    iban: str = None, centro_custo_id: int = None,
+                    categoria_custo_id: int = None) -> int:
     nif = _normalize_nif(nif)
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -231,8 +237,8 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
             cursor.execute("""
                 INSERT INTO suppliers (name, nif, category, store_id, notes,
                                        payment_method, payment_terms, iban,
-                                       centro_custo_id, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                       centro_custo_id, categoria_custo_id, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
                     name = EXCLUDED.name,
                     category = EXCLUDED.category,
@@ -242,9 +248,10 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                     payment_terms = COALESCE(EXCLUDED.payment_terms, suppliers.payment_terms),
                     iban = COALESCE(EXCLUDED.iban, suppliers.iban),
                     centro_custo_id = COALESCE(EXCLUDED.centro_custo_id, suppliers.centro_custo_id),
+                    categoria_custo_id = COALESCE(EXCLUDED.categoria_custo_id, suppliers.categoria_custo_id),
                     updated_at = NOW()
                 RETURNING id
-            """, (name, nif, category, store_id, notes, payment_method, payment_terms, iban, centro_custo_id or None))
+            """, (name, nif, category, store_id, notes, payment_method, payment_terms, iban, centro_custo_id or None, categoria_custo_id or None))
         else:
             # No NIF — look up by name first to avoid duplicates
             cursor.execute(
@@ -263,11 +270,12 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                         payment_terms = COALESCE(%s, payment_terms),
                         iban = COALESCE(%s, iban),
                         centro_custo_id = COALESCE(%s, centro_custo_id),
+                        categoria_custo_id = COALESCE(%s, categoria_custo_id),
                         updated_at = NOW()
                     WHERE id = %s
                 """, (name, category, store_id, notes,
                       payment_method, payment_terms, iban,
-                      centro_custo_id or None, supplier_id))
+                      centro_custo_id or None, categoria_custo_id or None, supplier_id))
                 # Propagate canonical name to all already-linked invoices
                 cursor.execute(
                     "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
@@ -278,11 +286,11 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                     cursor.execute("""
                         INSERT INTO suppliers (name, category, store_id, notes,
                                                payment_method, payment_terms, iban,
-                                               centro_custo_id, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                                               centro_custo_id, categoria_custo_id, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                         RETURNING id
                     """, (name, category, store_id, notes, payment_method, payment_terms, iban,
-                          centro_custo_id or None))
+                          centro_custo_id or None, categoria_custo_id or None))
                     supplier_id = cursor.fetchone()[0]
                 except psycopg2.errors.UniqueViolation:
                     # Race condition: another worker inserted the same name concurrently.
@@ -306,11 +314,12 @@ def upsert_supplier(name: str, nif: str = None, category: str = None,
                             payment_terms = COALESCE(%s, payment_terms),
                             iban = COALESCE(%s, iban),
                             centro_custo_id = COALESCE(%s, centro_custo_id),
+                            categoria_custo_id = COALESCE(%s, categoria_custo_id),
                             updated_at = NOW()
                         WHERE id = %s
                     """, (name, category, store_id, notes,
                           payment_method, payment_terms, iban,
-                          centro_custo_id or None, supplier_id))
+                          centro_custo_id or None, categoria_custo_id or None, supplier_id))
                     # Propagate canonical name to all already-linked invoices
                     cursor.execute(
                         "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
@@ -737,14 +746,17 @@ def get_suppliers_with_invoice_count() -> list:
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
                    COUNT(i.id) AS invoice_count,
                    COALESCE(SUM(i.amount_eur), 0) AS total_spend,
-                   s.centro_custo_id, cc.name AS centro_custo_name
+                   s.centro_custo_id, cc.name AS centro_custo_name,
+                   s.categoria_custo_id, ccat.name AS categoria_custo_name
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
+            LEFT JOIN cost_categories ccat ON s.categoria_custo_id = ccat.id
             LEFT JOIN invoices i ON i.supplier_id = s.id AND i.status != 'draft'
             GROUP BY s.id, s.name, s.nif, s.category, s.store_id, s.notes,
                      st.name, s.payment_method, s.payment_terms, s.iban,
-                     s.centro_custo_id, cc.name
+                     s.centro_custo_id, cc.name,
+                     s.categoria_custo_id, ccat.name
             ORDER BY s.name
         """)
         rows = cursor.fetchall()
@@ -753,7 +765,8 @@ def get_suppliers_with_invoice_count() -> list:
              'payment_method': r[7], 'payment_terms': r[8], 'iban': r[9],
              'invoice_count': int(r[10]),
              'total_spend': float(r[11]),
-             'centro_custo_id': r[12], 'centro_custo_name': r[13]} for r in rows]
+             'centro_custo_id': r[12], 'centro_custo_name': r[13],
+             'categoria_custo_id': r[14], 'categoria_custo_name': r[15]} for r in rows]
 
 
 def backfill_supplier_ids() -> dict:

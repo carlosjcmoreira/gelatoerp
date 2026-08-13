@@ -52,7 +52,9 @@ from db.schema import run_migrations_pdf_filename_backfill
 from db.schema import run_migrations_b2b, run_migrations_faturas_clientes_status
 from db.schema import run_migrations_faturas_clientes_data_pagamento
 from db.schema import run_migrations_contabilidade, run_migrations_invoice_payment_audit
-from db.schema import run_migrations_supplier_entidade_governamental, run_migrations_cost_category_is_cmvmc
+from db.schema import (run_migrations_supplier_entidade_governamental,
+                       run_migrations_cost_category_is_cmvmc,
+                       run_migrations_supplier_categoria_custo)
 from db.orcamento import run_migrations_orcamento
 from db.faturas import run_migrations_saved_invoice_views, run_migrations_invoice_audit_complete
 from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clientes
@@ -204,6 +206,7 @@ def create_app():
         run_migrations_supplier_entidade_governamental()
         run_migrations_orcamento()
         run_migrations_cost_category_is_cmvmc()
+        run_migrations_supplier_categoria_custo()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()
