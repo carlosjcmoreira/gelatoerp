@@ -38,6 +38,7 @@ from db.faturas import (
     get_stores_list,
     get_distinct_supplier_names,
     get_supplier_by_alias,
+    get_supplier_by_id,
     get_invoice_status_labels_map,
     find_similar_suppliers,
     INVOICE_CATEGORIES,
@@ -730,6 +731,15 @@ def review_draft(invoice_id):
             _ocr_raw = json.loads(_ocr_raw)
         except (json.JSONDecodeError, TypeError):
             _ocr_raw = {}
+
+    # Pre-fill categoria_custo_id from supplier default when the draft has none
+    if inv.get('supplier_id') and not inv.get('categoria_custo_id'):
+        try:
+            _sup = get_supplier_by_id(inv['supplier_id'])
+            if _sup and _sup.get('categoria_custo_id'):
+                inv['categoria_custo_id'] = _sup['categoria_custo_id']
+        except Exception:
+            pass
 
     # Supplier suggestion logic: only for invoice-type docs without a linked supplier
     _similar_suppliers = []
