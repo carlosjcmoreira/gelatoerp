@@ -133,6 +133,7 @@ def dashboard():
 @any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — invoice listing
 def index():
     from urllib.parse import urlencode
+    from db.centros_custo import get_cost_categories as _gccat
     view = request.args.get('view', 'documento')
     today = date.today()
 
@@ -193,8 +194,10 @@ def index():
             invoices=[],
             confirming_contracts=confirming_contracts,
             payment_methods=payment_methods,
-            cost_centers=[],
+            cost_centers=get_cost_centers(ativo_only=True),
             cost_categories_tree=[],
+            cost_categories=_gccat(ativo_only=True),
+            stores=get_stores_list(),
             centro_custo_filter=None,
             categoria_custo_filter=None,
             document_type_labels=DOCUMENT_TYPE_LABELS,
@@ -260,6 +263,8 @@ def index():
             payment_methods=payment_methods,
             cost_centers=get_cost_centers(ativo_only=True),
             cost_categories_tree=[],
+            cost_categories=_gccat(ativo_only=True),
+            stores=get_stores_list(),
             centro_custo_filter=None,
             categoria_custo_filter=None,
             document_type_labels=DOCUMENT_TYPE_LABELS,
@@ -324,8 +329,10 @@ def index():
             today=today,
             confirming_contracts=confirming_contracts,
             payment_methods=payment_methods,
-            cost_centers=[],
+            cost_centers=get_cost_centers(ativo_only=True),
             cost_categories_tree=[],
+            cost_categories=_gccat(ativo_only=True),
+            stores=get_stores_list(),
             centro_custo_filter=None,
             categoria_custo_filter=None,
             sem_categoria_only=sem_categoria_only,
@@ -488,6 +495,7 @@ def index():
     stores = get_stores_list()
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
+    cost_categories = _gccat(ativo_only=True)
     all_supplier_names = get_distinct_supplier_names()
 
     # KPI dashboard — scheduled / next VAT
@@ -554,6 +562,7 @@ def index():
         payment_methods=payment_methods,
         cost_centers=cost_centers,
         cost_categories_tree=cost_categories_tree,
+        cost_categories=cost_categories,
         centro_custo_filter=centro_custo_filter,
         categoria_custo_filter=categoria_custo_filter,
         document_type_filter=document_type_filter,
@@ -793,6 +802,33 @@ def bulk_action():
                 logger.error('bulk delete id=%s: %s', inv_id, e)
                 fail += 1
         msg = f'{ok} fatura(s) eliminada(s).'
+        if fail:
+            msg += f' {fail} falharam (ver logs).'
+        flash(msg, 'success' if not fail else 'warning')
+    elif action == 'assign_field':
+        _ASSIGN_ALLOWED = {'categoria_custo_id', 'store_id', 'centro_custo_id'}
+        field = request.form.get('field', '').strip()
+        if field not in _ASSIGN_ALLOWED:
+            flash('Campo inválido.', 'warning')
+            return redirect(return_url)
+        raw_value = request.form.get('value', '').strip()
+        value = int(raw_value) if raw_value.isdigit() else None
+        current_user = session.get('user', {}).get('username', 'sistema')
+        ok = 0
+        fail = 0
+        for inv_id in ids:
+            try:
+                update_invoice(inv_id, {field: value}, changed_by=current_user)
+                ok += 1
+            except Exception as e:
+                logger.error('bulk assign_field id=%s field=%s: %s', inv_id, field, e)
+                fail += 1
+        _field_labels = {
+            'categoria_custo_id': 'Categoria',
+            'store_id': 'Loja',
+            'centro_custo_id': 'Centro de Custo',
+        }
+        msg = f'{ok} fatura(s) actualizadas ({_field_labels.get(field, field)}).'
         if fail:
             msg += f' {fail} falharam (ver logs).'
         flash(msg, 'success' if not fail else 'warning')

@@ -165,6 +165,8 @@
         <input type="hidden" name="bulk_payment_method" id="forn-pm-hidden" value="">
         <input type="hidden" name="bulk_confirming_contract_id" id="forn-confirming-hidden" value="">
         <input type="hidden" name="force_duplicate" id="forn-force-dup-hidden" value="0">
+        <input type="hidden" name="field" id="forn-field-val" value="">
+        <input type="hidden" name="value" id="forn-value-val" value="">
         <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='fornecedor') }}">
 
         <!-- Bulk action bar -->
@@ -184,6 +186,19 @@
                        value="{{ today.isoformat() }}">
             </div>
             <button type="button" class="btn btn-sm btn-primary" onclick="submitFornBulk()">Aplicar</button>
+            <span class="vr mx-1"></span>
+            <select id="forn-field-select" class="form-select form-select-sm" style="width:auto"
+                    onchange="_bulkFieldChange('forn-field-select','forn-field-value-select','forn-assign-btn')">
+                <option value="">— Alterar campo —</option>
+                <option value="categoria_custo_id">Categoria</option>
+                <option value="store_id">Loja</option>
+                <option value="centro_custo_id">Centro de Custo</option>
+            </select>
+            <select id="forn-field-value-select" class="form-select form-select-sm" style="width:auto" disabled>
+                <option value="">— Valor —</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-success" id="forn-assign-btn"
+                    onclick="submitFornBulkAssign()" disabled>Aplicar campo</button>
         </div>
 
         {% for grupo in grupos %}
@@ -361,8 +376,33 @@
         </div>
     </form>
 
+    <!-- Bulk assign bar (Por centro de custo) -->
+    <div id="cc-bulk-bar" class="d-none mb-3 p-2 bg-light border rounded align-items-center gap-2 flex-wrap">
+        <span class="small fw-semibold" id="cc-bulk-count"></span>
+        <select id="cc-field-select" class="form-select form-select-sm" style="width:auto"
+                onchange="_bulkFieldChange('cc-field-select','cc-value-select','cc-assign-btn')">
+            <option value="">— Alterar campo —</option>
+            <option value="categoria_custo_id">Categoria</option>
+            <option value="store_id">Loja</option>
+            <option value="centro_custo_id">Centro de Custo</option>
+        </select>
+        <select id="cc-value-select" class="form-select form-select-sm" style="width:auto" disabled>
+            <option value="">— Valor —</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-outline-success" id="cc-assign-btn"
+                onclick="_submitExternalAssign('cc-field-select','cc-value-select','inv-cb-cc','bulk-form-cc','cc-field-val','cc-value-val')"
+                disabled>Aplicar campo</button>
+    </div>
+    <form id="bulk-form-cc" action="{{ url_for('faturas.bulk_action') }}" method="post" style="display:none">
+        <input type="hidden" name="action" value="assign_field">
+        <input type="hidden" name="field" id="cc-field-val" value="">
+        <input type="hidden" name="value" id="cc-value-val" value="">
+        <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='centro_custo') }}">
+    </form>
+
     {% if grupos_cc %}
     {% for grupo in grupos_cc %}
+    {% set grupo_idx = loop.index0 %}
     <div class="card mb-3">
         <div class="card-header small fw-semibold d-flex justify-content-between align-items-center py-2">
             <span>{{ grupo.label }}</span>
@@ -373,6 +413,8 @@
             <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
                 <thead class="table-light">
                     <tr>
+                        <th style="width:28px"><input type="checkbox" class="form-check-input"
+                            onchange="_selectAllGroup(this,'inv-cb-cc-g{{ grupo_idx }}','_ccUpdateBar')"></th>
                         <th>Fornecedor</th>
                         <th>Nº Documento</th>
                         <th>Emissão</th>
@@ -384,6 +426,8 @@
                 <tbody>
                 {% for inv in grupo.invoices %}
                 <tr>
+                    <td><input type="checkbox" class="form-check-input inv-cb-cc inv-cb-cc-g{{ grupo_idx }}"
+                               value="{{ inv.id }}" onchange="_ccUpdateBar()"></td>
                     <td><a href="{{ url_for('pagamentos.detalhe_fatura', invoice_id=inv.id) }}"
                            class="text-decoration-none">{{ inv.supplier_name }}</a></td>
                     <td class="text-muted">{{ inv.invoice_number or '—' }}</td>
@@ -478,8 +522,33 @@
         </div>
     </form>
 
+    <!-- Bulk assign bar (Por categoria de custo) -->
+    <div id="cat-bulk-bar" class="d-none mb-3 p-2 bg-light border rounded align-items-center gap-2 flex-wrap">
+        <span class="small fw-semibold" id="cat-bulk-count"></span>
+        <select id="cat-field-select" class="form-select form-select-sm" style="width:auto"
+                onchange="_bulkFieldChange('cat-field-select','cat-value-select','cat-assign-btn')">
+            <option value="">— Alterar campo —</option>
+            <option value="categoria_custo_id">Categoria</option>
+            <option value="store_id">Loja</option>
+            <option value="centro_custo_id">Centro de Custo</option>
+        </select>
+        <select id="cat-value-select" class="form-select form-select-sm" style="width:auto" disabled>
+            <option value="">— Valor —</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-outline-success" id="cat-assign-btn"
+                onclick="_submitExternalAssign('cat-field-select','cat-value-select','inv-cb-cat','bulk-form-cat','cat-field-val','cat-value-val')"
+                disabled>Aplicar campo</button>
+    </div>
+    <form id="bulk-form-cat" action="{{ url_for('faturas.bulk_action') }}" method="post" style="display:none">
+        <input type="hidden" name="action" value="assign_field">
+        <input type="hidden" name="field" id="cat-field-val" value="">
+        <input type="hidden" name="value" id="cat-value-val" value="">
+        <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='categoria_custo') }}">
+    </form>
+
     {% if grupos_cat %}
     {% for grupo in grupos_cat %}
+    {% set grupo_idx = loop.index0 %}
     <div class="card mb-3">
         <div class="card-header small fw-semibold d-flex justify-content-between align-items-center py-2">
             <span>{{ grupo.label }}</span>
@@ -490,6 +559,8 @@
             <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
                 <thead class="table-light">
                     <tr>
+                        <th style="width:28px"><input type="checkbox" class="form-check-input"
+                            onchange="_selectAllGroup(this,'inv-cb-cat-g{{ grupo_idx }}','_catUpdateBar')"></th>
                         <th>Fornecedor</th>
                         <th>Nº Documento</th>
                         <th>Emissão</th>
@@ -501,6 +572,8 @@
                 <tbody>
                 {% for inv in grupo.invoices %}
                 <tr>
+                    <td><input type="checkbox" class="form-check-input inv-cb-cat inv-cb-cat-g{{ grupo_idx }}"
+                               value="{{ inv.id }}" onchange="_catUpdateBar()"></td>
                     <td><a href="{{ url_for('pagamentos.detalhe_fatura', invoice_id=inv.id) }}"
                            class="text-decoration-none">{{ inv.supplier_name }}</a></td>
                     <td class="text-muted">{{ inv.invoice_number or '—' }}</td>
@@ -847,6 +920,8 @@
         <input type="hidden" name="bulk_nparcelas" id="bulk-nparcelas-hidden" value="1">
         <input type="hidden" name="bulk_freq" id="bulk-freq-hidden" value="none">
         <input type="hidden" name="force_duplicate" id="bulk-force-dup-hidden" value="0">
+        <input type="hidden" name="field" id="bulk-field-val" value="">
+        <input type="hidden" name="value" id="bulk-value-val" value="">
         <input type="hidden" name="return_url" value="{{ request.url }}">
 
         <!-- Bulk action bar (hidden until ≥1 row selected) -->
@@ -867,6 +942,19 @@
             </div>
             <button type="button" class="btn btn-sm btn-primary" onclick="submitBulk('change_status')">Aplicar</button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="submitBulkDelete()">Eliminar selecionadas</button>
+            <span class="vr mx-1"></span>
+            <select id="bulk-field-select" class="form-select form-select-sm" style="width:auto"
+                    onchange="_bulkFieldChange('bulk-field-select','bulk-field-value-select','bulk-assign-btn')">
+                <option value="">— Alterar campo —</option>
+                <option value="categoria_custo_id">Categoria</option>
+                <option value="store_id">Loja</option>
+                <option value="centro_custo_id">Centro de Custo</option>
+            </select>
+            <select id="bulk-field-value-select" class="form-select form-select-sm" style="width:auto" disabled>
+                <option value="">— Valor —</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-success" id="bulk-assign-btn"
+                    onclick="submitBulkAssign()" disabled>Aplicar campo</button>
         </div>
 
         <!-- Sortable table — column menus via ⋯ trigger filter bar -->
@@ -1107,6 +1195,72 @@
 {% endif %}
 </div>
 
+<script>
+/* ── Bulk field-assign: shared helpers (all views) ──────────────────────────── */
+var _BULK_FIELD_OPTS = {
+    categoria_custo_id: [
+        { v: '', l: '— Sem categoria —' },
+        {% for cc in cost_categories %}{ v: '{{ cc.id }}', l: {{ cc.name | tojson }} },
+        {% endfor %}
+    ],
+    store_id: [
+        { v: '', l: '— Sem loja —' },
+        {% for st in stores %}{ v: '{{ st.id }}', l: {{ st.name | tojson }} },
+        {% endfor %}
+    ],
+    centro_custo_id: [
+        { v: '', l: '— Sem centro —' },
+        {% for cc in cost_centers %}{ v: '{{ cc.id }}', l: {{ cc.name | tojson }} },
+        {% endfor %}
+    ],
+};
+
+function _bulkFieldChange(fieldSelId, valSelId, btnId) {
+    var field = document.getElementById(fieldSelId).value;
+    var valSel = document.getElementById(valSelId);
+    var btn = btnId ? document.getElementById(btnId) : null;
+    valSel.innerHTML = '';
+    if (!field) {
+        valSel.disabled = true;
+        if (btn) btn.disabled = true;
+        return;
+    }
+    (_BULK_FIELD_OPTS[field] || []).forEach(function(o) {
+        var el = document.createElement('option');
+        el.value = o.v;
+        el.textContent = o.l;
+        valSel.appendChild(el);
+    });
+    valSel.disabled = false;
+    if (btn) btn.disabled = false;
+}
+
+function _selectAllGroup(headerCb, groupClass, updateFnName) {
+    document.querySelectorAll('.' + groupClass).forEach(function(cb) {
+        cb.checked = headerCb.checked;
+    });
+    if (updateFnName && typeof window[updateFnName] === 'function') window[updateFnName]();
+}
+
+function _submitExternalAssign(fieldSelId, valSelId, cbClass, formId, fieldHiddenId, valueHiddenId) {
+    var field = document.getElementById(fieldSelId).value;
+    var value = document.getElementById(valSelId).value;
+    if (!field) { alert('Selecione um campo para alterar.'); return; }
+    var checked = document.querySelectorAll('.' + cbClass + ':checked');
+    if (checked.length === 0) { alert('Selecione pelo menos um documento.'); return; }
+    document.getElementById(fieldHiddenId).value = field;
+    document.getElementById(valueHiddenId).value = value;
+    var form = document.getElementById(formId);
+    form.querySelectorAll('input[name="ids"]').forEach(function(el) { el.remove(); });
+    checked.forEach(function(cb) {
+        var inp = document.createElement('input');
+        inp.type = 'hidden'; inp.name = 'ids'; inp.value = cb.value;
+        form.appendChild(inp);
+    });
+    form.requestSubmit();
+}
+</script>
+
 {% if view == 'fornecedor' and grupos %}
 <script>
 (function () {
@@ -1206,6 +1360,55 @@
         }
         form.requestSubmit();
     };
+
+    window.submitFornBulkAssign = function () {
+        var field = document.getElementById('forn-field-select').value;
+        var value = document.getElementById('forn-field-value-select').value;
+        if (!field) { alert('Selecione um campo para alterar.'); return; }
+        if (getCheckedCbs().length === 0) { alert('Selecione pelo menos um documento.'); return; }
+        document.getElementById('forn-action-val').value = 'assign_field';
+        document.getElementById('forn-field-val').value = field;
+        document.getElementById('forn-value-val').value = value;
+        form.requestSubmit();
+    };
+})();
+</script>
+{% endif %}
+
+{% if view == 'centro_custo' %}
+<script>
+(function () {
+    function getCheckedCC() { return document.querySelectorAll('.inv-cb-cc:checked'); }
+    window._ccUpdateBar = function () {
+        var n = getCheckedCC().length;
+        var bar = document.getElementById('cc-bulk-bar');
+        var countEl = document.getElementById('cc-bulk-count');
+        if (n > 0) {
+            bar.classList.remove('d-none'); bar.classList.add('d-flex');
+            countEl.textContent = n + ' fatura(s)';
+        } else {
+            bar.classList.add('d-none'); bar.classList.remove('d-flex');
+        }
+    };
+})();
+</script>
+{% endif %}
+
+{% if view == 'categoria_custo' %}
+<script>
+(function () {
+    function getCheckedCat() { return document.querySelectorAll('.inv-cb-cat:checked'); }
+    window._catUpdateBar = function () {
+        var n = getCheckedCat().length;
+        var bar = document.getElementById('cat-bulk-bar');
+        var countEl = document.getElementById('cat-bulk-count');
+        if (n > 0) {
+            bar.classList.remove('d-none'); bar.classList.add('d-flex');
+            countEl.textContent = n + ' fatura(s)';
+        } else {
+            bar.classList.add('d-none'); bar.classList.remove('d-flex');
+        }
+    };
 })();
 </script>
 {% endif %}
@@ -1297,6 +1500,16 @@
         const n = getChecked().length;
         if (!confirm('Eliminar ' + n + ' fatura(s) permanentemente?\nEsta acção não pode ser desfeita.')) return;
         submitBulk('delete');
+    };
+
+    window.submitBulkAssign = function () {
+        var field = document.getElementById('bulk-field-select').value;
+        var value = document.getElementById('bulk-field-value-select').value;
+        if (!field) { alert('Selecione um campo para alterar.'); return; }
+        if (getChecked().length === 0) { alert('Selecione pelo menos um documento.'); return; }
+        document.getElementById('bulk-field-val').value = field;
+        document.getElementById('bulk-value-val').value = value;
+        submitBulk('assign_field');
     };
 })();
 </script>
