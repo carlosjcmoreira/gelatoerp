@@ -326,7 +326,6 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
             supplier_id = upsert_supplier(
                 name=supplier_name,
                 nif=supplier_nif,
-                category=category or None,
                 store_id=store_id,
                 payment_method=supplier_payment_method,
                 payment_terms=supplier_payment_terms,

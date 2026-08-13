@@ -143,17 +143,12 @@ def get_supplier_by_id(supplier_id: int) -> dict:
     return None
 
 
-def update_supplier(supplier_id: int, name: str, nif: str = None, category: str = None,
+def update_supplier(supplier_id: int, name: str, nif: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
                     iban: str = None, centro_custo_id: int = None,
                     categoria_custo_id: int = None) -> bool:
-    """Update an existing supplier by primary key. Returns True if a row was updated.
-
-    The ``category`` parameter is accepted for backward compatibility but is
-    intentionally ignored — the legacy free-text column is no longer written;
-    use ``categoria_custo_id`` (FK) instead.
-    """
+    """Update an existing supplier by primary key. Returns True if a row was updated."""
     nif = _normalize_nif(nif)
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -232,17 +227,12 @@ def get_supplier_name_mismatches() -> list:
         return [dict(zip(cols, row)) for row in cursor.fetchall()]
 
 
-def upsert_supplier(name: str, nif: str = None, category: str = None,
+def upsert_supplier(name: str, nif: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
                     iban: str = None, centro_custo_id: int = None,
                     categoria_custo_id: int = None) -> int:
-    """Insert or update a supplier row.
-
-    The ``category`` parameter is accepted for backward compatibility but is
-    intentionally ignored — the legacy free-text column is no longer written;
-    use ``categoria_custo_id`` (FK) instead.
-    """
+    """Insert or update a supplier row."""
     nif = _normalize_nif(nif)
     with db_connection() as conn:
         cursor = conn.cursor()
