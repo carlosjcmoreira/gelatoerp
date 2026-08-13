@@ -187,8 +187,11 @@ def update_supplier(supplier_id: int, name: str, nif: str = None, category: str 
 def patch_supplier(supplier_id: int, **fields) -> bool:
     """Patch a subset of supplier fields without overwriting other fields.
 
-    Allowed field names: category, store_id, payment_method, payment_terms,
-    centro_custo_id.  Returns True if a row was updated.
+    Allowed field names: store_id, payment_method, payment_terms,
+    centro_custo_id, categoria_custo_id.  Returns True if a row was updated.
+
+    Note: ``category`` (legacy free-text column) is intentionally excluded —
+    use ``categoria_custo_id`` (FK) instead.
     """
     _ALLOWED = {'store_id', 'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
     to_set = {k: v for k, v in fields.items() if k in _ALLOWED}
