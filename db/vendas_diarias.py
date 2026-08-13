@@ -98,17 +98,23 @@ def get_produto_alias_match_counts(nomes_antigos: list) -> dict:
 
 
 def get_produto_names_by_activity() -> dict:
-    """Return {'active': [...], 'historic': [...]} from vendas_detalhe.
+    """Return {'active': [...], 'historic': [...]} from vendas_detalhe + sales_historico.
 
-    Active = product has sales in the current calendar year.
-    Historic = only has data in prior years (or no data at all beyond POS config).
+    Active = product has sales in the current calendar year (in either table).
+    Historic = only has data in prior years across both tables.
+    Products present only in sales_historico (pre-Gestor data) are included so
+    managers can select them when creating aliases without typing names manually.
     """
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute("""
             SELECT produto,
                    MAX(EXTRACT(YEAR FROM data))::int AS max_year
-            FROM vendas_detalhe
+            FROM (
+                SELECT produto, data FROM vendas_detalhe
+                UNION ALL
+                SELECT produto, data FROM sales_historico
+            ) t
             GROUP BY produto
         """)
         rows = cur.fetchall()
