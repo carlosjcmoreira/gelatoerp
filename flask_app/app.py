@@ -43,7 +43,6 @@ from db.schema import run_migrations_suppliers_nullable_nif, run_migrations_norm
 from db.schema import run_migrations_onedrive_retry
 from db.schema import run_migrations_invoice_centros_custo, run_migrations_invoice_installments
 from db.schema import run_migrations_supplier_aliases
-from db.schema import run_migrations_supplier_centro_custo
 from db.schema import run_migrations_normalise_producao_sabores
 from db.schema import run_migrations_quantidade_kg_to_numeric
 from db.schema import run_migrations_loja_origem
@@ -58,6 +57,7 @@ from db.schema import (run_migrations_supplier_entidade_governamental,
 from db.orcamento import run_migrations_orcamento
 from db.faturas import run_migrations_saved_invoice_views, run_migrations_invoice_audit_complete
 from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clientes
+from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
 
 
 def _start_sheets_sync_scheduler():
@@ -213,6 +213,10 @@ def create_app():
         except Exception as _bk_exc:
             logger.warning('backfill_supplier_ids startup failed: %s', _bk_exc)
         try:
+            run_backfill_invoice_categoria_custo()
+        except Exception as _bic_exc:
+            logger.warning('run_backfill_invoice_categoria_custo startup failed: %s', _bic_exc)
+        try:
             _promote_overdue_faturas_clientes()
         except Exception as _po_exc:
             logger.warning('promote_overdue (faturas_clientes) startup failed: %s', _po_exc)
@@ -361,8 +365,6 @@ def create_app():
         return render_template('errors/500.html'), 500
 
     return app
-
-
 
 
 if __name__ == '__main__':

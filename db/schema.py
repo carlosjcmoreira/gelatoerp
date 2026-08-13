@@ -4550,3 +4550,46 @@ def run_migrations_supplier_centro_custo():
                 conn.rollback()
             except Exception:
                 pass
+
+
+_LOCK_BACKFILL_INVOICE_CATEGORIA_CUSTO = 202705
+
+
+def run_backfill_invoice_categoria_custo():
+    """Set invoices.categoria_custo_id from the linked supplier's default category.
+
+    Advisory lock 202705 (transaction-scoped — released automatically on
+    commit or rollback, safe for connection pools).  Only touches non-draft
+    invoices where categoria_custo_id IS NULL and supplier_id IS NOT NULL and
+    the supplier itself has a default categoria_custo_id set.
+    Idempotent — safe to run more than once.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        # pg_try_advisory_xact_lock releases automatically at transaction end,
+        # so it is safe in connection pools (no lock leak between requests).
+        cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", (_LOCK_BACKFILL_INVOICE_CATEGORIA_CUSTO,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_backfill_invoice_categoria_custo: lock held, skipping")
+            return
+        try:
+            cursor.execute("""
+                UPDATE invoices i
+                SET categoria_custo_id = s.categoria_custo_id
+                FROM suppliers s
+                WHERE i.supplier_id = s.id
+                  AND i.categoria_custo_id IS NULL
+                  AND s.categoria_custo_id IS NOT NULL
+                  AND COALESCE(i.status, '') != 'draft'
+            """)
+            affected = cursor.rowcount
+            conn.commit()
+            logger.info(
+                "run_backfill_invoice_categoria_custo: updated %d invoices", affected
+            )
+        except Exception as exc:
+            logger.error("run_backfill_invoice_categoria_custo failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
