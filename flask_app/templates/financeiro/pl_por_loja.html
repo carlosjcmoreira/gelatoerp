@@ -395,9 +395,15 @@ thead .col-label { z-index: 3; }
         {% if mapa.unallocated_invoice_count %}
         <a href="{{ url_for('faturas.index') }}?sem_cc=1&date_from={{ mapa.ano }}-01-01&date_to={{ mapa.ano }}-12-31&date_field=issue_date"
            class="badge bg-warning text-dark ms-1 text-decoration-none"
-           title="Faturas sem Centro de Custo atribuído">
+           title="Faturas sem Centro de Custo atribuído — clique para atribuir">
             {{ mapa.unallocated_invoice_count }} fatura{{ 's' if mapa.unallocated_invoice_count != 1 else '' }} sem CC — atribuir →
         </a>
+        {% endif %}
+        {% if mapa.shared_cc_no_hist_invoice_count %}
+        <span class="badge bg-secondary ms-1"
+              title="Estas faturas têm um CC partilhado (ex: Geral, Produção) mas não existe histórico de vendas para calcular a distribuição proporcional por loja. Carregue dados de vendas no módulo Gestor para que a distribuição seja calculada automaticamente.">
+            {{ mapa.shared_cc_no_hist_invoice_count }} fatura{{ 's' if mapa.shared_cc_no_hist_invoice_count != 1 else '' }} CC partilhado sem histórico de vendas ⓘ
+        </span>
         {% endif %}
     </td>
     {% for m in range(1,13) %}
@@ -537,9 +543,15 @@ thead .col-label { z-index: 3; }
         {% if mapa.unallocated_invoice_count %}
         <a href="{{ url_for('faturas.index') }}?sem_cc=1&date_from={{ mapa.ano }}-01-01&date_to={{ mapa.ano }}-12-31&date_field=issue_date"
            class="badge bg-warning text-dark ms-1 text-decoration-none"
-           title="Faturas sem Centro de Custo atribuído">
+           title="Faturas sem Centro de Custo atribuído — clique para atribuir">
             {{ mapa.unallocated_invoice_count }} fatura{{ 's' if mapa.unallocated_invoice_count != 1 else '' }} sem CC — atribuir →
         </a>
+        {% endif %}
+        {% if mapa.shared_cc_no_hist_invoice_count %}
+        <span class="badge bg-secondary ms-1"
+              title="Estas faturas têm um CC partilhado (ex: Geral, Produção) mas não existe histórico de vendas para calcular a distribuição proporcional por loja. Carregue dados de vendas no módulo Gestor para que a distribuição seja calculada automaticamente.">
+            {{ mapa.shared_cc_no_hist_invoice_count }} fatura{{ 's' if mapa.shared_cc_no_hist_invoice_count != 1 else '' }} CC partilhado sem histórico de vendas ⓘ
+        </span>
         {% endif %}
     </td>
     {% for m in range(1,13) %}

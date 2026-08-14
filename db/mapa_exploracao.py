@@ -88,7 +88,9 @@ def _resolve_cc_slices(invoice_rows, junction_idx):
     This ensures conservation: the sum of all returned slice amounts for a
     given invoice always equals invoice.amount_eur.
 
-    Returns [(mes, cat_id, cc_id, amount), ...]  — cc_id may be None.
+    Returns [(inv_id, mes, cat_id, cc_id, amount), ...]  — cc_id may be None.
+    inv_id is included so downstream processors can track which invoice each
+    slice came from (e.g. to count how many invoices produced a given outcome).
     """
     slices = []
     for inv_id, mes, cat_id, legacy_cc_id, amount_eur in invoice_rows:
@@ -99,14 +101,14 @@ def _resolve_cc_slices(invoice_rows, junction_idx):
         if junc:
             total_pct = sum(pct for _, pct in junc)
             for cc_id, pct in junc:
-                slices.append((mes, cat_id, cc_id, amount * pct / 100.0))
+                slices.append((inv_id, mes, cat_id, cc_id, amount * pct / 100.0))
             remainder = amount * (100.0 - total_pct) / 100.0
             if abs(remainder) > 0.001:
                 # Remainder attributed to the legacy single-FK CC (or NULL)
-                slices.append((mes, cat_id, legacy_cc_id, remainder))
+                slices.append((inv_id, mes, cat_id, legacy_cc_id, remainder))
         else:
             # No junction rows → full amount on legacy FK (or NULL)
-            slices.append((mes, cat_id, legacy_cc_id, amount))
+            slices.append((inv_id, mes, cat_id, legacy_cc_id, amount))
 
     return slices
 
@@ -206,19 +208,24 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
 
     # ── CC-based store distribution ─────────────────────────────────────────
 
-    def _dist(amount: float, cc_id) -> dict:
-        """Map one CC-tagged slice to {store_id: amount}.
+    # True when at least one store has a non-zero sales share for distribution.
+    has_sales_history = any(sales_split.values())
 
-        store CC  → 100 % to that store
-        shared CC → proportional split by sales_split percentages
-                    if no sales history → {} (treated as unallocated)
-        no CC     → {} (unallocated)
+    def _dist(amount: float, cc_id):
+        """Map one CC-tagged slice to ({store_id: amount}, shared_no_hist).
+
+        store CC  → ({store_id: amount}, False)
+        shared CC → proportional split; if no sales history → ({}, True)
+        no CC     → ({}, False)
+
+        The boolean distinguishes "truly no CC" from "shared CC but no
+        sales history" so callers can surface the difference to users.
         """
         if cc_id is None:
-            return {}
+            return {}, False
         target_sid = cc_to_store.get(cc_id)
         if target_sid is not None:
-            return {target_sid: amount}
+            return {target_sid: amount}, False
         # Shared CC: distribute by recent sales volume
         dist = {
             sid: round(amount * sales_split.get(sid, 0) / 100.0, 4)
@@ -226,29 +233,39 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
         }
         # Guard: if all amounts are zero (no sales history), treat as unallocated
         if not any(dist.values()):
-            return {}
-        return dist
+            return {}, True  # shared CC but no sales history to distribute by
+        return dist, False
 
     def _process_slices(slices):
         """Accumulate slices into structured allocations.
 
         Returns:
-            store_alloc  : {cat_id: {store_id: {mes: float}}}
-            no_cc_by_cat : {cat_id: {mes: float}}  — cc_id=None slices
-            costs_uncat  : {mes: float}             — cat_id=None invoices
+            store_alloc              : {cat_id: {store_id: {mes: float}}}
+            no_cc_by_cat             : {cat_id: {mes: float}}  — truly no CC (cc_id=None)
+            shared_no_hist_by_cat    : {cat_id: {mes: float}}  — shared CC with no sales history
+            costs_uncat              : {mes: float}            — cat_id=None invoices
+            shared_no_hist_inv_ids   : set[int]               — invoice IDs behind shared_no_hist_by_cat
+                                       (categorized slices only; excludes cat_id=None rows which
+                                       go to costs_uncat rather than the "Não alocado" rows)
         """
-        store_alloc: dict  = {}
-        no_cc_by_cat: dict = {}
-        costs_uncat: dict  = {}
+        store_alloc: dict            = {}
+        no_cc_by_cat: dict           = {}
+        shared_no_hist_by_cat: dict  = {}
+        costs_uncat: dict            = {}
+        shared_no_hist_inv_ids: set  = set()
 
-        for mes, cat_id, cc_id, amount in slices:
+        for inv_id, mes, cat_id, cc_id, amount in slices:
             if cat_id is None:
                 costs_uncat[mes] = round(costs_uncat.get(mes, 0.0) + amount, 4)
                 continue
 
-            dist = _dist(amount, cc_id)
+            dist, shared_no_hist = _dist(amount, cc_id)
             if not dist:
-                d = no_cc_by_cat.setdefault(cat_id, {})
+                if shared_no_hist:
+                    d = shared_no_hist_by_cat.setdefault(cat_id, {})
+                    shared_no_hist_inv_ids.add(inv_id)
+                else:
+                    d = no_cc_by_cat.setdefault(cat_id, {})
                 d[mes] = round(d.get(mes, 0.0) + amount, 4)
             else:
                 sa = store_alloc.setdefault(cat_id, {})
@@ -256,10 +273,26 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
                     ss = sa.setdefault(sid, {})
                     ss[mes] = round(ss.get(mes, 0.0) + v, 4)
 
-        return store_alloc, no_cc_by_cat, costs_uncat
+        return store_alloc, no_cc_by_cat, shared_no_hist_by_cat, costs_uncat, shared_no_hist_inv_ids
 
-    store_alloc,    no_cc_inv,    costs_uncat    = _process_slices(inv_slices)
-    store_alloc_aa, no_cc_inv_aa, costs_uncat_aa = _process_slices(inv_slices_aa)
+    (store_alloc,    no_cc_inv,    shared_no_hist_inv,
+     costs_uncat,    shared_no_hist_inv_ids)    = _process_slices(inv_slices)
+    (store_alloc_aa, no_cc_inv_aa, shared_no_hist_inv_aa,
+     costs_uncat_aa, _shared_no_hist_inv_ids_aa) = _process_slices(inv_slices_aa)
+
+    # Merge shared-CC-no-history amounts into no_cc for P&L totals so that
+    # Σ allocated + unallocated = invoice amount is conserved.
+    # The distinction is surfaced via shared_cc_no_hist_invoice_count (derived
+    # from shared_no_hist_inv_ids — the exact invoice IDs whose categorised slices
+    # fell back to unallocated), not via separate amount rows.
+    def _merge_into(target: dict, source: dict) -> None:
+        for cat_id, months in source.items():
+            for m, v in months.items():
+                d = target.setdefault(cat_id, {})
+                d[m] = round(d.get(m, 0.0) + v, 4)
+
+    _merge_into(no_cc_inv,    shared_no_hist_inv)
+    _merge_into(no_cc_inv_aa, shared_no_hist_inv_aa)
 
     # ── Aggregation helpers ─────────────────────────────────────────────────
 
@@ -381,6 +414,18 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
 
     unallocated_invoice_count = _count_sem_cc(ano)
 
+    # Count of invoices whose *categorised* slices fell back to unallocated
+    # because their CC is shared (not per-store) and there was no sales history
+    # to distribute by.  Derived directly from the resolved allocation slices so
+    # it matches the amounts shown in the "Não alocado" rows exactly:
+    #   • junction rows that total 100 % suppress the legacy CC, so those
+    #     invoices are never in shared_no_hist_inv_ids even if the legacy CC
+    #     is a shared CC.
+    #   • cat_id=None invoices go to "Sem categoria", not "Não alocado", so
+    #     they are excluded because _process_slices only adds to the set when
+    #     cat_id is not None.
+    shared_cc_no_hist_invoice_count = len(shared_no_hist_inv_ids)
+
     return {
         'mode': 'consolidated',
         'ano': ano, 'ano_aa': ano_aa, 'today': today,
@@ -401,6 +446,7 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
         'unallocated_cmvmc': unallocated_cmvmc,
         'unallocated_costs': unallocated_costs,
         'unallocated_invoice_count': unallocated_invoice_count,
+        'shared_cc_no_hist_invoice_count': shared_cc_no_hist_invoice_count,
         'costs_uncat':    {m: round(v, 2) for m, v in costs_uncat.items()},
         'costs_uncat_aa': {m: round(v, 2) for m, v in costs_uncat_aa.items()},
     }
