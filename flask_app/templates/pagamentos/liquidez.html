@@ -295,6 +295,52 @@
             {% endfor %}
             {% endif %}
 
+            {# Linha: Pessoal (salário líquido + TSU/IRS) #}
+            {% set has_pessoal = pessoal_total > 0 %}
+            {% set has_pessoal_sub = pessoal_liq_total > 0 or pessoal_imp_total > 0 %}
+            <tr class="{% if has_pessoal_sub %}category-row{% endif %}"
+                {% if has_pessoal_sub %}data-cat="pessoal" style="cursor:pointer" onclick="toggleDrill('pessoal')"{% endif %}>
+                <td class="ps-2 small">
+                    {% if has_pessoal_sub %}<span class="toggle-icon me-1" id="icon-pessoal">▶</span>{% else %}<span class="me-3"></span>{% endif %}
+                    👥 Pessoal
+                    <a href="{{ url_for('cashflow.salarios') }}" class="text-muted ms-1" style="font-size:0.7rem" title="Configurar salários">⚙️</a>
+                </td>
+                {% for w in weekly %}
+                <td class="text-end small {% if w.is_critical and w.outflows_pessoal > 0 %}text-danger{% endif %}">
+                    {{ fmt_neg(w.outflows_pessoal) }}
+                </td>
+                {% endfor %}
+                <td class="text-end small fw-semibold text-danger">{{ fmt_neg(pessoal_total) }}</td>
+            </tr>
+            {% if has_pessoal_sub %}
+            {% if pessoal_liq_total > 0 %}
+            <tr class="drill-row drill-cat-pessoal d-none bg-light" style="font-size:0.78rem">
+                <td class="ps-4 text-muted">└ Salário líquido</td>
+                {% for w in weekly %}
+                <td class="text-end text-muted">
+                    {% if w.outflows_pessoal_liq > 0 %}-{{ "%.0f €"|format(w.outflows_pessoal_liq) }}{% else %}—{% endif %}
+                </td>
+                {% endfor %}
+                <td class="text-end text-muted fw-semibold">
+                    {% if pessoal_liq_total > 0 %}-{{ "%.0f €"|format(pessoal_liq_total) }}{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endif %}
+            {% if pessoal_imp_total > 0 %}
+            <tr class="drill-row drill-cat-pessoal d-none bg-light" style="font-size:0.78rem">
+                <td class="ps-4 text-muted">└ TSU + IRS (impostos)</td>
+                {% for w in weekly %}
+                <td class="text-end text-muted">
+                    {% if w.outflows_pessoal_imp > 0 %}-{{ "%.0f €"|format(w.outflows_pessoal_imp) }}{% else %}—{% endif %}
+                </td>
+                {% endfor %}
+                <td class="text-end text-muted fw-semibold">
+                    {% if pessoal_imp_total > 0 %}-{{ "%.0f €"|format(pessoal_imp_total) }}{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% endif %}
+            {% endif %}
+
             {# Total Saídas #}
             <tr class="fw-bold border-top border-secondary" style="background:#fff3f3">
                 <td class="ps-2 small text-danger">Total Saídas</td>
@@ -351,6 +397,7 @@
                 <li><strong>Vendas Eventos / B2B</strong>: Valores manuais — clique em qualquer célula para editar.</li>
                 <li><strong>Saldo bancário</strong>: Âncora do saldo acumulado. Edite no topo da página.</li>
                 <li><strong>IVA</strong>: Pagamentos de IVA com data prevista na semana</li>
+                <li><strong>👥 Pessoal</strong>: Salário líquido (dia configurável, padrão 28) e TSU+IRS (dia 15). Configura em <a href="{{ url_for('cashflow.salarios') }}">Salários</a>.</li>
                 <li><strong>Badge <span class="badge text-bg-secondary" style="font-size:0.65rem">venc.</span></strong>: fatura sem pagamento agendado — incluída pelo vencimento</li>
                 <li class="text-danger"><strong>⚠️ Semana crítica</strong>: saldo semanal negativo</li>
             </ul>

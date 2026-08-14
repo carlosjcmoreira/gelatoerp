@@ -469,6 +469,9 @@ def liquidez():
         )
 
     vat_total = sum(w['outflows_vat'] for w in weekly)
+    pessoal_total = round(sum(w.get('outflows_pessoal', 0) for w in weekly), 2)
+    pessoal_liq_total = round(sum(w.get('outflows_pessoal_liq', 0) for w in weekly), 2)
+    pessoal_imp_total = round(sum(w.get('outflows_pessoal_imp', 0) for w in weekly), 2)
     total_out_all = sum(w['total_out'] for w in weekly)
     total_in_all = sum(w['total_in'] for w in weekly)
     pos_total = sum(w['inflows_pos'] for w in weekly)
@@ -505,6 +508,9 @@ def liquidez():
         item_totals_by_cat=item_totals_by_cat,
         vat_item_totals=vat_item_totals,
         vat_total=round(vat_total, 2),
+        pessoal_total=pessoal_total,
+        pessoal_liq_total=pessoal_liq_total,
+        pessoal_imp_total=pessoal_imp_total,
         total_out_all=round(total_out_all, 2),
         total_in_all=round(total_in_all, 2),
         pos_total=round(pos_total, 2),

@@ -897,6 +897,22 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
     _cr_ativos = list(_get_cr(ativo_only=True))
     _manuais = get_tesouraria_manuais(week_starts)
 
+    # Personnel costs from cashflow_config (salary liquid + employer taxes)
+    try:
+        from db.cashflow import get_cashflow_config as _get_cf_cfg
+        _cf = _get_cf_cfg()
+        _sal_liq_dia = max(1, min(31, int(_cf.get('salarios_liquido_dia') or 28)))
+        _sal_imp_dia = max(1, min(31, int(_cf.get('salarios_impostos_dia') or 15)))
+        _sal_liq_eur = round(float(_cf.get('salarios_liquido_eur') or 0), 2)
+        _sal_imp_eur = round(float(_cf.get('salarios_impostos_eur') or 0), 2)
+    except Exception as _pe:
+        import logging as _log2
+        _log2.getLogger(__name__).warning('get_weekly_liquidity: could not load pessoal config: %s', _pe)
+        _sal_liq_dia = 28
+        _sal_imp_dia = 15
+        _sal_liq_eur = 0.0
+        _sal_imp_eur = 0.0
+
     result = []
     for w in range(weeks):
         week_start = week_starts[w]
@@ -1004,7 +1020,14 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         inflows_eventos_manual = round(_manuais.get('eventos', {}).get(week_start, 0.0), 2)
         inflows_b2b_manual = round(_manuais.get('b2b', {}).get(week_start, 0.0), 2)
 
-        total_out = round(outflows_invoices + outflows_vat, 2)
+        # Personnel outflows: net salary on _sal_liq_dia, employer taxes on _sal_imp_dia
+        _pessoal_liq_date = _credit_debit_date_in_week(_sal_liq_dia, week_start, week_end)
+        _pessoal_imp_date = _credit_debit_date_in_week(_sal_imp_dia, week_start, week_end)
+        outflows_pessoal_liq = _sal_liq_eur if _pessoal_liq_date else 0.0
+        outflows_pessoal_imp = _sal_imp_eur if _pessoal_imp_date else 0.0
+        outflows_pessoal = round(outflows_pessoal_liq + outflows_pessoal_imp, 2)
+
+        total_out = round(outflows_invoices + outflows_vat + outflows_pessoal, 2)
         total_in = round(
             inflows_events + inflows_pos_week + inflows_eventos_manual + inflows_b2b_manual, 2
         )
@@ -1018,6 +1041,9 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             'outflows_invoices': round(outflows_invoices, 2),
             'outflows_vat': round(outflows_vat, 2),
             'outflows_vat_items': vat_items,
+            'outflows_pessoal': outflows_pessoal,
+            'outflows_pessoal_liq': round(outflows_pessoal_liq, 2),
+            'outflows_pessoal_imp': round(outflows_pessoal_imp, 2),
             'inflows_pos': round(inflows_pos_week, 2),
             'vendas_fonte': vendas_fonte,
             'pos_daily': pos_daily,
