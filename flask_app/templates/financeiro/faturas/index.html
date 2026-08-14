@@ -400,14 +400,29 @@
         <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='centro_custo') }}">
     </form>
 
+    {% if sem_cc_count is defined and sem_cc_count > 0 %}
+    <div class="alert alert-warning d-flex align-items-center gap-2 py-2 mb-3" role="alert">
+        <span>⚠️</span>
+        <span>
+            <strong>{{ sem_cc_count }} fatura{{ 's' if sem_cc_count != 1 }} sem centro de custo</strong>
+            ({{ '%.2f €'|format(sem_cc_total) }}) — utilize a atribuição em massa abaixo para as classificar.
+            <a href="{{ url_for('faturas.index', sem_cc='1') }}" class="alert-link ms-1">Ver no modo documento →</a>
+        </span>
+    </div>
+    {% endif %}
+
     {% if grupos_cc %}
     {% for grupo in grupos_cc %}
     {% set grupo_idx = loop.index0 %}
-    <div class="card mb-3">
-        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center py-2">
-            <span>{{ grupo.label }}</span>
+    {% set _is_sem_cc = grupo.key == 'sem_centro' and grupo.count > 0 %}
+    <div class="card mb-3 {% if _is_sem_cc %}border-warning{% endif %}">
+        <div class="card-header small fw-semibold d-flex justify-content-between align-items-center py-2 {% if _is_sem_cc %}bg-warning-subtle{% endif %}">
+            <span>
+                {% if _is_sem_cc %}⚠️ {% endif %}{{ grupo.label }}
+                {% if _is_sem_cc %}<span class="badge bg-warning text-dark ms-1">{{ grupo.count }}</span>{% endif %}
+            </span>
             <span class="text-muted small">{{ grupo.count }} fatura{{ 's' if grupo.count != 1 }}
-            — <span class="text-danger fw-semibold">{{ '%.2f €'|format(grupo.total) }}</span></span>
+            — <span class="{% if _is_sem_cc %}text-warning-emphasis{% else %}text-danger{% endif %} fw-semibold">{{ '%.2f €'|format(grupo.total) }}</span></span>
         </div>
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
@@ -659,7 +674,7 @@
     <!-- ── Filter Bar ──────────────────────────────────────────────────────── -->
     <div class="fbar mb-3">
 
-        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter or supplier_id_filter else 0) + (1 if document_type_filter else 0) + (1 if store_id else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) + (1 if category_filter else 0) %}
+        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter or supplier_id_filter else 0) + (1 if document_type_filter else 0) + (1 if store_id else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) + (1 if category_filter else 0) + (1 if sem_cc_filter else 0) %}
         <!-- Mobile toggle (only shown on xs/sm screens) -->
         <div class="d-md-none mb-2">
             <button class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between"
@@ -740,6 +755,12 @@
             <span class="fbar-chip">
                 🏷 {{ category_filter | truncate(22, True, '…') }}
                 <button class="fbar-chip-x" type="button" onclick="removeFilter('category')" title="Remover">✕</button>
+            </span>
+            {% endif %}
+            {% if sem_cc_filter %}
+            <span class="fbar-chip fbar-chip-warning">
+                ⚠️ Sem centro de custo
+                <a href="{{ url_for('faturas.index') }}" class="fbar-chip-x text-decoration-none" data-no-loading title="Remover filtro">✕</a>
             </span>
             {% endif %}
             {% if pending_installments %}

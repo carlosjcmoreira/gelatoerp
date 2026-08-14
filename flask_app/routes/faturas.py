@@ -252,10 +252,15 @@ def index():
             [{'key': k, **v} for k, v in grupos_cc.items()],
             key=lambda g: ('z' if g['key'] == 'sem_centro' else g['label'].lower())
         )
+        _sem_cc_grp = next((g for g in sorted_grupos if g['key'] == 'sem_centro'), None)
+        sem_cc_count = _sem_cc_grp['count'] if _sem_cc_grp else 0
+        sem_cc_total = _sem_cc_grp['total'] if _sem_cc_grp else 0.0
         return render_template(
             'financeiro/faturas/index.html',
             view='centro_custo',
             grupos_cc=sorted_grupos,
+            sem_cc_count=sem_cc_count,
+            sem_cc_total=sem_cc_total,
             grupos_cat=[],
             invoices=[],
             today=today,
