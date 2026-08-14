@@ -1159,6 +1159,7 @@ def _build_invoice_where(status: str = None, statuses: list = None,
                          date_field: str = 'issue_date',
                          document_type: str = None,
                          sem_evidencia: bool = None,
+                         sem_cc: bool = None,
                          exclude_gov: bool = False):
     where = []
     params = []
@@ -1228,6 +1229,14 @@ def _build_invoice_where(status: str = None, statuses: list = None,
         where.append("(i.pdf_data IS NULL OR octet_length(i.pdf_data) = 0)")
         # Alerts for missing evidence only apply to active invoices (never draft/cancelled)
         where.append("i.status NOT IN ('draft', 'cancelled')")
+    if sem_cc:
+        where.append("""(
+            i.centro_custo_id IS NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM invoice_centros_custo icc
+                WHERE icc.invoice_id = i.id
+            )
+        )""")
     if exclude_gov:
         # Exclude invoices from government/tax entities (AT, SS, etc.)
         # Matched via the known NIF list or the entidade_governamental flag on the supplier record.
@@ -1257,6 +1266,7 @@ def get_invoices(status: str = None, statuses: list = None,
                  date_field: str = 'issue_date',
                  document_type: str = None,
                  sem_evidencia: bool = None,
+                 sem_cc: bool = None,
                  exclude_gov: bool = False,
                  limit: int = None, offset: int = 0) -> list:
     with db_connection() as conn:
@@ -1268,7 +1278,7 @@ def get_invoices(status: str = None, statuses: list = None,
             supplier_name=supplier_name, supplier_names=supplier_names,
             supplier_id=supplier_id, date_from=date_from, date_to=date_to,
             date_field=date_field, document_type=document_type,
-            sem_evidencia=sem_evidencia, exclude_gov=exclude_gov,
+            sem_evidencia=sem_evidencia, sem_cc=sem_cc, exclude_gov=exclude_gov,
         )
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
         direction = 'DESC' if order_dir == 'desc' else 'ASC'

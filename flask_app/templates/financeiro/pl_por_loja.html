@@ -390,7 +390,16 @@ thead .col-label { z-index: 3; }
 {% if ua_c %}
 {% set ua_c_tot = ua_c.values() | sum %}
 <tr class="row-store-sub text-warning">
-    <td class="col-label">↳ Não alocado</td>
+    <td class="col-label">
+        ↳ Não alocado
+        {% if mapa.unallocated_invoice_count %}
+        <a href="{{ url_for('faturas.index') }}?sem_cc=1&date_from={{ mapa.ano }}-01-01&date_to={{ mapa.ano }}-12-31&date_field=issue_date"
+           class="badge bg-warning text-dark ms-1 text-decoration-none"
+           title="Faturas sem Centro de Custo atribuído">
+            {{ mapa.unallocated_invoice_count }} fatura{{ 's' if mapa.unallocated_invoice_count != 1 else '' }} sem CC — atribuir →
+        </a>
+        {% endif %}
+    </td>
     {% for m in range(1,13) %}
     <td class="text-end text-eur">{{ e(ua_c.get(m, 0)) }}</td>
     {% endfor %}
@@ -523,7 +532,16 @@ thead .col-label { z-index: 3; }
 {% if ua %}
 {% set ua_tot = ua.values() | sum %}
 <tr class="row-store-sub text-warning">
-    <td class="col-label">↳ Não alocado</td>
+    <td class="col-label">
+        ↳ Não alocado
+        {% if mapa.unallocated_invoice_count %}
+        <a href="{{ url_for('faturas.index') }}?sem_cc=1&date_from={{ mapa.ano }}-01-01&date_to={{ mapa.ano }}-12-31&date_field=issue_date"
+           class="badge bg-warning text-dark ms-1 text-decoration-none"
+           title="Faturas sem Centro de Custo atribuído">
+            {{ mapa.unallocated_invoice_count }} fatura{{ 's' if mapa.unallocated_invoice_count != 1 else '' }} sem CC — atribuir →
+        </a>
+        {% endif %}
+    </td>
     {% for m in range(1,13) %}
     <td class="text-end text-eur">{{ e(ua.get(m, 0)) }}</td>
     {% endfor %}

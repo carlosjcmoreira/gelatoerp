@@ -371,6 +371,8 @@ def index():
         except Exception:
             supplier_id_filter = None
 
+    sem_cc_filter = request.args.get('sem_cc', '') == '1'
+
     # Date filters
     date_field = request.args.get('date_field', 'due_date').strip()
     if date_field not in ('issue_date', 'due_date', 'paid_date'):
@@ -402,8 +404,12 @@ def index():
         _month_options.append({'value': _val, 'label': f'{_MONTH_PT[_m]} {_y}'})
 
     # Default filter: active when no status/all param set — exclude paid and draft
+    # When sem_cc=1 is active we broaden the default to all non-draft, non-cancelled
+    # statuses so the count in the P&L badge matches exactly what the user sees here.
     default_filter_active = not statuses_filter and not show_all
-    if default_filter_active:
+    if sem_cc_filter and not statuses_filter and not show_all:
+        effective_statuses = ['pending_review', 'scheduled', 'paid']
+    elif default_filter_active:
         effective_statuses = ['pending_review', 'scheduled', 'cancelled']
     elif show_all:
         effective_statuses = None
@@ -425,6 +431,7 @@ def index():
         date_from=date_from,
         date_to=date_to,
         date_field=date_field,
+        sem_cc=sem_cc_filter or None,
     )
 
     # Category filter (in-memory — category is a free-text field on invoices)
@@ -476,6 +483,8 @@ def index():
             _filter_params.append((k, v))
     if sem_evidencia_filter:
         _filter_params.append(('sem_evidencia', '1'))
+    if sem_cc_filter:
+        _filter_params.append(('sem_cc', '1'))
     if date_from_raw:
         _filter_params.append(('date_from', date_from_raw))
     if date_to_raw:

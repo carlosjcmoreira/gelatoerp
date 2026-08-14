@@ -354,6 +354,27 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
         for cat in categories
     }
 
+    # Count invoices with no CC assigned at all (for the alert badge in the template).
+    # Excludes cancelled and draft so the count matches the actionable list the badge
+    # links to (pending_review, scheduled, paid only).
+    def _count_sem_cc(year):
+        with db_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*)
+                FROM invoices i
+                WHERE EXTRACT(YEAR FROM i.issue_date) = %s
+                  AND i.status NOT IN ('cancelled', 'draft')
+                  AND i.centro_custo_id IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM invoice_centros_custo icc
+                      WHERE icc.invoice_id = i.id
+                  )
+            """, (year,))
+            return int(cur.fetchone()[0])
+
+    unallocated_invoice_count = _count_sem_cc(ano)
+
     return {
         'mode': 'consolidated',
         'ano': ano, 'ano_aa': ano_aa, 'today': today,
@@ -373,6 +394,7 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
         'store_costs_aa':  store_costs_aa,
         'unallocated_cmvmc': unallocated_cmvmc,
         'unallocated_costs': unallocated_costs,
+        'unallocated_invoice_count': unallocated_invoice_count,
         'costs_uncat':    {m: round(v, 2) for m, v in costs_uncat.items()},
         'costs_uncat_aa': {m: round(v, 2) for m, v in costs_uncat_aa.items()},
     }
