@@ -2163,8 +2163,8 @@ function _fbarSet(id, name, value) {
 
 // ── Column customization (drag-reorder + hide/show) ───────────────────────────
 (function() {
-var COL_LS_ORDER = 'fin-docs-col-order-v1';
-var COL_LS_VIS   = 'fin-docs-col-vis-v1';
+var COL_LS_ORDER = 'fin-docs-col-order-v2';
+var COL_LS_VIS   = 'fin-docs-col-vis-v2';
 var COL_META = [
     { key:'supplier_name',      label:'Fornecedor'       },
     { key:'invoice_number',     label:'Nº Documento'     },
@@ -2174,7 +2174,7 @@ var COL_META = [
     { key:'amount_eur',         label:'Total'            },
     { key:'status',             label:'Estado'           },
     { key:'paid_date',          label:'Data pag.'        },
-    { key:'centro_custo_name',  label:'Centro de Custo', hidden:true },
+    { key:'centro_custo_name',  label:'Centro de Custo'              },
     { key:'supplier_nif',       label:'NIF Fornecedor',  hidden:true },
     { key:'vat_amount_eur',     label:'IVA',             hidden:true },
     { key:'payment_method',     label:'Método pag.',     hidden:true },
