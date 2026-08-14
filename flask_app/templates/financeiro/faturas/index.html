@@ -1017,6 +1017,7 @@
                     {{ col_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
                     {{ col_th('status', 'Estado', order_by, order_dir, filter_qs, '', 'status', show_estados=true) }}
                     {{ col_th('paid_date', 'Data pag.', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'paid_date') }}
+                    <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="centro_custo_name" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Centro de Custo</span></div></th>
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="supplier_nif" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">NIF Fornecedor</span></div></th>
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="vat_amount_eur" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">IVA</span></div></th>
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="payment_method" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Método pag.</span></div></th>
@@ -1113,6 +1114,7 @@
                             {{ sched_date.strftime('%d/%m/%Y') }}
                         {% endif %}
                     </td>
+                    <td class="col-hidden text-muted small text-nowrap" data-col-key="centro_custo_name">{{ inv.centro_custo_name or '—' }}</td>
                     <td class="col-hidden text-muted small text-nowrap" data-col-key="supplier_nif">{{ inv.supplier_nif or '—' }}</td>
                     <td class="col-hidden text-muted small text-end text-nowrap" data-col-key="vat_amount_eur">{{ '%.2f €'|format(inv.vat_amount_eur) if inv.vat_amount_eur is not none else '—' }}</td>
                     <td class="col-hidden text-muted small text-nowrap" data-col-key="payment_method">{{ inv.payment_method or '—' }}</td>

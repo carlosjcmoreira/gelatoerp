@@ -1037,6 +1037,7 @@ def _row_to_invoice(row) -> dict:
         'status_label': get_invoice_status_labels_map().get(row[14], row[14]),
         'centro_custo_id': row[24] if len(row) > 24 else None,
         'categoria_custo_id': row[25] if len(row) > 25 else None,
+        'centro_custo_name': row[31] if len(row) > 31 else None,
         'has_pdf': False,
         'pdf_is_image': (row[13] or '').lower().rsplit('.', 1)[-1] in ('jpg', 'jpeg', 'png', 'gif', 'webp') if row[13] else False,
         'has_duplicate': False,
@@ -1292,9 +1293,18 @@ def get_invoices(status: str = None, statuses: list = None,
                    i.payment_method,
                    COALESCE(i.installment_total, 0) AS installment_total,
                    COALESCE(ii_stats.paid_count, 0) AS installment_paid_count,
-                   (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf
+                   (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf,
+                   COALESCE(
+                       (SELECT STRING_AGG(cc2.name || ' (' || ROUND(icc2.percentagem::numeric) || '%)',
+                                         ', ' ORDER BY icc2.percentagem DESC)
+                        FROM invoice_centros_custo icc2
+                        JOIN cost_centers cc2 ON cc2.id = icc2.centro_custo_id
+                        WHERE icc2.invoice_id = i.id),
+                       cc.name
+                   ) AS centro_custo_name
             FROM invoices i
             LEFT JOIN stores st ON i.store_id = st.id
+            LEFT JOIN cost_centers cc ON cc.id = i.centro_custo_id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
             LEFT JOIN (
                 SELECT invoice_id,
