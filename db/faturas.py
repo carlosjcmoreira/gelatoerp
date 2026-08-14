@@ -1305,7 +1305,7 @@ def get_invoices(status: str = None, statuses: list = None,
                    COALESCE(ii_stats.paid_count, 0) AS installment_paid_count,
                    (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf,
                    COALESCE(
-                       (SELECT STRING_AGG(cc2.name || ' (' || ROUND(icc2.percentagem::numeric) || '%)',
+                       (SELECT STRING_AGG(cc2.name || ' (' || ROUND(icc2.percentagem::numeric) || '%%)',
                                          ', ' ORDER BY icc2.percentagem DESC)
                         FROM invoice_centros_custo icc2
                         JOIN cost_centers cc2 ON cc2.id = icc2.centro_custo_id
