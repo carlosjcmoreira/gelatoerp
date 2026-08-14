@@ -358,6 +358,9 @@ def pl_por_loja():
     # Include uncategorised invoices so EBITDA / Total Custos are complete
     for _m in _months:
         _tcm[_m] = round(_tcm.get(_m, 0) + mapa['costs_uncat'].get(_m, 0), 2)
+    # Include personnel costs (pessoal)
+    for _m in _months:
+        _tcm[_m] = round(_tcm.get(_m, 0) + mapa['pessoal'].get(_m, 0), 2)
     mapa['total_costs_monthly'] = _tcm
 
     if mapa['mode'] == 'consolidated':
@@ -369,6 +372,9 @@ def pl_por_loja():
                 _cd = mapa['store_costs'].get(_sid, {}).get(_cat['id'], {})
                 for _m in _months:
                     _sm[_m] = round(_sm.get(_m, 0) + _cd.get(_m, 0), 2)
+            # Include per-store personnel costs
+            for _m in _months:
+                _sm[_m] = round(_sm.get(_m, 0) + mapa['store_pessoal'].get(_sid, {}).get(_m, 0), 2)
             # Uncategorised are global/unallocated — not added per-store to avoid double-count
             _stcm[_sid] = _sm
         mapa['store_total_costs_monthly'] = _stcm
@@ -528,6 +534,23 @@ def pl_por_loja():
                 _row('Sem categoria — Histórico AA', uca_aa)
             for m in months:
                 tot[m] = round(tot[m] + uncat.get(m, 0), 2)
+
+        # Personnel costs
+        pessoal = mapa.get('pessoal', {})
+        pessoal_aa = mapa.get('pessoal_aa', {})
+        _row('Pessoal — Real', pessoal)
+        _ratio_row('Pessoal — % sobre Vendas', pessoal, v_d)
+        if pessoal_aa:
+            _row('Pessoal — Histórico AA', pessoal_aa)
+        if is_consolidated:
+            for s in mapa['stores']:
+                sp = mapa.get('store_pessoal', {}).get(s['id'], {})
+                _row(f'  {s["name"]} — Pessoal', sp)
+            ua_p = mapa.get('unallocated_pessoal', {})
+            if ua_p:
+                _row('  Não alocado — Pessoal', ua_p)
+        for m in months:
+            tot[m] = round(tot[m] + pessoal.get(m, 0), 2)
 
         # ── TOTAL CUSTOS ───────────────────────────────────────────────────
         writer.writerow([])

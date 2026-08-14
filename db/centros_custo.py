@@ -525,6 +525,75 @@ def toggle_colaborador(colaborador_id: int, ativo: bool):
         conn.commit()
 
 
+def get_pessoal_costs_by_cc(year: int) -> list:
+    """Return monthly employer personnel costs distributed by cost centre.
+
+    For each active collaborator:
+    - employer cost = (salario_bruto + premio_bruto) * (1 + SS_PATR)  — i.e. custo_empresa
+    - The cost applies from January (or from data_inicio.month if data_inicio falls
+      within `year`). Collaborators whose data_inicio is after `year` are excluded.
+    - Inactive collaborators (ativo=False) are excluded entirely (no data_fim available).
+
+    CC allocations from colaborador_centro_custo are respected proportionally.
+    Collaborators with no CC rows, or with allocation summing to < 100 %, have the
+    remainder attributed to cc_id=None (→ "unallocated" in the P&L).
+
+    Returns [(mes, cc_id, custo_total), ...]  — one row per (month, CC) pair.
+    cc_id may be None.
+    """
+    from datetime import date as _date
+
+    colaboradores = get_colaboradores(ativo_only=True)
+    enriched, _, _ = _calc_colabs(colaboradores)
+
+    result: dict = {}  # {(mes, cc_id): float}
+
+    for c in enriched:
+        custo = float(c.get('custo_empresa') or 0)
+        if custo <= 0:
+            continue
+
+        # Determine the first month active in `year`
+        data_inicio = c.get('data_inicio')
+        start_month = 1
+        if data_inicio is not None:
+            if isinstance(data_inicio, str):
+                try:
+                    data_inicio = _date.fromisoformat(data_inicio)
+                except Exception:
+                    data_inicio = None
+            if data_inicio is not None:
+                if data_inicio.year > year:
+                    continue  # Not yet active in this year
+                elif data_inicio.year == year:
+                    start_month = data_inicio.month
+
+        centros = c.get('centros') or []
+        total_pct = sum(float(a.get('percentagem') or 0) for a in centros)
+
+        for mes in range(start_month, 13):
+            if centros:
+                for alloc in centros:
+                    cc_id = alloc.get('centro_custo_id')
+                    pct = float(alloc.get('percentagem') or 0)
+                    if pct <= 0:
+                        continue
+                    slice_cost = round(custo * pct / 100.0, 4)
+                    key = (mes, cc_id)
+                    result[key] = round(result.get(key, 0.0) + slice_cost, 4)
+                # Any unallocated remainder (total_pct < 100) → cc_id=None
+                remainder_pct = 100.0 - total_pct
+                if remainder_pct > 0.001:
+                    key = (mes, None)
+                    result[key] = round(result.get(key, 0.0) + custo * remainder_pct / 100.0, 4)
+            else:
+                # No CC assignment → fully unallocated
+                key = (mes, None)
+                result[key] = round(result.get(key, 0.0) + custo, 4)
+
+    return [(mes, cc_id, amount) for (mes, cc_id), amount in result.items()]
+
+
 def migrate_colaboradores_from_json(json_str: str) -> int:
     """One-time migration: parse JSON list from cashflow_config and insert into colaboradores.
     Skips records that already exist (by nome). Returns number of records inserted."""

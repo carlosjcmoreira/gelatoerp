@@ -128,7 +128,10 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
     Month keys are ints 1-12; missing months mean €0.
     """
     from db.stores import get_all_stores
-    from db.centros_custo import get_cost_categories, get_sales_split_pct, get_cost_centers
+    from db.centros_custo import (
+        get_cost_categories, get_sales_split_pct, get_cost_centers,
+        get_pessoal_costs_by_cc,
+    )
     from db.orcamento import get_orcamento_all_stores
 
     today = date.today()
@@ -294,6 +297,68 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
     _merge_into(no_cc_inv,    shared_no_hist_inv)
     _merge_into(no_cc_inv_aa, shared_no_hist_inv_aa)
 
+    # ── Personnel costs ─────────────────────────────────────────────────
+
+    def _process_pessoal(rows):
+        """Distribute personnel cost slices by store via _dist().
+
+        Returns:
+            store_pessoal : {store_id: {mes: float}}
+            no_cc_pessoal : {mes: float}  — no-CC or shared-CC-no-history
+        """
+        sp: dict = {}
+        no_cc: dict = {}
+        for mes, cc_id, amount in rows:
+            dist, _ = _dist(float(amount), cc_id)
+            if not dist:
+                no_cc[mes] = round(no_cc.get(mes, 0.0) + float(amount), 4)
+            else:
+                for sid, v in dist.items():
+                    ds = sp.setdefault(sid, {})
+                    ds[mes] = round(ds.get(mes, 0.0) + v, 4)
+        return sp, no_cc
+
+    # Personnel costs — projection only for the current calendar year.
+    #
+    # The data model has no effective-dated payroll / CC-allocation history and
+    # no employment end date.  Deriving costs from the current active roster for
+    # any month other than a live projection would produce fabricated figures:
+    #   • Employees who left mid-year would be missing from already-closed months.
+    #   • Employees who joined recently would appear in months before their start.
+    #   • Past years would be reconstructed entirely from today's roster.
+    #
+    # For these reasons personnel costs are emitted ONLY when ano == today.year.
+    # The template surfaces this as "Pessoal (Projeção)" with an explanatory badge.
+    # pessoal_aa is always empty; the template's {% if mapa.pessoal_aa %} guard
+    # will suppress the prior-year sub-row.
+    # Follow-up task #709 tracks adding effective-dated history so that real
+    # actuals can be shown for closed periods and prior years.
+
+    pessoal_is_projection = (ano == today.year)
+
+    if pessoal_is_projection:
+        pessoal_rows = get_pessoal_costs_by_cc(ano)
+        store_pessoal, no_cc_pessoal = _process_pessoal(pessoal_rows)
+
+        def _global_pessoal(sp, no_cc_p):
+            """Σ all stores + unallocated → global monthly pessoal totals."""
+            g: dict = {}
+            for sid in store_ids:
+                for mes, v in sp.get(sid, {}).items():
+                    g[mes] = round(g.get(mes, 0.0) + v, 4)
+            for mes, v in no_cc_p.items():
+                g[mes] = round(g.get(mes, 0.0) + v, 4)
+            return {m: round(v, 2) for m, v in g.items()}
+
+        global_pessoal = _global_pessoal(store_pessoal, no_cc_pessoal)
+    else:
+        store_pessoal = {sid: {} for sid in store_ids}
+        no_cc_pessoal = {}
+        global_pessoal = {}
+
+    store_pessoal_aa = {sid: {} for sid in store_ids}
+    global_pessoal_aa: dict = {}
+
     # ── Aggregation helpers ─────────────────────────────────────────────────
 
     def _global_cat(cat_id, sa, no_cc):
@@ -357,6 +422,10 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
             'budget_vendas': bgt.get('vendas', {}),
             'budget_cmvmc':  bgt.get('cmvmc', {}),
             'budget_costs':  {cat['id']: bgt.get(f'cat_{cat["id"]}', {}) for cat in categories},
+            # Personnel costs — projection for current year only (see module docstring)
+            'pessoal_is_projection': pessoal_is_projection,
+            'pessoal':    {m: round(v, 2) for m, v in store_pessoal.get(sid, {}).items()},
+            'pessoal_aa': {},
         }
 
     # ── Consolidated view ───────────────────────────────────────────────────
@@ -449,4 +518,11 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
         'shared_cc_no_hist_invoice_count': shared_cc_no_hist_invoice_count,
         'costs_uncat':    {m: round(v, 2) for m, v in costs_uncat.items()},
         'costs_uncat_aa': {m: round(v, 2) for m, v in costs_uncat_aa.items()},
+        # Personnel costs — projection for current year only (see module docstring)
+        'pessoal_is_projection': pessoal_is_projection,
+        'pessoal':           global_pessoal,
+        'pessoal_aa':        {},
+        'store_pessoal':     {sid: {m: round(v, 2) for m, v in store_pessoal.get(sid, {}).items()}    for sid in store_ids},
+        'store_pessoal_aa':  {},
+        'unallocated_pessoal': {m: round(v, 2) for m, v in no_cc_pessoal.items()},
     }

@@ -589,15 +589,75 @@ thead .col-label { z-index: 3; }
 {% endif %}
 {% endif %}
 
-{# ── Pessoal placeholder ── #}
+{# ── Pessoal ── #}
+{% if mapa.pessoal_is_projection %}
+{# Current year: show projection from active roster, clearly labelled #}
+{% set pessoal_tot = mapa.pessoal.values() | sum %}
+<tr>
+    <td class="col-label ps-3">
+        👥 Pessoal
+        <span class="badge text-bg-secondary ms-1 fw-normal fst-italic" style="font-size:.6rem"
+              title="Projeção com base no roster actual. Valores históricos requerem registo de vencimentos por mês.">Projeção</span>
+    </td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(mapa.pessoal.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur fw-semibold col-total">{{ e(pessoal_tot) }}</td>
+</tr>
+
+{# ── % sobre Vendas ── #}
+<tr class="row-sub">
+    <td class="col-label">↳ % sobre Vendas</td>
+    {% for m in range(1,13) %}
+    {% set vv = mapa.vendas.get(m, 0) %}
+    {% set pv = mapa.pessoal.get(m, 0) %}
+    <td class="text-end">
+        {% if vv %}<small class="text-muted">{{ '%.1f'|format(pv / vv * 100) }}%</small>{% else %}—{% endif %}
+    </td>
+    {% endfor %}
+    <td class="text-end col-total">
+        {% if v_total %}<small class="text-muted">{{ '%.1f'|format(pessoal_tot / v_total * 100) }}%</small>{% else %}—{% endif %}
+    </td>
+</tr>
+
+{# ── Consolidated: per-store breakdown + unallocated ── #}
+{% if mapa.mode == 'consolidated' %}
+{% for s in mapa.stores %}
+{% set sp = mapa.store_pessoal.get(s.id, {}) %}
+{% set sp_tot = sp.values() | sum %}
+<tr class="row-store-sub">
+    <td class="col-label">↳ {{ s.name }}</td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(sp.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(sp_tot) }}</td>
+</tr>
+{% endfor %}
+{% set ua_p = mapa.unallocated_pessoal %}
+{% if ua_p %}
+{% set ua_p_tot = ua_p.values() | sum %}
+<tr class="row-store-sub text-warning">
+    <td class="col-label">↳ Não alocado — pessoal sem CC</td>
+    {% for m in range(1,13) %}
+    <td class="text-end text-eur">{{ e(ua_p.get(m, 0)) }}</td>
+    {% endfor %}
+    <td class="text-end text-eur col-total">{{ e(ua_p_tot) }}</td>
+</tr>
+{% endif %}
+{% endif %}
+
+{% else %}
+{# Historical year: no effective-dated payroll history available #}
 <tr class="text-muted fst-italic">
     <td class="col-label ps-3">
-        Pessoal
-        <span class="badge text-bg-secondary ms-1" style="font-size:.6rem">Em breve</span>
+        👥 Pessoal
+        <span class="badge text-bg-secondary ms-1 fw-normal" style="font-size:.6rem"
+              title="Custos de pessoal históricos requerem registo de vencimentos por mês — indisponível para anos anteriores.">Sem histórico</span>
     </td>
     {% for m in range(1,13) %}<td class="text-end">—</td>{% endfor %}
     <td class="text-end col-total">—</td>
 </tr>
+{% endif %}{# pessoal_is_projection #}
 
 {# ══════════════════════════════════════════════════════════════════════ #}
 {#  TOTAL CUSTOS                                                         #}
