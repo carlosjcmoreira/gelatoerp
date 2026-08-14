@@ -9,7 +9,7 @@
             📊 Relatório de despesas
         </a>
     </div>
-    <p class="text-muted small mb-3">Gestão dos centros de custo da organização.</p>
+    <p class="text-muted small mb-3">Gestão dos centros de custo da organização. A coluna <strong>Loja associada</strong> determina como os custos são atribuídos no P&L — se definida, os custos vão 100&nbsp;% para essa loja.</p>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in messages %}
@@ -29,13 +29,21 @@
                         <input type="text" name="code" class="form-control form-control-sm"
                                placeholder="Código (ex: P)" maxlength="10" required>
                     </div>
-                    <div class="col-4">
+                    <div class="col-3">
                         <input type="text" name="name" class="form-control form-control-sm"
                                placeholder="Nome" required>
                     </div>
-                    <div class="col-4">
+                    <div class="col-3">
                         <input type="text" name="description" class="form-control form-control-sm"
                                placeholder="Descrição (opcional)">
+                    </div>
+                    <div class="col-2">
+                        <select name="store_id" class="form-select form-select-sm">
+                            <option value="">— Sem loja (partilhado) —</option>
+                            {% for s in stores %}
+                            <option value="{{ s.id }}">{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
                     </div>
                     <div class="col-2">
                         <button type="submit" class="btn btn-primary btn-sm w-100">Adicionar</button>
@@ -54,16 +62,28 @@
                         <th class="small">Código</th>
                         <th class="small">Nome</th>
                         <th class="small">Descrição</th>
+                        <th class="small">Loja associada</th>
                         <th class="small">Estado</th>
                         <th class="small"></th>
                     </tr>
                 </thead>
                 <tbody>
+                {% set store_map = {} %}
+                {% for s in stores %}{% if store_map.update({s.id: s.name}) %}{% endif %}{% endfor %}
                 {% for cc in centros %}
                 <tr class="{{ 'text-muted' if not cc.ativo }}">
                     <td class="small fw-semibold">{{ cc.code }}</td>
                     <td class="small">{{ cc.name }}</td>
                     <td class="small text-muted">{{ cc.description or '—' }}</td>
+                    <td class="small">
+                        {% if cc.store_id %}
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                            {{ store_map.get(cc.store_id, cc.store_id) }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
                     <td class="small">
                         {% if cc.ativo %}
                         <span class="badge bg-success-subtle text-success border border-success-subtle">Activo</span>
@@ -78,7 +98,8 @@
                                 data-id="{{ cc.id }}"
                                 data-code="{{ cc.code }}"
                                 data-name="{{ cc.name }}"
-                                data-description="{{ cc.description or '' }}">Editar</button>
+                                data-description="{{ cc.description or '' }}"
+                                data-store-id="{{ cc.store_id or '' }}">Editar</button>
                         <form method="post" class="d-inline">
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="cc_id" value="{{ cc.id }}">
@@ -90,7 +111,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="text-center text-muted small py-3">Nenhum centro de custo registado.</td></tr>
+                <tr><td colspan="6" class="text-center text-muted small py-3">Nenhum centro de custo registado.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>
@@ -99,7 +120,7 @@
 </div>
 
 <div class="modal fade" id="editModal" tabindex="-1">
-    <div class="modal-dialog modal-sm">
+    <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header py-2">
                 <h6 class="modal-title small fw-semibold">Editar Centro de Custo</h6>
@@ -124,6 +145,17 @@
                         <input type="text" name="description" id="editDesc"
                                class="form-control form-control-sm">
                     </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Loja associada
+                            <span class="text-muted fw-normal">(determina a atribuição de custos no P&L)</span>
+                        </label>
+                        <select name="store_id" id="editStoreId" class="form-select form-select-sm">
+                            <option value="">— Sem loja (partilhado) —</option>
+                            {% for s in stores %}
+                            <option value="{{ s.id }}">{{ s.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer py-2">
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
@@ -143,6 +175,10 @@ document.getElementById('editModal').addEventListener('show.bs.modal', function(
     document.getElementById('editCode').value = btn.dataset.code;
     document.getElementById('editName').value = btn.dataset.name;
     document.getElementById('editDesc').value = btn.dataset.description;
+    const sel = document.getElementById('editStoreId');
+    const storeId = btn.dataset.storeId || '';
+    // Set the matching option; if no match, falls back to the blank "Sem loja" option
+    sel.value = storeId;
 });
 </script>
 {% endblock %}

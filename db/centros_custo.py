@@ -35,26 +35,29 @@ def get_cost_center(cc_id: int):
         return cursor.fetchone()
 
 
-def create_cost_center(code: str, name: str, description: str = None) -> int:
+def create_cost_center(code: str, name: str, description: str = None,
+                       store_id: int = None) -> int:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            '''INSERT INTO cost_centers (code, name, description)
-               VALUES (%s, %s, %s) RETURNING id''',
-            (code.strip().upper(), name.strip(), description)
+            '''INSERT INTO cost_centers (code, name, description, store_id)
+               VALUES (%s, %s, %s, %s) RETURNING id''',
+            (code.strip().upper(), name.strip(), description, store_id or None)
         )
         cc_id = cursor.fetchone()[0]
         conn.commit()
     return cc_id
 
 
-def update_cost_center(cc_id: int, code: str, name: str, description: str = None):
+def update_cost_center(cc_id: int, code: str, name: str, description: str = None,
+                       store_id: int = None):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            '''UPDATE cost_centers SET code=%s, name=%s, description=%s, updated_at=NOW()
+            '''UPDATE cost_centers SET code=%s, name=%s, description=%s,
+               store_id=%s, updated_at=NOW()
                WHERE id=%s''',
-            (code.strip().upper(), name.strip(), description, cc_id)
+            (code.strip().upper(), name.strip(), description, store_id or None, cc_id)
         )
         conn.commit()
 

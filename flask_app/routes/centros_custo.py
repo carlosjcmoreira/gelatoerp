@@ -11,20 +11,30 @@ from database import (
 centros_custo_bp = Blueprint('centros_custo', __name__)
 
 
+def _parse_store_id():
+    """Parse optional store_id from the current form, returning int or None."""
+    raw = request.form.get('store_id', '').strip()
+    if raw.isdigit():
+        return int(raw)
+    return None
+
+
 @centros_custo_bp.route('/', methods=['GET', 'POST'])
 @perm_required('acesso_gestor')
 def index():
+    from db.stores import get_all_stores
     if request.method == 'POST':
         action = request.form.get('action', '')
         if action == 'create':
             code = request.form.get('code', '').strip().upper()
             name = request.form.get('name', '').strip()
             desc = request.form.get('description', '').strip() or None
+            store_id = _parse_store_id()
             if not code or not name:
                 flash('Código e nome são obrigatórios.', 'warning')
             else:
                 try:
-                    create_cost_center(code, name, desc)
+                    create_cost_center(code, name, desc, store_id=store_id)
                     flash(f'Centro de custo "{code} — {name}" criado.', 'success')
                 except Exception as exc:
                     flash(f'Erro ao criar centro de custo: {exc}', 'danger')
@@ -33,11 +43,12 @@ def index():
             code = request.form.get('code', '').strip().upper()
             name = request.form.get('name', '').strip()
             desc = request.form.get('description', '').strip() or None
+            store_id = _parse_store_id()
             if not code or not name:
                 flash('Código e nome são obrigatórios.', 'warning')
             else:
                 try:
-                    update_cost_center(cc_id, code, name, desc)
+                    update_cost_center(cc_id, code, name, desc, store_id=store_id)
                     flash('Centro de custo actualizado.', 'success')
                 except Exception as exc:
                     flash(f'Erro ao actualizar: {exc}', 'danger')
@@ -53,7 +64,8 @@ def index():
         return redirect(url_for('centros_custo.index'))
 
     centros = get_cost_centers()
-    return render_template('financeiro/centros_custo/index.html', centros=centros)
+    stores = [s for s in get_all_stores() if s['is_active']]
+    return render_template('financeiro/centros_custo/index.html', centros=centros, stores=stores)
 
 
 @centros_custo_bp.route('/relatorio')

@@ -59,6 +59,7 @@ from db.faturas import run_migrations_saved_invoice_views, run_migrations_invoic
 from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clientes
 from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
 from db.schema import run_migrations_drop_supplier_category
+from db.schema import run_migrations_cost_centers_store_id
 
 
 def _start_sheets_sync_scheduler():
@@ -160,6 +161,7 @@ def create_app():
         run_migrations_caixa_loja()
         run_migrations_preco_caixa_kg()
         run_migrations_centros_custo()
+        run_migrations_cost_centers_store_id()
         run_migrations_colaboradores_smart()
         run_migrations_transferencias_motivo()
         run_migrations_transferencias_eventos()

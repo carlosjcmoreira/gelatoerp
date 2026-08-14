@@ -4639,3 +4639,53 @@ def run_backfill_invoice_categoria_custo():
                 conn.rollback()
             except Exception:
                 pass
+
+
+_LOCK_COST_CENTERS_STORE_ID = 202695
+
+
+def run_migrations_cost_centers_store_id():
+    """Add store_id FK to cost_centers and backfill from name-matching.
+
+    Adds: cost_centers.store_id INTEGER REFERENCES stores(id)
+    Backfill: for each CC whose name (case-insensitive) matches an active store,
+              set store_id to that store's PK.
+
+    Advisory lock 202695 for idempotency across workers.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_COST_CENTERS_STORE_ID,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_cost_centers_store_id: lock held by another worker, skipping")
+            return
+
+        # Add column if missing
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.columns
+            WHERE table_name = 'cost_centers' AND column_name = 'store_id'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                ALTER TABLE cost_centers
+                ADD COLUMN store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL
+            """)
+            logger.info("run_migrations_cost_centers_store_id: added store_id column")
+
+        # Backfill: match CC name to store name (case-insensitive)
+        cursor.execute("""
+            UPDATE cost_centers cc
+            SET store_id = s.id
+            FROM stores s
+            WHERE LOWER(cc.name) = LOWER(s.name)
+              AND s.is_active = TRUE
+              AND cc.store_id IS NULL
+        """)
+        affected = cursor.rowcount
+        if affected:
+            logger.info(
+                "run_migrations_cost_centers_store_id: backfilled store_id for %d cost center(s)",
+                affected,
+            )
+
+        conn.commit()

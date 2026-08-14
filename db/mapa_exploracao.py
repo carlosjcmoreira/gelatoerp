@@ -141,14 +141,20 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
     sales_split = get_sales_split_pct(months=12)
     budget_all = get_orcamento_all_stores(ano)
 
-    # ── CC → store mapping (name-based; FK upgrade tracked in task #695) ───
+    # ── CC → store mapping (uses store_id FK; falls back to name-match for legacy) ─
     all_cost_centers = get_cost_centers(ativo_only=False)
     store_name_lower_to_id = {s['name'].lower(): s['id'] for s in active_stores}
     cc_to_store: dict = {}
     for cc in all_cost_centers:
-        matched_sid = store_name_lower_to_id.get((cc['name'] or '').lower())
-        if matched_sid is not None:
-            cc_to_store[cc['id']] = matched_sid
+        # Prefer the explicit FK link set by the manager
+        sid = cc.get('store_id')
+        if sid is not None and sid in {s['id'] for s in active_stores}:
+            cc_to_store[cc['id']] = sid
+        else:
+            # Legacy fallback: name-based matching for CCs not yet assigned via FK
+            matched_sid = store_name_lower_to_id.get((cc['name'] or '').lower())
+            if matched_sid is not None:
+                cc_to_store[cc['id']] = matched_sid
 
     # ── Load & resolve invoice cost slices ─────────────────────────────────
 
