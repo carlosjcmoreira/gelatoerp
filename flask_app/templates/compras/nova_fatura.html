@@ -10,7 +10,7 @@
         🗺️ <span>Contexto do Mapa de Exploração:
         <strong>{{ prefill_loja }}</strong>{% if prefill_mes_label %}, <strong>{{ prefill_mes_label }}</strong>{% endif %}.
         Distribui o custo desta fatura ao centro de custo correspondente à loja.</span>
-        <a href="{{ url_for('financeiro.distribuicao_centros_custo') }}" class="ms-auto small text-nowrap">Ver distribuição →</a>
+        <a href="{{ url_for('centros_custo.index') }}" class="ms-auto small text-nowrap">Centros de custo →</a>
     </div>
     {% endif %}
 

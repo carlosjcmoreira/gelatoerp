@@ -63,6 +63,7 @@
                         <th class="small">Nome</th>
                         <th class="small">Descrição</th>
                         <th class="small">Loja associada</th>
+                        <th class="small">Regra P&L</th>
                         <th class="small">Estado</th>
                         <th class="small"></th>
                     </tr>
@@ -82,6 +83,19 @@
                         </span>
                         {% else %}
                         <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="small">
+                        {% if cc.store_id %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">
+                            100%% {{ store_map.get(cc.store_id, '?') }}
+                        </span>
+                        {% elif cc.ativo %}
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                            📈 Volume de vendas
+                        </span>
+                        {% else %}
+                        <span class="text-muted small">—</span>
                         {% endif %}
                     </td>
                     <td class="small">
@@ -111,7 +125,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="text-center text-muted small py-3">Nenhum centro de custo registado.</td></tr>
+                <tr><td colspan="7" class="text-center text-muted small py-3">Nenhum centro de custo registado.</td></tr>
                 {% endfor %}
                 </tbody>
             </table>

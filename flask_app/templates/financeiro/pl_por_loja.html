@@ -459,7 +459,7 @@ thead .col-label { z-index: 3; }
 <tr>
     <td class="col-label ps-3 fst-italic text-muted" colspan="14">
         Nenhuma categoria de custo configurada.
-        <a href="{{ url_for('financeiro.distribuicao_centros_custo') }}" class="ms-2 small">Configurar →</a>
+        <a href="{{ url_for('centros_custo.index') }}" class="ms-2 small">Configurar →</a>
     </td>
 </tr>
 {% endif %}
@@ -671,7 +671,7 @@ thead .col-label { z-index: 3; }
     {% if not mapa.categories %}
     <div class="alert alert-info py-1 px-2 mb-0 small">
         ℹ️ Configure categorias de custo em
-        <a href="{{ url_for('financeiro.distribuicao_centros_custo') }}">Distribuição Centros de Custo</a>.
+        <a href="{{ url_for('centros_custo.index') }}">Centros de Custo</a>.
     </div>
     {% endif %}
     {% if not mapa.cmvmc and not mapa.budget_cmvmc %}
