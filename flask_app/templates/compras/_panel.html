@@ -173,10 +173,6 @@
         <dt class="col-5 text-muted">Categoria</dt>
         <dd class="col-7">{{ inv.category }}</dd>
         {% endif %}
-        {% if inv.store_name %}
-        <dt class="col-5 text-muted">Loja</dt>
-        <dd class="col-7">{{ inv.store_name }}</dd>
-        {% endif %}
         {% if inv.onedrive_subfolder %}
         <dt class="col-5 text-muted">Subpasta</dt>
         <dd class="col-7">{{ inv.onedrive_subfolder }}</dd>
@@ -375,15 +371,6 @@
                                 <option value="">— Seleccionar —</option>
                                 {% for cat in categories %}
                                 <option value="{{ cat }}" {% if inv.category == cat %}selected{% endif %}>{{ cat }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label small mb-1">Loja</label>
-                            <select name="store_id" class="form-select form-select-sm">
-                                <option value="">— Seleccionar —</option>
-                                {% for s in stores %}
-                                <option value="{{ s.id }}" {% if inv.store_id == s.id %}selected{% endif %}>{{ s.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>

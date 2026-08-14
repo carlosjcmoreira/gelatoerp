@@ -126,8 +126,6 @@
                 <dd class="col-7">{{ inv.invoice_number or '—' }}</dd>
                 <dt class="col-5 text-muted">Categoria</dt>
                 <dd class="col-7">{{ inv.category or '—' }}</dd>
-                <dt class="col-5 text-muted">Loja</dt>
-                <dd class="col-7">{{ inv.store_name or '—' }}</dd>
                 <dt class="col-5 text-muted">Subpasta OneDrive</dt>
                 <dd class="col-7">{{ inv.onedrive_subfolder or '—' }}</dd>
                 {% if inv.onedrive_path %}
@@ -272,15 +270,6 @@
                                 <option value="">— Seleccionar —</option>
                                 {% for cat in categories %}
                                 <option value="{{ cat }}" {% if inv.category == cat %}selected{% endif %}>{{ cat }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div class="col-12 col-md-4">
-                            <label class="form-label small">Loja</label>
-                            <select name="store_id" class="form-select form-select-sm">
-                                <option value="">— Seleccionar —</option>
-                                {% for s in stores %}
-                                <option value="{{ s.id }}" {% if inv.store_id == s.id %}selected{% endif %}>{{ s.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>

@@ -43,7 +43,6 @@ def _build_cont_where(
     supplier_name: str = None,
     document_type: str = None,
     accounting_status: str = None,
-    store_id: int = None,
     date_from=None,
     date_to=None,
     search: str = None,
@@ -66,10 +65,6 @@ def _build_cont_where(
         else:
             clauses.append("i.accounting_status = %s")
             params.append(accounting_status)
-
-    if store_id:
-        clauses.append("i.store_id = %s")
-        params.append(store_id)
 
     if date_from:
         clauses.append("i.issue_date >= %s")
@@ -94,7 +89,6 @@ def get_cont_invoices(
     supplier_name: str = None,
     document_type: str = None,
     accounting_status: str = None,
-    store_id: int = None,
     date_from=None,
     date_to=None,
     search: str = None,
@@ -114,7 +108,6 @@ def get_cont_invoices(
         supplier_name=supplier_name,
         document_type=document_type,
         accounting_status=accounting_status,
-        store_id=store_id,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -131,8 +124,6 @@ def get_cont_invoices(
             i.amount_eur,
             i.vat_amount_eur,
             i.issue_date,
-            i.store_id,
-            st.name      AS store_name,
             i.status,
             i.paid_date,
             COALESCE(i.accounting_status, 'por_contabilizar') AS accounting_status,
@@ -143,7 +134,6 @@ def get_cont_invoices(
             (i.pdf_data IS NOT NULL) AS has_pdf
         FROM invoices i
         LEFT JOIN suppliers s ON s.id = i.supplier_id
-        LEFT JOIN stores st   ON st.id = i.store_id
         {where}
         ORDER BY i.{order_by} {order_dir} NULLS LAST
         LIMIT %s OFFSET %s
@@ -167,18 +157,16 @@ def get_cont_invoices(
             'amount_eur':           row[6],
             'vat_amount_eur':       row[7],
             'issue_date':           row[8],
-            'store_id':             row[9],
-            'store_name':           row[10],
-            'status':               row[11],
-            'paid_date':            row[12],
-            'accounting_status':    row[13],
-            'accounting_notes':     row[14],
-            'accounting_updated_by':row[15],
-            'accounting_updated_at':row[16],
-            'notes':                row[17],
-            'has_pdf':              bool(row[18]),
-            'accounting_status_label': ACCOUNTING_STATUS_LABELS.get(row[13], row[13]),
-            'accounting_status_badge': ACCOUNTING_STATUS_BADGE.get(row[13], 'bg-secondary'),
+            'status':               row[9],
+            'paid_date':            row[10],
+            'accounting_status':    row[11],
+            'accounting_notes':     row[12],
+            'accounting_updated_by':row[13],
+            'accounting_updated_at':row[14],
+            'notes':                row[15],
+            'has_pdf':              bool(row[16]),
+            'accounting_status_label': ACCOUNTING_STATUS_LABELS.get(row[11], row[11]),
+            'accounting_status_badge': ACCOUNTING_STATUS_BADGE.get(row[11], 'bg-secondary'),
         })
     return result
 
@@ -187,7 +175,6 @@ def count_cont_invoices(
     supplier_name: str = None,
     document_type: str = None,
     accounting_status: str = None,
-    store_id: int = None,
     date_from=None,
     date_to=None,
     search: str = None,
@@ -196,7 +183,6 @@ def count_cont_invoices(
         supplier_name=supplier_name,
         document_type=document_type,
         accounting_status=accounting_status,
-        store_id=store_id,
         date_from=date_from,
         date_to=date_to,
         search=search,

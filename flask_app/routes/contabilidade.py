@@ -58,8 +58,6 @@ def index():
     accounting_status = request.args.get('accounting_status', '').strip()
     if accounting_status not in ACCOUNTING_STATUS_LABELS and accounting_status != '':
         accounting_status = ''
-    store_id_raw = request.args.get('store_id', '').strip()
-    store_id = int(store_id_raw) if store_id_raw.isdigit() else None
     date_from = _parse_date(request.args.get('date_from', ''))
     date_to = _parse_date(request.args.get('date_to', ''))
     date_from_raw = request.args.get('date_from', '')
@@ -77,7 +75,6 @@ def index():
         supplier_name=supplier_name or None,
         document_type=document_type or None,
         accounting_status=accounting_status or None,
-        store_id=store_id,
         date_from=date_from,
         date_to=date_to,
         search=search or None,
@@ -108,7 +105,7 @@ def index():
 
     has_filters = bool(
         supplier_name or document_type or accounting_status
-        or store_id or date_from_raw or date_to_raw or search
+        or date_from_raw or date_to_raw or search
     )
 
     return render_template(
@@ -120,7 +117,6 @@ def index():
         supplier_name=supplier_name,
         document_type=document_type,
         accounting_status=accounting_status,
-        store_id=store_id,
         date_from_raw=date_from_raw,
         date_to_raw=date_to_raw,
         search=search,
@@ -225,8 +221,6 @@ def export_xlsx():
     accounting_status = request.args.get('accounting_status', '').strip()
     if accounting_status not in ACCOUNTING_STATUS_LABELS and accounting_status != '':
         accounting_status = ''
-    store_id_raw = request.args.get('store_id', '').strip()
-    store_id = int(store_id_raw) if store_id_raw.isdigit() else None
     date_from = _parse_date(request.args.get('date_from', ''))
     date_to = _parse_date(request.args.get('date_to', ''))
     search = request.args.get('q', '').strip()
@@ -235,7 +229,6 @@ def export_xlsx():
         supplier_name=supplier_name or None,
         document_type=document_type or None,
         accounting_status=accounting_status or None,
-        store_id=store_id,
         date_from=date_from,
         date_to=date_to,
         search=search or None,
@@ -257,7 +250,7 @@ def export_xlsx():
 
     headers = [
         'Data Emissão', 'Fornecedor', 'NIF', 'Nº Documento', 'Tipo',
-        'Valor (€)', 'IVA (€)', 'Loja', 'Estado Pagamento',
+        'Valor (€)', 'IVA (€)', 'Estado Pagamento',
         'Estado Contabilístico', 'Notas Contabilidade',
         'Data Contabilização', 'Contabilizado por',
     ]
@@ -285,12 +278,11 @@ def export_xlsx():
         ws.cell(r_idx, 5, DOCUMENT_TYPE_LABELS.get(inv['document_type'] or 'fatura', inv['document_type'] or ''))
         ws.cell(r_idx, 6, float(inv['amount_eur']) if inv['amount_eur'] is not None else '')
         ws.cell(r_idx, 7, float(inv['vat_amount_eur']) if inv['vat_amount_eur'] is not None else '')
-        ws.cell(r_idx, 8, inv['store_name'] or '')
-        ws.cell(r_idx, 9, STATUS_LABELS.get(inv['status'], inv['status'] or ''))
-        ws.cell(r_idx, 10, ACCOUNTING_STATUS_LABELS.get(inv['accounting_status'], inv['accounting_status'] or ''))
-        ws.cell(r_idx, 11, inv['accounting_notes'] or '')
-        ws.cell(r_idx, 12, inv['accounting_updated_at'].strftime('%d/%m/%Y %H:%M') if inv['accounting_updated_at'] else '')
-        ws.cell(r_idx, 13, inv['accounting_updated_by'] or '')
+        ws.cell(r_idx, 8, STATUS_LABELS.get(inv['status'], inv['status'] or ''))
+        ws.cell(r_idx, 9, ACCOUNTING_STATUS_LABELS.get(inv['accounting_status'], inv['accounting_status'] or ''))
+        ws.cell(r_idx, 10, inv['accounting_notes'] or '')
+        ws.cell(r_idx, 11, inv['accounting_updated_at'].strftime('%d/%m/%Y %H:%M') if inv['accounting_updated_at'] else '')
+        ws.cell(r_idx, 12, inv['accounting_updated_by'] or '')
 
     # Auto column width
     for col in ws.columns:

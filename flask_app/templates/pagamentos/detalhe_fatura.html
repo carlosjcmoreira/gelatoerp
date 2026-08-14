@@ -49,10 +49,6 @@
                 <dd class="col-7 {% if inv.due_date and inv.due_date.strftime('%Y-%m-%d') < today and inv.status not in ('paid','cancelled') %}text-danger fw-semibold{% endif %}">
                     {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
                 </dd>
-                {% if inv.store_name %}
-                <dt class="col-5">Loja</dt>
-                <dd class="col-7">{{ inv.store_name }}</dd>
-                {% endif %}
                 {% if inv.categoria %}
                 <dt class="col-5">Categoria</dt>
                 <dd class="col-7">{{ inv.categoria }}</dd>
@@ -188,15 +184,6 @@
                 <div class="col-6">
                     <label class="form-label small">Vencimento</label>
                     <input type="date" name="due_date" class="form-control form-control-sm" value="{{ inv.due_date.strftime('%Y-%m-%d') if inv.due_date else '' }}">
-                </div>
-                <div class="col-12">
-                    <label class="form-label small">Loja</label>
-                    <select name="store_id" class="form-select form-select-sm">
-                        <option value="">— Geral —</option>
-                        {% for s in stores %}
-                        <option value="{{ s.id }}" {% if s.id == inv.store_id %}selected{% endif %}>{{ s.name }}</option>
-                        {% endfor %}
-                    </select>
                 </div>
                 <div class="col-12">
                     <label class="form-label small">Notas</label>

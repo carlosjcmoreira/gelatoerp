@@ -206,10 +206,8 @@ def get_despesas_por_centro_custo(date_from=None, date_to=None,
         cursor.execute(f"""
             SELECT i.id, i.supplier_name, i.invoice_number,
                    i.amount_eur, i.issue_date, i.due_date, i.status,
-                   i.centro_custo_id, i.document_type,
-                   st.name AS store_name
+                   i.centro_custo_id, i.document_type
             FROM invoices i
-            LEFT JOIN stores st ON st.id = i.store_id
             {where_sql}
             ORDER BY i.issue_date DESC NULLS LAST
         """, params)

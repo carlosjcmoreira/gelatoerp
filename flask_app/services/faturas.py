@@ -70,7 +70,6 @@ def _build_draft_data(ocr: dict, supplier, file_bytes: bytes, filename: str,
 
     suggested_subfolder = suggest_onedrive_subfolder(
         supplier_nif=ocr.get('supplier_nif'),
-        store_id=supplier.get('store_id') if supplier else None,
     )
 
     # Calculate due_date from supplier payment_terms if supplier exists; else use OCR value

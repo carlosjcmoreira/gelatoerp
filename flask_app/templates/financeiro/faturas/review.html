@@ -270,15 +270,6 @@
                     </div>
                     {% endif %}
                     <div class="col-12 col-md-4">
-                        <label class="form-label small">Loja</label>
-                        <select name="store_id" class="form-select form-select-sm">
-                            <option value="">— Seleccionar —</option>
-                            {% for s in stores %}
-                            <option value="{{ s.id }}" {% if supplier and supplier.store_id == s.id %}selected{% endif %}>{{ s.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-12 col-md-4">
                         <label class="form-label small">Subpasta OneDrive</label>
                         <select name="onedrive_subfolder" class="form-select form-select-sm">
                             <option value="">— Seleccionar —</option>

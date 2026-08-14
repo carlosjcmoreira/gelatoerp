@@ -104,7 +104,7 @@ def faturas():
     PAGE_SIZE = 50
 
     # Filter session persistence
-    _FILTER_KEYS = ('supplier_id', 'supplier_name', 'store_id', 'status',
+    _FILTER_KEYS = ('supplier_id', 'supplier_name', 'status',
                     'date_from', 'date_to', 'date_field', 'q', 'document_type', 'sem_evidencia')
     if request.args.get('clear') == '1':
         session.pop('faturas_filters', None)
@@ -118,8 +118,6 @@ def faturas():
     supplier_id_raw = request.args.get('supplier_id', '').strip()
     supplier_filter_id = int(supplier_id_raw) if supplier_id_raw.isdigit() else None
     supplier_name_filter = request.args.get('supplier_name', '').strip()
-    store_id_raw = request.args.get('store_id', '').strip()
-    store_id_filter = int(store_id_raw) if store_id_raw.isdigit() else None
     status_filter = request.args.get('status', '').strip()
     date_from_raw = request.args.get('date_from', '').strip()
     date_to_raw = request.args.get('date_to', '').strip()
@@ -168,7 +166,6 @@ def faturas():
     filter_kwargs = dict(
         supplier_id=supplier_filter_id,
         supplier_name=supplier_name_filter or None,
-        store_id=store_id_filter,
         status=status_filter or None,
         date_from=date_from,
         date_to=date_to,
@@ -206,7 +203,7 @@ def faturas():
     all_supplier_names = get_distinct_supplier_names()
     stores = get_stores_list()
     has_filters = bool(
-        supplier_filter_id or supplier_name_filter or store_id_filter
+        supplier_filter_id or supplier_name_filter
         or status_filter or date_from_raw or date_to_raw
         or document_type_filter or q_filter or sem_evidencia_filter
     )
@@ -218,8 +215,6 @@ def faturas():
             _filter_save['supplier_name'] = supplier_name_filter
         elif supplier_filter_id:
             _filter_save['supplier_id'] = supplier_filter_id
-        if store_id_filter:
-            _filter_save['store_id'] = store_id_filter
         if status_filter:
             _filter_save['status'] = status_filter
         if document_type_filter:
@@ -240,8 +235,6 @@ def faturas():
         _fqs_d['supplier_name'] = supplier_name_filter
     elif supplier_filter_id:
         _fqs_d['supplier_id'] = supplier_filter_id
-    if store_id_filter:
-        _fqs_d['store_id'] = store_id_filter
     if status_filter:
         _fqs_d['status'] = status_filter
     if document_type_filter:
@@ -298,7 +291,6 @@ def faturas():
                            page_size=PAGE_SIZE,
                            # ── filters (Financeiro naming conventions) ──────
                            search=q_filter,
-                           store_id=str(store_id_filter) if store_id_filter else '',
                            supplier_name_filter=supplier_name_filter,
                            document_type_filter=document_type_filter,
                            date_from_raw=date_from_raw,
@@ -366,26 +358,6 @@ def set_invoice_status(invoice_id: int):
     return jsonify({'ok': True, 'status': new_status, 'status_label': status_label})
 
 
-@compras_bp.route('/faturas/<int:invoice_id>/set_store', methods=['POST'])
-@any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — inline store assignment
-def set_invoice_store(invoice_id: int):
-    from flask import jsonify
-    data = request.get_json(silent=True) or {}
-    store_id_raw = data.get('store_id')
-    store_id = int(store_id_raw) if store_id_raw else None
-    store_name = None
-    if store_id:
-        for s in get_stores_list():
-            if s['id'] == store_id:
-                store_name = s['name']
-                break
-    _actor = session.get('user', {}).get('username', 'sistema')
-    try:
-        update_invoice(invoice_id, {'store_id': store_id}, changed_by=_actor)
-    except Exception as e:
-        logger.error('set_invoice_store error: %s', e)
-        return jsonify({'ok': False, 'error': 'Erro interno'}), 500
-    return jsonify({'ok': True, 'store_id': store_id, 'store_name': store_name})
 
 
 @compras_bp.route('/faturas/<int:invoice_id>/set_paid_date', methods=['POST'])
@@ -440,9 +412,13 @@ def invoice_panel(invoice_id: int):
     payment_methods = get_payment_methods_config()
     linhas = get_invoice_linhas(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
-    stock_local_derivado = derive_local_from_store(
-        store_name=inv.get('store_name'), store_id=inv.get('store_id')
-    )
+    _cp_cc_id = inv.get('centro_custo_id')
+    _cp_store_id = None
+    if _cp_cc_id:
+        _cp_cc_list = get_cost_centers(ativo_only=False)
+        _cp_cc = next((c for c in _cp_cc_list if c['id'] == _cp_cc_id), None)
+        _cp_store_id = _cp_cc.get('store_id') if _cp_cc else None
+    stock_local_derivado = derive_local_from_store(store_id=_cp_store_id)
     suppliers = get_suppliers()
     cont_tickets = get_tickets_for_invoice(invoice_id)
     acc_status = inv.get('accounting_status') or 'por_contabilizar'
@@ -1135,7 +1111,6 @@ def nova_fatura():
                 'vat_amount_eur': vat_amount_eur,
                 'issue_date': issue_date,
                 'due_date': due_date,
-                'store_id': None,
                 'category': None,
                 'onedrive_subfolder': None,
                 'onedrive_path': None,

@@ -218,7 +218,7 @@ def update_vat_config(rate_pos_fallback: float = None, rate_events_fallback: flo
         conn.commit()
 
 
-def get_invoices_with_payments(status: str = None, store_id: int = None,
+def get_invoices_with_payments(status: str = None,
                                 search: str = None, limit: int = 500) -> list:
     """Get invoices joined with their payment scheduling info from invoice_payments."""
     with db_connection() as conn:
@@ -230,9 +230,6 @@ def get_invoices_with_payments(status: str = None, store_id: int = None,
         elif status:
             where.append("i.status = %s")
             params.append(status)
-        if store_id:
-            where.append("i.store_id = %s")
-            params.append(store_id)
         if search:
             where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s)")
             s = f'%{search.lower()}%'
@@ -242,15 +239,13 @@ def get_invoices_with_payments(status: str = None, store_id: int = None,
         cursor.execute(f"""
             SELECT i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
                    i.invoice_number, i.amount_eur, i.vat_amount_eur,
-                   i.issue_date, i.due_date, i.store_id, i.category AS categoria,
+                   i.issue_date, i.due_date, i.category AS categoria,
                    i.status, i.notes, i.created_by, i.created_at,
-                   st.name AS store_name,
                    ip.id AS payment_id, ip.proposed_date, ip.confirmed_date,
                    ip.paid_date AS payment_paid_date, ip.amount_eur AS payment_amount,
                    ip.status AS payment_status, ip.confirmed_by, ip.notes AS payment_notes,
                    COALESCE(i.document_type, 'fatura') AS document_type
             FROM invoices i
-            LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
             {where_clause}
             ORDER BY i.due_date ASC NULLS LAST, i.created_at DESC

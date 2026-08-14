@@ -1005,7 +1005,7 @@ DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
 
 
 def _row_to_invoice(row) -> dict:
-    document_type = row[23] if len(row) > 23 else 'fatura'
+    document_type = row[21] if len(row) > 21 else 'fatura'
     if not document_type:
         document_type = 'fatura'
     return {
@@ -1018,28 +1018,26 @@ def _row_to_invoice(row) -> dict:
         'vat_amount_eur': float(row[6]) if row[6] is not None else None,
         'issue_date': row[7],
         'due_date': row[8],
-        'store_id': row[9],
-        'category': row[10],
-        'onedrive_subfolder': row[11],
-        'onedrive_path': row[12],
-        'pdf_filename': row[13],
-        'status': row[14],
-        'ocr_confidence': float(row[15]) if row[15] is not None else None,
-        'created_by': row[16],
-        'cfo_confirmed_date': row[17],
-        'paid_date': row[18],
-        'notes': row[19],
-        'created_at': row[20],
-        'store_name': row[21],
-        'onedrive_web_url': row[22] if len(row) > 22 else None,
+        'category': row[9],
+        'onedrive_subfolder': row[10],
+        'onedrive_path': row[11],
+        'pdf_filename': row[12],
+        'status': row[13],
+        'ocr_confidence': float(row[14]) if row[14] is not None else None,
+        'created_by': row[15],
+        'cfo_confirmed_date': row[16],
+        'paid_date': row[17],
+        'notes': row[18],
+        'created_at': row[19],
+        'onedrive_web_url': row[20] if len(row) > 20 else None,
         'document_type': document_type,
         'document_type_label': DOCUMENT_TYPE_LABELS.get(document_type, document_type),
-        'status_label': get_invoice_status_labels_map().get(row[14], row[14]),
-        'centro_custo_id': row[24] if len(row) > 24 else None,
-        'categoria_custo_id': row[25] if len(row) > 25 else None,
-        'centro_custo_name': row[31] if len(row) > 31 else None,
+        'status_label': get_invoice_status_labels_map().get(row[13], row[13]),
+        'centro_custo_id': row[22] if len(row) > 22 else None,
+        'categoria_custo_id': row[23] if len(row) > 23 else None,
+        'centro_custo_name': row[29] if len(row) > 29 else None,
         'has_pdf': False,
-        'pdf_is_image': (row[13] or '').lower().rsplit('.', 1)[-1] in ('jpg', 'jpeg', 'png', 'gif', 'webp') if row[13] else False,
+        'pdf_is_image': (row[12] or '').lower().rsplit('.', 1)[-1] in ('jpg', 'jpeg', 'png', 'gif', 'webp') if row[12] else False,
         'has_duplicate': False,
     }
 
@@ -1053,7 +1051,6 @@ _ORDER_COL_MAP = {
     'invoice_number': 'i.invoice_number',
     'category': 'i.category',
     'status': 'i.status',
-    'store_name': 'LOWER(st.name)',
     'cfo_confirmed_date': 'i.cfo_confirmed_date',
 }
 
@@ -1148,7 +1145,6 @@ _GOV_NIFS = ('500757155', '506826066')
 
 def _build_invoice_where(status: str = None, statuses: list = None,
                          no_status_filter: bool = False,
-                         store_id: int = None,
                          search: str = None,
                          centro_custo_id: int = None,
                          categoria_custo_id: int = None,
@@ -1177,9 +1173,6 @@ def _build_invoice_where(status: str = None, statuses: list = None,
     else:
         # Exclude in-progress drafts from the default listing
         where.append("i.status != 'draft'")
-    if store_id:
-        where.append("i.store_id = %s")
-        params.append(store_id)
     if centro_custo_id:
         where.append("""(i.centro_custo_id = %s OR EXISTS (
             SELECT 1 FROM invoice_centros_custo icc
@@ -1254,7 +1247,6 @@ def _build_invoice_where(status: str = None, statuses: list = None,
 
 def get_invoices(status: str = None, statuses: list = None,
                  no_status_filter: bool = False,
-                 store_id: int = None,
                  search: str = None, order_by: str = 'due_date',
                  order_dir: str = 'asc',
                  centro_custo_id: int = None,
@@ -1273,7 +1265,7 @@ def get_invoices(status: str = None, statuses: list = None,
         cursor = conn.cursor()
         where_clause, params = _build_invoice_where(
             status=status, statuses=statuses, no_status_filter=no_status_filter,
-            store_id=store_id, search=search,
+            search=search,
             centro_custo_id=centro_custo_id, categoria_custo_id=categoria_custo_id,
             supplier_name=supplier_name, supplier_names=supplier_names,
             supplier_id=supplier_id, date_from=date_from, date_to=date_to,
@@ -1290,11 +1282,10 @@ def get_invoices(status: str = None, statuses: list = None,
         cursor.execute(f"""
             SELECT i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
                    i.invoice_number, i.amount_eur, i.vat_amount_eur,
-                   i.issue_date, i.due_date, i.store_id, i.category,
+                   i.issue_date, i.due_date, i.category,
                    i.onedrive_subfolder, i.onedrive_path, i.pdf_filename,
                    i.status, i.ocr_confidence, i.created_by,
                    i.cfo_confirmed_date, i.paid_date, i.notes, i.created_at,
-                   st.name AS store_name,
                    i.onedrive_web_url,
                    i.document_type,
                    i.centro_custo_id,
@@ -1313,7 +1304,6 @@ def get_invoices(status: str = None, statuses: list = None,
                        cc.name
                    ) AS centro_custo_name
             FROM invoices i
-            LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN cost_centers cc ON cc.id = i.centro_custo_id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
             LEFT JOIN (
@@ -1330,18 +1320,17 @@ def get_invoices(status: str = None, statuses: list = None,
     result = []
     for r in rows:
         inv = _row_to_invoice(r)
-        inv['payment_confirmed_date'] = r[26] if len(r) > 26 else None
-        inv['payment_method'] = r[27] if len(r) > 27 else None
-        inv['installment_total'] = int(r[28]) if len(r) > 28 and r[28] else 0
-        inv['installment_paid_count'] = int(r[29]) if len(r) > 29 and r[29] else 0
-        inv['has_pdf'] = bool(r[30]) if len(r) > 30 else False
+        inv['payment_confirmed_date'] = r[24] if len(r) > 24 else None
+        inv['payment_method'] = r[25] if len(r) > 25 else None
+        inv['installment_total'] = int(r[26]) if len(r) > 26 and r[26] else 0
+        inv['installment_paid_count'] = int(r[27]) if len(r) > 27 and r[27] else 0
+        inv['has_pdf'] = bool(r[28]) if len(r) > 28 else False
         result.append(inv)
     return result
 
 
 def count_invoices(status: str = None, statuses: list = None,
                    no_status_filter: bool = False,
-                   store_id: int = None,
                    search: str = None,
                    centro_custo_id: int = None,
                    categoria_custo_id: int = None,
@@ -1355,7 +1344,7 @@ def count_invoices(status: str = None, statuses: list = None,
                    exclude_gov: bool = False) -> int:
     where_clause, params = _build_invoice_where(
         status=status, statuses=statuses, no_status_filter=no_status_filter,
-        store_id=store_id, search=search,
+        search=search,
         centro_custo_id=centro_custo_id, categoria_custo_id=categoria_custo_id,
         supplier_name=supplier_name, supplier_names=supplier_names,
         supplier_id=supplier_id, date_from=date_from, date_to=date_to,
@@ -1367,7 +1356,6 @@ def count_invoices(status: str = None, statuses: list = None,
         cursor.execute(f"""
             SELECT COUNT(*)
             FROM invoices i
-            LEFT JOIN stores st ON i.store_id = st.id
             {where_clause}
         """, params)
         return int(cursor.fetchone()[0])
@@ -1451,11 +1439,10 @@ def get_invoice(invoice_id: int) -> dict:
         cursor.execute("""
             SELECT i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
                    i.invoice_number, i.amount_eur, i.vat_amount_eur,
-                   i.issue_date, i.due_date, i.store_id, i.category,
+                   i.issue_date, i.due_date, i.category,
                    i.onedrive_subfolder, i.onedrive_path, i.pdf_filename,
                    i.status, i.ocr_confidence, i.created_by,
                    i.cfo_confirmed_date, i.paid_date, i.notes, i.created_at,
-                   st.name AS store_name,
                    i.onedrive_web_url,
                    i.document_type,
                    i.centro_custo_id,
@@ -1476,7 +1463,6 @@ def get_invoice(invoice_id: int) -> dict:
                    i.accounting_updated_by,
                    i.accounting_updated_at
             FROM invoices i
-            LEFT JOIN stores st ON i.store_id = st.id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
             WHERE i.id = %s
         """, (invoice_id,))
@@ -1484,20 +1470,20 @@ def get_invoice(invoice_id: int) -> dict:
     if not row:
         return None
     inv = _row_to_invoice(row)
-    inv['ocr_raw'] = row[26]
-    inv['payment_confirmed_date'] = row[27] if len(row) > 27 else None
-    inv['stock_registado_at'] = row[28] if len(row) > 28 else None
-    inv['stock_registado_por'] = row[29] if len(row) > 29 else None
-    inv['payment_method'] = row[30] if len(row) > 30 else None
-    inv['onedrive_failed'] = row[31] if len(row) > 31 else False
-    inv['onedrive_retry_at'] = row[32] if len(row) > 32 else None
-    inv['installment_total'] = int(row[33]) if len(row) > 33 and row[33] else 0
-    inv['installment_paid_count'] = int(row[34]) if len(row) > 34 and row[34] else 0
-    inv['has_pdf'] = bool(row[35]) if len(row) > 35 else inv['has_pdf']
-    inv['accounting_status'] = row[36] if len(row) > 36 else 'por_contabilizar'
-    inv['accounting_notes'] = row[37] if len(row) > 37 else None
-    inv['accounting_updated_by'] = row[38] if len(row) > 38 else None
-    inv['accounting_updated_at'] = row[39] if len(row) > 39 else None
+    inv['ocr_raw'] = row[24]
+    inv['payment_confirmed_date'] = row[25] if len(row) > 25 else None
+    inv['stock_registado_at'] = row[26] if len(row) > 26 else None
+    inv['stock_registado_por'] = row[27] if len(row) > 27 else None
+    inv['payment_method'] = row[28] if len(row) > 28 else None
+    inv['onedrive_failed'] = row[29] if len(row) > 29 else False
+    inv['onedrive_retry_at'] = row[30] if len(row) > 30 else None
+    inv['installment_total'] = int(row[31]) if len(row) > 31 and row[31] else 0
+    inv['installment_paid_count'] = int(row[32]) if len(row) > 32 and row[32] else 0
+    inv['has_pdf'] = bool(row[33]) if len(row) > 33 else inv['has_pdf']
+    inv['accounting_status'] = row[34] if len(row) > 34 else 'por_contabilizar'
+    inv['accounting_notes'] = row[35] if len(row) > 35 else None
+    inv['accounting_updated_by'] = row[36] if len(row) > 36 else None
+    inv['accounting_updated_at'] = row[37] if len(row) > 37 else None
     return inv
 
 
@@ -1590,14 +1576,14 @@ def create_invoice(data: dict) -> int:
             INSERT INTO invoices (
                 supplier_id, supplier_name, supplier_nif, invoice_number,
                 amount_eur, vat_amount_eur, issue_date, due_date,
-                store_id, category, onedrive_subfolder, onedrive_path,
+                category, onedrive_subfolder, onedrive_path,
                 onedrive_web_url, pdf_filename, pdf_data, status,
                 ocr_confidence, ocr_raw, created_by, notes, document_type, source,
                 centro_custo_id, categoria_custo_id, updated_at
             ) VALUES (
                 %(supplier_id)s, %(supplier_name)s, %(supplier_nif)s, %(invoice_number)s,
                 %(amount_eur)s, %(vat_amount_eur)s, %(issue_date)s, %(due_date)s,
-                %(store_id)s, %(category)s, %(onedrive_subfolder)s, %(onedrive_path)s,
+                %(category)s, %(onedrive_subfolder)s, %(onedrive_path)s,
                 %(onedrive_web_url)s, %(pdf_filename)s, %(pdf_data)s, %(status)s,
                 %(ocr_confidence)s, %(ocr_raw)s, %(created_by)s, %(notes)s,
                 %(document_type)s, %(source)s,
@@ -1666,7 +1652,7 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
     params = []
     allowed = [
         'supplier_name', 'supplier_nif', 'invoice_number', 'amount_eur', 'vat_amount_eur',
-        'issue_date', 'due_date', 'store_id', 'category', 'onedrive_subfolder',
+        'issue_date', 'due_date', 'category', 'onedrive_subfolder',
         'onedrive_path', 'status', 'cfo_confirmed_date', 'paid_date', 'notes', 'supplier_id',
         'document_type', 'centro_custo_id', 'categoria_custo_id', 'payment_method',
     ]
@@ -1683,7 +1669,7 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
     _AUDIT_TRACKED = [
         'supplier_name', 'supplier_nif', 'supplier_id',
         'invoice_number', 'amount_eur', 'vat_amount_eur',
-        'issue_date', 'due_date', 'category', 'store_id', 'document_type',
+        'issue_date', 'due_date', 'category', 'document_type',
         'notes', 'status', 'payment_method',
         'centro_custo_id', 'categoria_custo_id', 'paid_date', 'cfo_confirmed_date',
     ]
@@ -1945,10 +1931,10 @@ _CATEGORY_SUBFOLDER_MAP = {
 }
 
 
-def suggest_onedrive_subfolder(supplier_nif: str = None, store_id: int = None,
+def suggest_onedrive_subfolder(supplier_nif: str = None,
                                 category: str = None) -> str:
     """
-    Suggest OneDrive subfolder based on supplier NIF + store association.
+    Suggest OneDrive subfolder based on supplier NIF + category.
     Rules (priority order):
     1. If supplier has a known store association → use store-based mapping
     2. If category provided → use category mapping
@@ -1969,18 +1955,7 @@ def suggest_onedrive_subfolder(supplier_nif: str = None, store_id: int = None,
                 if store_name in _STORE_SUBFOLDER_MAP:
                     return _STORE_SUBFOLDER_MAP[store_name]
 
-    # Rule 2: store_id provided directly
-    if store_id:
-        with db_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM stores WHERE id = %s", (store_id,))
-            row = cursor.fetchone()
-            if row:
-                store_name = row[0].lower()
-                if store_name in _STORE_SUBFOLDER_MAP:
-                    return _STORE_SUBFOLDER_MAP[store_name]
-
-    # Rule 3: category-based fallback
+    # Rule 2: category-based fallback
     if category and category in _CATEGORY_SUBFOLDER_MAP:
         return _CATEGORY_SUBFOLDER_MAP[category]
 
@@ -2179,18 +2154,16 @@ def get_contas_por_fornecedor(status_filter: str = None,
         cursor.execute(f"""
             SELECT i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
                    i.invoice_number, i.amount_eur, i.vat_amount_eur,
-                   i.issue_date, i.due_date, i.store_id, i.category,
+                   i.issue_date, i.due_date, i.category,
                    i.onedrive_subfolder, i.onedrive_path, i.pdf_filename,
                    i.status, i.ocr_confidence, i.created_by,
                    i.cfo_confirmed_date, i.paid_date, i.notes, i.created_at,
-                   st.name AS store_name,
                    i.onedrive_web_url,
                    i.document_type,
                    i.centro_custo_id,
                    i.categoria_custo_id,
                    (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf
             FROM invoices i
-            LEFT JOIN stores st ON i.store_id = st.id
             WHERE i.status != 'draft' {extra_where}
             ORDER BY LOWER(i.supplier_name), i.due_date ASC NULLS LAST
         """, params)
@@ -2198,7 +2171,7 @@ def get_contas_por_fornecedor(status_filter: str = None,
 
     def _to_inv(r):
         inv = _row_to_invoice(r)
-        inv['has_pdf'] = bool(r[26]) if len(r) > 26 else False
+        inv['has_pdf'] = bool(r[24]) if len(r) > 24 else False
         return inv
 
     invoices = [_to_inv(r) for r in rows]

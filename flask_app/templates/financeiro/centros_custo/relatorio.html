@@ -86,7 +86,6 @@
                             <th>Fornecedor</th>
                             <th>Nº doc.</th>
                             <th>Estado</th>
-                            <th>Loja</th>
                             <th class="text-end">% alocado</th>
                             <th class="text-end">Valor</th>
                             <th></th>
@@ -109,7 +108,6 @@
                                 {{ status_labels.get(st, st) }}
                             </span>
                         </td>
-                        <td>{{ inv.store_name or '—' }}</td>
                         <td class="text-end">
                             {% set pct = inv._allocated_pct|default(100) %}
                             {% if pct < 100 %}

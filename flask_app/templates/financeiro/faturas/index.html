@@ -191,8 +191,7 @@
                     onchange="_bulkFieldChange('forn-field-select','forn-field-value-select','forn-assign-btn')">
                 <option value="">— Alterar campo —</option>
                 <option value="categoria_custo_id">Categoria</option>
-                <option value="store_id">Loja</option>
-                <option value="centro_custo_id">Centro de Custo</option>
+                    <option value="centro_custo_id">Centro de Custo</option>
             </select>
             <select id="forn-field-value-select" class="form-select form-select-sm" style="width:auto" disabled>
                 <option value="">— Valor —</option>
@@ -383,7 +382,6 @@
                 onchange="_bulkFieldChange('cc-field-select','cc-value-select','cc-assign-btn')">
             <option value="">— Alterar campo —</option>
             <option value="categoria_custo_id">Categoria</option>
-            <option value="store_id">Loja</option>
             <option value="centro_custo_id">Centro de Custo</option>
         </select>
         <select id="cc-value-select" class="form-select form-select-sm" style="width:auto" disabled>
@@ -544,7 +542,6 @@
                 onchange="_bulkFieldChange('cat-field-select','cat-value-select','cat-assign-btn')">
             <option value="">— Alterar campo —</option>
             <option value="categoria_custo_id">Categoria</option>
-            <option value="store_id">Loja</option>
             <option value="centro_custo_id">Centro de Custo</option>
         </select>
         <select id="cat-value-select" class="form-select form-select-sm" style="width:auto" disabled>
@@ -648,7 +645,6 @@
         {% if supplier_name_filter %}<input type="hidden" name="supplier_name" id="ff-sn" value="{{ supplier_name_filter }}">{% endif %}
         {% if supplier_id_filter %}<input type="hidden" name="supplier_id" id="ff-spid" value="{{ supplier_id_filter }}">{% endif %}
         {% if document_type_filter %}<input type="hidden" name="document_type" id="ff-dt" value="{{ document_type_filter }}">{% endif %}
-        {% if store_id %}<input type="hidden" name="store_id" id="ff-sid" value="{{ store_id }}">{% endif %}
         {% if search %}<input type="hidden" name="q" id="ff-q" value="{{ search }}">{% endif %}
         {% if centro_custo_filter %}<input type="hidden" name="centro_custo_id" id="ff-cc" value="{{ centro_custo_filter }}">{% endif %}
         {% if category_filter %}<input type="hidden" name="category" id="ff-cat" value="{{ category_filter }}">{% endif %}
@@ -660,7 +656,7 @@
             <span class="input-group-text text-muted bg-body border-end-0 pe-2" style="pointer-events:none">🔍</span>
             <input type="text" id="doc-search-inp"
                    class="form-control border-start-0 ps-1"
-                   placeholder="Pesquisar fornecedor, documento, notas, tipo, loja…"
+                   placeholder="Pesquisar fornecedor, documento, notas, tipo…"
                    value="{{ search or '' }}"
                    autocomplete="off">
             <button id="doc-search-clear" class="btn btn-outline-secondary"
@@ -674,7 +670,7 @@
     <!-- ── Filter Bar ──────────────────────────────────────────────────────── -->
     <div class="fbar mb-3">
 
-        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter or supplier_id_filter else 0) + (1 if document_type_filter else 0) + (1 if store_id else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) + (1 if category_filter else 0) + (1 if sem_cc_filter else 0) %}
+        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter or supplier_id_filter else 0) + (1 if document_type_filter else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) + (1 if category_filter else 0) + (1 if sem_cc_filter else 0) %}
         <!-- Mobile toggle (only shown on xs/sm screens) -->
         <div class="d-md-none mb-2">
             <button class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between"
@@ -685,7 +681,7 @@
         </div>
 
         <!-- Single filter line: chips + action buttons -->
-        {% set _any_f = statuses_filter or supplier_name_filter or supplier_id_filter or search or document_type_filter or store_id or date_from_raw or date_to_raw or month_raw or centro_custo_filter %}
+        {% set _any_f = statuses_filter or supplier_name_filter or supplier_id_filter or search or document_type_filter or date_from_raw or date_to_raw or month_raw or centro_custo_filter %}
         <div class="collapse d-md-block" id="fbar-chips-wrap">
         <div class="d-flex flex-wrap gap-2 align-items-center" id="fbar-chips">
             {% if default_filter_active %}
@@ -716,13 +712,6 @@
             <span class="fbar-chip">
                 📄 {{ document_type_labels.get(document_type_filter, document_type_filter) }}
                 <button class="fbar-chip-x" type="button" onclick="removeFilter('document_type')" title="Remover">✕</button>
-            </span>
-            {% endif %}
-            {% if store_id %}
-            {% set _sname = stores | selectattr('id', 'equalto', store_id | int) | map(attribute='name') | first | default(store_id | string) %}
-            <span class="fbar-chip">
-                🏪 {{ _sname }}
-                <button class="fbar-chip-x" type="button" onclick="removeFilter('store_id')" title="Remover">✕</button>
             </span>
             {% endif %}
             {% if search %}
@@ -784,7 +773,6 @@
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('supplier_name')">👤 Fornecedor</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('document_type')">📄 Tipo de documento</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('categoria')">🏷 Categoria</button></li>
-                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('store_id')">🏪 Loja</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('centro_custo')">📂 Centro de custo</button></li>
                     <li><hr class="dropdown-divider my-1"></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('due_date')">📅 Vencimento</button></li>
@@ -968,7 +956,6 @@
                     onchange="_bulkFieldChange('bulk-field-select','bulk-field-value-select','bulk-assign-btn')">
                 <option value="">— Alterar campo —</option>
                 <option value="categoria_custo_id">Categoria</option>
-                <option value="store_id">Loja</option>
                 <option value="centro_custo_id">Centro de Custo</option>
             </select>
             <select id="bulk-field-value-select" class="form-select form-select-sm" style="width:auto" disabled>
@@ -1032,7 +1019,6 @@
                     {{ col_th('supplier_name', 'Fornecedor', order_by, order_dir, filter_qs, '', 'supplier_name') }}
                     {{ col_th('invoice_number', 'Nº Documento', order_by, order_dir, filter_qs, '', 'q') }}
                     {{ col_th('category', 'Categoria', order_by, order_dir, filter_qs, 'd-none d-md-table-cell', 'categoria') }}
-                    {{ col_th('store_name', 'Loja', order_by, order_dir, filter_qs, 'd-none d-md-table-cell', 'store_id') }}
                     {{ col_th('issue_date', 'Emissão', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'issue_date') }}
                     {{ col_th('due_date', 'Vencimento', order_by, order_dir, filter_qs, '', 'due_date') }}
                     {{ col_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
@@ -1065,24 +1051,6 @@
                     </td>
                     <td class="text-nowrap small" data-col-key="invoice_number">{{ inv.invoice_number or '—' }}</td>
                     <td class="d-none d-md-table-cell text-muted small" data-col-key="category">{{ inv.category or '—' }}</td>
-                    <td class="d-none d-md-table-cell text-muted small text-nowrap" data-col-key="store_name"
-                        {% if scope == 'compras' %}onclick="event.stopPropagation()"{% endif %}>
-                        {% if scope == 'compras' %}
-                        <select class="form-select form-select-sm border-0 py-0 px-1"
-                                style="min-width:80px;background:transparent;cursor:pointer;font-size:0.8rem"
-                                data-inv-id="{{ inv.id }}"
-                                data-original="{{ inv.store_id or '' }}"
-                                onclick="event.stopPropagation()"
-                                onchange="setInvStore(this)">
-                            <option value="">—</option>
-                            {% for st in stores %}
-                            <option value="{{ st.id }}" {% if inv.store_id == st.id %}selected{% endif %}>{{ st.name }}</option>
-                            {% endfor %}
-                        </select>
-                        {% else %}
-                        {{ inv.store_name or '—' }}
-                        {% endif %}
-                    </td>
                     <td class="d-none d-lg-table-cell text-muted small text-nowrap" data-col-key="issue_date">
                         {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
                     </td>
@@ -1224,11 +1192,6 @@ var _BULK_FIELD_OPTS = {
     categoria_custo_id: [
         { v: '', l: '— Sem categoria —' },
         {% for cc in cost_categories %}{ v: '{{ cc.id }}', l: {{ cc.name | tojson }} },
-        {% endfor %}
-    ],
-    store_id: [
-        { v: '', l: '— Sem loja —' },
-        {% for st in stores %}{ v: '{{ st.id }}', l: {{ st.name | tojson }} },
         {% endfor %}
     ],
     centro_custo_id: [
@@ -1909,7 +1872,6 @@ var FBAR_DATA = {
     activeStatuses: {{ statuses_filter | tojson }},
     activeSupplier: {{ supplier_name_filter | tojson }},
     activeDocType: {{ document_type_filter | tojson }},
-    activeStoreId: {{ store_id | tojson }},
     activeSearch: {{ search | tojson }},
     activeDateField: {{ date_field | tojson }},
     activeDateFrom: {{ date_from_raw | tojson }},
@@ -2006,7 +1968,7 @@ function openFbarPanel(field, anchor) {
     }
 
     var LABELS = { status:'Estado', supplier_name:'Fornecedor', document_type:'Tipo de Documento',
-        store_id:'Loja', due_date:'Vencimento', issue_date:'Emissão', paid_date:'Data Pagamento', q:'Pesquisa de Texto' };
+        due_date:'Vencimento', issue_date:'Emissão', paid_date:'Data Pagamento', q:'Pesquisa de Texto' };
     var h = '<div class="d-flex align-items-center justify-content-between mb-3">' +
         '<span class="fw-semibold small">' + (LABELS[field]||field) + '</span>' +
         '<button type="button" class="btn-close btn-sm" onclick="closeFbarPanel()"></button></div>';
@@ -2046,15 +2008,6 @@ function openFbarPanel(field, anchor) {
             h += '<option value="'+k+'"'+(cur2===k?' selected':'')+'>'+FBAR_DATA.docTypeLabels[k]+'</option>';
         });
         h += '</select><div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applyDocTypeFilter()">Aplicar</button>' +
-            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
-
-    } else if (field === 'store_id') {
-        var cur3 = String(FBAR_DATA.activeStoreId||'');
-        h += '<select id="fbar-store-sel" class="form-select form-select-sm mb-3"><option value="">— Todas as lojas —</option>';
-        FBAR_DATA.stores.forEach(function(s) {
-            h += '<option value="'+s.id+'"'+(cur3===String(s.id)?' selected':'')+'>'+s.name+'</option>';
-        });
-        h += '</select><div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applyStoreFilter()">Aplicar</button>' +
             '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
 
     } else if (['due_date','issue_date','paid_date'].indexOf(field)>=0) {
@@ -2189,10 +2142,6 @@ function applyDocTypeFilter() {
     var val=((document.getElementById('fbar-dt-sel')||{}).value||'');
     _fbarSet('ff-dt','document_type',val); document.getElementById('filter-form').requestSubmit();
 }
-function applyStoreFilter() {
-    var val=((document.getElementById('fbar-store-sel')||{}).value||'');
-    _fbarSet('ff-sid','store_id',val); document.getElementById('filter-form').requestSubmit();
-}
 function applyCategoriaFilter() {
     var val=((document.getElementById('fbar-cat-inp')||{}).value||'');
     _fbarSet('ff-cat','category',val); document.getElementById('filter-form').requestSubmit();
@@ -2220,7 +2169,6 @@ var COL_META = [
     { key:'supplier_name',      label:'Fornecedor'       },
     { key:'invoice_number',     label:'Nº Documento'     },
     { key:'category',           label:'Categoria'        },
-    { key:'store_name',         label:'Loja'             },
     { key:'issue_date',         label:'Emissão'          },
     { key:'due_date',           label:'Vencimento'       },
     { key:'amount_eur',         label:'Total'            },
@@ -2460,29 +2408,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 })();
 {% if scope == 'compras' %}
-function setInvStore(sel) {
-    var id = sel.dataset.invId;
-    var origValue = sel.dataset.original || '';
-    // Prevent the browser from auto-scrolling when disabled triggers an implicit blur.
-    var _savedY = window.scrollY;
-    var _scrollLock = function() { window.scrollTo({ top: _savedY, behavior: 'instant' }); };
-    window.addEventListener('scroll', _scrollLock, { passive: true });
-    setTimeout(function() { window.removeEventListener('scroll', _scrollLock); }, 300);
-    sel.disabled = true;
-    fetch('{{ _inv_api_prefix }}/' + id + '/set_store', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({store_id: sel.value ? parseInt(sel.value, 10) : null})
-    }).then(function(r) { return r.json(); })
-      .then(function(data) {
-        sel.disabled = false;
-        if (data.ok) { sel.dataset.original = sel.value; }
-        else { sel.value = origValue; }
-    }).catch(function() {
-        sel.disabled = false;
-        sel.value = origValue;
-    });
+// setInvStore removed — store_id field removed from invoices
 }
 {% endif %}
 function docSearchClear() {

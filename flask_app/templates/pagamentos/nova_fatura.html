@@ -114,15 +114,6 @@
                         <label class="form-label small">Data de Vencimento</label>
                         <input type="date" name="due_date" class="form-control form-control-sm">
                     </div>
-                    <div class="col-12">
-                        <label class="form-label small">Loja/Unidade</label>
-                        <select name="store_id" class="form-select form-select-sm">
-                            <option value="">— Geral —</option>
-                            {% for s in stores %}
-                            <option value="{{ s.id }}">{{ s.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
                     {% if cost_centers or cost_categories_tree %}
                     <div class="col-12 col-md-6">
                         <label class="form-label small">Centro de Custo</label>

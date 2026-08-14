@@ -103,7 +103,6 @@ def nova_fatura():
         vat_str = request.form.get('vat_amount_eur', '').replace(',', '.') or '0'
         issue_date_str = request.form.get('issue_date', '')
         due_date_str = request.form.get('due_date', '')
-        store_id = request.form.get('store_id') or None
         categoria = request.form.get('categoria', '').strip() or None
         notes_raw = request.form.get('notes', '').strip() or ''
         payment_method = request.form.get('payment_method', '').strip() or None
@@ -160,7 +159,6 @@ def nova_fatura():
             notes_parts.append(notes_raw)
         notes = ' | '.join(notes_parts) or None
 
-        store_id_int = int(store_id) if store_id else None
         invoice_id = create_invoice({
             'supplier_id': None,
             'supplier_name': supplier_name,
@@ -170,7 +168,6 @@ def nova_fatura():
             'vat_amount_eur': vat_amount_eur,
             'issue_date': issue_date,
             'due_date': due_date,
-            'store_id': store_id_int,
             'category': categoria,
             'onedrive_subfolder': onedrive_subfolder,
             'onedrive_path': None,

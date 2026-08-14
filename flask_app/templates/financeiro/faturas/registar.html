@@ -158,18 +158,6 @@
                         <input type="date" name="due_date" class="form-control form-control-sm"
                                value="{{ form_data.get('due_date', '') if form_data else '' }}">
                     </div>
-                    <div class="col-12">
-                        <label class="form-label small">Loja/Unidade</label>
-                        <select name="store_id" class="form-select form-select-sm">
-                            <option value="">— Geral —</option>
-                            {% for s in stores %}
-                            <option value="{{ s.id }}"
-                                    {% if form_data and form_data.get('store_id') == s.id|string %}selected{% endif %}>
-                                {{ s.name }}
-                            </option>
-                            {% endfor %}
-                        </select>
-                    </div>
                     {% if cost_centers or cost_categories_tree %}
                     <div class="col-12 col-md-6">
                         <label class="form-label small">Centro de Custo</label>

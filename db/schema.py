@@ -1268,7 +1268,6 @@ def run_faturas_migrations():
                 vat_amount_eur NUMERIC(12,2),
                 issue_date DATE,
                 due_date DATE,
-                store_id INTEGER REFERENCES stores(id),
                 category VARCHAR(100),
                 onedrive_subfolder VARCHAR(255),
                 onedrive_path TEXT,
@@ -1287,6 +1286,7 @@ def run_faturas_migrations():
         ''')
 
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS supplier_id INTEGER REFERENCES suppliers(id)")
+        cursor.execute("ALTER TABLE invoices DROP COLUMN IF EXISTS store_id")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cfo_confirmed_date DATE")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_date DATE")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ocr_raw JSONB")

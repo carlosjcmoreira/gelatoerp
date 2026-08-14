@@ -355,7 +355,6 @@ def index():
     order_by = request.args.get('order_by', 'due_date')
     order_dir = request.args.get('order_dir', 'asc')
     search = request.args.get('q', '').strip()
-    store_id = request.args.get('store_id', '')
     centro_custo_raw = request.args.get('centro_custo_id', '')
     categoria_custo_raw = request.args.get('categoria_custo_id', '')
     centro_custo_filter = int(centro_custo_raw) if centro_custo_raw else None
@@ -424,7 +423,6 @@ def index():
     invoices = get_invoices(
         statuses=effective_statuses,
         no_status_filter=show_all,
-        store_id=int(store_id) if store_id else None,
         search=search or None,
         order_by=order_by,
         order_dir=order_dir,
@@ -479,7 +477,7 @@ def index():
         _filter_params.append(('status', s))
     if show_all:
         _filter_params.append(('all', '1'))
-    for k, v in [('q', search), ('store_id', store_id),
+    for k, v in [('q', search),
                  ('centro_custo_id', centro_custo_raw), ('categoria_custo_id', categoria_custo_raw),
                  ('document_type', document_type_filter), ('supplier_name', supplier_name_filter),
                  ('supplier_id', supplier_id_raw if supplier_id_filter else ''),
@@ -537,7 +535,7 @@ def index():
         _type_badge_params.append(('status', s))
     if show_all:
         _type_badge_params.append(('all', '1'))
-    for k, v in [('q', search), ('store_id', store_id),
+    for k, v in [('q', search),
                  ('centro_custo_id', centro_custo_raw), ('categoria_custo_id', categoria_custo_raw),
                  ('supplier_name', supplier_name_filter),
                  ('supplier_id', supplier_id_raw if supplier_id_filter else '')]:
@@ -568,7 +566,6 @@ def index():
         order_by=order_by,
         order_dir=order_dir,
         search=search,
-        store_id=store_id,
         stores=stores,
         today=today,
         filter_qs=filter_qs,
@@ -820,7 +817,7 @@ def bulk_action():
             msg += f' {fail} falharam (ver logs).'
         flash(msg, 'success' if not fail else 'warning')
     elif action == 'assign_field':
-        _ASSIGN_ALLOWED = {'categoria_custo_id', 'store_id', 'centro_custo_id'}
+        _ASSIGN_ALLOWED = {'categoria_custo_id', 'centro_custo_id'}
         field = request.form.get('field', '').strip()
         if field not in _ASSIGN_ALLOWED:
             flash('Campo inválido.', 'warning')
@@ -839,7 +836,6 @@ def bulk_action():
                 fail += 1
         _field_labels = {
             'categoria_custo_id': 'Categoria',
-            'store_id': 'Loja',
             'centro_custo_id': 'Centro de Custo',
         }
         msg = f'{ok} fatura(s) actualizadas ({_field_labels.get(field, field)}).'
@@ -887,7 +883,6 @@ def registar():
         vat_str = request.form.get('vat_amount_eur', '').replace(',', '.') or '0'
         issue_date_str = request.form.get('issue_date', '')
         due_date_str = request.form.get('due_date', '')
-        store_id = request.form.get('store_id') or None
         notes_raw = request.form.get('notes', '').strip() or ''
         payment_method = request.form.get('payment_method', '').strip() or None
         document_type = request.form.get('document_type', 'fatura')
@@ -959,7 +954,6 @@ def registar():
                 request.form,
             )
 
-        store_id_int = int(store_id) if store_id else None
         current_user = session.get('user', {}).get('username', 'sistema')
         invoice_id = create_invoice({
             'supplier_id': supplier_id,
@@ -970,7 +964,6 @@ def registar():
             'vat_amount_eur': vat_amount_eur,
             'issue_date': issue_date,
             'due_date': due_date,
-            'store_id': store_id_int,
             'category': None,
             'onedrive_subfolder': onedrive_subfolder,
             'onedrive_path': None,
@@ -1203,7 +1196,6 @@ def save():
         'vat_amount_eur': request.form.get('vat_amount_eur', ''),
         'issue_date': request.form.get('issue_date', ''),
         'due_date': request.form.get('due_date', ''),
-        'store_id': request.form.get('store_id', ''),
         'category': request.form.get('category', ''),
         'onedrive_subfolder': request.form.get('onedrive_subfolder', ''),
         'notes': request.form.get('notes', ''),
@@ -1270,8 +1262,9 @@ def detail(invoice_id: int):
     confirming_contracts = get_confirming_contracts()
     linhas = get_invoice_linhas(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
-    stock_local_derivado = derive_local_from_store(store_name=inv.get('store_name'), store_id=inv.get('store_id'))
     cost_centers = get_cost_centers(ativo_only=True)
+    _cc_for_stock = next((c for c in cost_centers if c['id'] == inv.get('centro_custo_id')), None) if inv.get('centro_custo_id') else None
+    stock_local_derivado = derive_local_from_store(store_id=_cc_for_stock.get('store_id') if _cc_for_stock else None)
     cost_categories_tree = get_cost_categories_tree()
     inv_centros_custo = get_invoice_centros_custo(invoice_id)
     from db.faturas import get_invoice_installments
@@ -1373,8 +1366,13 @@ def invoice_panel(invoice_id: int):
         inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
     linhas = get_invoice_linhas(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
-    stock_local_derivado = derive_local_from_store(
-        store_name=inv.get('store_name'), store_id=inv.get('store_id'))
+    _inv_cc_id = inv.get('centro_custo_id')
+    _cc_store_id = None
+    if _inv_cc_id:
+        _cc_list = get_cost_centers(ativo_only=False)
+        _cc = next((c for c in _cc_list if c['id'] == _inv_cc_id), None)
+        _cc_store_id = _cc.get('store_id') if _cc else None
+    stock_local_derivado = derive_local_from_store(store_id=_cc_store_id)
     panel_return_url = _safe_return_url(request.args.get('return_url', ''))
     from db.contabilidade import (
         get_tickets_for_invoice,
@@ -1527,8 +1525,14 @@ def registar_stock(invoice_id: int):
         flash('O stock desta fatura já foi registado e não pode ser executado novamente.', 'warning')
         return _panel_redirect(invoice_id)
 
-    # Derive local from invoice store_id (primary) then store_name; only fall back to submitted value if unmapped
-    local = derive_local_from_store(store_name=inv.get('store_name'), store_id=inv.get('store_id'))
+    # Derive local from invoice CC store; fall back to submitted value if unmapped
+    _rs_cc_id = inv.get('centro_custo_id')
+    _rs_store_id = None
+    if _rs_cc_id:
+        _rs_cc_list = get_cost_centers(ativo_only=False)
+        _rs_cc = next((c for c in _rs_cc_list if c['id'] == _rs_cc_id), None)
+        _rs_store_id = _rs_cc.get('store_id') if _rs_cc else None
+    local = derive_local_from_store(store_id=_rs_store_id)
     if not local:
         local = request.form.get('local', '').strip()
     if local not in LOCAIS_STOCK:
@@ -1571,9 +1575,6 @@ def edit(invoice_id: int):
     vat_amount_eur = _parse_float(request.form.get('vat_amount_eur', ''))
     issue_date = _parse_date(request.form.get('issue_date', ''))
     due_date = _parse_date(request.form.get('due_date', ''))
-    store_id = request.form.get('store_id', '') or None
-    if store_id:
-        store_id = int(store_id)
     category = request.form.get('category', '').strip()
     onedrive_subfolder = request.form.get('onedrive_subfolder', '').strip()
     notes = request.form.get('notes', '').strip()
@@ -1631,7 +1632,6 @@ def edit(invoice_id: int):
         'vat_amount_eur': vat_amount_eur,
         'issue_date': issue_date,
         'due_date': due_date,
-        'store_id': store_id,
         'category': category or None,
         'onedrive_subfolder': onedrive_subfolder or None,
         'status': status,
@@ -2245,13 +2245,13 @@ def fornecedores():
             _u = session.get('user', {})
             if not (_u.get('acesso_gestor') or _u.get('acesso_administrativo')):
                 return _jsonify({'ok': False, 'error': 'Sem permissão para edição em massa.'}), 403
-            _BULK_EDIT_FIELDS = {'store_id', 'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
+            _BULK_EDIT_FIELDS = {'payment_method', 'payment_terms', 'centro_custo_id', 'categoria_custo_id'}
             field = request.form.get('field', '').strip()
             if field not in _BULK_EDIT_FIELDS:
                 return _jsonify({'ok': False, 'error': 'Campo inválido'}), 400
             raw_value = request.form.get('value', '').strip()
             # Coerce integer fields; treat empty string as NULL
-            if field in ('store_id', 'centro_custo_id', 'categoria_custo_id'):
+            if field in ('centro_custo_id', 'categoria_custo_id'):
                 value = int(raw_value) if raw_value.isdigit() else None
             else:
                 value = raw_value or None
@@ -2524,7 +2524,6 @@ def _handle_excel_import(file, ext='xlsx'):
                 'vat_amount_eur': vat_amount_eur,
                 'issue_date': issue_date,
                 'due_date': due_date,
-                'store_id': None,
                 'category': _cell_str(_get(row, 'category')) or None,
                 'onedrive_subfolder': _cell_str(_get(row, 'onedrive_subfolder')) or None,
                 'onedrive_path': None,
