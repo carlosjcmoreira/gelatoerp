@@ -860,7 +860,6 @@ def registar():
         return render_template(
             'financeiro/faturas/registar.html',
             suppliers=get_suppliers(),
-            stores=get_stores_list(),
             cost_centers=get_cost_centers(ativo_only=True),
             cost_categories_tree=get_cost_categories_tree(),
             payment_methods=[m for m in get_payment_methods_config() if m.get('ativo')],
@@ -1016,14 +1015,12 @@ def registar():
         return redirect(url_for('faturas.index'))
 
     suppliers = get_suppliers()
-    stores = get_stores_list()
     cost_centers = get_cost_centers(ativo_only=True)
     cost_categories_tree = get_cost_categories_tree()
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     return render_template(
         'financeiro/faturas/registar.html',
         suppliers=suppliers,
-        stores=stores,
         cost_centers=cost_centers,
         cost_categories_tree=cost_categories_tree,
         payment_methods=payment_methods,
@@ -1253,7 +1250,6 @@ def detail(invoice_id: int):
     if not inv:
         flash('Fatura não encontrada.', 'warning')
         return redirect(url_for('faturas.index'))
-    stores = get_stores_list()
     subfolders = ONEDRIVE_SUBFOLDERS
     categories = INVOICE_CATEGORIES
     suppliers = get_suppliers()
@@ -1272,7 +1268,6 @@ def detail(invoice_id: int):
     return render_template(
         'financeiro/faturas/detail.html',
         inv=inv,
-        stores=stores,
         subfolders=subfolders,
         categories=categories,
         suppliers=suppliers,
@@ -1392,7 +1387,6 @@ def invoice_panel(invoice_id: int):
         inv=inv,
         today=today,
         document_type_labels=DOCUMENT_TYPE_LABELS,
-        stores=get_stores_list(),
         categories=INVOICE_CATEGORIES,
         subfolders=ONEDRIVE_SUBFOLDERS,
         payment_methods=[m for m in get_payment_methods_config() if m.get('ativo')],
