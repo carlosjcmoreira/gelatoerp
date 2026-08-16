@@ -94,7 +94,6 @@ def index():
 
 
 @compras_bp.route('/faturas')
-@any_perm_required('acesso_financeiro', 'acesso_compras')
 @any_perm_required('acesso_administrativo', 'acesso_compras')  # min: acesso_compras — invoice listing
 def faturas():
     from datetime import date as _date, datetime as _datetime
