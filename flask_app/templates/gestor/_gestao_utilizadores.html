@@ -39,6 +39,7 @@
                             <th class="text-center">Eventos</th>
                             <th class="text-center">Tarefas</th>
                             <th class="text-center">Contab.</th>
+                            <th class="text-center">Compras</th>
                             <th class="text-center">Ativo</th>
                             <th class="text-center">Ações</th>
                         </tr>
@@ -65,6 +66,7 @@
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_eventos_{{ u.id }}" {% if u.acesso_eventos %}checked{% endif %}></td>
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_tarefas_{{ u.id }}" {% if u.acesso_tarefas %}checked{% endif %}></td>
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_contabilidade_{{ u.id }}" {% if u.acesso_contabilidade %}checked{% endif %}></td>
+                            <td class="text-center"><input class="form-check-input" type="checkbox" name="acesso_compras_{{ u.id }}" {% if u.acesso_compras %}checked{% endif %}></td>
                             <td class="text-center"><input class="form-check-input" type="checkbox" name="ativo_{{ u.id }}" {% if u.ativo %}checked{% endif %}></td>
                             <td class="text-center text-nowrap">
                                 {% if is_self %}

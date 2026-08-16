@@ -16,7 +16,7 @@ _PAGE_DEFS = [
     ('acesso_producao',      '🍨', 'Produção Gelado',      'Gelado',     'producao.index',   '/producao'),
     ('acesso_pastelaria',    '🍡', 'Produção Pastelaria',  'Pastelaria', 'pastelaria.index', '/pastelaria'),
     ('acesso_confeitaria',   '🍪', 'Produção Confeitaria', 'Confeit.',   'confeitaria.index','/confeitaria'),
-    ('acesso_administrativo','🛍️', 'Compras e Faturas',    'Compras',    'compras.index',    '/compras'),
+    ('acesso_compras',       '🛍️', 'Compras e Faturas',    'Compras',    'compras.index',    '/compras'),
     ('acesso_administrativo','🚚', 'Logística',            'Logística',  'logistica.index',  '/logistica'),
     ('acesso_tarefas',       '✅', 'Tarefas',              'Tarefas',    'tarefas.index',    '/tarefas'),
     ('acesso_gestor',        '👔', 'Gestor',               'Gestor',     'gestor.index',     '/gestor'),

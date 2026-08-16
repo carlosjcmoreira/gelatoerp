@@ -36,7 +36,7 @@ def get_session_user(token: str):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT u.id, u.username, u.role, u.nome, u.acesso_eurokg, u.acesso_producao, u.acesso_vendas, u.acesso_pastelaria, u.acesso_confeitaria, u.acesso_gestor, u.acesso_administrativo, u.loja_id, u.acesso_financeiro, u.acesso_eventos, u.acesso_tarefas, COALESCE(u.acesso_contabilidade, FALSE)
+            SELECT u.id, u.username, u.role, u.nome, u.acesso_eurokg, u.acesso_producao, u.acesso_vendas, u.acesso_pastelaria, u.acesso_confeitaria, u.acesso_gestor, u.acesso_administrativo, u.loja_id, u.acesso_financeiro, u.acesso_eventos, u.acesso_tarefas, COALESCE(u.acesso_contabilidade, FALSE), COALESCE(u.acesso_compras, FALSE)
             FROM sessions s JOIN users u ON s.user_id = u.id
             WHERE s.token = %s AND s.expires_at > NOW() AND u.ativo = TRUE
         """, (token,))
@@ -52,6 +52,7 @@ def get_session_user(token: str):
                 'acesso_financeiro': row[12], 'acesso_eventos': row[13],
                 'acesso_tarefas': row[14],
                 'acesso_contabilidade': row[15],
+                'acesso_compras': row[16],
                 'vendas_store_ids': vendas_store_ids,
             }
         return None
@@ -70,7 +71,7 @@ def authenticate_user(username: str, password: str):
         with db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT id, username, password, role, nome, acesso_eurokg, acesso_producao, acesso_vendas, acesso_pastelaria, acesso_confeitaria, acesso_gestor, acesso_administrativo, loja_id, acesso_financeiro, acesso_eventos, acesso_tarefas, COALESCE(acesso_contabilidade, FALSE) FROM users WHERE LOWER(username) = LOWER(%s) AND ativo = TRUE",
+                "SELECT id, username, password, role, nome, acesso_eurokg, acesso_producao, acesso_vendas, acesso_pastelaria, acesso_confeitaria, acesso_gestor, acesso_administrativo, loja_id, acesso_financeiro, acesso_eventos, acesso_tarefas, COALESCE(acesso_contabilidade, FALSE), COALESCE(acesso_compras, FALSE) FROM users WHERE LOWER(username) = LOWER(%s) AND ativo = TRUE",
                 (username,)
             )
             user = cursor.fetchone()
@@ -85,6 +86,7 @@ def authenticate_user(username: str, password: str):
                     'acesso_financeiro': user[13], 'acesso_eventos': user[14],
                     'acesso_tarefas': user[15],
                     'acesso_contabilidade': user[16],
+                    'acesso_compras': user[17],
                     'vendas_store_ids': vendas_store_ids,
                 }
             return None
@@ -95,7 +97,7 @@ def authenticate_user(username: str, password: str):
 def get_all_users():
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, username, role, nome, ativo, acesso_eurokg, acesso_producao, acesso_vendas, acesso_pastelaria, acesso_confeitaria, acesso_gestor, acesso_administrativo, loja_id, acesso_financeiro, acesso_eventos, acesso_tarefas, COALESCE(acesso_contabilidade, FALSE) FROM users ORDER BY username")
+        cursor.execute("SELECT id, username, role, nome, ativo, acesso_eurokg, acesso_producao, acesso_vendas, acesso_pastelaria, acesso_confeitaria, acesso_gestor, acesso_administrativo, loja_id, acesso_financeiro, acesso_eventos, acesso_tarefas, COALESCE(acesso_contabilidade, FALSE), COALESCE(acesso_compras, FALSE) FROM users ORDER BY username")
         rows = cursor.fetchall()
         users = []
         for row in rows:
@@ -109,6 +111,7 @@ def get_all_users():
                 'acesso_financeiro': row[13], 'acesso_eventos': row[14],
                 'acesso_tarefas': row[15],
                 'acesso_contabilidade': row[16],
+                'acesso_compras': row[17],
                 'vendas_store_ids': vendas_store_ids,
             })
         return users
@@ -170,13 +173,13 @@ def update_user_permissoes_batch(updates: list):
                 """UPDATE users SET acesso_eurokg = %s, acesso_producao = %s, acesso_vendas = %s,
                    acesso_pastelaria = %s, acesso_confeitaria = %s, acesso_gestor = %s, acesso_administrativo = %s,
                    acesso_financeiro = %s, acesso_eventos = %s, acesso_tarefas = %s,
-                   acesso_contabilidade = %s,
+                   acesso_contabilidade = %s, acesso_compras = %s,
                    role = %s, ativo = %s
                    WHERE id = %s""",
                 (u['acesso_eurokg'], u['acesso_producao'], has_vendas,
                  u['acesso_pastelaria'], u['acesso_confeitaria'], u['acesso_gestor'], u.get('acesso_administrativo', False),
                  u.get('acesso_financeiro', False), u.get('acesso_eventos', True), u.get('acesso_tarefas', False),
-                 u.get('acesso_contabilidade', False),
+                 u.get('acesso_contabilidade', False), u.get('acesso_compras', False),
                  role, u['ativo'], u['id'])
             )
             cursor.execute("DELETE FROM user_store_vendas WHERE user_id = %s", (u['id'],))

@@ -92,7 +92,7 @@ def _build_widgets(user: dict) -> list:
             'url': url_for('confeitaria.index'), 'stats': stats,
         })
 
-    if user.get('acesso_administrativo') or is_gestor:
+    if user.get('acesso_administrativo') or is_gestor or user.get('acesso_compras'):
         data = dash.widget_faturas()
         stats = []
         if data.get('_error'):
@@ -108,6 +108,7 @@ def _build_widgets(user: dict) -> list:
             'url': url_for('compras.index'), 'stats': stats,
         })
 
+    if user.get('acesso_administrativo') or is_gestor:
         data2 = dash.widget_logistica()
         stats2 = []
         if data2.get('_error'):
@@ -219,7 +220,7 @@ def index():
 
     # Global alert: invoices without documentary evidence
     faturas_sem_evidencia = 0
-    if user.get('acesso_administrativo') or user.get('acesso_gestor'):
+    if user.get('acesso_administrativo') or user.get('acesso_gestor') or user.get('acesso_compras'):
         try:
             from db.faturas import count_invoices_sem_evidencia as _count_sem_ev
             faturas_sem_evidencia = _count_sem_ev()

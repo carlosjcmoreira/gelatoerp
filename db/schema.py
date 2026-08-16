@@ -4641,6 +4641,44 @@ def run_backfill_invoice_categoria_custo():
                 pass
 
 
+_LOCK_ACESSO_COMPRAS = 202710
+
+
+def run_migrations_acesso_compras():
+    """Add acesso_compras column to users table.
+
+    Backfills TRUE for users with role='compras' so they retain access.
+    Advisory lock 202710 for idempotency across workers.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_ACESSO_COMPRAS,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_acesso_compras: lock held by another worker, skipping")
+            return
+
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.columns
+            WHERE table_name = 'users' AND column_name = 'acesso_compras'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("ALTER TABLE users ADD COLUMN acesso_compras BOOLEAN DEFAULT FALSE")
+            logger.info("run_migrations_acesso_compras: added acesso_compras column")
+
+        # Backfill: gestores, admins, and role='compras' users get TRUE
+        cursor.execute("""
+            UPDATE users SET acesso_compras = TRUE
+            WHERE (acesso_gestor = TRUE OR acesso_administrativo = TRUE OR role = 'compras')
+              AND (acesso_compras IS NULL OR acesso_compras = FALSE)
+        """)
+        affected = cursor.rowcount
+        if affected:
+            logger.info("run_migrations_acesso_compras: backfilled %d user(s)", affected)
+
+        cursor.execute("UPDATE users SET acesso_compras = FALSE WHERE acesso_compras IS NULL")
+        conn.commit()
+
+
 _LOCK_COST_CENTERS_STORE_ID = 202695
 
 
