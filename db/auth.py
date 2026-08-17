@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger
 from db.connection import hash_password, verify_password
-from db.cache import ttl_cache
+from db.cache import ttl_cache, ttl_cache_args, invalidate_prefix
 import secrets
 import json
 
@@ -30,6 +30,7 @@ def _fetch_vendas_store_ids(cursor, user_id: int) -> list:
     return [r[0] for r in cursor.fetchall()]
 
 
+@ttl_cache_args('session_user', ttl=20)
 def get_session_user(token: str):
     if not token:
         return None
@@ -189,6 +190,9 @@ def update_user_permissoes_batch(updates: list):
                     (u['id'], sid)
                 )
         conn.commit()
+    # Flush all cached session-user lookups so updated permissions take effect
+    # on the very next request (within this process) rather than after the TTL.
+    invalidate_prefix('session_user:')
 
 
 @ttl_cache('active_venda_stores', ttl=600)
