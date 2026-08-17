@@ -307,7 +307,22 @@ def create_app():
 
     @app.before_request
     def load_user():
-        g.user = session.get('user')
+        token = session.get('token')
+        if token:
+            from db.auth import get_session_user
+            fresh = get_session_user(token)
+            if fresh:
+                # Refresh the session cookie so it stays in sync with the DB.
+                # This means permission changes made by admins take effect on
+                # the very next page load for the affected user.
+                session['user'] = fresh
+                g.user = fresh
+            else:
+                # Token expired or user deactivated — clear the stale session.
+                session.clear()
+                g.user = None
+        else:
+            g.user = session.get('user')
 
     @app.template_global()
     def badge_attrs(bg_class_val):
