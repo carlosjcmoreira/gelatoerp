@@ -63,17 +63,20 @@ def get_suppliers(only_active: bool = False) -> list:
         cursor.execute("""
             SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
-                   s.centro_custo_id, cc.name AS centro_custo_name
+                   s.centro_custo_id, cc.name AS centro_custo_name,
+                   s.categoria_custo_id, ccat.name AS categoria_custo_name
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
+            LEFT JOIN cost_categories ccat ON s.categoria_custo_id = ccat.id
             ORDER BY s.name
         """)
         rows = cursor.fetchall()
     return [{'id': r[0], 'name': r[1], 'nif': r[2],
              'store_id': r[3], 'notes': r[4], 'store_name': r[5],
              'payment_method': r[6], 'payment_terms': r[7], 'iban': r[8],
-             'centro_custo_id': r[9], 'centro_custo_name': r[10]} for r in rows]
+             'centro_custo_id': r[9], 'centro_custo_name': r[10],
+             'categoria_custo_id': r[11], 'categoria_custo_name': r[12]} for r in rows]
 
 
 def _normalize_nif(nif) -> str:

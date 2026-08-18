@@ -192,7 +192,7 @@
                     {% if cost_categories_tree %}
                     <div class="col-sm-6">
                         <label class="form-label small">Categoria de Custo</label>
-                        <select name="categoria_custo_id" class="form-select form-select-sm">
+                        <select name="categoria_custo_id" id="categoria_custo_id_select" class="form-select form-select-sm">
                             <option value="">— Não atribuída —</option>
                             {% for top in cost_categories_tree %}
                             <optgroup label="{{ top.name }}">
@@ -263,6 +263,11 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 {% endif %}
 
+// ── Supplier default category lookup map (id → categoria_custo_id) ─────────
+var nfSupplierCatMap = {
+    {% for s in suppliers %}{% if s.categoria_custo_id %}{{ s.id }}: {{ s.categoria_custo_id }},{% endif %}{% endfor %}
+};
+
 // ── New-supplier toggle helpers ────────────────────────────────────────────
 function nfOnSupplierSelect(sel) {
     // When the user picks an existing supplier, close and clear the new-supplier form
@@ -270,11 +275,12 @@ function nfOnSupplierSelect(sel) {
         nfCancelNewSupplier();
     }
 
-    // Pre-fill centro de custo when the supplier has one configured
     var supplierId = sel.value;
-    if (supplierId) {
-        var form = sel.closest('form');
-        var ccSel = form ? form.querySelector('select[name="centro_custo_id"]') : null;
+    var form = sel.closest('form');
+
+    // Pre-fill centro de custo when the supplier has one configured
+    if (supplierId && form) {
+        var ccSel = form.querySelector('select[name="centro_custo_id"]');
         if (ccSel && !ccSel.value) {
             fetch('/financeiro/faturas/fornecedores/' + supplierId + '/info')
                 .then(function(r) { return r.ok ? r.json() : null; })
@@ -286,6 +292,18 @@ function nfOnSupplierSelect(sel) {
                     }
                 })
                 .catch(function() {});
+        }
+    }
+
+    // Pre-fill categoria de custo from the supplier's default (if not already set)
+    if (form) {
+        var catSel = form.querySelector('select[name="categoria_custo_id"]');
+        if (catSel) {
+            if (supplierId && nfSupplierCatMap[supplierId]) {
+                catSel.value = String(nfSupplierCatMap[supplierId]);
+            } else {
+                catSel.value = '';
+            }
         }
     }
 }
