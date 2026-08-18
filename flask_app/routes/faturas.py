@@ -1576,6 +1576,8 @@ def edit(invoice_id: int):
     document_type = request.form.get('document_type', inv.get('document_type', 'fatura'))
     cc_raw = request.form.get('centro_custo_id', '').strip()
     centro_custo_id = int(cc_raw) if cc_raw.isdigit() else None
+    cat_raw = request.form.get('categoria_custo_id', '').strip()
+    categoria_custo_id = int(cat_raw) if cat_raw.isdigit() else None
     if document_type not in DOCUMENT_TYPE_LABELS:
         document_type = 'fatura'
 
@@ -1632,6 +1634,7 @@ def edit(invoice_id: int):
         'notes': notes or None,
         'document_type': document_type,
         'centro_custo_id': centro_custo_id,
+        'categoria_custo_id': categoria_custo_id,
     }, changed_by=_edit_user)
 
     flash('Documento actualizado.', 'success')
@@ -1832,7 +1835,7 @@ def eliminar(invoice_id: int):
 
 
 @faturas_bp.route('/<int:invoice_id>/set-categoria-custo', methods=['POST'])
-@perm_required('acesso_financeiro')  # min: acesso_financeiro — quick category assignment from cash-flow map
+@any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro or acesso_compras
 def set_categoria_custo(invoice_id: int):
     """Quick-assign categoria_custo_id for an invoice (used inline from the cash-flow map)."""
     data = request.get_json(silent=True) or {}
