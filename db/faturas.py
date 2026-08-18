@@ -1208,15 +1208,21 @@ def _build_invoice_where(status: str = None, statuses: list = None,
         params.append(date_to)
     if search:
         s = f'%{search.lower()}%'
+        # Store-name match uses a correlated subquery so callers don't need to JOIN stores.
+        _store_match = (
+            "EXISTS (SELECT 1 FROM suppliers _sup"
+            " LEFT JOIN stores _st ON _st.id = _sup.store_id"
+            " WHERE _sup.id = i.supplier_id AND LOWER(COALESCE(_st.name,'')) LIKE %s)"
+        )
         if supplier_name or supplier_names:
             # Supplier already pinned via filter — search invoice number, notes, document_type, store
-            where.append("(LOWER(i.invoice_number) LIKE %s OR LOWER(COALESCE(i.notes,'')) LIKE %s"
-                         " OR LOWER(COALESCE(i.document_type,'')) LIKE %s OR LOWER(COALESCE(st.name,'')) LIKE %s)")
+            where.append(f"(LOWER(i.invoice_number) LIKE %s OR LOWER(COALESCE(i.notes,'')) LIKE %s"
+                         f" OR LOWER(COALESCE(i.document_type,'')) LIKE %s OR {_store_match})")
             params.extend([s, s, s, s])
         else:
-            where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s"
-                         " OR LOWER(COALESCE(i.notes,'')) LIKE %s OR LOWER(COALESCE(i.document_type,'')) LIKE %s"
-                         " OR LOWER(COALESCE(st.name,'')) LIKE %s)")
+            where.append(f"(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s"
+                         f" OR LOWER(COALESCE(i.notes,'')) LIKE %s OR LOWER(COALESCE(i.document_type,'')) LIKE %s"
+                         f" OR {_store_match})")
             params.extend([s, s, s, s, s])
     if sem_evidencia:
         where.append("(i.pdf_data IS NULL OR octet_length(i.pdf_data) = 0)")
