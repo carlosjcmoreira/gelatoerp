@@ -1039,6 +1039,7 @@ def _row_to_invoice(row) -> dict:
         'centro_custo_id': row[22] if len(row) > 22 else None,
         'categoria_custo_id': row[23] if len(row) > 23 else None,
         'centro_custo_name': row[29] if len(row) > 29 else None,
+        'categoria_custo_name': row[30] if len(row) > 30 else None,
         'has_pdf': False,
         'pdf_is_image': (row[12] or '').lower().rsplit('.', 1)[-1] in ('jpg', 'jpeg', 'png', 'gif', 'webp') if row[12] else False,
         'has_duplicate': False,
@@ -1311,9 +1312,11 @@ def get_invoices(status: str = None, statuses: list = None,
                         JOIN cost_centers cc2 ON cc2.id = icc2.centro_custo_id
                         WHERE icc2.invoice_id = i.id),
                        cc.name
-                   ) AS centro_custo_name
+                   ) AS centro_custo_name,
+                    ccat.name AS categoria_custo_name
             FROM invoices i
             LEFT JOIN cost_centers cc ON cc.id = i.centro_custo_id
+            LEFT JOIN cost_categories ccat ON ccat.id = i.categoria_custo_id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
             LEFT JOIN (
                 SELECT invoice_id,

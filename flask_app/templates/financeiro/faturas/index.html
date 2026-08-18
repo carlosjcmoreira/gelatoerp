@@ -1018,7 +1018,7 @@
                     </th>
                     {{ col_th('supplier_name', 'Fornecedor', order_by, order_dir, filter_qs, '', 'supplier_name') }}
                     {{ col_th('invoice_number', 'Nº Documento', order_by, order_dir, filter_qs, '', 'q') }}
-                    {{ col_th('category', 'Categoria', order_by, order_dir, filter_qs, 'd-none d-md-table-cell', 'categoria') }}
+                    <th class="col-th d-none d-md-table-cell" style="vertical-align:middle" data-col-key="categoria_custo_name" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Categoria de Custo</span></div></th>
                     {{ col_th('issue_date', 'Emissão', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'issue_date') }}
                     {{ col_th('due_date', 'Vencimento', order_by, order_dir, filter_qs, '', 'due_date') }}
                     {{ col_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
@@ -1050,7 +1050,7 @@
                         {% if not inv.has_pdf %}<span class="badge bg-warning text-dark ms-1" title="Sem ficheiro anexado — PDF ou imagem em falta" style="font-size:0.65rem">⚠ Sem ficheiro</span>{% endif %}
                     </td>
                     <td class="text-nowrap small" data-col-key="invoice_number">{{ inv.invoice_number or '—' }}</td>
-                    <td class="d-none d-md-table-cell text-muted small" data-col-key="category">{{ inv.category or '—' }}</td>
+                    <td class="d-none d-md-table-cell text-muted small" data-col-key="categoria_custo_name">{{ inv.categoria_custo_name or '—' }}</td>
                     <td class="d-none d-lg-table-cell text-muted small text-nowrap" data-col-key="issue_date">
                         {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
                     </td>
@@ -2168,7 +2168,7 @@ var COL_LS_VIS   = 'fin-docs-col-vis-v2';
 var COL_META = [
     { key:'supplier_name',      label:'Fornecedor'       },
     { key:'invoice_number',     label:'Nº Documento'     },
-    { key:'category',           label:'Categoria'        },
+    { key:'categoria_custo_name', label:'Categoria de Custo' },
     { key:'issue_date',         label:'Emissão'          },
     { key:'due_date',           label:'Vencimento'       },
     { key:'amount_eur',         label:'Total'            },
