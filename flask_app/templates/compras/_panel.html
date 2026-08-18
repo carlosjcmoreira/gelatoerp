@@ -169,10 +169,6 @@
         <dt class="col-5 text-muted">NIF</dt>
         <dd class="col-7">{{ inv.supplier_nif }}</dd>
         {% endif %}
-        {% if inv.category %}
-        <dt class="col-5 text-muted">Categoria</dt>
-        <dd class="col-7">{{ inv.category }}</dd>
-        {% endif %}
         {% if inv.onedrive_subfolder %}
         <dt class="col-5 text-muted">Subpasta</dt>
         <dd class="col-7">{{ inv.onedrive_subfolder }}</dd>
@@ -364,15 +360,6 @@
                             <label class="form-label small mb-1">Data vencimento</label>
                             <input type="date" name="due_date" class="form-control form-control-sm"
                                    value="{{ inv.due_date.isoformat() if inv.due_date else '' }}">
-                        </div>
-                        <div class="col-6">
-                            <label class="form-label small mb-1">Categoria</label>
-                            <select name="category" class="form-select form-select-sm">
-                                <option value="">— Seleccionar —</option>
-                                {% for cat in categories %}
-                                <option value="{{ cat }}" {% if inv.category == cat %}selected{% endif %}>{{ cat }}</option>
-                                {% endfor %}
-                            </select>
                         </div>
                         <div class="col-6">
                             <label class="form-label small mb-1">Subpasta OneDrive</label>

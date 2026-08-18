@@ -429,7 +429,6 @@ def invoice_panel(invoice_id: int):
         today=today,
         document_type_labels=DOCUMENT_TYPE_LABELS,
         stores=stores,
-        categories=INVOICE_CATEGORIES,
         subfolders=ONEDRIVE_SUBFOLDERS,
         payment_methods=payment_methods,
         linhas=linhas,
