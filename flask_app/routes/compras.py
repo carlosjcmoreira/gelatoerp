@@ -441,6 +441,7 @@ def invoice_panel(invoice_id: int):
         panel_return_url=panel_return_url,
         cont_tickets=cont_tickets,
         cost_centers=get_cost_centers(ativo_only=True),
+        cost_categories_tree=get_cost_categories_tree(),
     )
 
 

@@ -404,6 +404,24 @@
                             </select>
                         </div>
                         {% endif %}
+                        {% if cost_categories_tree %}
+                        <div class="col-12">
+                            <label class="form-label small mb-1">Categoria de Custo</label>
+                            <select name="categoria_custo_id" class="form-select form-select-sm">
+                                <option value="">— Não atribuída —</option>
+                                {% for top in cost_categories_tree %}
+                                <optgroup label="{{ top.name }}">
+                                    {% for sub in top.children %}
+                                    <option value="{{ sub.id }}" {% if inv.categoria_custo_id == sub.id %}selected{% endif %}>{{ sub.name }}</option>
+                                    {% endfor %}
+                                    {% if not top.children %}
+                                    <option value="{{ top.id }}" {% if inv.categoria_custo_id == top.id %}selected{% endif %}>({{ top.name }})</option>
+                                    {% endif %}
+                                </optgroup>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endif %}
                         <div class="col-12">
                             <label class="form-label small mb-1">Notas</label>
                             <textarea name="notes" class="form-control form-control-sm" rows="2">{{ inv.notes or '' }}</textarea>
