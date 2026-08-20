@@ -538,9 +538,14 @@ def index():
     for k, v in [('q', search),
                  ('centro_custo_id', centro_custo_raw), ('categoria_custo_id', categoria_custo_raw),
                  ('supplier_name', supplier_name_filter),
-                 ('supplier_id', supplier_id_raw if supplier_id_filter else '')]:
+                  ('supplier_id', supplier_id_raw if supplier_id_filter else ''),
+                  ('category', category_filter)]:
         if v:
             _type_badge_params.append((k, v))
+    if sem_evidencia_filter:
+        _type_badge_params.append(('sem_evidencia', '1'))
+    if sem_cc_filter:
+        _type_badge_params.append(('sem_cc', '1'))
     if date_from_raw:
         _type_badge_params.append(('date_from', date_from_raw))
     if date_to_raw:
@@ -596,6 +601,7 @@ def index():
         category_filter=category_filter,
         all_categories=all_categories,
         sem_evidencia_filter=sem_evidencia_filter,
+        sem_cc_filter=sem_cc_filter,
         sem_evidencia_count=sem_evidencia_count,
         sem_ev_on_url=sem_ev_on_url,
         sem_ev_off_url=sem_ev_off_url,

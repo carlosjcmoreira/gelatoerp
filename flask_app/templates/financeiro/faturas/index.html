@@ -167,7 +167,7 @@
         <input type="hidden" name="force_duplicate" id="forn-force-dup-hidden" value="0">
         <input type="hidden" name="field" id="forn-field-val" value="">
         <input type="hidden" name="value" id="forn-value-val" value="">
-        <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='fornecedor') }}">
+        <input type="hidden" name="return_url" value="{{ request.full_path }}">
 
         <!-- Bulk action bar -->
         <div id="forn-bulk-bar" class="d-none mb-3 p-2 bg-light border rounded align-items-center gap-2 flex-wrap">
@@ -395,7 +395,7 @@
         <input type="hidden" name="action" value="assign_field">
         <input type="hidden" name="field" id="cc-field-val" value="">
         <input type="hidden" name="value" id="cc-value-val" value="">
-        <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='centro_custo') }}">
+        <input type="hidden" name="return_url" value="{{ request.full_path }}">
     </form>
 
     {% if sem_cc_count is defined and sem_cc_count > 0 %}
@@ -555,7 +555,7 @@
         <input type="hidden" name="action" value="assign_field">
         <input type="hidden" name="field" id="cat-field-val" value="">
         <input type="hidden" name="value" id="cat-value-val" value="">
-        <input type="hidden" name="return_url" value="{{ url_for('faturas.index', view='categoria_custo') }}">
+        <input type="hidden" name="return_url" value="{{ request.full_path }}">
     </form>
 
     {% if grupos_cat %}
@@ -647,7 +647,11 @@
         {% if document_type_filter %}<input type="hidden" name="document_type" id="ff-dt" value="{{ document_type_filter }}">{% endif %}
         {% if search %}<input type="hidden" name="q" id="ff-q" value="{{ search }}">{% endif %}
         {% if centro_custo_filter %}<input type="hidden" name="centro_custo_id" id="ff-cc" value="{{ centro_custo_filter }}">{% endif %}
+        {% if categoria_custo_filter %}<input type="hidden" name="categoria_custo_id" id="ff-ccat" value="{{ categoria_custo_filter }}">{% endif %}
         {% if category_filter %}<input type="hidden" name="category" id="ff-cat" value="{{ category_filter }}">{% endif %}
+        {% if sem_evidencia_filter %}<input type="hidden" name="sem_evidencia" id="ff-sem-ev" value="1">{% endif %}
+        {% if sem_cc_filter %}<input type="hidden" name="sem_cc" id="ff-sem-cc" value="1">{% endif %}
+        {% if page is defined and page > 1 %}<input type="hidden" name="page" id="ff-page" value="{{ page }}">{% endif %}
     </form>
 
     <!-- ── Barra de pesquisa ──────────────────────────────────────────────── -->
@@ -670,7 +674,7 @@
     <!-- ── Filter Bar ──────────────────────────────────────────────────────── -->
     <div class="fbar mb-3">
 
-        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter or supplier_id_filter else 0) + (1 if document_type_filter else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) + (1 if category_filter else 0) + (1 if sem_cc_filter else 0) %}
+        {% set _active_count = (statuses_filter|length) + (1 if supplier_name_filter or supplier_id_filter else 0) + (1 if document_type_filter else 0) + (1 if search else 0) + (1 if (date_from_raw or date_to_raw or month_raw) else 0) + (1 if centro_custo_filter else 0) + (1 if categoria_custo_filter else 0) + (1 if category_filter else 0) + (1 if sem_evidencia_filter else 0) + (1 if sem_cc_filter else 0) %}
         <!-- Mobile toggle (only shown on xs/sm screens) -->
         <div class="d-md-none mb-2">
             <button class="btn btn-outline-secondary btn-sm w-100 d-flex align-items-center justify-content-between"
@@ -681,7 +685,7 @@
         </div>
 
         <!-- Single filter line: chips + action buttons -->
-        {% set _any_f = statuses_filter or supplier_name_filter or supplier_id_filter or search or document_type_filter or date_from_raw or date_to_raw or month_raw or centro_custo_filter %}
+        {% set _any_f = statuses_filter or supplier_name_filter or supplier_id_filter or search or document_type_filter or date_from_raw or date_to_raw or month_raw or centro_custo_filter or categoria_custo_filter or category_filter or sem_evidencia_filter or sem_cc_filter %}
         <div class="collapse d-md-block" id="fbar-chips-wrap">
         <div class="d-flex flex-wrap gap-2 align-items-center" id="fbar-chips">
             {% if default_filter_active %}
@@ -740,6 +744,13 @@
                 <button class="fbar-chip-x" type="button" onclick="removeFilter('centro_custo_id')" title="Remover">✕</button>
             </span>
             {% endif %}
+            {% if categoria_custo_filter %}
+            {% set _ccat_label = cost_categories | selectattr('id', 'equalto', categoria_custo_filter) | map(attribute='name') | first | default('Categoria de custo') %}
+            <span class="fbar-chip">
+                🏷 {{ _ccat_label | truncate(20, True, '…') }}
+                <button class="fbar-chip-x" type="button" onclick="removeFilter('categoria_custo_id')" title="Remover">✕</button>
+            </span>
+            {% endif %}
             {% if category_filter %}
             <span class="fbar-chip">
                 🏷 {{ category_filter | truncate(22, True, '…') }}
@@ -749,7 +760,7 @@
             {% if sem_cc_filter %}
             <span class="fbar-chip fbar-chip-warning">
                 ⚠️ Sem centro de custo
-                <a href="{{ url_for('faturas.index') }}" class="fbar-chip-x text-decoration-none" data-no-loading title="Remover filtro">✕</a>
+                <button class="fbar-chip-x" type="button" onclick="removeSemCCFilter()" title="Remover filtro">✕</button>
             </span>
             {% endif %}
             {% if pending_installments %}
@@ -773,7 +784,9 @@
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('supplier_name')">👤 Fornecedor</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('document_type')">📄 Tipo de documento</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('categoria')">🏷 Categoria</button></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('categoria_custo')">🏷 Categoria de custo</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('centro_custo')">📂 Centro de custo</button></li>
+                    <li><button class="dropdown-item small py-2" type="button" onclick="applySemCCFilter()">⚠️ Sem centro de custo</button></li>
                     <li><hr class="dropdown-divider my-1"></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('due_date')">📅 Vencimento</button></li>
                     <li><button class="dropdown-item small py-2" type="button" onclick="openFbarPanel('issue_date')">📋 Emissão</button></li>
@@ -931,7 +944,7 @@
         <input type="hidden" name="force_duplicate" id="bulk-force-dup-hidden" value="0">
         <input type="hidden" name="field" id="bulk-field-val" value="">
         <input type="hidden" name="value" id="bulk-value-val" value="">
-        <input type="hidden" name="return_url" value="{{ request.url }}">
+        <input type="hidden" name="return_url" value="{{ request.full_path }}">
 
         <!-- Bulk action bar (hidden until ≥1 row selected) -->
         <div id="bulk-bar" class="d-none mb-2 p-2 bg-light border rounded align-items-center gap-2 flex-wrap">
@@ -1018,13 +1031,13 @@
                     </th>
                     {{ col_th('supplier_name', 'Fornecedor', order_by, order_dir, filter_qs, '', 'supplier_name') }}
                     {{ col_th('invoice_number', 'Nº Documento', order_by, order_dir, filter_qs, '', 'q') }}
-                    <th class="col-th d-none d-md-table-cell" style="vertical-align:middle" data-col-key="categoria_custo_name" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Categoria de Custo</span></div></th>
+                    {{ col_th('categoria_custo_name', 'Categoria de Custo', order_by, order_dir, filter_qs, 'd-none d-md-table-cell', 'categoria_custo') }}
                     {{ col_th('issue_date', 'Emissão', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'issue_date') }}
                     {{ col_th('due_date', 'Vencimento', order_by, order_dir, filter_qs, '', 'due_date') }}
                     {{ col_th('amount_eur', 'Total', order_by, order_dir, filter_qs) }}
                     {{ col_th('status', 'Estado', order_by, order_dir, filter_qs, '', 'status', show_estados=true) }}
                     {{ col_th('paid_date', 'Data pag.', order_by, order_dir, filter_qs, 'd-none d-lg-table-cell', 'paid_date') }}
-                    <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="centro_custo_name" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Centro de Custo</span></div></th>
+                    {{ col_th('centro_custo_name', 'Centro de Custo', order_by, order_dir, filter_qs, 'col-hidden', 'centro_custo') }}
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="supplier_nif" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">NIF Fornecedor</span></div></th>
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="vat_amount_eur" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">IVA</span></div></th>
                     <th class="col-th col-hidden" style="vertical-align:middle" data-col-key="payment_method" draggable="true"><div class="d-flex align-items-center gap-1"><span class="user-select-none text-nowrap small">Método pag.</span></div></th>
@@ -1878,12 +1891,16 @@ var FBAR_DATA = {
     activeDateTo: {{ date_to_raw | tojson }},
     activeCategory: {{ category_filter | tojson }},
     activeCentroCusto: {{ centro_custo_filter | tojson }},
+    activeCategoriaCusto: {{ categoria_custo_filter | tojson }},
+    activeSemCC: {{ sem_cc_filter | tojson }},
+    scope: {{ scope | tojson }},
     statusLabels: {{ status_labels | tojson }},
     docTypeLabels: {{ document_type_labels | tojson }},
     stores: {{ stores | tojson }},
     supplierNames: {{ all_supplier_names | tojson }},
     categories: {{ all_categories | tojson }},
     costCenters: {{ cost_centers | tojson }},
+    costCategories: {{ cost_categories | tojson }},
 };
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
@@ -1896,11 +1913,18 @@ function removeFilter(param, value) {
     } else {
         url.searchParams.delete(param);
     }
+    if (FBAR_DATA.scope === 'compras') {
+        url.searchParams.append('clear_filter', param);
+    }
     window.location.href = url.toString();
 }
 function removeDateFilter() {
     var url = new URL(window.location.href);
     ['date_from','date_to','month'].forEach(function(p){ url.searchParams.delete(p); });
+    if (FBAR_DATA.scope === 'compras') {
+        url.searchParams.append('clear_filter', 'date_from');
+        url.searchParams.append('clear_filter', 'date_to');
+    }
     window.location.href = url.toString();
 }
 
@@ -1968,7 +1992,8 @@ function openFbarPanel(field, anchor) {
     }
 
     var LABELS = { status:'Estado', supplier_name:'Fornecedor', document_type:'Tipo de Documento',
-        due_date:'Vencimento', issue_date:'Emissão', paid_date:'Data Pagamento', q:'Pesquisa de Texto' };
+        due_date:'Vencimento', issue_date:'Emissão', paid_date:'Data Pagamento', q:'Pesquisa de Texto',
+        categoria_custo:'Categoria de Custo', centro_custo:'Centro de Custo' };
     var h = '<div class="d-flex align-items-center justify-content-between mb-3">' +
         '<span class="fw-semibold small">' + (LABELS[field]||field) + '</span>' +
         '<button type="button" class="btn-close btn-sm" onclick="closeFbarPanel()"></button></div>';
@@ -2037,6 +2062,15 @@ function openFbarPanel(field, anchor) {
             FBAR_DATA.categories.map(function(c){ return '<option value="'+c.replace(/"/g,'&quot;')+'">'; }).join('') +
             '</datalist>' +
             '<div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applyCategoriaFilter()">Aplicar</button>' +
+            '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
+
+    } else if (field === 'categoria_custo') {
+        var curCostCat = String(FBAR_DATA.activeCategoriaCusto||'');
+        h += '<select id="fbar-ccat-sel" class="form-select form-select-sm mb-3"><option value="">— Todas as categorias de custo —</option>';
+        FBAR_DATA.costCategories.forEach(function(c) {
+            h += '<option value="'+c.id+'"'+(curCostCat===String(c.id)?' selected':'')+'>'+c.name+'</option>';
+        });
+        h += '</select><div class="d-flex gap-2"><button type="button" class="btn btn-primary btn-sm" onclick="applyCostCategoryFilter()">Aplicar</button>' +
             '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
 
     } else if (field === 'centro_custo') {
@@ -2146,9 +2180,21 @@ function applyCategoriaFilter() {
     var val=((document.getElementById('fbar-cat-inp')||{}).value||'');
     _fbarSet('ff-cat','category',val); document.getElementById('filter-form').requestSubmit();
 }
+function applyCostCategoryFilter() {
+    var val=((document.getElementById('fbar-ccat-sel')||{}).value||'');
+    _fbarSet('ff-ccat','categoria_custo_id',val); document.getElementById('filter-form').requestSubmit();
+}
 function applyCCFilter() {
     var val=((document.getElementById('fbar-cc-sel')||{}).value||'');
     _fbarSet('ff-cc','centro_custo_id',val); document.getElementById('filter-form').requestSubmit();
+}
+function applySemCCFilter() {
+    _fbarSet('ff-sem-cc', 'sem_cc', '1');
+    document.getElementById('filter-form').requestSubmit();
+}
+function removeSemCCFilter() {
+    _fbarSet('ff-sem-cc', 'sem_cc', '0');
+    document.getElementById('filter-form').requestSubmit();
 }
 function applySearchFilter() {
     var val=((document.getElementById('fbar-q-inp')||{}).value||'');
@@ -2158,7 +2204,23 @@ function _fbarSet(id, name, value) {
     var form=document.getElementById('filter-form');
     var el=document.getElementById(id);
     if (!el && value) { el=document.createElement('input'); el.type='hidden'; el.id=id; el.name=name; form.appendChild(el); }
-    if (el) { if(!value) el.remove(); else el.value=value; }
+    if (el) {
+        if(!value) {
+            el.remove();
+            if (FBAR_DATA.scope === 'compras') {
+                var clear = form.querySelector('input[name="clear_filter"][value="' + name + '"]');
+                if (!clear) {
+                    clear = document.createElement('input');
+                    clear.type = 'hidden';
+                    clear.name = 'clear_filter';
+                    clear.value = name;
+                    form.appendChild(clear);
+                }
+            }
+        } else {
+            el.value=value;
+        }
+    }
 }
 
 // ── Column customization (drag-reorder + hide/show) ───────────────────────────

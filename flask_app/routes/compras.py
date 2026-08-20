@@ -103,12 +103,29 @@ def faturas():
     PAGE_SIZE = 50
 
     # Filter session persistence
-    _FILTER_KEYS = ('supplier_id', 'supplier_name', 'status',
-                    'date_from', 'date_to', 'date_field', 'q', 'document_type', 'sem_evidencia')
+    _FILTER_KEYS = (
+        'supplier_id', 'supplier_name', 'status', 'date_from', 'date_to',
+        'date_field', 'q', 'document_type', 'sem_evidencia', 'sem_cc',
+        'centro_custo_id', 'categoria_custo_id', 'order_by', 'order_dir',
+        'page',
+    )
     if request.args.get('clear') == '1':
         session.pop('faturas_filters', None)
         return redirect(url_for('compras.faturas'))
-    _has_any_filter_param = any(request.args.get(k) for k in _FILTER_KEYS)
+    _clearable_filter_keys = {
+        'supplier_id', 'supplier_name', 'status', 'date_from', 'date_to',
+        'date_field', 'q', 'document_type', 'sem_evidencia', 'sem_cc',
+        'centro_custo_id', 'categoria_custo_id',
+    }
+    _clear_filters = [
+        key for key in request.args.getlist('clear_filter')
+        if key in _clearable_filter_keys
+    ]
+    if _clear_filters and 'faturas_filters' in session:
+        for key in _clear_filters:
+            session['faturas_filters'].pop(key, None)
+        session.modified = True
+    _has_any_filter_param = bool(_clear_filters) or any(request.args.get(k) for k in _FILTER_KEYS)
     if not _has_any_filter_param and 'faturas_filters' in session:
         _saved = session['faturas_filters']
         if _saved:
@@ -124,8 +141,17 @@ def faturas():
     if date_field not in ('issue_date', 'due_date', 'paid_date'):
         date_field = 'issue_date'
     q_filter = request.args.get('q', '').strip()
+    centro_custo_raw = request.args.get('centro_custo_id', '').strip()
+    centro_custo_filter = int(centro_custo_raw) if centro_custo_raw.isdigit() else None
+    categoria_custo_raw = request.args.get('categoria_custo_id', '').strip()
+    categoria_custo_filter = int(categoria_custo_raw) if categoria_custo_raw.isdigit() else None
+    sem_cc_raw = request.args.get('sem_cc', '').strip()
+    sem_cc_filter = sem_cc_raw == '1'
     order_by = request.args.get('order_by', 'issue_date').strip()
-    if order_by not in ('issue_date', 'due_date', 'paid_date', 'amount_eur', 'supplier_name', 'invoice_number', 'status'):
+    if order_by not in (
+        'issue_date', 'due_date', 'paid_date', 'amount_eur', 'supplier_name',
+        'invoice_number', 'status', 'centro_custo_name', 'categoria_custo_name',
+    ):
         order_by = 'issue_date'
     order_dir = request.args.get('order_dir', 'desc').strip()
     if order_dir not in ('asc', 'desc'):
@@ -161,6 +187,9 @@ def faturas():
     if sem_evidencia_raw == '0' and 'faturas_filters' in session:
         session['faturas_filters'].pop('sem_evidencia', None)
         session.modified = True
+    if sem_cc_raw == '0' and 'faturas_filters' in session:
+        session['faturas_filters'].pop('sem_cc', None)
+        session.modified = True
 
     filter_kwargs = dict(
         supplier_id=supplier_filter_id,
@@ -172,6 +201,9 @@ def faturas():
         document_type=document_type_filter or None,
         search=q_filter or None,
         sem_evidencia=True if sem_evidencia_filter else None,
+        centro_custo_id=centro_custo_filter,
+        categoria_custo_id=categoria_custo_filter,
+        sem_cc=True if sem_cc_filter else None,
     )
     total_count = count_invoices(**filter_kwargs, exclude_gov=True)
     total_pages = max(1, math.ceil(total_count / PAGE_SIZE))
@@ -201,12 +233,17 @@ def faturas():
     suppliers = []
     all_supplier_names = get_distinct_supplier_names()
     stores = get_stores_list()
+    cost_centers = get_cost_centers(ativo_only=True)
+    from db.centros_custo import get_cost_categories as _get_cost_categories
+    cost_categories = _get_cost_categories(ativo_only=True)
+    cost_categories_tree = get_cost_categories_tree()
     has_filters = bool(
         supplier_filter_id or supplier_name_filter
         or status_filter or date_from_raw or date_to_raw
         or document_type_filter or q_filter or sem_evidencia_filter
+        or centro_custo_filter or categoria_custo_filter or sem_cc_filter
     )
-    if has_filters:
+    if _has_any_filter_param:
         _filter_save = {}
         if q_filter:
             _filter_save['q'] = q_filter
@@ -226,6 +263,18 @@ def faturas():
             _filter_save['date_field'] = date_field
         if sem_evidencia_filter:
             _filter_save['sem_evidencia'] = '1'
+        if centro_custo_filter:
+            _filter_save['centro_custo_id'] = centro_custo_filter
+        if categoria_custo_filter:
+            _filter_save['categoria_custo_id'] = categoria_custo_filter
+        if sem_cc_filter:
+            _filter_save['sem_cc'] = '1'
+        if order_by != 'issue_date':
+            _filter_save['order_by'] = order_by
+        if order_dir != 'desc':
+            _filter_save['order_dir'] = order_dir
+        if page > 1:
+            _filter_save['page'] = page
         session['faturas_filters'] = _filter_save
     _fqs_d = {}
     if q_filter:
@@ -246,6 +295,14 @@ def faturas():
         _fqs_d['date_field'] = date_field
     if sem_evidencia_filter:
         _fqs_d['sem_evidencia'] = '1'
+    if centro_custo_filter:
+        _fqs_d['centro_custo_id'] = centro_custo_filter
+    if categoria_custo_filter:
+        _fqs_d['categoria_custo_id'] = categoria_custo_filter
+    if sem_cc_filter:
+        _fqs_d['sem_cc'] = '1'
+    if page > 1:
+        _fqs_d['page'] = page
     filter_qs = '?' + urlencode(_fqs_d) if _fqs_d else '?'
 
     # Build sem_evidencia toggle URLs
@@ -291,6 +348,7 @@ def faturas():
                            # ── filters (Financeiro naming conventions) ──────
                            search=q_filter,
                            supplier_name_filter=supplier_name_filter,
+                            supplier_id_filter=supplier_filter_id,
                            document_type_filter=document_type_filter,
                            date_from_raw=date_from_raw,
                            date_to_raw=date_to_raw,
@@ -314,10 +372,13 @@ def faturas():
                            month_raw='',
                            month_options=[],
                            category_filter='',
-                           centro_custo_filter=None,
+                            centro_custo_filter=centro_custo_filter,
+                            categoria_custo_filter=categoria_custo_filter,
+                            sem_cc_filter=sem_cc_filter,
                            all_categories=[],
-                           cost_centers=[],
-                           cost_categories_tree=[],
+                            cost_centers=cost_centers,
+                            cost_categories=cost_categories,
+                            cost_categories_tree=cost_categories_tree,
                            saved_views=[],
                            pending_installments=[],
                            confirming_contracts=[],

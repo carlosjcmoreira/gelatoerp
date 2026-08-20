@@ -1056,6 +1056,10 @@ _ORDER_COL_MAP = {
     'category': 'i.category',
     'status': 'i.status',
     'cfo_confirmed_date': 'i.cfo_confirmed_date',
+    # These names are selected by get_invoices below and can therefore be
+    # referenced safely by the table's sortable column headers.
+    'centro_custo_name': 'centro_custo_name',
+    'categoria_custo_name': 'LOWER(ccat.name)',
 }
 
 
@@ -1353,6 +1357,7 @@ def count_invoices(status: str = None, statuses: list = None,
                    date_field: str = 'issue_date',
                    document_type: str = None,
                    sem_evidencia: bool = None,
+                    sem_cc: bool = None,
                    exclude_gov: bool = False) -> int:
     where_clause, params = _build_invoice_where(
         status=status, statuses=statuses, no_status_filter=no_status_filter,
@@ -1361,7 +1366,7 @@ def count_invoices(status: str = None, statuses: list = None,
         supplier_name=supplier_name, supplier_names=supplier_names,
         supplier_id=supplier_id, date_from=date_from, date_to=date_to,
         date_field=date_field, document_type=document_type,
-        sem_evidencia=sem_evidencia, exclude_gov=exclude_gov,
+        sem_evidencia=sem_evidencia, sem_cc=sem_cc, exclude_gov=exclude_gov,
     )
     with db_connection() as conn:
         cursor = conn.cursor()

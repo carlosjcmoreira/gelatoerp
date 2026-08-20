@@ -126,6 +126,46 @@ def _build_where_helper(**kwargs):
 
 
 # ---------------------------------------------------------------------------
+# 1b. Cost-centre filters and sorting
+# ---------------------------------------------------------------------------
+
+class TestCostCenterInvoiceFilters(unittest.TestCase):
+    """Cost filters must use the same reliable query path as other columns."""
+
+    def test_sem_cc_excludes_primary_and_split_cost_centers(self):
+        from db.faturas import _build_invoice_where
+
+        where_clause, _ = _build_invoice_where(sem_cc=True)
+
+        self.assertIn("i.centro_custo_id IS NULL", where_clause)
+        self.assertIn("NOT EXISTS", where_clause)
+        self.assertIn("invoice_centros_custo", where_clause)
+
+    def test_cost_category_filter_is_applied(self):
+        from db.faturas import _build_invoice_where
+
+        where_clause, params = _build_invoice_where(categoria_custo_id=42)
+
+        self.assertIn("i.categoria_custo_id = %s", where_clause)
+        self.assertIn(42, params)
+
+    def test_cost_column_sort_keys_are_supported_by_get_invoices(self):
+        cur = _make_cursor(fetchall=[])
+        conn = _make_conn(cur)
+        with patch('db.faturas.db_connection', return_value=conn):
+            from db.faturas import get_invoices
+            get_invoices(order_by='centro_custo_name')
+        self.assertIn("ORDER BY centro_custo_name ASC", cur.execute.call_args[0][0])
+
+        cur = _make_cursor(fetchall=[])
+        conn = _make_conn(cur)
+        with patch('db.faturas.db_connection', return_value=conn):
+            from db.faturas import get_invoices
+            get_invoices(order_by='categoria_custo_name', order_dir='desc')
+        self.assertIn("ORDER BY LOWER(ccat.name) DESC", cur.execute.call_args[0][0])
+
+
+# ---------------------------------------------------------------------------
 # 2. get_invoices — executes without exception, returns list
 # ---------------------------------------------------------------------------
 
