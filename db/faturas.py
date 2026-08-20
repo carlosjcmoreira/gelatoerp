@@ -856,6 +856,145 @@ def get_suppliers_with_invoice_count() -> list:
              'categoria_custo_id': r[13], 'categoria_custo_name': r[14]} for r in rows]
 
 
+def _get_supplier_invoice_classification_config(cursor, supplier_id: int) -> dict:
+    """Load a supplier's configured, active classification references."""
+    cursor.execute("""
+        SELECT s.id, s.name,
+               s.centro_custo_id, cc.id, cc.name, cc.ativo,
+               s.categoria_custo_id, cat.id, cat.name, cat.ativo
+        FROM suppliers s
+        LEFT JOIN cost_centers cc ON cc.id = s.centro_custo_id
+        LEFT JOIN cost_categories cat ON cat.id = s.categoria_custo_id
+        WHERE s.id = %s
+    """, (supplier_id,))
+    row = cursor.fetchone()
+    if not row:
+        raise ValueError('Fornecedor não encontrado.')
+
+    supplier = {'id': row[0], 'name': row[1]}
+    fields = {
+        'centro_custo': {
+            'label': 'Centro de Custo',
+            'id': row[2],
+            'name': row[4],
+            'configured': bool(row[2]),
+            'valid': bool(row[2] and row[3] and row[5]),
+            'reason': None,
+        },
+        'categoria_custo': {
+            'label': 'Categoria de Custo',
+            'id': row[6],
+            'name': row[8],
+            'configured': bool(row[6]),
+            'valid': bool(row[6] and row[7] and row[9]),
+            'reason': None,
+        },
+    }
+    for field in fields.values():
+        if field['configured'] and not field['valid']:
+            field['reason'] = f'{field["label"]} configurado já não existe ou está inativo.'
+    return {'supplier': supplier, 'fields': fields}
+
+
+def get_supplier_invoice_classification_preview(supplier_id: int) -> dict:
+    """Return the safe, per-field propagation preview for one supplier.
+
+    Only non-draft invoices linked to the supplier are considered. A split
+    cost-centre allocation counts as an existing classification and is never
+    eligible for a primary cost-centre assignment.
+    """
+    if not isinstance(supplier_id, int) or supplier_id <= 0:
+        raise ValueError('Fornecedor inválido.')
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        preview = _get_supplier_invoice_classification_config(cursor, supplier_id)
+        cursor.execute("""
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE i.centro_custo_id IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM invoice_centros_custo icc
+                          WHERE icc.invoice_id = i.id
+                      )
+                ) AS centro_custo_count,
+                COUNT(*) FILTER (
+                    WHERE i.categoria_custo_id IS NULL
+                ) AS categoria_custo_count
+            FROM invoices i
+            WHERE i.supplier_id = %s
+              AND i.status != 'draft'
+        """, (supplier_id,))
+        counts = cursor.fetchone()
+
+    preview['fields']['centro_custo']['eligible_count'] = int(counts[0] or 0) \
+        if preview['fields']['centro_custo']['valid'] else 0
+    preview['fields']['categoria_custo']['eligible_count'] = int(counts[1] or 0) \
+        if preview['fields']['categoria_custo']['valid'] else 0
+    return preview
+
+
+def apply_supplier_invoice_classifications(supplier_id: int) -> dict:
+    """Fill a supplier's configured classifications into empty linked invoices.
+
+    The conditions are repeated in the UPDATE statements rather than relying
+    on a previous preview, so re-running the operation is idempotent and can
+    never overwrite an existing primary or split classification.
+    """
+    if not isinstance(supplier_id, int) or supplier_id <= 0:
+        raise ValueError('Fornecedor inválido.')
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        result = _get_supplier_invoice_classification_config(cursor, supplier_id)
+        invalid = [field['reason'] for field in result['fields'].values() if field['reason']]
+        if invalid:
+            raise ValueError(' '.join(invalid))
+
+        centro = result['fields']['centro_custo']
+        categoria = result['fields']['categoria_custo']
+        centro_updated = 0
+        categoria_updated = 0
+
+        if centro['configured']:
+            cursor.execute("""
+                UPDATE invoices i
+                SET centro_custo_id = %s
+                WHERE i.supplier_id = %s
+                  AND i.status != 'draft'
+                  AND i.centro_custo_id IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM invoice_centros_custo icc
+                      WHERE icc.invoice_id = i.id
+                  )
+            """, (centro['id'], supplier_id))
+            centro_updated = cursor.rowcount
+
+        if categoria['configured']:
+            cursor.execute("""
+                UPDATE invoices i
+                SET categoria_custo_id = %s
+                WHERE i.supplier_id = %s
+                  AND i.status != 'draft'
+                  AND i.categoria_custo_id IS NULL
+            """, (categoria['id'], supplier_id))
+            categoria_updated = cursor.rowcount
+
+        conn.commit()
+
+    return {
+        'supplier': result['supplier'],
+        'centro_custo': {
+            'configured': centro['configured'],
+            'name': centro['name'],
+            'updated_count': centro_updated,
+        },
+        'categoria_custo': {
+            'configured': categoria['configured'],
+            'name': categoria['name'],
+            'updated_count': categoria_updated,
+        },
+    }
+
+
 def backfill_supplier_ids() -> dict:
     """One-time migration: create supplier records for distinct supplier names in invoices
     and back-fill supplier_id on all matching non-draft invoices.

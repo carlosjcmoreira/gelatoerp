@@ -321,6 +321,14 @@
                     {% endif %}
 
                     <td>
+                        {% if can_bulk_edit %}
+                        <button class="btn btn-outline-success btn-sm py-0 px-1"
+                                type="button"
+                                onclick="openSupplierClassificationPreview({{ s.id }})"
+                                title="Preencher Centro de Custo e Categoria apenas nas faturas ainda sem classificação">
+                            ✦
+                        </button>
+                        {% endif %}
                         <button class="btn btn-outline-secondary btn-sm py-0 px-1"
                                 data-s='{{ s|tojson }}'
                                 onclick="editSupplier(JSON.parse(this.dataset.s))"
@@ -430,6 +438,14 @@
                         </div>
                     </div>
                     <div class="d-flex gap-1 flex-shrink-0">
+                        {% if can_bulk_edit %}
+                        <button class="btn btn-outline-success btn-sm"
+                                type="button"
+                                onclick="openSupplierClassificationPreview({{ s.id }})"
+                                title="Preencher apenas classificações ainda em falta nas faturas deste fornecedor">
+                            ✦ Classificar faturas
+                        </button>
+                        {% endif %}
                         <button class="btn btn-outline-secondary btn-sm"
                                 data-s='{{ s|tojson }}'
                                 onclick="editSupplier(JSON.parse(this.dataset.s))">
@@ -671,10 +687,175 @@
 </div>
 {% endif %}
 
+{% if can_bulk_edit %}
+<!-- Modal: propagate a supplier's configured classifications to empty invoice fields -->
+<div class="modal fade" id="modalSupplierClassifications" tabindex="-1"
+     aria-labelledby="supplierClassificationTitle" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="supplierClassificationTitle">✦ Preencher classificações</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small mb-2">Fornecedor: <strong id="supplierClassificationName"></strong></p>
+                <div class="alert alert-info py-2 small mb-3">
+                    Apenas são preenchidos campos vazios. Faturas já classificadas, repartições por vários centros
+                    e rascunhos não são alterados.
+                </div>
+                <div id="supplierClassificationPreview" class="d-flex flex-column gap-2">
+                    <span class="text-muted small">A preparar pré-visualização…</span>
+                </div>
+                <div id="supplierClassificationFeedback" class="mt-3" aria-live="polite"></div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-success btn-sm" id="supplierClassificationConfirm"
+                        onclick="applySupplierClassifications()" disabled>
+                    Confirmar preenchimento
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
 <script>
+{% if can_bulk_edit %}
+var _supplierClassificationId = null;
+var _supplierClassificationPreviewUrl = {{ url_for('faturas.supplier_classification_preview', supplier_id=0)|tojson }};
+var _supplierClassificationApplyUrl = {{ url_for('faturas.apply_supplier_classifications', supplier_id=0)|tojson }};
+
+function _supplierClassificationUrl(template, supplierId) {
+    return template.replace('/0/', '/' + String(supplierId) + '/');
+}
+
+function _supplierClassificationSetFeedback(message, kind) {
+    var el = document.getElementById('supplierClassificationFeedback');
+    el.replaceChildren();
+    if (!message) return;
+    var alert = document.createElement('div');
+    alert.className = 'alert alert-' + (kind || 'warning') + 'py-2 small mb-0';
+    alert.textContent = message;
+    el.appendChild(alert);
+}
+
+function _renderSupplierClassificationPreview(preview) {
+    var container = document.getElementById('supplierClassificationPreview');
+    var confirmBtn = document.getElementById('supplierClassificationConfirm');
+    var supplierName = document.getElementById('supplierClassificationName');
+    container.replaceChildren();
+    supplierName.textContent = preview.supplier.name;
+
+    var eligibleTotal = 0;
+    var hasInvalidConfiguration = false;
+    ['centro_custo', 'categoria_custo'].forEach(function(key) {
+        var field = preview.fields[key];
+        var row = document.createElement('div');
+        row.className = 'border rounded p-2 small';
+        var title = document.createElement('div');
+        title.className = 'fw-semibold';
+        title.textContent = field.label;
+        row.appendChild(title);
+        var detail = document.createElement('div');
+
+        if (!field.configured) {
+            detail.className = 'text-muted';
+            detail.textContent = 'Não configurado no fornecedor — não será alterada nenhuma fatura.';
+        } else if (!field.valid) {
+            detail.className = 'text-danger';
+            detail.textContent = field.reason;
+            hasInvalidConfiguration = true;
+        } else {
+            detail.className = field.eligible_count ? 'text-success' : 'text-muted';
+            detail.textContent = field.name + ' · ' + field.eligible_count +
+                (field.eligible_count === 1 ? ' fatura elegível.' : ' faturas elegíveis.');
+            eligibleTotal += field.eligible_count;
+        }
+        row.appendChild(detail);
+        container.appendChild(row);
+    });
+
+    if (hasInvalidConfiguration) {
+        _supplierClassificationSetFeedback(
+            'Corrija a configuração inválida do fornecedor antes de confirmar o preenchimento.',
+            'danger'
+        );
+    } else if (!eligibleTotal) {
+        _supplierClassificationSetFeedback(
+            'Não há classificações configuradas com faturas elegíveis para preencher.',
+            'info'
+        );
+    }
+    confirmBtn.disabled = !eligibleTotal || hasInvalidConfiguration;
+}
+
+function openSupplierClassificationPreview(supplierId) {
+    _supplierClassificationId = supplierId;
+    var confirmBtn = document.getElementById('supplierClassificationConfirm');
+    confirmBtn.disabled = true;
+    _supplierClassificationSetFeedback('', '');
+    document.getElementById('supplierClassificationName').textContent = '';
+    var container = document.getElementById('supplierClassificationPreview');
+    container.replaceChildren();
+    var loading = document.createElement('span');
+    loading.className = 'text-muted small';
+    loading.textContent = 'A preparar pré-visualização…';
+    container.appendChild(loading);
+
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalSupplierClassifications')).show();
+    fetch(_supplierClassificationUrl(_supplierClassificationPreviewUrl, supplierId), {method: 'POST'})
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || !data.ok) throw new Error(data.error || 'Não foi possível preparar a pré-visualização.');
+                return data.preview;
+            });
+        })
+        .then(_renderSupplierClassificationPreview)
+        .catch(function(error) {
+            container.replaceChildren();
+            _supplierClassificationSetFeedback(error.message, 'danger');
+        });
+}
+
+function applySupplierClassifications() {
+    if (!_supplierClassificationId) return;
+    var confirmBtn = document.getElementById('supplierClassificationConfirm');
+    confirmBtn.disabled = true;
+    _supplierClassificationSetFeedback('', '');
+
+    fetch(_supplierClassificationUrl(_supplierClassificationApplyUrl, _supplierClassificationId), {method: 'POST'})
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || !data.ok) throw new Error(data.error || 'Não foi possível aplicar as classificações.');
+                return data.result;
+            });
+        })
+        .then(function(result) {
+            var entries = [];
+            if (result.centro_custo.configured) {
+                entries.push(result.centro_custo.updated_count + ' fatura' +
+                    (result.centro_custo.updated_count === 1 ? ' com Centro de Custo' : 's com Centro de Custo'));
+            }
+            if (result.categoria_custo.configured) {
+                entries.push(result.categoria_custo.updated_count + ' fatura' +
+                    (result.categoria_custo.updated_count === 1 ? ' com Categoria de Custo' : 's com Categoria de Custo'));
+            }
+            _supplierClassificationSetFeedback(
+                entries.length ? 'Preenchimento concluído: ' + entries.join(' · ') + '.' :
+                    'O fornecedor não tem classificações configuradas para aplicar.',
+                entries.length ? 'success' : 'info'
+            );
+        })
+        .catch(function(error) {
+            _supplierClassificationSetFeedback(error.message, 'danger');
+        });
+}
+{% endif %}
+
 // ── Bulk edit field/value options ─────────────────────────────────────────────
 var _FIELD_OPTIONS = {
     categoria_custo_id: [

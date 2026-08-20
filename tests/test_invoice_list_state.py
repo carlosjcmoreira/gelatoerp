@@ -6,7 +6,7 @@ Run with:
 """
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from flask import Blueprint, Flask
 
@@ -134,6 +134,173 @@ class TestDocumentListStickyReferences(unittest.TestCase):
         self.assertEqual(self.source.count('document-list-actions'), 3)
         self.assertEqual(self.source.count('class="document-table-scroll table-responsive"'), 1)
         self.assertIn('{% if invoices %}', self.source)
+
+
+class _RecordingCursor:
+    def __init__(self, fetchone_results, update_counts=()):
+        self._fetchone_results = iter(fetchone_results)
+        self._update_counts = iter(update_counts)
+        self.calls = []
+        self.rowcount = 0
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+        if sql.lstrip().startswith('UPDATE invoices'):
+            self.rowcount = next(self._update_counts)
+
+    def fetchone(self):
+        return next(self._fetchone_results)
+
+
+class _RecordingConnection:
+    def __init__(self, cursor):
+        self.cursor_obj = cursor
+        self.committed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def cursor(self):
+        return self.cursor_obj
+
+    def commit(self):
+        self.committed = True
+
+
+class TestSupplierClassificationPropagationData(unittest.TestCase):
+    supplier_config = (17, 'Fornecedor de teste', 8, 8, 'Produção', True, 4, 4, 'Ingredientes', True)
+
+    def test_preview_counts_only_empty_primary_classifications(self):
+        cursor = _RecordingCursor([self.supplier_config, (3, 2)])
+        connection = _RecordingConnection(cursor)
+        with patch('db.faturas.db_connection', return_value=connection):
+            from db.faturas import get_supplier_invoice_classification_preview
+            preview = get_supplier_invoice_classification_preview(17)
+
+        self.assertEqual(preview['fields']['centro_custo']['eligible_count'], 3)
+        self.assertEqual(preview['fields']['categoria_custo']['eligible_count'], 2)
+        count_sql = cursor.calls[1][0]
+        self.assertIn("i.centro_custo_id IS NULL", count_sql)
+        self.assertIn("FROM invoice_centros_custo icc", count_sql)
+        self.assertIn("i.categoria_custo_id IS NULL", count_sql)
+        self.assertIn("i.status != 'draft'", count_sql)
+
+    def test_apply_never_overwrites_or_replaces_split_cost_centers(self):
+        cursor = _RecordingCursor([self.supplier_config], update_counts=(3, 2))
+        connection = _RecordingConnection(cursor)
+        with patch('db.faturas.db_connection', return_value=connection):
+            from db.faturas import apply_supplier_invoice_classifications
+            result = apply_supplier_invoice_classifications(17)
+
+        self.assertEqual(result['centro_custo']['updated_count'], 3)
+        self.assertEqual(result['categoria_custo']['updated_count'], 2)
+        self.assertTrue(connection.committed)
+        centro_update, categoria_update = cursor.calls[1][0], cursor.calls[2][0]
+        self.assertIn("i.centro_custo_id IS NULL", centro_update)
+        self.assertIn("FROM invoice_centros_custo icc", centro_update)
+        self.assertIn("i.categoria_custo_id IS NULL", categoria_update)
+        self.assertIn("i.supplier_id = %s", centro_update)
+        self.assertIn("i.status != 'draft'", categoria_update)
+
+    def test_repeat_is_idempotent_when_no_empty_fields_remain(self):
+        cursor = _RecordingCursor([self.supplier_config], update_counts=(0, 0))
+        with patch('db.faturas.db_connection', return_value=_RecordingConnection(cursor)):
+            from db.faturas import apply_supplier_invoice_classifications
+            result = apply_supplier_invoice_classifications(17)
+
+        self.assertEqual(result['centro_custo']['updated_count'], 0)
+        self.assertEqual(result['categoria_custo']['updated_count'], 0)
+
+    def test_supplier_without_configuration_changes_nothing(self):
+        no_config = (17, 'Fornecedor de teste', None, None, None, None, None, None, None, None)
+        cursor = _RecordingCursor([no_config])
+        connection = _RecordingConnection(cursor)
+        with patch('db.faturas.db_connection', return_value=connection):
+            from db.faturas import apply_supplier_invoice_classifications
+            result = apply_supplier_invoice_classifications(17)
+
+        self.assertFalse(result['centro_custo']['configured'])
+        self.assertFalse(result['categoria_custo']['configured'])
+        self.assertTrue(connection.committed)
+        self.assertEqual(len(cursor.calls), 1)
+
+    def test_invalid_supplier_reference_is_rejected_before_updates(self):
+        invalid_config = (17, 'Fornecedor de teste', 8, 8, 'Produção', False, 4, 4, 'Ingredientes', True)
+        cursor = _RecordingCursor([invalid_config])
+        with patch('db.faturas.db_connection', return_value=_RecordingConnection(cursor)):
+            from db.faturas import apply_supplier_invoice_classifications
+            with self.assertRaisesRegex(ValueError, 'inativo'):
+                apply_supplier_invoice_classifications(17)
+
+        self.assertEqual(len(cursor.calls), 1)
+
+
+class TestSupplierClassificationPropagationRoutes(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from flask_app.routes.faturas import faturas_bp
+
+        cls.app = Flask(__name__)
+        cls.app.secret_key = 'test-secret-key'
+        cls.app.config['TESTING'] = True
+        _support_blueprints(cls.app)
+        cls.app.register_blueprint(faturas_bp, url_prefix='/financeiro/faturas')
+
+    def _client(self, **user_overrides):
+        client = self.app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = _user(**user_overrides)
+        return client
+
+    def test_preview_is_available_to_manager_and_returns_counts(self):
+        preview = {
+            'supplier': {'id': 17, 'name': 'Fornecedor de teste'},
+            'fields': {
+                'centro_custo': {'configured': True, 'valid': True, 'eligible_count': 3},
+                'categoria_custo': {'configured': True, 'valid': True, 'eligible_count': 2},
+            },
+        }
+        with patch('flask_app.routes.faturas.get_supplier_invoice_classification_preview', return_value=preview):
+            response = self._client().post('/financeiro/faturas/fornecedores/17/classificacoes/preview')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['ok'])
+        self.assertEqual(response.get_json()['preview']['fields']['centro_custo']['eligible_count'], 3)
+
+    def test_propagation_is_denied_without_manager_permission(self):
+        with patch('flask_app.routes.faturas.apply_supplier_invoice_classifications') as apply:
+            response = self._client(acesso_gestor=False, acesso_administrativo=False).post(
+                '/financeiro/faturas/fornecedores/17/propagar-classificacoes'
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.get_json()['ok'])
+        apply.assert_not_called()
+
+    def test_confirmation_returns_per_field_result(self):
+        result = {
+            'supplier': {'id': 17, 'name': 'Fornecedor de teste'},
+            'centro_custo': {'configured': True, 'name': 'Produção', 'updated_count': 3},
+            'categoria_custo': {'configured': True, 'name': 'Ingredientes', 'updated_count': 2},
+        }
+        with patch('flask_app.routes.faturas.apply_supplier_invoice_classifications', return_value=result) as apply:
+            response = self._client().post('/financeiro/faturas/fornecedores/17/propagar-classificacoes')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['result']['categoria_custo']['updated_count'], 2)
+        apply.assert_called_once_with(17)
+
+    def test_template_explains_preview_and_confirmation_safety(self):
+        with open('flask_app/templates/financeiro/faturas/fornecedores.html', encoding='utf-8') as template:
+            source = template.read()
+
+        self.assertIn('id="modalSupplierClassifications"', source)
+        self.assertIn('Apenas são preenchidos campos vazios.', source)
+        self.assertIn('Faturas já classificadas, repartições por vários centros', source)
+        self.assertIn('Corrija a configuração inválida do fornecedor', source)
 
 
 class TestComprasFilterState(unittest.TestCase):

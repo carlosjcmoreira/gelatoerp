@@ -44,7 +44,9 @@ from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair
                         get_invoice_status_labels_map, get_invoice_audit_log,
                         get_invoice_deletion_log,
                         get_saved_views, save_view, delete_saved_view,
-                        patch_supplier)
+                         patch_supplier,
+                         get_supplier_invoice_classification_preview,
+                         apply_supplier_invoice_classifications)
 from flask_app.utils.finance import (
     parse_date as _parse_date,
     parse_float as _parse_float,
@@ -2061,6 +2063,43 @@ def supplier_info(supplier_id: int):
         'payment_method': sup.get('payment_method'),
         'payment_terms': sup.get('payment_terms'),
     })
+
+
+def _can_manage_supplier_classifications() -> bool:
+    user = session.get('user', {})
+    return bool(user.get('acesso_gestor') or user.get('acesso_administrativo'))
+
+
+@faturas_bp.route('/fornecedores/<int:supplier_id>/classificacoes/preview', methods=['POST'])
+@any_perm_required('acesso_financeiro', 'acesso_compras')
+def supplier_classification_preview(supplier_id: int):
+    """Preview empty linked invoice fields that a supplier can safely fill."""
+    if not _can_manage_supplier_classifications():
+        return jsonify({'ok': False, 'error': 'Sem permissão para propagar classificações.'}), 403
+    try:
+        return jsonify({'ok': True, 'preview': get_supplier_invoice_classification_preview(supplier_id)})
+    except ValueError as exc:
+        status = 404 if 'não encontrado' in str(exc).lower() else 400
+        return jsonify({'ok': False, 'error': str(exc)}), status
+    except Exception as exc:
+        logger.exception('supplier classification preview failed for supplier %s: %s', supplier_id, exc)
+        return jsonify({'ok': False, 'error': 'Não foi possível preparar a pré-visualização.'}), 500
+
+
+@faturas_bp.route('/fornecedores/<int:supplier_id>/propagar-classificacoes', methods=['POST'])
+@any_perm_required('acesso_financeiro', 'acesso_compras')
+def apply_supplier_classifications(supplier_id: int):
+    """Apply supplier classifications only to still-empty linked invoices."""
+    if not _can_manage_supplier_classifications():
+        return jsonify({'ok': False, 'error': 'Sem permissão para propagar classificações.'}), 403
+    try:
+        return jsonify({'ok': True, 'result': apply_supplier_invoice_classifications(supplier_id)})
+    except ValueError as exc:
+        status = 404 if 'não encontrado' in str(exc).lower() else 400
+        return jsonify({'ok': False, 'error': str(exc)}), status
+    except Exception as exc:
+        logger.exception('supplier classification propagation failed for supplier %s: %s', supplier_id, exc)
+        return jsonify({'ok': False, 'error': 'Não foi possível aplicar as classificações.'}), 500
 
 
 @faturas_bp.route('/fornecedores', methods=['GET', 'POST'])
