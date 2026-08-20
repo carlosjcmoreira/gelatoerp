@@ -85,6 +85,54 @@ thead .col-label { z-index: 3; }
 
 /* ── Future month opacity ───────────────────────────────────────────── */
 .future-val { opacity: .45; }
+
+/* ── Collapsible hierarchy ───────────────────────────────────────────── */
+.pl-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.pl-toggle:hover { text-decoration: underline; }
+.pl-toggle:focus-visible {
+    outline: 2px solid var(--bs-primary);
+    outline-offset: 2px;
+    border-radius: .15rem;
+}
+.pl-toggle-icon {
+    display: inline-block;
+    width: .8rem;
+    transition: transform .15s ease;
+}
+.pl-toggle[aria-expanded="false"] .pl-toggle-icon { transform: rotate(-90deg); }
+
+/* ── Data completeness ──────────────────────────────────────────────── */
+.month-partial {
+    background: rgba(255, 193, 7, .22) !important;
+    box-shadow: inset 0 -3px 0 rgba(255, 193, 7, .9);
+}
+.month-partial-label {
+    display: block;
+    color: #7a5200;
+    font-size: .57rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+}
+[data-bs-theme="dark"] .month-partial-label { color: #ffd972; }
+.cmvmc-warning {
+    color: var(--bs-warning-text-emphasis);
+    font-size: .72rem;
+    cursor: help;
+}
 </style>
 {% endblock %}
 
@@ -151,6 +199,15 @@ thead .col-label { z-index: 3; }
 {% set co_total  = mapa.budget_cmvmc.values() | sum %}
 {% set ca_total  = mapa.cmvmc_aa.values()    | sum %}
 {% set tc_total  = mapa.total_costs_monthly.values() | sum %}
+{% set cmvmc_warning_months = mapa.month_status.values() | selectattr('cmvmc_warning') | list %}
+
+{% if ano == mapa.today.year %}
+<div class="alert alert-warning py-2 px-3 small d-flex align-items-center gap-2" role="status">
+    <span aria-hidden="true">⏳</span>
+    <span><strong>{{ MESES[mapa.today.month - 1] }} ainda está em curso.</strong>
+        Os valores deste mês são parciais e não devem ser comparados como um mês fechado.</span>
+</div>
+{% endif %}
 
 {# ──────────────────────────────────────────────────────────────────── #}
 {#  Helper macros                                                        #}
@@ -184,7 +241,11 @@ thead .col-label { z-index: 3; }
     {% for mi in range(12) %}
     {% set m = mi + 1 %}
     {% set is_fut = (ano > mapa.today.year) or (ano == mapa.today.year and m > mapa.today.month) %}
-    <th id="m{{ m }}" class="text-end{% if is_fut %} future-val{% endif %}">{{ MESES[mi] }}</th>
+    {% set is_partial = mapa.month_status.get(m, {}).get('is_current_month') %}
+    <th id="m{{ m }}" class="text-end{% if is_fut %} future-val{% endif %}{% if is_partial %} month-partial{% endif %}"
+        {% if is_partial %}title="Mês em curso: dados parciais"{% endif %}>
+        {{ MESES[mi] }}{% if is_partial %}<span class="month-partial-label">parcial</span>{% endif %}
+    </th>
     {% endfor %}
     <th class="text-end col-total">Total</th>
 </tr>
@@ -198,7 +259,11 @@ thead .col-label { z-index: 3; }
 
 {# ── Vendas Real ── #}
 <tr class="row-vendas">
-    <td class="col-label ps-3">📈 VENDAS</td>
+    <td class="col-label ps-3">
+        <button type="button" class="pl-toggle" data-pl-toggle="vendas" aria-expanded="true">
+            <span class="pl-toggle-icon" aria-hidden="true">▾</span><span>📈 VENDAS</span>
+        </button>
+    </td>
     {% for m in range(1,13) %}
     {% set is_fut = (ano > mapa.today.year) or (ano == mapa.today.year and m > mapa.today.month) %}
     {% set v = mapa.vendas.get(m, 0) %}
@@ -208,8 +273,12 @@ thead .col-label { z-index: 3; }
 </tr>
 
 {# ── Orçamento ── #}
-<tr class="row-sub">
-    <td class="col-label">↳ Orçamento</td>
+<tr class="row-sub" data-pl-parent="vendas">
+    <td class="col-label">
+        <button type="button" class="pl-toggle" data-pl-toggle="vendas-budget" data-pl-default-collapsed aria-expanded="false">
+            <span class="pl-toggle-icon" aria-hidden="true">▾</span><span>↳ Orçamento</span>
+        </button>
+    </td>
     {% for m in range(1,13) %}
     {% set o = mapa.budget_vendas.get(m) %}
     <td class="text-end text-eur">{% if o is not none %}{{ '%.0f'|format(o) }}{% else %}—{% endif %}</td>
@@ -218,7 +287,7 @@ thead .col-label { z-index: 3; }
 </tr>
 
 {# ── Gap Orç. % ── #}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="vendas vendas-budget">
     <td class="col-label">↳ Gap Orç. %</td>
     {% for m in range(1,13) %}
     <td class="text-end">{{ gpct(mapa.vendas.get(m,0), mapa.budget_vendas.get(m,0)) }}</td>
@@ -227,7 +296,7 @@ thead .col-label { z-index: 3; }
 </tr>
 
 {# ── Gap Orç. € ── #}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="vendas vendas-budget">
     <td class="col-label">↳ Gap Orç. €</td>
     {% for m in range(1,13) %}
     {% set gap_e = mapa.vendas.get(m,0) - (mapa.budget_vendas.get(m) or 0) %}
@@ -243,8 +312,12 @@ thead .col-label { z-index: 3; }
 </tr>
 
 {# ── Histórico AA ── #}
-<tr class="row-sub">
-    <td class="col-label">↳ {{ mapa.ano_aa }} (Histórico)</td>
+<tr class="row-sub" data-pl-parent="vendas">
+    <td class="col-label">
+        <button type="button" class="pl-toggle" data-pl-toggle="vendas-history" data-pl-default-collapsed aria-expanded="false">
+            <span class="pl-toggle-icon" aria-hidden="true">▾</span><span>↳ {{ mapa.ano_aa }} (Histórico)</span>
+        </button>
+    </td>
     {% for m in range(1,13) %}
     {% set h = mapa.vendas_aa.get(m, 0) %}
     <td class="text-end text-eur">{{ e(h) }}</td>
@@ -253,7 +326,7 @@ thead .col-label { z-index: 3; }
 </tr>
 
 {# ── Gap Hist. % ── #}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="vendas vendas-history">
     <td class="col-label">↳ Gap Hist. %</td>
     {% for m in range(1,13) %}
     <td class="text-end">{{ gpct(mapa.vendas.get(m,0), mapa.vendas_aa.get(m,0)) }}</td>
@@ -262,7 +335,7 @@ thead .col-label { z-index: 3; }
 </tr>
 
 {# ── Gap Hist. € ── #}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="vendas vendas-history">
     <td class="col-label">↳ Gap Hist. €</td>
     {% for m in range(1,13) %}
     {% set gap_h = mapa.vendas.get(m,0) - mapa.vendas_aa.get(m,0) %}
@@ -279,7 +352,7 @@ thead .col-label { z-index: 3; }
 
 {# ── Acc YTD vs AA — only meaningful for current year ── #}
 {% if ano == mapa.today.year %}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="vendas vendas-history">
     <td class="col-label">↳ Acc YTD vs {{ mapa.ano_aa }} %</td>
     {% set ytd = namespace(a=0.0, h=0.0) %}
     {% for m in range(1,13) %}
@@ -292,7 +365,7 @@ thead .col-label { z-index: 3; }
     <td class="text-end col-total">{{ gpct(v_total, aa_total) }}</td>
 </tr>
 
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="vendas vendas-history">
     <td class="col-label">↳ Acc YTD vs {{ mapa.ano_aa }} €</td>
     {% set ytd2 = namespace(a=0.0, h=0.0) %}
     {% for m in range(1,13) %}
@@ -313,7 +386,7 @@ thead .col-label { z-index: 3; }
 {% endif %}
 
 {# ── tipo_venda breakdown / fallback note ── #}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="vendas">
     <td class="col-label fst-italic text-muted" colspan="14">
         <small>ℹ️ Detalhe por tipo (Lojas / Eventos / Serviços) disponível após captura do campo tipo_venda nos uploads de vendas.</small>
     </td>
@@ -324,7 +397,7 @@ thead .col-label { z-index: 3; }
 {% for s in mapa.stores %}
 {% set sv = mapa.store_vendas.get(s.id, {}) %}
 {% set sv_tot = sv.values() | sum %}
-<tr class="row-store-sub">
+<tr class="row-store-sub" data-pl-parent="vendas">
     <td class="col-label">↳ {{ s.name }}</td>
     {% for m in range(1,13) %}
     {% set v = sv.get(m, 0) %}
@@ -340,10 +413,19 @@ thead .col-label { z-index: 3; }
 {# ══════════════════════════════════════════════════════════════════════ #}
 
 <tr class="row-cmvmc">
-    <td class="col-label ps-3">🧾 CMVMC</td>
+    <td class="col-label ps-3">
+        🧾 CMVMC
+        {% if cmvmc_warning_months %}
+        <span class="cmvmc-warning ms-1" title="Há meses com vendas mas sem cobertura CMVMC suficiente. Consulte os avisos ⚠ nas células.">⚠ dados em falta</span>
+        {% endif %}
+    </td>
     {% for m in range(1,13) %}
     {% set v = mapa.cmvmc.get(m, 0) %}
-    <td class="text-end text-eur">{{ e(v) }}</td>
+    {% set month_status = mapa.month_status.get(m, {}) %}
+    <td class="text-end text-eur"
+        {% if month_status.get('cmvmc_warning') %}title="{{ 'Sem faturas CMVMC registadas neste mês' if month_status.get('cmvmc_warning') == 'sem_faturas_cmvmc' else 'Sem CMVMC atribuído a esta vista neste mês' }}"{% endif %}>
+        {{ e(v) }}{% if month_status.get('cmvmc_warning') %}<span class="cmvmc-warning ms-1" role="img" aria-label="Dados CMVMC em falta">⚠</span>{% endif %}
+    </td>
     {% endfor %}
     <td class="text-end text-eur col-total">{{ e(c_total) }}</td>
 </tr>
@@ -424,8 +506,10 @@ thead .col-label { z-index: 3; }
     <td class="col-label ps-3">📊 MARGEM BRUTA</td>
     {% for m in range(1,13) %}
     {% set mb = mapa.vendas.get(m, 0) - mapa.cmvmc.get(m, 0) %}
-    <td class="text-end text-eur {{ 'val-pos' if mb > 0 else ('val-neg' if mb < 0 else '') }}">
-        {% if mapa.vendas.get(m,0) or mapa.cmvmc.get(m,0) %}{{ '%.0f'|format(mb) }}{% else %}—{% endif %}
+    {% set month_status = mapa.month_status.get(m, {}) %}
+    <td class="text-end text-eur {{ 'val-pos' if mb > 0 else ('val-neg' if mb < 0 else '') }}"
+        {% if month_status.get('cmvmc_warning') %}title="Margem Bruta pode estar sobrestimada: {{ 'sem faturas CMVMC registadas' if month_status.get('cmvmc_warning') == 'sem_faturas_cmvmc' else 'sem CMVMC atribuído a esta vista' }}"{% endif %}>
+        {% if mapa.vendas.get(m,0) or mapa.cmvmc.get(m,0) %}{{ '%.0f'|format(mb) }}{% else %}—{% endif %}{% if month_status.get('cmvmc_warning') %}<span class="cmvmc-warning ms-1" role="img" aria-label="Margem potencialmente incompleta">⚠</span>{% endif %}
     </td>
     {% endfor %}
     <td class="text-end text-eur col-total {{ 'val-pos' if mb_total > 0 else ('val-neg' if mb_total < 0 else '') }}">
@@ -452,11 +536,15 @@ thead .col-label { z-index: 3; }
 {# ══════════════════════════════════════════════════════════════════════ #}
 
 <tr class="row-section">
-    <td class="col-label ps-3" colspan="14">⚙️ Custos de Operação</td>
+    <td class="col-label ps-3" colspan="14">
+        <button type="button" class="pl-toggle" data-pl-toggle="costs" aria-expanded="true">
+            <span class="pl-toggle-icon" aria-hidden="true">▾</span><span>⚙️ Custos de Operação</span>
+        </button>
+    </td>
 </tr>
 
 {% if not mapa.categories %}
-<tr>
+<tr data-pl-parent="costs">
     <td class="col-label ps-3 fst-italic text-muted" colspan="14">
         Nenhuma categoria de custo configurada.
         <a href="{{ url_for('centros_custo.index') }}" class="ms-2 small">Configurar →</a>
@@ -470,8 +558,12 @@ thead .col-label { z-index: 3; }
 {% set cat_tot = cat_d.values() | sum %}
 
 {# ── Category actual row ── #}
-<tr>
-    <td class="col-label ps-3">{{ cat.name }}</td>
+<tr data-pl-parent="costs">
+    <td class="col-label ps-3">
+        <button type="button" class="pl-toggle" data-pl-toggle="cost-{{ cat.id }}" data-pl-default-collapsed aria-expanded="false">
+            <span class="pl-toggle-icon" aria-hidden="true">▾</span><span>{{ cat.name }}</span>
+        </button>
+    </td>
     {% for m in range(1,13) %}
     {% set v = cat_d.get(m, 0) %}
     <td class="text-end text-eur">{{ e(v) }}</td>
@@ -480,7 +572,7 @@ thead .col-label { z-index: 3; }
 </tr>
 
 {# ── % sobre Vendas ── #}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="costs cost-{{ cat.id }}">
     <td class="col-label">↳ % sobre Vendas</td>
     {% for m in range(1,13) %}
     {% set vv = mapa.vendas.get(m, 0) %}
@@ -497,7 +589,7 @@ thead .col-label { z-index: 3; }
 {# ── Category budget sub-row ── #}
 {% set cat_orc_tot = cat_orc.values() | sum %}
 {% if cat_orc %}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="costs cost-{{ cat.id }}">
     <td class="col-label">↳ Orçamento</td>
     {% for m in range(1,13) %}
     {% set o = cat_orc.get(m) %}
@@ -511,7 +603,7 @@ thead .col-label { z-index: 3; }
 {% set cat_aa_d = mapa.costs_aa.get(cat.id, {}) %}
 {% set cat_aa_tot = cat_aa_d.values() | sum %}
 {% if cat_aa_d %}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="costs cost-{{ cat.id }}">
     <td class="col-label">↳ {{ mapa.ano_aa }} (Histórico)</td>
     {% for m in range(1,13) %}
     {% set h = cat_aa_d.get(m, 0) %}
@@ -526,7 +618,7 @@ thead .col-label { z-index: 3; }
 {% for s in mapa.stores %}
 {% set sd = mapa.store_costs.get(s.id, {}).get(cat.id, {}) %}
 {% set sd_tot = sd.values() | sum %}
-<tr class="row-store-sub">
+<tr class="row-store-sub" data-pl-parent="costs cost-{{ cat.id }}">
     <td class="col-label">↳ {{ s.name }}</td>
     {% for m in range(1,13) %}
     <td class="text-end text-eur">{{ e(sd.get(m, 0)) }}</td>
@@ -537,7 +629,7 @@ thead .col-label { z-index: 3; }
 {% set ua = mapa.unallocated_costs.get(cat.id, {}) %}
 {% if ua %}
 {% set ua_tot = ua.values() | sum %}
-<tr class="row-store-sub text-warning">
+<tr class="row-store-sub text-warning" data-pl-parent="costs cost-{{ cat.id }}">
     <td class="col-label">
         ↳ Não alocado
         {% if mapa.unallocated_invoice_count %}
@@ -567,9 +659,11 @@ thead .col-label { z-index: 3; }
 {# ── Sem categoria (unclassified invoices) ── #}
 {% set uncat_tot = mapa.costs_uncat.values() | sum %}
 {% if mapa.costs_uncat %}
-<tr>
+<tr data-pl-parent="costs">
     <td class="col-label ps-3 text-warning">
-        ⚠️ Sem categoria
+        <button type="button" class="pl-toggle" data-pl-toggle="costs-uncategorised" data-pl-default-collapsed aria-expanded="false">
+            <span class="pl-toggle-icon" aria-hidden="true">▾</span><span>⚠️ Sem categoria</span>
+        </button>
         <small class="text-muted ms-1" title="Faturas sem categoria de custo atribuída — classifique-as para que apareçam na linha correta.">(?)</small>
     </td>
     {% for m in range(1,13) %}
@@ -579,7 +673,7 @@ thead .col-label { z-index: 3; }
 </tr>
 {% set uncat_aa_tot = mapa.costs_uncat_aa.values() | sum %}
 {% if mapa.costs_uncat_aa %}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="costs costs-uncategorised">
     <td class="col-label">↳ {{ mapa.ano_aa }} (Histórico)</td>
     {% for m in range(1,13) %}
     <td class="text-end text-eur">{{ e(mapa.costs_uncat_aa.get(m, 0)) }}</td>
@@ -593,9 +687,11 @@ thead .col-label { z-index: 3; }
 {% if mapa.pessoal_is_projection %}
 {# Current year: show projection from active roster, clearly labelled #}
 {% set pessoal_tot = mapa.pessoal.values() | sum %}
-<tr>
+<tr data-pl-parent="costs">
     <td class="col-label ps-3">
-        👥 Pessoal
+        <button type="button" class="pl-toggle" data-pl-toggle="costs-pessoal" data-pl-default-collapsed aria-expanded="false">
+            <span class="pl-toggle-icon" aria-hidden="true">▾</span><span>👥 Pessoal</span>
+        </button>
         <span class="badge text-bg-secondary ms-1 fw-normal fst-italic" style="font-size:.6rem"
               title="Projeção com base no roster actual. Valores históricos requerem registo de vencimentos por mês.">Projeção</span>
     </td>
@@ -606,7 +702,7 @@ thead .col-label { z-index: 3; }
 </tr>
 
 {# ── % sobre Vendas ── #}
-<tr class="row-sub">
+<tr class="row-sub" data-pl-parent="costs costs-pessoal">
     <td class="col-label">↳ % sobre Vendas</td>
     {% for m in range(1,13) %}
     {% set vv = mapa.vendas.get(m, 0) %}
@@ -625,7 +721,7 @@ thead .col-label { z-index: 3; }
 {% for s in mapa.stores %}
 {% set sp = mapa.store_pessoal.get(s.id, {}) %}
 {% set sp_tot = sp.values() | sum %}
-<tr class="row-store-sub">
+<tr class="row-store-sub" data-pl-parent="costs costs-pessoal">
     <td class="col-label">↳ {{ s.name }}</td>
     {% for m in range(1,13) %}
     <td class="text-end text-eur">{{ e(sp.get(m, 0)) }}</td>
@@ -636,7 +732,7 @@ thead .col-label { z-index: 3; }
 {% set ua_p = mapa.unallocated_pessoal %}
 {% if ua_p %}
 {% set ua_p_tot = ua_p.values() | sum %}
-<tr class="row-store-sub text-warning">
+<tr class="row-store-sub text-warning" data-pl-parent="costs costs-pessoal">
     <td class="col-label">↳ Não alocado — pessoal sem CC</td>
     {% for m in range(1,13) %}
     <td class="text-end text-eur">{{ e(ua_p.get(m, 0)) }}</td>
@@ -648,7 +744,7 @@ thead .col-label { z-index: 3; }
 
 {% else %}
 {# Historical year: no effective-dated payroll history available #}
-<tr class="text-muted fst-italic">
+<tr class="text-muted fst-italic" data-pl-parent="costs">
     <td class="col-label ps-3">
         👥 Pessoal
         <span class="badge text-bg-secondary ms-1 fw-normal" style="font-size:.6rem"
@@ -740,8 +836,52 @@ thead .col-label { z-index: 3; }
         <a href="{{ url_for('financeiro.orcamento') }}">Orçamento</a>.
     </div>
     {% endif %}
+    {% if cmvmc_warning_months %}
+    <div class="alert alert-warning py-1 px-2 mb-0 small">
+        ⚠️ <strong>Margem Bruta potencialmente incompleta:</strong>
+        {% for m in range(1, 13) %}
+        {% set status = mapa.month_status.get(m, {}) %}
+        {% if status.get('cmvmc_warning') %}
+        <span class="ms-1">{{ MESES[m - 1] }}{% if status.get('cmvmc_warning') == 'sem_faturas_cmvmc' %} sem faturas CMVMC{% else %} sem CMVMC atribuído{% endif %}</span>{% if not loop.last %};{% endif %}
+        {% endif %}
+        {% endfor %}
+        Classifique ou atribua as faturas antes de analisar estes meses como fechados.
+    </div>
+    {% endif %}
 </div>
 
 {% endif %}{# mapa.stores #}
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var state = {};
+    var toggles = Array.prototype.slice.call(document.querySelectorAll('[data-pl-toggle]'));
+    var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-pl-parent]'));
+
+    toggles.forEach(function (button) {
+        var group = button.dataset.plToggle;
+        state[group] = !button.hasAttribute('data-pl-default-collapsed');
+    });
+
+    function refreshHierarchy() {
+        rows.forEach(function (row) {
+            var parents = row.dataset.plParent.trim().split(/\s+/);
+            row.hidden = parents.some(function (group) { return state[group] === false; });
+        });
+        toggles.forEach(function (button) {
+            button.setAttribute('aria-expanded', state[button.dataset.plToggle] ? 'true' : 'false');
+        });
+    }
+
+    toggles.forEach(function (button) {
+        button.addEventListener('click', function () {
+            var group = button.dataset.plToggle;
+            state[group] = !state[group];
+            refreshHierarchy();
+        });
+    });
+
+    refreshHierarchy();
+});
+</script>
 {% endblock %}

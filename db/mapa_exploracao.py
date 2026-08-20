@@ -388,6 +388,32 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
     global_cmvmc    = _global_cmvmc_totals(store_alloc,    no_cc_inv)
     global_cmvmc_aa = _global_cmvmc_totals(store_alloc_aa, no_cc_inv_aa)
 
+    # Keep the raw invoice presence separate from the allocated CMVMC amount.
+    # A zero CMVMC amount can be legitimate, but when there are sales and no
+    # CMVMC invoice at all the gross margin is not comparable to closed months.
+    cmvmc_invoice_ids_by_month: dict = {}
+    for inv_id, mes, cat_id, _cc_id, _amount in inv_slices:
+        if cat_id in cmvmc_cat_ids:
+            cmvmc_invoice_ids_by_month.setdefault(int(mes), set()).add(inv_id)
+
+    def _cmvmc_month_status(vendas, cmvmc):
+        status = {}
+        for mes in range(1, 13):
+            sales_present = bool(vendas.get(mes, 0))
+            invoice_count = len(cmvmc_invoice_ids_by_month.get(mes, set()))
+            allocated_cmvmc = bool(cmvmc.get(mes, 0))
+            warning = None
+            if sales_present and not invoice_count:
+                warning = 'sem_faturas_cmvmc'
+            elif sales_present and not allocated_cmvmc:
+                warning = 'sem_cmvmc_atribuido'
+            status[mes] = {
+                'is_current_month': ano == today.year and mes == today.month,
+                'cmvmc_invoice_count': invoice_count,
+                'cmvmc_warning': warning,
+            }
+        return status
+
     # ── Per-store view ──────────────────────────────────────────────────────
 
     if store_id is not None:
@@ -416,6 +442,7 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
             'categories': categories, 'cmvmc_cat_ids': list(cmvmc_cat_ids),
             'vendas': vendas, 'vendas_aa': vendas_aa,
             'cmvmc': cmvmc, 'cmvmc_aa': cmvmc_aa,
+            'month_status': _cmvmc_month_status(vendas, cmvmc),
             'costs': costs, 'costs_aa': costs_aa,
             'costs_uncat': {m: round(v, 2) for m, v in costs_uncat.items()},
             'costs_uncat_aa': {m: round(v, 2) for m, v in costs_uncat_aa.items()},
@@ -502,6 +529,7 @@ def get_mapa_exploracao(ano: int, store_id=None) -> dict:
         'categories': categories, 'cmvmc_cat_ids': list(cmvmc_cat_ids),
         'vendas': global_vendas, 'vendas_aa': global_vendas_aa,
         'cmvmc': global_cmvmc, 'cmvmc_aa': global_cmvmc_aa,
+        'month_status': _cmvmc_month_status(global_vendas, global_cmvmc),
         'costs': global_costs, 'costs_aa': global_costs_aa,
         'budget_vendas': cons_bgt.get('vendas', {}),
         'budget_cmvmc':  cons_bgt.get('cmvmc', {}),

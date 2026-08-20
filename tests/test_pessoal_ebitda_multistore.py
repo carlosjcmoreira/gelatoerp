@@ -24,6 +24,7 @@ Run with:
 import io
 import csv
 import unittest
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 # ── Shared fixtures ──────────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ def _make_db_conn():
 
 
 def _run_mapa(pessoal_rows=None, inv_rows=None, store_id=None,
-              sales_split=None, vendas_rows=None):
+              sales_split=None, vendas_rows=None, categories=None):
     """Call the real get_mapa_exploracao with controlled inputs.
 
     Args:
@@ -78,6 +79,7 @@ def _run_mapa(pessoal_rows=None, inv_rows=None, store_id=None,
         store_id     : None = consolidated, int = per-store
         sales_split  : {store_id: pct}  (default: 60/40)
         vendas_rows  : raw vendas_detalhe cursor rows (default: empty → €0 sales)
+        categories   : cost-category rows (default: Rendas only)
     """
     from db.mapa_exploracao import get_mapa_exploracao
 
@@ -89,6 +91,8 @@ def _run_mapa(pessoal_rows=None, inv_rows=None, store_id=None,
         sales_split = SALES_SPLIT
     if vendas_rows is None:
         vendas_rows = []
+    if categories is None:
+        categories = [CAT_RENDAS]
 
     def _mock_load_invoice_rows(year):
         return inv_rows if year == TEST_YEAR else []
@@ -110,9 +114,9 @@ def _run_mapa(pessoal_rows=None, inv_rows=None, store_id=None,
         patch('db.mapa_exploracao._load_invoice_rows',
               side_effect=_mock_load_invoice_rows),
         patch('db.mapa_exploracao._load_junction_rows', return_value={}),
-        patch('db.mapa_exploracao.db_connection', side_effect=_make_db_conn),
+        patch('db.mapa_exploracao.db_connection', side_effect=_make_vendas_conn),
         patch('db.stores.get_all_stores',              return_value=ACTIVE_STORES),
-        patch('db.centros_custo.get_cost_categories',  return_value=[CAT_RENDAS]),
+        patch('db.centros_custo.get_cost_categories',  return_value=categories),
         patch('db.centros_custo.get_sales_split_pct',  return_value=sales_split),
         patch('db.centros_custo.get_cost_centers',     return_value=COST_CENTERS),
         patch('db.centros_custo.get_pessoal_costs_by_cc', return_value=pessoal_rows),
@@ -122,6 +126,45 @@ def _run_mapa(pessoal_rows=None, inv_rows=None, store_id=None,
     with patches[0], patches[1], patches[2], patches[3], \
          patches[4], patches[5], patches[6], patches[7], patches[8]:
         return get_mapa_exploracao(TEST_YEAR, store_id=store_id)
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 0 — CMVMC data completeness flags
+# ────────────────────────────────────────────────────────────────────────────
+
+class TestCMVMCMonthStatus(unittest.TestCase):
+    """Months with sales but no CMVMC invoice must be explicitly flagged."""
+
+    CMVMC = {
+        'id': 77, 'name': 'Matéria Prima', 'is_cmvmc': True,
+        'parent_id': None, 'ativo': True,
+    }
+
+    def test_flags_missing_cmvmc_invoices_without_estimating_costs(self):
+        result = _run_mapa(
+            pessoal_rows=[],
+            categories=[self.CMVMC],
+            # CMVMC exists in January only.
+            inv_rows=[(700, 1, self.CMVMC['id'], CC_BOLHAO['id'], 100.00)],
+            vendas_rows=[(1, STORE_BOLHAO['id'], 1_000.00),
+                          (2, STORE_BOLHAO['id'], 1_200.00)],
+        )
+
+        self.assertEqual(result['cmvmc'][1], 100.00)
+        self.assertEqual(result['month_status'][1]['cmvmc_invoice_count'], 1)
+        self.assertIsNone(result['month_status'][1]['cmvmc_warning'])
+
+        self.assertEqual(result['cmvmc'].get(2, 0), 0)
+        self.assertEqual(result['month_status'][2]['cmvmc_invoice_count'], 0)
+        self.assertEqual(result['month_status'][2]['cmvmc_warning'], 'sem_faturas_cmvmc')
+
+    def test_marks_current_month_as_partial_for_current_year(self):
+        result = _run_mapa(pessoal_rows=[])
+        expected = TEST_YEAR == date.today().year
+        self.assertEqual(
+            result['month_status'][date.today().month]['is_current_month'],
+            expected,
+        )
 
 
 # ────────────────────────────────────────────────────────────────────────────
