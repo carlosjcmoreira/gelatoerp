@@ -96,6 +96,25 @@ def _normalize_nif(nif) -> str:
     return cleaned.upper() or None
 
 
+def _nif_match_key(nif) -> str:
+    """Return the comparable part of a Portuguese NIF.
+
+    Historical imports contain both ``PT123...`` and ``123...`` forms.  The
+    prefix distinguishes neither supplier identity nor a conflicting record.
+    """
+    normalized = _normalize_nif(nif)
+    if normalized and normalized.startswith('PT'):
+        return normalized[2:]
+    return normalized
+
+
+def _nifs_match(left, right) -> bool:
+    """True only when both provided NIF values identify the same entity."""
+    left_key = _nif_match_key(left)
+    right_key = _nif_match_key(right)
+    return bool(left_key and right_key and left_key == right_key)
+
+
 def get_supplier_by_nif(nif: str) -> dict:
     nif = _normalize_nif(nif)
     if not nif:
@@ -111,8 +130,8 @@ def get_supplier_by_nif(nif: str) -> dict:
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
-            WHERE s.nif = %s
-        """, (nif,))
+            WHERE regexp_replace(upper(COALESCE(s.nif, '')), '^PT', '') = %s
+        """, (_nif_match_key(nif),))
         row = cursor.fetchone()
     if row:
         return {'id': row[0], 'name': row[1], 'nif': row[2],
@@ -240,23 +259,61 @@ def upsert_supplier(name: str, nif: str = None,
     with db_connection() as conn:
         cursor = conn.cursor()
         if nif:
+            # Existing data contains both PT-prefixed and digits-only NIFs.
+            # Resolve that identity before the unique-key upsert so imports
+            # cannot create a second supplier merely because the prefix differs.
+            # The transaction-scoped lock also serializes two concurrent
+            # imports that represent the same NIF in different formats; the
+            # database's raw-nif unique constraint cannot do that alone.
+            nif_key = _nif_match_key(nif)
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f'supplier_nif:{nif_key}',),
+            )
             cursor.execute("""
-                INSERT INTO suppliers (name, nif, store_id, notes,
-                                       payment_method, payment_terms, iban,
-                                       centro_custo_id, categoria_custo_id, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
-                    name = EXCLUDED.name,
-                    store_id = EXCLUDED.store_id,
-                    notes = EXCLUDED.notes,
-                    payment_method = COALESCE(EXCLUDED.payment_method, suppliers.payment_method),
-                    payment_terms = COALESCE(EXCLUDED.payment_terms, suppliers.payment_terms),
-                    iban = COALESCE(EXCLUDED.iban, suppliers.iban),
-                    centro_custo_id = COALESCE(EXCLUDED.centro_custo_id, suppliers.centro_custo_id),
-                    categoria_custo_id = COALESCE(EXCLUDED.categoria_custo_id, suppliers.categoria_custo_id),
-                    updated_at = NOW()
-                RETURNING id
-            """, (name, nif, store_id, notes, payment_method, payment_terms, iban, centro_custo_id or None, categoria_custo_id or None))
+                SELECT id
+                FROM suppliers
+                WHERE regexp_replace(upper(COALESCE(nif, '')), '^PT', '') = %s
+                LIMIT 1
+            """, (nif_key,))
+            existing = cursor.fetchone()
+            if existing:
+                supplier_id = existing[0]
+                cursor.execute("""
+                    UPDATE suppliers
+                    SET store_id = %s,
+                        notes = %s,
+                        payment_method = COALESCE(%s, payment_method),
+                        payment_terms = COALESCE(%s, payment_terms),
+                        iban = COALESCE(%s, iban),
+                        centro_custo_id = COALESCE(%s, centro_custo_id),
+                        categoria_custo_id = COALESCE(%s, categoria_custo_id),
+                        updated_at = NOW()
+                    WHERE id = %s
+                """, (store_id, notes, payment_method, payment_terms, iban,
+                      centro_custo_id or None, categoria_custo_id or None, supplier_id))
+            else:
+                cursor.execute("""
+                    INSERT INTO suppliers (name, nif, store_id, notes,
+                                           payment_method, payment_terms, iban,
+                                           centro_custo_id, categoria_custo_id, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
+                        -- An incoming OCR/display variant must not replace a
+                        -- supplier's established canonical legal name. Renames
+                        -- are handled through the explicit supplier editor.
+                        store_id = EXCLUDED.store_id,
+                        notes = EXCLUDED.notes,
+                        payment_method = COALESCE(EXCLUDED.payment_method, suppliers.payment_method),
+                        payment_terms = COALESCE(EXCLUDED.payment_terms, suppliers.payment_terms),
+                        iban = COALESCE(EXCLUDED.iban, suppliers.iban),
+                        centro_custo_id = COALESCE(EXCLUDED.centro_custo_id, suppliers.centro_custo_id),
+                        categoria_custo_id = COALESCE(EXCLUDED.categoria_custo_id, suppliers.categoria_custo_id),
+                        updated_at = NOW()
+                    RETURNING id
+                """, (name, nif, store_id, notes, payment_method, payment_terms, iban,
+                      centro_custo_id or None, categoria_custo_id or None))
+                supplier_id = cursor.fetchone()[0]
         else:
             # No NIF — look up by name first to avoid duplicates
             cursor.execute(
@@ -335,11 +392,12 @@ def upsert_supplier(name: str, nif: str = None,
             except Exception as _exc:
                 logger.warning('link_invoices_to_supplier_by_name failed (no-nif path) for supplier %s: %s', supplier_id, _exc)
             return supplier_id
-        supplier_id = cursor.fetchone()[0]
+        cursor.execute("SELECT name FROM suppliers WHERE id = %s", (supplier_id,))
+        canonical_name = cursor.fetchone()[0]
         # Propagate canonical name to all already-linked invoices (handles rename-via-upsert)
         cursor.execute(
             "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
-            (name, supplier_id)
+            (canonical_name, supplier_id)
         )
         conn.commit()
     # Auto-link invoices whose supplier_name matches this supplier
@@ -438,8 +496,9 @@ def merge_supplier(source_id: int, target_id: int) -> int:
 def get_supplier_by_alias(name: str, nif: str = None) -> dict:
     """Look up a supplier via the alias table.
 
-    Checks alias_name (case-insensitive) or alias_nif when nif is provided.
-    Returns supplier dict or None.  Safe to call before the migration has run.
+    Checks alias_name (case-insensitive) when no NIF is supplied. With a NIF,
+    it only returns a supplier whose canonical or confirmed alias NIF agrees.
+    Returns supplier dict or None. Safe to call before the migration has run.
     """
     try:
         with db_connection() as conn:
@@ -447,13 +506,21 @@ def get_supplier_by_alias(name: str, nif: str = None) -> dict:
             if nif:
                 cursor.execute("""
                     SELECT s.id, s.name, s.nif, s.store_id, s.notes,
-                           st.name AS store_name, s.payment_method, s.payment_terms, s.iban
+                           st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
+                           a.alias_nif
                     FROM supplier_aliases a
                     JOIN suppliers s ON s.id = a.supplier_id
                     LEFT JOIN stores st ON s.store_id = st.id
-                    WHERE LOWER(a.alias_name) = LOWER(%s) OR a.alias_nif = %s
-                    LIMIT 1
-                """, (name, nif))
+                    WHERE LOWER(a.alias_name) = LOWER(%s)
+                       OR a.alias_nif IS NOT NULL
+                    ORDER BY s.id, a.id
+                """, (name,))
+                rows = cursor.fetchall()
+                row = next(
+                    (candidate for candidate in rows
+                     if _nifs_match(nif, candidate[2]) or _nifs_match(nif, candidate[8])),
+                    None,
+                )
             else:
                 cursor.execute("""
                     SELECT s.id, s.name, s.nif, s.store_id, s.notes,
@@ -464,7 +531,7 @@ def get_supplier_by_alias(name: str, nif: str = None) -> dict:
                     WHERE LOWER(a.alias_name) = LOWER(%s)
                     LIMIT 1
                 """, (name,))
-            row = cursor.fetchone()
+                row = cursor.fetchone()
         if row:
             return {'id': row[0], 'name': row[1], 'nif': row[2],
                     'store_id': row[3], 'notes': row[4], 'store_name': row[5],
@@ -558,6 +625,9 @@ def get_duplicate_supplier_suggestions(suppliers: list = None, threshold: float 
     Criteria:
     - Critério A: same non-null NIF (should be impossible but may exist from direct inserts)
     - Critério B: SequenceMatcher similarity >= threshold on lowercased name
+    - Critério C: one substantial normalized name is a prefix of the other
+      (for example, "Grasumos" and "Grasumos Comércio de Bebidas"). This is
+      a suggestion only; it must always be confirmed by a user.
 
     Pairs in supplier_merge_ignored are excluded.
     Returns list of dicts: {a: supplier, b: supplier, reason: str}.
@@ -600,6 +670,20 @@ def get_duplicate_supplier_suggestions(suppliers: list = None, threshold: float 
                 suggestions.append({
                     'a': a, 'b': b,
                     'reason': f'Nomes semelhantes ({int(ratio * 100)}%)',
+                })
+                continue
+
+            # Critério C: an OCR/display name is often a short leading portion
+            # of the legal supplier name. Do not merge automatically — the NIF
+            # may be absent on the short record — but make the case visible in
+            # the existing human-confirmed merge workflow.
+            a_key = ''.join(ch for ch in a['name'].lower() if ch.isalnum())
+            b_key = ''.join(ch for ch in b['name'].lower() if ch.isalnum())
+            shorter, longer = sorted((a_key, b_key), key=len)
+            if len(shorter) >= 6 and longer.startswith(shorter):
+                suggestions.append({
+                    'a': a, 'b': b,
+                    'reason': 'Nome base coincidente — confirmar antes de fundir',
                 })
 
     return suggestions
@@ -792,47 +876,81 @@ def backfill_supplier_ids() -> dict:
             return {'suppliers_created': 0, 'invoices_linked': 0}
         cursor.execute("""
             SELECT supplier_name,
-                   COALESCE(MAX(supplier_nif), '') AS nif
+                   COALESCE(supplier_nif, '') AS nif
             FROM invoices
             WHERE supplier_id IS NULL
               AND status != 'draft'
               AND supplier_name IS NOT NULL
               AND supplier_name != ''
-            GROUP BY supplier_name
-            ORDER BY supplier_name
+            GROUP BY supplier_name, COALESCE(supplier_nif, '')
+            ORDER BY supplier_name, COALESCE(supplier_nif, '')
         """)
         unlinked = cursor.fetchall()
+        # Aliases are created only after a human-confirmed merge or an explicit
+        # manual choice. They are therefore safe for backfill matching, unlike
+        # fuzzy name similarity. Use to_regclass so this remains compatible with
+        # databases created before supplier_aliases was introduced.
+        cursor.execute("SELECT to_regclass('public.supplier_aliases')")
+        aliases_available = cursor.fetchone()[0] is not None
 
         suppliers_created = 0
         invoices_linked = 0
 
         for supplier_name, nif in unlinked:
-            # 1. Match by name (case-insensitive)
-            cursor.execute(
-                "SELECT id, name FROM suppliers WHERE LOWER(name) = LOWER(%s)", (supplier_name,))
-            row = cursor.fetchone()
+            row = None
+            if nif:
+                # When a NIF exists it is the required proof of identity. Do
+                # not link only because a display name happens to match.
+                nif_key = _nif_match_key(nif)
+                cursor.execute("""
+                    SELECT id, name, nif
+                    FROM suppliers
+                    WHERE regexp_replace(upper(COALESCE(nif, '')), '^PT', '') = %s
+                    LIMIT 1
+                """, (nif_key,))
+                row = cursor.fetchone()
+                if not row and aliases_available:
+                    cursor.execute("""
+                        SELECT s.id, s.name, s.nif
+                        FROM supplier_aliases a
+                        JOIN suppliers s ON s.id = a.supplier_id
+                        WHERE regexp_replace(upper(COALESCE(a.alias_nif, '')), '^PT', '') = %s
+                        LIMIT 1
+                    """, (nif_key,))
+                    row = cursor.fetchone()
+            else:
+                # No NIF: exact canonical name or a human-confirmed alias is
+                # safe. Similar-looking names remain for user confirmation.
+                cursor.execute(
+                    "SELECT id, name, nif FROM suppliers WHERE LOWER(name) = LOWER(%s)",
+                    (supplier_name,),
+                )
+                row = cursor.fetchone()
+                if not row and aliases_available:
+                    cursor.execute("""
+                        SELECT s.id, s.name, s.nif
+                        FROM supplier_aliases a
+                        JOIN suppliers s ON s.id = a.supplier_id
+                        WHERE LOWER(a.alias_name) = LOWER(%s)
+                        LIMIT 1
+                    """, (supplier_name,))
+                    row = cursor.fetchone()
 
             if row:
                 supplier_id, canonical_name = row[0], row[1]
             elif nif:
-                # 2a. Match by NIF
-                cursor.execute("SELECT id, name FROM suppliers WHERE nif = %s", (nif,))
-                row = cursor.fetchone()
-                if row:
-                    supplier_id, canonical_name = row[0], row[1]
-                else:
-                    # 2b. Create with NIF
-                    cursor.execute("""
-                        INSERT INTO suppliers (name, nif, updated_at)
-                        VALUES (%s, %s, NOW())
-                        ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
-                            name = EXCLUDED.name,
-                            updated_at = NOW()
-                        RETURNING id, name
-                    """, (supplier_name, nif))
-                    result = cursor.fetchone()
-                    supplier_id, canonical_name = result[0], result[1]
-                    suppliers_created += 1
+                # Create a separate record when no NIF-confirmed identity
+                # exists. It will be visible for human duplicate review.
+                cursor.execute("""
+                    INSERT INTO suppliers (name, nif, updated_at)
+                    VALUES (%s, %s, NOW())
+                    ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
+                        updated_at = NOW()
+                    RETURNING id, name
+                """, (supplier_name, nif))
+                result = cursor.fetchone()
+                supplier_id, canonical_name = result[0], result[1]
+                suppliers_created += 1
             else:
                 # 3. Create without NIF
                 cursor.execute("""
@@ -849,9 +967,10 @@ def backfill_supplier_ids() -> dict:
                 SET supplier_id = %s,
                     supplier_name = %s
                 WHERE LOWER(supplier_name) = LOWER(%s)
+                  AND COALESCE(supplier_nif, '') = %s
                   AND supplier_id IS NULL
                   AND status != 'draft'
-            """, (supplier_id, canonical_name, supplier_name))
+            """, (supplier_id, canonical_name, supplier_name, nif))
             invoices_linked += cursor.rowcount
 
         conn.commit()

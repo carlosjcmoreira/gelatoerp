@@ -2509,10 +2509,28 @@ def _handle_excel_import(file, ext='xlsx'):
             if supplier_nif and supplier_name:
                 supplier_id = upsert_supplier(name=supplier_name, nif=supplier_nif)
             elif supplier_name and not supplier_nif:
-                # NIF absent — try name-based lookup then upsert without NIF
+                # NIF absent — first resolve a human-confirmed alias, then use
+                # an exact supplier name. This stops a known OCR/display variant
+                # from recreating a duplicate supplier after it was merged.
                 try:
-                    _sup = get_supplier_by_name(supplier_name)
+                    from db.faturas import get_supplier_by_alias
+                    _sup = get_supplier_by_alias(supplier_name) or get_supplier_by_name(supplier_name)
                     supplier_id = _sup['id'] if _sup else upsert_supplier(name=supplier_name)
+                    if _sup:
+                        supplier_name = _sup['name']
+                        supplier_nif = _sup.get('nif') or supplier_nif
+                except Exception:
+                    pass
+
+            # Imports may contain a shortened OCR/display name. Once the
+            # supplier identity is resolved, always store the canonical name
+            # so the Documents list cannot reintroduce the variant.
+            if supplier_id:
+                try:
+                    _canonical_supplier = get_supplier_by_id(supplier_id)
+                    if _canonical_supplier:
+                        supplier_name = _canonical_supplier['name']
+                        supplier_nif = _canonical_supplier.get('nif') or supplier_nif
                 except Exception:
                     pass
 

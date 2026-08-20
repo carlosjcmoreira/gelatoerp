@@ -680,12 +680,22 @@ def review_draft(invoice_id):
                 if not _exact:
                     _exact = get_supplier_by_alias(supplier_name or '', supplier_nif_clean)
             if not _exact and supplier_name:
-                _exact = get_supplier_by_name(supplier_name)
-                if not _exact:
+                _by_name = get_supplier_by_name(supplier_name)
+                if _by_name and (
+                    not _nif_for_lookup
+                    or _nif_norm(_by_name.get('nif')) == _nif_norm(_nif_for_lookup)
+                ):
+                    _exact = _by_name
+                elif not _nif_for_lookup:
                     _exact = get_supplier_by_alias(supplier_name)
 
             if _exact:
                 supplier_id = _exact['id']
+                # The exact match may come from a supplier alias. Store the
+                # canonical identity on the invoice so the Documents list does
+                # not reintroduce the OCR/display-name variant.
+                supplier_name = _exact['name']
+                supplier_nif_clean = _exact.get('nif') or supplier_nif_clean
             elif supplier_action.startswith('associate:'):
                 # User explicitly chose an existing supplier
                 _assoc_id = supplier_action[len('associate:'):]

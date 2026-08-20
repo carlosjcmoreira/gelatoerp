@@ -2,3 +2,4 @@
 - [VAT/IVA rate policy](vat-iva-policy.md) — never assume fixed VAT rates for this project; real per-line IVA must be derived from sales export "S/IVA" column, not estimated.
 - [Produção manual = controlo](producao-manual-controlo.md) — tipo='manual' na tabela producao é registo de controlo: nunca conta no Euro/kg, nunca apagar; só 'producao'/'balança' contam.
 - [Workflow restart scanner failure](workflow-restart-scan-failure.md) — if workflow restart fails before launch on missing temporary skill paths, validate code independently and report the environment blocker.
+- [Supplier identity matching](supplier-identity-matching.md) — treat NIFs with/without PT as one identity; aliases are trusted only after confirmed merges, never as fuzzy matches.
