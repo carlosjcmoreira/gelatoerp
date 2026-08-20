@@ -105,6 +105,37 @@ class TestBulkActionReturnUrl(unittest.TestCase):
         self.assertEqual(source.count('name="return_url" value="{{ request.full_path }}"'), 4)
 
 
+class TestDocumentListStickyReferences(unittest.TestCase):
+    """The document view keeps its controls and column labels usable in long lists."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open('flask_app/templates/financeiro/faturas/index.html', encoding='utf-8') as template:
+            cls.source = template.read()
+
+    def test_bulk_action_bar_is_sticky_and_accessible(self):
+        self.assertIn('id="bulk-bar" class="document-list-actions d-none', self.source)
+        self.assertIn('role="region" aria-label="Ações em documentos selecionados"', self.source)
+        self.assertIn('id="bulk-count" role="status" aria-live="polite"', self.source)
+        self.assertIn('.document-list-actions {\n    position: sticky;', self.source)
+        self.assertIn('top: calc(56px + .5rem);', self.source)
+
+    def test_document_table_uses_an_independent_scroll_area_with_sticky_headers(self):
+        self.assertIn(
+            'class="document-table-scroll table-responsive" role="region" aria-label="Lista de documentos" tabindex="0"',
+            self.source,
+        )
+        self.assertIn('.document-table-scroll {\n    max-height:', self.source)
+        self.assertIn('overflow: auto;', self.source)
+        self.assertIn('.document-table-scroll #inv-table thead th {\n    position: sticky;', self.source)
+        self.assertIn('top: 0;', self.source)
+
+    def test_sticky_references_are_scoped_to_document_view(self):
+        self.assertEqual(self.source.count('document-list-actions'), 3)
+        self.assertEqual(self.source.count('class="document-table-scroll table-responsive"'), 1)
+        self.assertIn('{% if invoices %}', self.source)
+
+
 class TestComprasFilterState(unittest.TestCase):
     """Compras must forward and remember the same cost filters as Financeiro."""
 

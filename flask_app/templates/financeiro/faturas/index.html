@@ -12,6 +12,44 @@
 }
 .fin-paid-date-input:focus { outline: 1px solid var(--bs-primary); border-radius: 3px; }
 .flatpickr-calendar { font-size: 0.875rem; }
+
+/* Document view only: keep bulk actions and column references available while
+   scrolling a long invoice list. The table owns both scroll directions so its
+   sticky header remains reliable alongside horizontal scrolling on small screens. */
+.document-list-actions {
+    position: sticky;
+    top: calc(56px + .5rem);
+    z-index: 1020;
+    background: var(--bs-body-bg);
+    box-shadow: 0 .35rem .7rem rgba(0, 0, 0, .08);
+}
+.document-table-scroll {
+    max-height: calc(100dvh - 12rem);
+    overflow: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+}
+.document-table-scroll #inv-table {
+    margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+.document-table-scroll #inv-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bs-tertiary-bg);
+    box-shadow: inset 0 -1px 0 var(--bs-border-color);
+}
+@media (min-width: 768px) {
+    .document-table-scroll { max-height: calc(100dvh - 10rem); }
+}
+@media (max-width: 767.98px) {
+    .document-list-actions .form-select { max-width: 100%; }
+    .document-table-scroll { max-height: calc(100dvh - 14rem); }
+}
 </style>
 {% endblock %}
 
@@ -947,9 +985,11 @@
         <input type="hidden" name="return_url" value="{{ request.full_path }}">
 
         <!-- Bulk action bar (hidden until ≥1 row selected) -->
-        <div id="bulk-bar" class="d-none mb-2 p-2 bg-light border rounded align-items-center gap-2 flex-wrap">
-            <span class="small fw-semibold" id="bulk-count"></span>
-            <select id="bulk-status-select" class="form-select form-select-sm" style="width:auto">
+        <div id="bulk-bar" class="document-list-actions d-none mb-2 p-2 border rounded align-items-center gap-2 flex-wrap"
+             role="region" aria-label="Ações em documentos selecionados">
+            <span class="small fw-semibold" id="bulk-count" role="status" aria-live="polite"></span>
+            <select id="bulk-status-select" class="form-select form-select-sm" style="width:auto"
+                    aria-label="Novo estado para os documentos selecionados">
                 <option value="">— Alterar estado para —</option>
                 {% for k, v in status_labels.items() %}
                 {% if k not in ('draft', 'overdue') %}
@@ -966,12 +1006,14 @@
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="submitBulkDelete()">Eliminar selecionadas</button>
             <span class="vr mx-1"></span>
             <select id="bulk-field-select" class="form-select form-select-sm" style="width:auto"
+                    aria-label="Campo a alterar nos documentos selecionados"
                     onchange="_bulkFieldChange('bulk-field-select','bulk-field-value-select','bulk-assign-btn')">
                 <option value="">— Alterar campo —</option>
                 <option value="categoria_custo_id">Categoria</option>
                 <option value="centro_custo_id">Centro de Custo</option>
             </select>
-            <select id="bulk-field-value-select" class="form-select form-select-sm" style="width:auto" disabled>
+            <select id="bulk-field-value-select" class="form-select form-select-sm" style="width:auto" disabled
+                    aria-label="Novo valor do campo selecionado">
                 <option value="">— Valor —</option>
             </select>
             <button type="button" class="btn btn-sm btn-outline-success" id="bulk-assign-btn"
@@ -1022,7 +1064,7 @@
                     style="min-width:210px;max-height:320px;overflow-y:auto"></ul>
             </div>
         </div>
-        <div class="table-responsive">
+        <div class="document-table-scroll table-responsive" role="region" aria-label="Lista de documentos" tabindex="0">
         <table id="inv-table" class="table table-sm table-hover align-middle mb-0">
             <thead class="table-light">
                 <tr>
