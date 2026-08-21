@@ -2093,7 +2093,9 @@ def apply_supplier_classifications(supplier_id: int):
     if not _can_manage_supplier_classifications():
         return jsonify({'ok': False, 'error': 'Sem permissão para propagar classificações.'}), 403
     try:
-        return jsonify({'ok': True, 'result': apply_supplier_invoice_classifications(supplier_id)})
+        changed_by = session.get('user', {}).get('username', 'sistema') or 'sistema'
+        result = apply_supplier_invoice_classifications(supplier_id, changed_by=changed_by)
+        return jsonify({'ok': True, 'result': result})
     except ValueError as exc:
         status = 404 if 'não encontrado' in str(exc).lower() else 400
         return jsonify({'ok': False, 'error': str(exc)}), status

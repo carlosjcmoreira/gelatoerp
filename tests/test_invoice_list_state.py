@@ -152,6 +152,17 @@ class _RecordingCursor:
         return next(self._fetchone_results)
 
 
+class _AuditRecordingCursor(_RecordingCursor):
+    """Recording cursor that returns IDs from UPDATE ... RETURNING queries."""
+
+    def __init__(self, fetchone_results, changed_invoice_ids, update_counts=()):
+        super().__init__(fetchone_results, update_counts=update_counts)
+        self._changed_invoice_ids = iter(changed_invoice_ids)
+
+    def fetchall(self):
+        return next(self._changed_invoice_ids)
+
+
 class _RecordingConnection:
     def __init__(self, cursor):
         self.cursor_obj = cursor
@@ -213,6 +224,42 @@ class TestSupplierClassificationPropagationData(unittest.TestCase):
 
         self.assertEqual(result['centro_custo']['updated_count'], 0)
         self.assertEqual(result['categoria_custo']['updated_count'], 0)
+
+    def test_apply_records_actor_supplier_and_field_for_each_changed_invoice(self):
+        cursor = _AuditRecordingCursor(
+            [self.supplier_config],
+            changed_invoice_ids=[[(101,), (102,)], [(103,)]],
+            update_counts=(2, 1),
+        )
+        with patch('db.faturas.db_connection', return_value=_RecordingConnection(cursor)):
+            from db.faturas import apply_supplier_invoice_classifications
+            apply_supplier_invoice_classifications(17, changed_by='gestora')
+
+        audit_calls = [call for call in cursor.calls if call[0].lstrip().startswith('INSERT INTO invoice_audit_log')]
+        self.assertEqual(len(audit_calls), 3)
+        self.assertEqual(
+            audit_calls[0][1],
+            (101, 'centro_custo_id',
+             'Produção — configuração do fornecedor: Fornecedor de teste', 'gestora'),
+        )
+        self.assertEqual(
+            audit_calls[2][1],
+            (103, 'categoria_custo_id',
+             'Ingredientes — configuração do fornecedor: Fornecedor de teste', 'gestora'),
+        )
+
+    def test_apply_creates_no_audit_entries_when_no_invoice_is_changed(self):
+        cursor = _AuditRecordingCursor(
+            [self.supplier_config],
+            changed_invoice_ids=[[], []],
+            update_counts=(0, 0),
+        )
+        with patch('db.faturas.db_connection', return_value=_RecordingConnection(cursor)):
+            from db.faturas import apply_supplier_invoice_classifications
+            apply_supplier_invoice_classifications(17, changed_by='gestora')
+
+        audit_calls = [call for call in cursor.calls if call[0].lstrip().startswith('INSERT INTO invoice_audit_log')]
+        self.assertEqual(audit_calls, [])
 
     def test_supplier_without_configuration_changes_nothing(self):
         no_config = (17, 'Fornecedor de teste', None, None, None, None, None, None, None, None)
@@ -291,7 +338,7 @@ class TestSupplierClassificationPropagationRoutes(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()['result']['categoria_custo']['updated_count'], 2)
-        apply.assert_called_once_with(17)
+        apply.assert_called_once_with(17, changed_by='testuser')
 
     def test_template_explains_preview_and_confirmation_safety(self):
         with open('flask_app/templates/financeiro/faturas/fornecedores.html', encoding='utf-8') as template:

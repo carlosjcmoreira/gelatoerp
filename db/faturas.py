@@ -933,12 +933,52 @@ def get_supplier_invoice_classification_preview(supplier_id: int) -> dict:
     return preview
 
 
-def apply_supplier_invoice_classifications(supplier_id: int) -> dict:
+def _get_supplier_classification_actor(changed_by: str = None) -> str:
+    """Resolve the actor for supplier classification audit entries.
+
+    The database helper is also called by scripts and tests outside Flask, so
+    keep ``sistema`` as the non-request fallback.  During a web request, the
+    session username is used when older callers do not pass ``changed_by``.
+    """
+    if changed_by:
+        return str(changed_by)
+    try:
+        from flask import has_request_context, session
+        if has_request_context():
+            return session.get('user', {}).get('username', 'sistema') or 'sistema'
+    except Exception:
+        pass
+    return 'sistema'
+
+
+def _write_supplier_classification_audit(
+    cursor,
+    invoice_ids: list,
+    field_name: str,
+    classification_name: str,
+    supplier_name: str,
+    changed_by: str,
+) -> None:
+    """Record one source-aware audit entry for each changed invoice."""
+    if not invoice_ids:
+        return
+    source = f'{classification_name} — configuração do fornecedor: {supplier_name}'
+    for invoice_id in invoice_ids:
+        cursor.execute(
+            "INSERT INTO invoice_audit_log "
+            "(invoice_id, campo_alterado, valor_anterior, valor_novo, alterado_por) "
+            "VALUES (%s, %s, NULL, %s, %s)",
+            (invoice_id, field_name, source, changed_by),
+        )
+
+
+def apply_supplier_invoice_classifications(supplier_id: int, changed_by: str = None) -> dict:
     """Fill a supplier's configured classifications into empty linked invoices.
 
     The conditions are repeated in the UPDATE statements rather than relying
     on a previous preview, so re-running the operation is idempotent and can
-    never overwrite an existing primary or split classification.
+    never overwrite an existing primary or split classification.  Each invoice
+    actually changed gets a source-aware audit entry in the same transaction.
     """
     if not isinstance(supplier_id, int) or supplier_id <= 0:
         raise ValueError('Fornecedor inválido.')
@@ -951,6 +991,7 @@ def apply_supplier_invoice_classifications(supplier_id: int) -> dict:
 
         centro = result['fields']['centro_custo']
         categoria = result['fields']['categoria_custo']
+        actor = _get_supplier_classification_actor(changed_by)
         centro_updated = 0
         categoria_updated = 0
 
@@ -965,8 +1006,19 @@ def apply_supplier_invoice_classifications(supplier_id: int) -> dict:
                       SELECT 1 FROM invoice_centros_custo icc
                       WHERE icc.invoice_id = i.id
                   )
+                RETURNING i.id
             """, (centro['id'], supplier_id))
             centro_updated = cursor.rowcount
+            fetch_changed = getattr(cursor, 'fetchall', None)
+            centro_invoice_ids = [row[0] for row in fetch_changed()] if fetch_changed else []
+            _write_supplier_classification_audit(
+                cursor,
+                centro_invoice_ids,
+                'centro_custo_id',
+                centro['name'],
+                result['supplier']['name'],
+                actor,
+            )
 
         if categoria['configured']:
             cursor.execute("""
@@ -975,8 +1027,19 @@ def apply_supplier_invoice_classifications(supplier_id: int) -> dict:
                 WHERE i.supplier_id = %s
                   AND i.status != 'draft'
                   AND i.categoria_custo_id IS NULL
+                RETURNING i.id
             """, (categoria['id'], supplier_id))
             categoria_updated = cursor.rowcount
+            fetch_changed = getattr(cursor, 'fetchall', None)
+            categoria_invoice_ids = [row[0] for row in fetch_changed()] if fetch_changed else []
+            _write_supplier_classification_audit(
+                cursor,
+                categoria_invoice_ids,
+                'categoria_custo_id',
+                categoria['name'],
+                result['supplier']['name'],
+                actor,
+            )
 
         conn.commit()
 
