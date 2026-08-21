@@ -6,6 +6,8 @@ Run with:
 """
 
 import unittest
+import os
+import uuid
 from unittest.mock import MagicMock, patch
 
 from flask import Blueprint, Flask
@@ -283,6 +285,270 @@ class TestSupplierClassificationPropagationData(unittest.TestCase):
                 apply_supplier_invoice_classifications(17)
 
         self.assertEqual(len(cursor.calls), 1)
+
+
+class TestSupplierClassificationPropagationPostgres(unittest.TestCase):
+    """Verify supplier classification updates and their audit rows in PostgreSQL."""
+
+    @classmethod
+    def setUpClass(cls):
+        database_url = os.environ.get('DATABASE_URL')
+        if not database_url:
+            raise unittest.SkipTest('DATABASE_URL not available')
+
+        try:
+            import psycopg2
+            cls.connection = psycopg2.connect(database_url)
+        except Exception as exc:
+            raise unittest.SkipTest(f'PostgreSQL test database unavailable: {exc}')
+
+        with cls.connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = ANY(%s)
+            """, ([
+                'suppliers',
+                'invoices',
+                'cost_centers',
+                'cost_categories',
+                'invoice_audit_log',
+                'invoice_centros_custo',
+            ],))
+            existing_tables = {row[0] for row in cursor.fetchall()}
+
+        required_tables = {
+            'suppliers',
+            'invoices',
+            'cost_centers',
+            'cost_categories',
+            'invoice_audit_log',
+            'invoice_centros_custo',
+        }
+        missing_tables = required_tables - existing_tables
+        if missing_tables:
+            cls.connection.close()
+            raise unittest.SkipTest(
+                'PostgreSQL schema is missing: ' + ', '.join(sorted(missing_tables))
+            )
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, 'connection', None) and not cls.connection.closed:
+            cls.connection.close()
+
+    def setUp(self):
+        suffix = uuid.uuid4().hex[:6]
+        self.suffix = suffix
+        self.supplier_name = f'Fornecedor integração {suffix}'
+        self.supplier_nif = f'T750{suffix}'
+        self.actor = f'test-task-750-{suffix}'
+        self.invoice_ids = []
+        self.cost_center_ids = []
+        self.category_ids = []
+
+        with self.connection.cursor() as cursor:
+            cursor.execute("""
+                INSERT INTO cost_centers (code, name)
+                VALUES (%s, %s)
+                RETURNING id
+            """, (f'T7{suffix}', f'Centro integração {suffix}'))
+            target_centro_id = cursor.fetchone()[0]
+            self.cost_center_ids.append(target_centro_id)
+
+            cursor.execute("""
+                INSERT INTO cost_centers (code, name)
+                VALUES (%s, %s)
+                RETURNING id
+            """, (f'P7{suffix}', f'Centro prévio {suffix}'))
+            existing_centro_id = cursor.fetchone()[0]
+            self.cost_center_ids.append(existing_centro_id)
+
+            cursor.execute("""
+                INSERT INTO cost_categories (name)
+                VALUES (%s)
+                RETURNING id
+            """, (f'Categoria integração {suffix}',))
+            target_categoria_id = cursor.fetchone()[0]
+            self.category_ids.append(target_categoria_id)
+
+            cursor.execute("""
+                INSERT INTO cost_categories (name)
+                VALUES (%s)
+                RETURNING id
+            """, (f'Categoria prévia {suffix}',))
+            existing_categoria_id = cursor.fetchone()[0]
+            self.category_ids.append(existing_categoria_id)
+
+            cursor.execute("""
+                INSERT INTO suppliers (name, nif, centro_custo_id, categoria_custo_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+            """, (
+                self.supplier_name,
+                self.supplier_nif,
+                target_centro_id,
+                target_categoria_id,
+            ))
+            self.supplier_id = cursor.fetchone()[0]
+
+            def add_invoice(number, centro_id=None, categoria_id=None):
+                cursor.execute("""
+                    INSERT INTO invoices (
+                        supplier_id, supplier_name, supplier_nif, invoice_number,
+                        status, centro_custo_id, categoria_custo_id
+                    )
+                    VALUES (%s, %s, %s, %s, 'pending_review', %s, %s)
+                    RETURNING id
+                """, (
+                    self.supplier_id,
+                    self.supplier_name,
+                    self.supplier_nif,
+                    f'{number}-{suffix}',
+                    centro_id,
+                    categoria_id,
+                ))
+                invoice_id = cursor.fetchone()[0]
+                self.invoice_ids.append(invoice_id)
+                return invoice_id
+
+            # Both configured fields are empty, so both should be propagated.
+            self.invoice_both = add_invoice('both')
+            # Each of these proves that the fields are applied independently.
+            self.invoice_centro_only = add_invoice(
+                'centro-only',
+                categoria_id=existing_categoria_id,
+            )
+            self.invoice_categoria_only = add_invoice(
+                'categoria-only',
+                centro_id=existing_centro_id,
+            )
+            # Existing classifications must not create audit entries.
+            self.invoice_already_classified = add_invoice(
+                'already-classified',
+                centro_id=existing_centro_id,
+                categoria_id=existing_categoria_id,
+            )
+            # A split-centre allocation must not be replaced by a primary centre.
+            self.invoice_split = add_invoice('split-centre', categoria_id=existing_categoria_id)
+            cursor.execute("""
+                INSERT INTO invoice_centros_custo (invoice_id, centro_custo_id, percentagem)
+                VALUES (%s, %s, 100.0)
+            """, (self.invoice_split, existing_centro_id))
+
+        self.connection.commit()
+
+    def tearDown(self):
+        self.connection.rollback()
+        with self.connection.cursor() as cursor:
+            for invoice_id in self.invoice_ids:
+                cursor.execute('DELETE FROM invoices WHERE id = %s', (invoice_id,))
+            cursor.execute('DELETE FROM suppliers WHERE id = %s', (self.supplier_id,))
+            for category_id in self.category_ids:
+                cursor.execute('DELETE FROM cost_categories WHERE id = %s', (category_id,))
+            for centro_id in self.cost_center_ids:
+                cursor.execute('DELETE FROM cost_centers WHERE id = %s', (centro_id,))
+        self.connection.commit()
+
+    def test_applies_both_classifications_and_audits_only_changed_invoices(self):
+        from db.faturas import apply_supplier_invoice_classifications
+
+        result = apply_supplier_invoice_classifications(
+            self.supplier_id,
+            changed_by=self.actor,
+        )
+
+        self.assertEqual(result['centro_custo']['updated_count'], 2)
+        self.assertEqual(result['categoria_custo']['updated_count'], 2)
+
+        with self.connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT id, centro_custo_id, categoria_custo_id
+                FROM invoices
+                WHERE id = ANY(%s)
+            """, (self.invoice_ids,))
+            classifications = {
+                row[0]: (row[1], row[2])
+                for row in cursor.fetchall()
+            }
+
+            cursor.execute("""
+                SELECT invoice_id, campo_alterado, valor_novo, alterado_por
+                FROM invoice_audit_log
+                WHERE invoice_id = ANY(%s)
+                ORDER BY invoice_id, campo_alterado
+            """, (self.invoice_ids,))
+            audit_rows = cursor.fetchall()
+
+        target_centro_id = self.cost_center_ids[0]
+        target_categoria_id = self.category_ids[0]
+        existing_centro_id = self.cost_center_ids[1]
+        existing_categoria_id = self.category_ids[1]
+
+        self.assertEqual(
+            classifications[self.invoice_both],
+            (target_centro_id, target_categoria_id),
+        )
+        self.assertEqual(
+            classifications[self.invoice_centro_only],
+            (target_centro_id, existing_categoria_id),
+        )
+        self.assertEqual(
+            classifications[self.invoice_categoria_only],
+            (existing_centro_id, target_categoria_id),
+        )
+        self.assertEqual(
+            classifications[self.invoice_already_classified],
+            (existing_centro_id, existing_categoria_id),
+        )
+        self.assertEqual(
+            classifications[self.invoice_split],
+            (None, existing_categoria_id),
+        )
+
+        audit_by_invoice = {}
+        for invoice_id, field_name, source, actor in audit_rows:
+            audit_by_invoice.setdefault(invoice_id, []).append(
+                (field_name, source, actor)
+            )
+
+        expected_source = {
+            'centro_custo_id': (
+                f'Centro integração {self.suffix} — configuração do fornecedor: '
+                f'{self.supplier_name}'
+            ),
+            'categoria_custo_id': (
+                f'Categoria integração {self.suffix} — configuração do fornecedor: '
+                f'{self.supplier_name}'
+            ),
+        }
+        self.assertEqual(
+            {
+                row[0]: (row[1], row[2])
+                for row in audit_by_invoice[self.invoice_both]
+            },
+            {
+                'centro_custo_id': (
+                    expected_source['centro_custo_id'],
+                    self.actor,
+                ),
+                'categoria_custo_id': (
+                    expected_source['categoria_custo_id'],
+                    self.actor,
+                ),
+            },
+        )
+        self.assertEqual(
+            audit_by_invoice[self.invoice_centro_only],
+            [('centro_custo_id', expected_source['centro_custo_id'], self.actor)],
+        )
+        self.assertEqual(
+            audit_by_invoice[self.invoice_categoria_only],
+            [('categoria_custo_id', expected_source['categoria_custo_id'], self.actor)],
+        )
+        self.assertNotIn(self.invoice_already_classified, audit_by_invoice)
+        self.assertNotIn(self.invoice_split, audit_by_invoice)
 
 
 class TestSupplierClassificationPropagationRoutes(unittest.TestCase):
