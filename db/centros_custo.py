@@ -204,10 +204,14 @@ def get_despesas_por_centro_custo(date_from=None, date_to=None,
 
         # ── Step 1: fetch matching invoices ──────────────────────────────────
         cursor.execute(f"""
-            SELECT i.id, i.supplier_name, i.invoice_number,
+            SELECT i.id, i.supplier_name,
+                   COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name,
+                   s.name AS supplier_legal_name,
+                   i.invoice_number,
                    i.amount_eur, i.issue_date, i.due_date, i.status,
                    i.centro_custo_id, i.document_type
             FROM invoices i
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
             {where_sql}
             ORDER BY i.issue_date DESC NULLS LAST
         """, params)

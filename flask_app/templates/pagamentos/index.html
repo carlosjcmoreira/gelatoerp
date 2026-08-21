@@ -68,7 +68,7 @@
                     <tbody>
                         {% for inv in invoices_pending[:10] %}
                         <tr>
-                            <td class="small fw-semibold">{{ inv.supplier_name }}</td>
+                            <td class="small fw-semibold" title="{% if inv.supplier_legal_name %}Nome legal: {{ inv.supplier_legal_name }}{% endif %}">{{ inv.supplier_display_name or inv.supplier_name }}</td>
                             <td class="small text-end">{{ "%.2f €"|format(inv.amount_eur|float) }}</td>
                             <td class="small {% if inv.due_date and inv.due_date < today %}text-danger fw-semibold{% endif %}">
                                 {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}

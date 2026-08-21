@@ -232,7 +232,7 @@
                 <tbody>
                 {% for s in suppliers %}
                 <tr data-sid="{{ s.id }}"
-                    data-name="{{ s.name | lower | e }}"
+                    data-name="{{ ((s.common_name or '') ~ ' ' ~ s.name) | lower | e }}"
                     data-nif="{{ (s.nif or '') | lower }}"
                     data-categoria-custo-id="{{ s.categoria_custo_id or '' }}"
                     data-store="{{ s.store_id or '' }}"
@@ -245,7 +245,10 @@
                     </td>
                     {% endif %}
                     <td>
-                        <div class="fw-semibold small">{{ s.name }}</div>
+                        <div class="fw-semibold small">{{ s.common_name or s.name }}</div>
+                        {% if s.common_name %}
+                        <div class="small text-muted" title="Nome legal">{{ s.name }}</div>
+                        {% endif %}
                         {% if s.invoice_count > 0 %}
                         <a href="{{ url_for('faturas.index') }}?supplier_id={{ s.id }}"
                            class="badge bg-primary text-decoration-none" style="font-size:.65rem">
@@ -352,7 +355,7 @@
         <div class="list-group">
             {% for s in suppliers %}
             <div class="list-group-item py-2 px-3 supplier-list-item"
-                 data-name="{{ s.name | lower | e }}"
+                 data-name="{{ ((s.common_name or '') ~ ' ' ~ s.name) | lower | e }}"
                  data-nif="{{ (s.nif or '') | lower }}"
                  data-categoria-custo-id="{{ s.categoria_custo_id or '' }}"
                  data-store="{{ s.store_id or '' }}"
@@ -360,7 +363,8 @@
                 <div class="d-flex align-items-center justify-content-between gap-2">
                     <div class="flex-grow-1 min-width-0">
                         <div class="d-flex align-items-center gap-2 flex-wrap">
-                            <span class="fw-semibold">{{ s.name }}</span>
+                            <span class="fw-semibold">{{ s.common_name or s.name }}</span>
+                            {% if s.common_name %}<span class="small text-muted ms-1" title="Nome legal">{{ s.name }}</span>{% endif %}
                             {% if s.invoice_count > 0 %}
                             <a href="{{ url_for('faturas.index') }}?supplier_id={{ s.id }}"
                                class="badge bg-primary text-decoration-none"
@@ -488,7 +492,14 @@
                 <div class="modal-body">
                     <div class="row g-2">
                         <div class="col-12">
-                            <label class="form-label small">Nome <span class="text-danger">*</span></label>
+                            <label class="form-label small">Nome comum</label>
+                            <input type="text" name="common_name" id="sCommonName"
+                                   class="form-control form-control-sm" maxlength="120"
+                                   placeholder="Nome apresentado nas faturas e histórico">
+                            <div class="form-text">Opcional. Deixe vazio para mostrar o nome legal.</div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small">Nome legal <span class="text-danger">*</span></label>
                             <input type="text" name="name" id="sName" class="form-control form-control-sm" required>
                         </div>
                         <div class="col-12 col-sm-6">
@@ -1224,6 +1235,7 @@ function editSupplier(s) {
     document.getElementById('modalAddTitle').textContent = 'Editar Fornecedor';
     document.getElementById('sSupplierId').value    = s.id                   || '';
     document.getElementById('sName').value          = s.name                 || '';
+    document.getElementById('sCommonName').value    = s.common_name          || '';
     document.getElementById('sNif').value           = s.nif                  || '';
     document.getElementById('sCategory').value      = s.categoria_custo_id   || '';
     document.getElementById('sStore').value         = s.store_id      || '';
@@ -1239,6 +1251,7 @@ function prefillNew(name, nif) {
     document.getElementById('modalAddTitle').textContent = 'Novo Fornecedor';
     document.getElementById('sSupplierId').value    = '';
     document.getElementById('sName').value          = name || '';
+    document.getElementById('sCommonName').value    = '';
     document.getElementById('sNif').value           = nif  || '';
     document.getElementById('sCategory').value      = '';
     document.getElementById('sStore').value         = '';

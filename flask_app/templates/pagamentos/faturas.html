@@ -45,7 +45,7 @@
                         {% set display_st = inv._display_status or inv.status %}
                         {% set status_info = status_map.get(display_st, (display_st, 'secondary')) %}
                         <tr>
-                            <td class="small fw-semibold">{{ inv.supplier_name }}</td>
+                            <td class="small fw-semibold" title="{% if inv.supplier_legal_name %}Nome legal: {{ inv.supplier_legal_name }}{% endif %}">{{ inv.supplier_display_name or inv.supplier_name }}</td>
                             <td class="small text-muted">{{ inv.invoice_number or '—' }}</td>
                             <td>
                                 {% if inv.document_type == 'nota_credito' %}

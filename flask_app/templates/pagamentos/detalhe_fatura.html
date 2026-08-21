@@ -26,7 +26,7 @@
         <div class="card-body">
             <dl class="row mb-0 small">
                 <dt class="col-5">Fornecedor</dt>
-                <dd class="col-7 fw-semibold">{{ inv.supplier_name }}</dd>
+                <dd class="col-7 fw-semibold" title="{% if inv.supplier_legal_name %}Nome legal: {{ inv.supplier_legal_name }}{% endif %}">{{ inv.supplier_display_name or inv.supplier_name }}</dd>
                 {% if inv.supplier_nif %}
                 <dt class="col-5">NIF</dt>
                 <dd class="col-7">{{ inv.supplier_nif }}</dd>

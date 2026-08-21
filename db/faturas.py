@@ -25,6 +25,36 @@ PAYMENT_TERMS_LABELS = {
     'final_mes': 'Até final do mês',
 }
 
+MAX_SUPPLIER_COMMON_NAME_LENGTH = 120
+_UNSET = object()
+
+
+def normalize_supplier_common_name(value) -> str | None:
+    """Normalize an optional supplier-facing name without touching legal identity."""
+    if value is None:
+        return None
+    normalized = ' '.join(str(value).split())
+    if len(normalized) > MAX_SUPPLIER_COMMON_NAME_LENGTH:
+        raise ValueError(
+            f'O nome comum não pode ter mais de {MAX_SUPPLIER_COMMON_NAME_LENGTH} caracteres.'
+        )
+    return normalized or None
+
+
+def _supplier_display_expression(invoice_alias: str = 'i', supplier_alias: str = None) -> str:
+    """Return the SQL expression for a supplier's human-facing invoice name."""
+    if supplier_alias:
+        return (
+            f"COALESCE(NULLIF({supplier_alias}.common_name, ''), "
+            f"{supplier_alias}.name, {invoice_alias}.supplier_name)"
+        )
+    return (
+        f"COALESCE(NULLIF((SELECT s.common_name FROM suppliers s "
+        f"WHERE s.id = {invoice_alias}.supplier_id), ''), "
+        f"(SELECT s.name FROM suppliers s WHERE s.id = {invoice_alias}.supplier_id), "
+        f"{invoice_alias}.supplier_name)"
+    )
+
 
 def calculate_due_date(issue_date, payment_terms: str):
     """
@@ -63,8 +93,9 @@ def get_suppliers(only_active: bool = False) -> list:
         cursor.execute("""
             SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
-                   s.centro_custo_id, cc.name AS centro_custo_name,
-                   s.categoria_custo_id, ccat.name AS categoria_custo_name
+                    s.centro_custo_id, cc.name AS centro_custo_name,
+                    s.categoria_custo_id, ccat.name AS categoria_custo_name,
+                    s.common_name
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
@@ -75,8 +106,9 @@ def get_suppliers(only_active: bool = False) -> list:
     return [{'id': r[0], 'name': r[1], 'nif': r[2],
              'store_id': r[3], 'notes': r[4], 'store_name': r[5],
              'payment_method': r[6], 'payment_terms': r[7], 'iban': r[8],
-             'centro_custo_id': r[9], 'centro_custo_name': r[10],
-             'categoria_custo_id': r[11], 'categoria_custo_name': r[12]} for r in rows]
+              'centro_custo_id': r[9], 'centro_custo_name': r[10],
+              'categoria_custo_id': r[11], 'categoria_custo_name': r[12],
+              'common_name': r[13]} for r in rows]
 
 
 def _normalize_nif(nif) -> str:
@@ -126,7 +158,8 @@ def get_supplier_by_nif(nif: str) -> dict:
         cursor.execute("""
             SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
-                   s.centro_custo_id, cc.name AS centro_custo_name
+                    s.centro_custo_id, cc.name AS centro_custo_name,
+                    s.common_name
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
@@ -137,7 +170,8 @@ def get_supplier_by_nif(nif: str) -> dict:
         return {'id': row[0], 'name': row[1], 'nif': row[2],
                 'store_id': row[3], 'notes': row[4], 'store_name': row[5],
                 'payment_method': row[6], 'payment_terms': row[7], 'iban': row[8],
-                'centro_custo_id': row[9], 'centro_custo_name': row[10]}
+                'centro_custo_id': row[9], 'centro_custo_name': row[10],
+                'common_name': row[11]}
     return None
 
 
@@ -147,8 +181,9 @@ def get_supplier_by_id(supplier_id: int) -> dict:
         cursor.execute("""
             SELECT s.id, s.name, s.nif, s.store_id, s.notes,
                    st.name AS store_name, s.payment_method, s.payment_terms, s.iban,
-                   s.centro_custo_id, cc.name AS centro_custo_name,
-                   s.categoria_custo_id, ccat.name AS categoria_custo_name
+                    s.centro_custo_id, cc.name AS centro_custo_name,
+                    s.categoria_custo_id, ccat.name AS categoria_custo_name,
+                    s.common_name
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
@@ -161,7 +196,8 @@ def get_supplier_by_id(supplier_id: int) -> dict:
                 'store_id': row[3], 'notes': row[4], 'store_name': row[5],
                 'payment_method': row[6], 'payment_terms': row[7], 'iban': row[8],
                 'centro_custo_id': row[9], 'centro_custo_name': row[10],
-                'categoria_custo_id': row[11], 'categoria_custo_name': row[12]}
+                'categoria_custo_id': row[11], 'categoria_custo_name': row[12],
+                'common_name': row[13]}
     return None
 
 
@@ -169,34 +205,40 @@ def update_supplier(supplier_id: int, name: str, nif: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
                     iban: str = None, centro_custo_id: int = None,
-                    categoria_custo_id: int = None) -> bool:
+                    categoria_custo_id: int = None,
+                    common_name=_UNSET) -> bool:
     """Update an existing supplier by primary key. Returns True if a row was updated."""
     nif = _normalize_nif(nif)
+    if common_name is not _UNSET:
+        common_name = normalize_supplier_common_name(common_name)
+    assignments = [
+        'name = %s',
+        'nif = %s',
+        'store_id = %s',
+        'notes = %s',
+        'payment_method = %s',
+        'payment_terms = %s',
+        'iban = %s',
+        'centro_custo_id = %s',
+        'categoria_custo_id = %s',
+    ]
+    values = [
+        name, nif or None, store_id, notes or None, payment_method or None,
+        payment_terms or None, iban or None, centro_custo_id or None,
+        categoria_custo_id or None,
+    ]
+    if common_name is not _UNSET:
+        assignments.append('common_name = %s')
+        values.append(common_name)
+    assignments.append('updated_at = NOW()')
+    values.append(supplier_id)
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE suppliers
-            SET name = %s,
-                nif = %s,
-                store_id = %s,
-                notes = %s,
-                payment_method = %s,
-                payment_terms = %s,
-                iban = %s,
-                centro_custo_id = %s,
-                categoria_custo_id = %s,
-                updated_at = NOW()
-            WHERE id = %s
-        """, (name, nif or None, store_id,
-              notes or None, payment_method or None, payment_terms or None,
-              iban or None, centro_custo_id or None, categoria_custo_id or None, supplier_id))
+        cursor.execute(
+            f"UPDATE suppliers SET {', '.join(assignments)} WHERE id = %s",
+            values,
+        )
         updated = cursor.rowcount > 0
-        # Propagate the canonical name to all invoices linked to this supplier
-        if updated:
-            cursor.execute(
-                "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
-                (name, supplier_id)
-            )
         conn.commit()
     return updated
 
@@ -253,9 +295,10 @@ def upsert_supplier(name: str, nif: str = None,
                     store_id: int = None, notes: str = None,
                     payment_method: str = None, payment_terms: str = None,
                     iban: str = None, centro_custo_id: int = None,
-                    categoria_custo_id: int = None) -> int:
+                    categoria_custo_id: int = None, common_name: str = None) -> int:
     """Insert or update a supplier row."""
     nif = _normalize_nif(nif)
+    common_name = normalize_supplier_common_name(common_name)
     with db_connection() as conn:
         cursor = conn.cursor()
         if nif:
@@ -294,10 +337,10 @@ def upsert_supplier(name: str, nif: str = None,
                       centro_custo_id or None, categoria_custo_id or None, supplier_id))
             else:
                 cursor.execute("""
-                    INSERT INTO suppliers (name, nif, store_id, notes,
+                    INSERT INTO suppliers (name, common_name, nif, store_id, notes,
                                            payment_method, payment_terms, iban,
                                            centro_custo_id, categoria_custo_id, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (nif) WHERE nif IS NOT NULL DO UPDATE SET
                         -- An incoming OCR/display variant must not replace a
                         -- supplier's established canonical legal name. Renames
@@ -311,7 +354,7 @@ def upsert_supplier(name: str, nif: str = None,
                         categoria_custo_id = COALESCE(EXCLUDED.categoria_custo_id, suppliers.categoria_custo_id),
                         updated_at = NOW()
                     RETURNING id
-                """, (name, nif, store_id, notes, payment_method, payment_terms, iban,
+                """, (name, common_name, nif, store_id, notes, payment_method, payment_terms, iban,
                       centro_custo_id or None, categoria_custo_id or None))
                 supplier_id = cursor.fetchone()[0]
         else:
@@ -345,12 +388,12 @@ def upsert_supplier(name: str, nif: str = None,
             else:
                 try:
                     cursor.execute("""
-                        INSERT INTO suppliers (name, store_id, notes,
+                        INSERT INTO suppliers (name, common_name, store_id, notes,
                                                payment_method, payment_terms, iban,
                                                centro_custo_id, categoria_custo_id, updated_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                         RETURNING id
-                    """, (name, store_id, notes, payment_method, payment_terms, iban,
+                    """, (name, common_name, store_id, notes, payment_method, payment_terms, iban,
                           centro_custo_id or None, categoria_custo_id or None))
                     supplier_id = cursor.fetchone()[0]
                 except psycopg2.errors.UniqueViolation:
@@ -834,7 +877,8 @@ def get_suppliers_with_invoice_count() -> list:
                    COUNT(i.id) AS invoice_count,
                    COALESCE(SUM(i.amount_eur), 0) AS total_spend,
                    s.centro_custo_id, cc.name AS centro_custo_name,
-                   s.categoria_custo_id, ccat.name AS categoria_custo_name
+                    s.categoria_custo_id, ccat.name AS categoria_custo_name,
+                    s.common_name
             FROM suppliers s
             LEFT JOIN stores st ON s.store_id = st.id
             LEFT JOIN cost_centers cc ON s.centro_custo_id = cc.id
@@ -843,8 +887,8 @@ def get_suppliers_with_invoice_count() -> list:
             GROUP BY s.id, s.name, s.nif, s.store_id, s.notes,
                      st.name, s.payment_method, s.payment_terms, s.iban,
                      s.centro_custo_id, cc.name,
-                     s.categoria_custo_id, ccat.name
-            ORDER BY s.name
+                      s.categoria_custo_id, ccat.name, s.common_name
+            ORDER BY COALESCE(NULLIF(s.common_name, ''), s.name)
         """)
         rows = cursor.fetchall()
     return [{'id': r[0], 'name': r[1], 'nif': r[2],
@@ -853,7 +897,8 @@ def get_suppliers_with_invoice_count() -> list:
              'invoice_count': int(r[9]),
              'total_spend': float(r[10]),
              'centro_custo_id': r[11], 'centro_custo_name': r[12],
-             'categoria_custo_id': r[13], 'categoria_custo_name': r[14]} for r in rows]
+              'categoria_custo_id': r[13], 'categoria_custo_name': r[14],
+              'common_name': r[15]} for r in rows]
 
 
 def _get_supplier_invoice_classification_config(cursor, supplier_id: int) -> dict:
@@ -1336,6 +1381,8 @@ def _row_to_invoice(row) -> dict:
         'id': row[0],
         'supplier_id': row[1],
         'supplier_name': row[2],
+        'supplier_display_name': row[2],
+        'supplier_legal_name': row[2],
         'supplier_nif': row[3],
         'invoice_number': row[4],
         'amount_eur': float(row[5]) if row[5] is not None else None,
@@ -1372,7 +1419,7 @@ _ORDER_COL_MAP = {
     'issue_date': 'i.issue_date',
     'paid_date': 'i.paid_date',
     'amount_eur': 'i.amount_eur',
-    'supplier_name': 'LOWER(i.supplier_name)',
+    'supplier_name': "LOWER(COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name))",
     'invoice_number': 'i.invoice_number',
     'category': 'i.category',
     'status': 'i.status',
@@ -1394,11 +1441,11 @@ def get_invoice_suppliers() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT DISTINCT s.id, s.name
+            SELECT DISTINCT s.id, COALESCE(NULLIF(s.common_name, ''), s.name)
             FROM suppliers s
             JOIN invoices i ON i.supplier_id = s.id
             WHERE i.status != 'draft'
-            ORDER BY s.name
+            ORDER BY COALESCE(NULLIF(s.common_name, ''), s.name)
         """)
         return [{'id': row[0], 'name': row[1]} for row in cursor.fetchall()]
 
@@ -1414,12 +1461,12 @@ def get_distinct_supplier_names() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT DISTINCT COALESCE(s.name, i.supplier_name) AS display_name
+            SELECT DISTINCT COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS display_name
             FROM invoices i
             LEFT JOIN suppliers s ON s.id = i.supplier_id
             WHERE i.status != 'draft'
-              AND COALESCE(s.name, i.supplier_name) IS NOT NULL
-              AND COALESCE(s.name, i.supplier_name) != ''
+              AND COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) IS NOT NULL
+              AND COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) != ''
             ORDER BY display_name
         """)
         return [row[0] for row in cursor.fetchall()]
@@ -1515,10 +1562,10 @@ def _build_invoice_where(status: str = None, statuses: list = None,
         where.append("i.supplier_id = %s")
         params.append(supplier_id)
     if supplier_names:
-        where.append("i.supplier_name = ANY(%s)")
+        where.append(f"{_supplier_display_expression()} = ANY(%s)")
         params.append(supplier_names)
     elif supplier_name:
-        where.append("LOWER(i.supplier_name) = LOWER(%s)")
+        where.append(f"LOWER({_supplier_display_expression()}) = LOWER(%s)")
         params.append(supplier_name)
     if document_type and document_type in DOCUMENT_TYPE_LABELS:
         where.append("i.document_type = %s")
@@ -1549,7 +1596,7 @@ def _build_invoice_where(status: str = None, statuses: list = None,
                          f" OR LOWER(COALESCE(i.document_type,'')) LIKE %s OR {_store_match})")
             params.extend([s, s, s, s])
         else:
-            where.append(f"(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s"
+            where.append(f"(LOWER({_supplier_display_expression()}) LIKE %s OR LOWER(i.invoice_number) LIKE %s"
                          f" OR LOWER(COALESCE(i.notes,'')) LIKE %s OR LOWER(COALESCE(i.document_type,'')) LIKE %s"
                          f" OR {_store_match})")
             params.extend([s, s, s, s, s])
@@ -1637,9 +1684,12 @@ def get_invoices(status: str = None, statuses: list = None,
                         JOIN cost_centers cc2 ON cc2.id = icc2.centro_custo_id
                         WHERE icc2.invoice_id = i.id),
                        cc.name
-                   ) AS centro_custo_name,
-                    ccat.name AS categoria_custo_name
+                    ) AS centro_custo_name,
+                     ccat.name AS categoria_custo_name,
+                     s.name AS supplier_legal_name,
+                     COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
             FROM invoices i
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
             LEFT JOIN cost_centers cc ON cc.id = i.centro_custo_id
             LEFT JOIN cost_categories ccat ON ccat.id = i.categoria_custo_id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -1662,6 +1712,8 @@ def get_invoices(status: str = None, statuses: list = None,
         inv['installment_total'] = int(r[26]) if len(r) > 26 and r[26] else 0
         inv['installment_paid_count'] = int(r[27]) if len(r) > 27 and r[27] else 0
         inv['has_pdf'] = bool(r[28]) if len(r) > 28 else False
+        inv['supplier_legal_name'] = r[31] if len(r) > 31 else inv['supplier_name']
+        inv['supplier_display_name'] = r[32] if len(r) > 32 else inv['supplier_name']
         result.append(inv)
     return result
 
@@ -1799,8 +1851,11 @@ def get_invoice(invoice_id: int) -> dict:
                    COALESCE(i.accounting_status, 'por_contabilizar') AS accounting_status,
                    i.accounting_notes,
                    i.accounting_updated_by,
-                   i.accounting_updated_at
+                    i.accounting_updated_at,
+                    s.name AS supplier_legal_name,
+                    COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
             FROM invoices i
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
             WHERE i.id = %s
         """, (invoice_id,))
@@ -1822,6 +1877,8 @@ def get_invoice(invoice_id: int) -> dict:
     inv['accounting_notes'] = row[35] if len(row) > 35 else None
     inv['accounting_updated_by'] = row[36] if len(row) > 36 else None
     inv['accounting_updated_at'] = row[37] if len(row) > 37 else None
+    inv['supplier_legal_name'] = row[38] if len(row) > 38 else inv['supplier_name']
+    inv['supplier_display_name'] = row[39] if len(row) > 39 else inv['supplier_name']
     return inv
 
 
@@ -2322,10 +2379,13 @@ def get_pending_installments() -> list:
             SELECT ii.id, ii.invoice_id, ii.installment_number, ii.total_installments,
                    ii.amount_eur, ii.due_date, ii.paid_date, ii.status,
                    i.supplier_name, i.supplier_nif,
+                   s.name AS supplier_legal_name,
+                   COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name,
                    i.invoice_number AS parent_invoice_number,
                    i.document_type
             FROM invoice_installments ii
             JOIN invoices i ON i.id = ii.invoice_id
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
             WHERE ii.status IN ('pending_review', 'scheduled')
             ORDER BY ii.due_date ASC NULLS LAST, ii.invoice_id, ii.installment_number
         """)
@@ -2426,21 +2486,40 @@ def mark_installment_paid(installment_id: int, invoice_id: int, paid_date, confi
         return parent_paid
 
 
-def get_paid_counts_by_supplier(supplier_names: list) -> dict:
-    """Return {supplier_name: paid_count} for the given supplier names.
+def get_paid_counts_by_supplier(supplier_ids: list,
+                                unlinked_supplier_names: list = None) -> dict:
+    """Return {stable_supplier_key: paid_count} for supplier groups.
 
     Used to show a "X pagas" badge when the default filter hides paid invoices.
+    Linked suppliers are always counted by supplier_id, never by their
+    presentation name. Unlinked invoices retain a separate raw-name key.
     """
-    if not supplier_names:
+    supplier_ids = [int(sid) for sid in (supplier_ids or []) if sid]
+    unlinked_supplier_names = [
+        name for name in (unlinked_supplier_names or []) if name is not None
+    ]
+    if not supplier_ids and not unlinked_supplier_names:
         return {}
+    filters = []
+    params = []
+    if supplier_ids:
+        filters.append("i.supplier_id = ANY(%s)")
+        params.append(supplier_ids)
+    if unlinked_supplier_names:
+        filters.append("(i.supplier_id IS NULL AND COALESCE(i.supplier_name, '') = ANY(%s))")
+        params.append(unlinked_supplier_names)
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT COALESCE(supplier_name, '(sem fornecedor)') AS sn, COUNT(*) AS n "
-            "FROM invoices "
-            "WHERE status = 'paid' AND supplier_name = ANY(%s) "
-            "GROUP BY sn",
-            (supplier_names,),
+            "SELECT CASE WHEN i.supplier_id IS NOT NULL "
+            "THEN 'supplier:' || i.supplier_id::text "
+            "ELSE 'unlinked:' || COALESCE(i.supplier_name, '') END AS supplier_key, "
+            "COUNT(*) AS n "
+            "FROM invoices i "
+            "WHERE i.status = 'paid' "
+            f"AND ({' OR '.join(filters)}) "
+            "GROUP BY supplier_key",
+            params,
         )
         return {row[0]: row[1] for row in cursor.fetchall()}
 
@@ -2500,23 +2579,32 @@ def get_contas_por_fornecedor(status_filter: str = None,
                    i.document_type,
                    i.centro_custo_id,
                    i.categoria_custo_id,
-                   (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf
+                    (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf,
+                    s.name AS supplier_legal_name,
+                    COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
             FROM invoices i
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
             WHERE i.status != 'draft' {extra_where}
-            ORDER BY LOWER(i.supplier_name), i.due_date ASC NULLS LAST
+            ORDER BY LOWER(COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name)), i.due_date ASC NULLS LAST
         """, params)
         rows = cursor.fetchall()
 
     def _to_inv(r):
         inv = _row_to_invoice(r)
         inv['has_pdf'] = bool(r[24]) if len(r) > 24 else False
+        inv['supplier_legal_name'] = r[25] if len(r) > 25 else inv['supplier_name']
+        inv['supplier_display_name'] = r[26] if len(r) > 26 else inv['supplier_name']
         return inv
 
     invoices = [_to_inv(r) for r in rows]
 
     from collections import defaultdict
     groups = defaultdict(lambda: {
+        'group_key': None,
+        'supplier_id': None,
+        'supplier_raw_name': None,
         'supplier_name': None,
+        'supplier_legal_name': None,
         'supplier_nif': None,
         'invoices': [],
         'total_faturas': 0.0,
@@ -2524,10 +2612,19 @@ def get_contas_por_fornecedor(status_filter: str = None,
     })
 
     for inv in invoices:
-        key = inv['supplier_name'] or '(sem fornecedor)'
+        if inv['supplier_id'] is not None:
+            key = f"supplier:{inv['supplier_id']}"
+        else:
+            key = f"unlinked:{inv['supplier_name'] or ''}"
         g = groups[key]
-        g['supplier_name'] = inv['supplier_name'] or '(sem fornecedor)'
-        g['supplier_nif'] = inv['supplier_nif']
+        g['group_key'] = key
+        g['supplier_id'] = inv['supplier_id']
+        g['supplier_raw_name'] = inv['supplier_name']
+        g['supplier_name'] = inv['supplier_display_name'] or '(sem fornecedor)'
+        if g['supplier_legal_name'] is None:
+            g['supplier_legal_name'] = inv['supplier_legal_name']
+        if g['supplier_nif'] is None:
+            g['supplier_nif'] = inv['supplier_nif']
         g['invoices'].append(inv)
         amt = abs(float(inv['amount_eur'] or 0))
         if inv['document_type'] == 'nota_credito':

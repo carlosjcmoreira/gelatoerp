@@ -12,6 +12,11 @@ from db.connection import db_connection
 
 logger = logging.getLogger(__name__)
 
+_SUPPLIER_DISPLAY_SQL = (
+    "COALESCE(NULLIF((SELECT s.common_name FROM suppliers s WHERE s.id = i.supplier_id), ''), "
+    "(SELECT s.name FROM suppliers s WHERE s.id = i.supplier_id), i.supplier_name)"
+)
+
 ACCOUNTING_STATUS_LABELS = {
     'por_contabilizar': 'Por Contabilizar',
     'contabilizado':    'Contabilizado',
@@ -52,7 +57,7 @@ def _build_cont_where(
     params = []
 
     if supplier_name:
-        clauses.append("LOWER(i.supplier_name) LIKE LOWER(%s)")
+        clauses.append(f"LOWER({_SUPPLIER_DISPLAY_SQL}) LIKE LOWER(%s)")
         params.append(f'%{supplier_name}%')
 
     if document_type:
@@ -76,7 +81,7 @@ def _build_cont_where(
 
     if search:
         clauses.append(
-            "(i.invoice_number ILIKE %s OR i.supplier_name ILIKE %s OR i.notes ILIKE %s)"
+            f"(i.invoice_number ILIKE %s OR {_SUPPLIER_DISPLAY_SQL} ILIKE %s OR i.notes ILIKE %s)"
         )
         pattern = f'%{search}%'
         params.extend([pattern, pattern, pattern])
@@ -113,6 +118,7 @@ def get_cont_invoices(
         search=search,
     )
 
+    order_sql = _SUPPLIER_DISPLAY_SQL if order_by == 'supplier_name' else f'i.{order_by}'
     sql = f"""
         SELECT
             i.id,
@@ -131,11 +137,13 @@ def get_cont_invoices(
             i.accounting_updated_by,
             i.accounting_updated_at,
             i.notes,
-            (i.pdf_data IS NOT NULL) AS has_pdf
+            (i.pdf_data IS NOT NULL) AS has_pdf,
+            s.name AS supplier_legal_name,
+            COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
         FROM invoices i
         LEFT JOIN suppliers s ON s.id = i.supplier_id
         {where}
-        ORDER BY i.{order_by} {order_dir} NULLS LAST
+        ORDER BY {order_sql} {order_dir} NULLS LAST
         LIMIT %s OFFSET %s
     """
     params.extend([limit, offset])
@@ -165,6 +173,8 @@ def get_cont_invoices(
             'accounting_updated_at':row[14],
             'notes':                row[15],
             'has_pdf':              bool(row[16]),
+            'supplier_legal_name':  row[17] or row[2],
+            'supplier_display_name': row[18] or row[2],
             'accounting_status_label': ACCOUNTING_STATUS_LABELS.get(row[11], row[11]),
             'accounting_status_badge': ACCOUNTING_STATUS_BADGE.get(row[11], 'bg-secondary'),
         })

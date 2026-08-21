@@ -176,8 +176,12 @@ def index():
         forn_paid_counts = {}
         if _default_active and grupos:
             from db.faturas import get_paid_counts_by_supplier
-            supplier_names = [g['supplier_name'] for g in grupos if g['supplier_name']]
-            forn_paid_counts = get_paid_counts_by_supplier(supplier_names)
+            supplier_ids = [g['supplier_id'] for g in grupos if g.get('supplier_id')]
+            unlinked_names = [
+                g['supplier_raw_name'] for g in grupos
+                if not g.get('supplier_id') and g.get('supplier_raw_name') is not None
+            ]
+            forn_paid_counts = get_paid_counts_by_supplier(supplier_ids, unlinked_names)
 
         for grupo in grupos:
             for inv in grupo.get('invoices', []):
@@ -2128,6 +2132,7 @@ def fornecedores():
             if store_id:
                 store_id = int(store_id)
             notes = request.form.get('notes', '').strip()
+            common_name = request.form.get('common_name', '')
             payment_method = request.form.get('payment_method', '').strip() or None
             payment_terms = request.form.get('payment_terms', '').strip() or None
             iban = request.form.get('iban', '').strip() or None
@@ -2140,21 +2145,29 @@ def fornecedores():
                 flash('Nome do fornecedor é obrigatório.', 'warning')
             elif supplier_id_raw.isdigit():
                 from db.faturas import update_supplier
-                update_supplier(int(supplier_id_raw), name=name, nif=nif or None,
-                                store_id=store_id,
-                                notes=notes or None, payment_method=payment_method,
-                                payment_terms=payment_terms, iban=iban,
-                                centro_custo_id=centro_custo_id,
-                                categoria_custo_id=categoria_custo_id)
-                flash(f'Fornecedor "{name}" actualizado.', 'success')
+                try:
+                    update_supplier(int(supplier_id_raw), name=name, nif=nif or None,
+                                    store_id=store_id,
+                                    notes=notes or None, payment_method=payment_method,
+                                    payment_terms=payment_terms, iban=iban,
+                                    centro_custo_id=centro_custo_id,
+                                    categoria_custo_id=categoria_custo_id,
+                                    common_name=common_name)
+                    flash(f'Fornecedor "{name}" actualizado.', 'success')
+                except ValueError as exc:
+                    flash(str(exc), 'warning')
             else:
-                upsert_supplier(name=name, nif=nif or None,
-                                store_id=store_id, notes=notes or None,
-                                payment_method=payment_method,
-                                payment_terms=payment_terms, iban=iban,
-                                centro_custo_id=centro_custo_id,
-                                categoria_custo_id=categoria_custo_id)
-                flash(f'Fornecedor "{name}" criado.', 'success')
+                try:
+                    upsert_supplier(name=name, nif=nif or None,
+                                    store_id=store_id, notes=notes or None,
+                                    payment_method=payment_method,
+                                    payment_terms=payment_terms, iban=iban,
+                                    centro_custo_id=centro_custo_id,
+                                    categoria_custo_id=categoria_custo_id,
+                                    common_name=common_name)
+                    flash(f'Fornecedor "{name}" criado.', 'success')
+                except ValueError as exc:
+                    flash(str(exc), 'warning')
             return redirect(url_for('faturas.fornecedores'))
 
         elif action == 'delete':

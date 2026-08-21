@@ -231,7 +231,10 @@ def get_invoices_with_payments(status: str = None,
             where.append("i.status = %s")
             params.append(status)
         if search:
-            where.append("(LOWER(i.supplier_name) LIKE %s OR LOWER(i.invoice_number) LIKE %s)")
+            where.append(
+                "(LOWER(COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name)) LIKE %s "
+                "OR LOWER(i.invoice_number) LIKE %s)"
+            )
             s = f'%{search.lower()}%'
             params.extend([s, s])
         where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
@@ -244,8 +247,11 @@ def get_invoices_with_payments(status: str = None,
                    ip.id AS payment_id, ip.proposed_date, ip.confirmed_date,
                    ip.paid_date AS payment_paid_date, ip.amount_eur AS payment_amount,
                    ip.status AS payment_status, ip.confirmed_by, ip.notes AS payment_notes,
-                   COALESCE(i.document_type, 'fatura') AS document_type
+                    COALESCE(i.document_type, 'fatura') AS document_type,
+                    s.name AS supplier_legal_name,
+                    COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
             FROM invoices i
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
             {where_clause}
             ORDER BY i.due_date ASC NULLS LAST, i.created_at DESC

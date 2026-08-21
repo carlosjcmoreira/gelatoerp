@@ -8,7 +8,7 @@
 
     <div class="d-flex align-items-start justify-content-between mb-3 gap-2">
         <div>
-            <h5 class="mb-0">{{ inv.supplier_name or '(sem fornecedor)' }}</h5>
+            <h5 class="mb-0" title="{% if inv.supplier_legal_name %}Nome legal: {{ inv.supplier_legal_name }}{% endif %}">{{ inv.supplier_display_name or inv.supplier_name or '(sem fornecedor)' }}</h5>
             {% if inv.invoice_number %}<div class="text-muted small">Nº {{ inv.invoice_number }}</div>{% endif %}
         </div>
         <div class="d-flex flex-column align-items-end gap-1">
@@ -119,7 +119,7 @@
                 <dt class="col-5 text-muted">Tipo de documento</dt>
                 <dd class="col-7">{{ inv.document_type_label or 'Fatura' }}</dd>
                 <dt class="col-5 text-muted">Fornecedor</dt>
-                <dd class="col-7">{{ inv.supplier_name or '—' }}</dd>
+                <dd class="col-7" title="{% if inv.supplier_legal_name %}Nome legal: {{ inv.supplier_legal_name }}{% endif %}">{{ inv.supplier_display_name or inv.supplier_name or '—' }}</dd>
                 <dt class="col-5 text-muted">NIF</dt>
                 <dd class="col-7">{{ inv.supplier_nif or '—' }}</dd>
                 <dt class="col-5 text-muted">Nº Fatura</dt>

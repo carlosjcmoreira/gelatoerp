@@ -425,10 +425,13 @@ def get_confirming_dashboard():
         contracts = cursor.fetchall()
 
         cursor.execute(
-            """SELECT cp.*, i.supplier_name, i.invoice_number, i.amount_eur AS invoice_amount,
+            """SELECT cp.*, i.supplier_name, s.name AS supplier_legal_name,
+                      COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name,
+                      i.invoice_number, i.amount_eur AS invoice_amount,
                       i.due_date, c.label AS contract_label
                FROM confirming_parcelas cp
                JOIN invoices i ON i.id = cp.invoice_id
+               LEFT JOIN suppliers s ON s.id = i.supplier_id
                JOIN credit_contracts c ON c.id = cp.confirming_contract_id
                WHERE cp.estado IN ('scheduled', 'confirmed', 'paid')
                ORDER BY cp.data_pagamento ASC"""
@@ -436,10 +439,13 @@ def get_confirming_dashboard():
         parcelas_abertas = cursor.fetchall()
 
         cursor.execute(
-            """SELECT cp.*, i.supplier_name, i.invoice_number, i.amount_eur AS invoice_amount,
+            """SELECT cp.*, i.supplier_name, s.name AS supplier_legal_name,
+                      COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name,
+                      i.invoice_number, i.amount_eur AS invoice_amount,
                       i.due_date, c.label AS contract_label
                FROM confirming_parcelas cp
                JOIN invoices i ON i.id = cp.invoice_id
+               LEFT JOIN suppliers s ON s.id = i.supplier_id
                JOIN credit_contracts c ON c.id = cp.confirming_contract_id
                ORDER BY cp.data_pagamento DESC
                LIMIT 100"""
@@ -586,10 +592,13 @@ def get_confirming_parcelas(confirming_contract_id=None, invoice_id=None, estado
             params.append(estado)
         where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
         cursor.execute(
-            f"""SELECT cp.*, i.supplier_name, i.invoice_number, i.amount_eur AS invoice_amount,
+            f"""SELECT cp.*, i.supplier_name, s.name AS supplier_legal_name,
+                       COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name,
+                       i.invoice_number, i.amount_eur AS invoice_amount,
                        i.due_date, c.label AS contract_label
                 FROM confirming_parcelas cp
                 JOIN invoices i ON i.id = cp.invoice_id
+                LEFT JOIN suppliers s ON s.id = i.supplier_id
                 JOIN credit_contracts c ON c.id = cp.confirming_contract_id
                 {where_sql}
                 ORDER BY cp.data_pagamento DESC""",

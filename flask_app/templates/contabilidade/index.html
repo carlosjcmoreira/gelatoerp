@@ -158,7 +158,7 @@
                     {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
                 </td>
                 <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="fw-semibold">
-                    {{ inv.supplier_name or '—' }}
+                    <span title="{% if inv.supplier_legal_name %}Nome legal: {{ inv.supplier_legal_name }}{% endif %}">{{ inv.supplier_display_name or inv.supplier_name or '—' }}</span>
                 </td>
                 <td class="text-muted small d-none d-md-table-cell">{{ inv.supplier_nif or '—' }}</td>
                 <td class="text-muted small d-none d-sm-table-cell">{{ inv.invoice_number or '—' }}</td>

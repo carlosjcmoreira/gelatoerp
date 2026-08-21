@@ -1249,6 +1249,7 @@ def run_faturas_migrations():
             CREATE TABLE IF NOT EXISTS suppliers (
                 id SERIAL PRIMARY KEY,
                 name VARCHAR(255) NOT NULL,
+                common_name VARCHAR(120),
                 nif VARCHAR(20) NOT NULL UNIQUE,
                 store_id INTEGER REFERENCES stores(id),
                 notes TEXT,
@@ -1295,6 +1296,7 @@ def run_faturas_migrations():
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS categoria VARCHAR(100)")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS document_type VARCHAR(20) DEFAULT 'fatura'")
         cursor.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS notes TEXT")
+        cursor.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS common_name VARCHAR(120)")
         cursor.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
         cursor.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50)")
         cursor.execute("ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(50)")

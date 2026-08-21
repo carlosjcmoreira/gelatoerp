@@ -95,7 +95,7 @@
                     {% for inv in grupo.invoices %}
                     <tr>
                         <td class="text-nowrap">{{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</td>
-                        <td>{{ inv.supplier_name or '—' }}</td>
+                        <td title="{% if inv.supplier_legal_name %}Nome legal: {{ inv.supplier_legal_name }}{% endif %}">{{ inv.supplier_display_name or inv.supplier_name or '—' }}</td>
                         <td class="text-muted">{{ inv.invoice_number or '—' }}</td>
                         <td>
                             {% set st = inv.status %}

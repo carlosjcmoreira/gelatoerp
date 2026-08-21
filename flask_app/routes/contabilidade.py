@@ -272,7 +272,7 @@ def export_xlsx():
 
     for r_idx, inv in enumerate(rows, 2):
         ws.cell(r_idx, 1, inv['issue_date'].strftime('%d/%m/%Y') if inv['issue_date'] else '')
-        ws.cell(r_idx, 2, inv['supplier_name'] or '')
+        ws.cell(r_idx, 2, inv.get('supplier_display_name') or inv['supplier_name'] or '')
         ws.cell(r_idx, 3, inv['supplier_nif'] or '')
         ws.cell(r_idx, 4, inv['invoice_number'] or '')
         ws.cell(r_idx, 5, DOCUMENT_TYPE_LABELS.get(inv['document_type'] or 'fatura', inv['document_type'] or ''))

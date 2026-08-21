@@ -84,7 +84,7 @@
                     <tbody>
                         {% for p in dash.parcelas_abertas %}
                         <tr>
-                            <td class="small fw-semibold">{{ p.supplier_name or '—' }}</td>
+                            <td class="small fw-semibold" title="{% if p.supplier_legal_name %}Nome legal: {{ p.supplier_legal_name }}{% endif %}">{{ p.supplier_display_name or p.supplier_name or '—' }}</td>
                             <td class="small">
                                 <a href="{{ url_for('faturas.detail', invoice_id=p.invoice_id) }}"
                                    class="text-decoration-none" data-no-loading>
@@ -161,7 +161,7 @@
                     <tbody>
                         {% for p in dash.todas_parcelas %}
                         <tr class="{{ 'text-muted' if p.estado in ('settled', 'cancelled') else '' }}">
-                            <td class="small">{{ p.supplier_name or '—' }}</td>
+                            <td class="small" title="{% if p.supplier_legal_name %}Nome legal: {{ p.supplier_legal_name }}{% endif %}">{{ p.supplier_display_name or p.supplier_name or '—' }}</td>
                             <td class="small">
                                 <a href="{{ url_for('faturas.detail', invoice_id=p.invoice_id) }}"
                                    class="text-decoration-none" data-no-loading>
