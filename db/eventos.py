@@ -669,7 +669,7 @@ def get_event_history(event_id):
 
 
 def validate_event_deposit(event_id, amount, *, proof_reference, actor=None, received_at=None):
-    """Record the validated non-refundable deposit before resources are confirmed."""
+    """Validate a non-refundable deposit and atomically reserve the event."""
     amount = _money(amount)
     if amount <= 0:
         raise ValueError('O valor validado do sinal deve ser superior a zero.')
@@ -707,20 +707,175 @@ def validate_event_deposit(event_id, amount, *, proof_reference, actor=None, rec
                 deposit_verified_by = %s,
                 deposit_proof_reference = %s,
                 deposit_non_refundable = TRUE,
+                payment_amount_eur = %s,
+                payment_status = CASE WHEN %s >= invoice_amount_eur THEN 'received' ELSE 'partial' END,
+                status = 'sinalizado',
+                status_changed_at = NOW(),
+                reserved_at = COALESCE(reserved_at, NOW()),
                 updated_at = NOW()
             WHERE id = %s
             """,
-            (amount, received_at, actor, proof_reference, event_id),
+            (amount, received_at, actor, proof_reference, amount, amount, event_id),
         )
         _insert_event_history(
             cursor, event_id, 'deposit_validated', actor=actor,
             details={
                 'deposit_amount_eur': amount,
+                'received_total_eur': amount,
                 'proof_reference': proof_reference,
                 'non_refundable': True,
             },
         )
+        cursor.execute(
+            """
+            UPDATE event_resource_reservations err
+            SET status='reserved', reserved_by=COALESCE(%s, err.reserved_by), updated_at=NOW()
+            FROM event_occurrences eo
+            WHERE err.occurrence_id=eo.id AND eo.event_id=%s AND err.status='requested'
+            """,
+            (actor, event_id),
+        )
+        _sync_event_production_requirements(cursor, event_id)
+        _insert_event_history(
+            cursor, event_id, 'status_changed', old_status='adjudicado',
+            new_status='sinalizado', actor=actor,
+            details={'reason': 'deposit_validated'},
+        )
         conn.commit()
+
+
+def reject_event_deposit(event_id, reason, *, actor=None):
+    """Keep an auditable rejection without losing the customer's uploaded proof."""
+    reason = (reason or '').strip()
+    if not reason:
+        raise ValueError('Indique o motivo da rejeição do comprovativo.')
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT status FROM events WHERE id=%s FOR UPDATE", (event_id,))
+        event = cursor.fetchone()
+        if not event or normalize_event_status(event['status']) != 'adjudicado':
+            raise ValueError('Só pode rejeitar comprovativos de eventos adjudicados.')
+        _insert_event_history(
+            cursor, event_id, 'deposit_rejected', actor=actor, reason=reason,
+            details={'non_refundable_rule': True},
+        )
+        conn.commit()
+
+
+def _sync_event_production_requirements(cursor, event_id):
+    """Persist portal flavour demand per occurrence; safe to call repeatedly."""
+    cursor.execute("""
+        SELECT e.estimated_guests, p.servings_per_guest, p.flavours
+        FROM events e LEFT JOIN event_portal_requests p ON p.event_id=e.id
+        WHERE e.id=%s
+    """, (event_id,))
+    request_data = cursor.fetchone()
+    if not request_data or not request_data.get('flavours') or not request_data.get('estimated_guests'):
+        return
+    plan = calculate_portal_flavours(
+        request_data['estimated_guests'], request_data.get('servings_per_guest') or 1,
+        request_data['flavours'],
+    )
+    cursor.execute(
+        "SELECT id FROM event_occurrences WHERE event_id=%s ORDER BY occurrence_number, id",
+        (event_id,),
+    )
+    occurrences = cursor.fetchall()
+    for occurrence in occurrences:
+        occurrence_id = occurrence['id']
+        for flavour in plan['flavours']:
+            cursor.execute("""
+                INSERT INTO event_production_requirements
+                    (event_id, occurrence_id, sabor, required_kg)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (occurrence_id, sabor) DO UPDATE SET
+                    required_kg=EXCLUDED.required_kg, updated_at=NOW()
+            """, (event_id, occurrence_id, flavour['name'], flavour['kg']))
+
+
+def get_event_production_requirements(event_date=None):
+    """Expose confirmed per-occurrence gelato needs to the production plan."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        clauses, params = ["e.status IN ('sinalizado','realizado','faturado','recebido')"], []
+        if event_date:
+            clauses.append("eo.event_date=%s")
+            params.append(event_date)
+        cursor.execute(f"""
+            SELECT r.*, eo.event_date, eo.venue, e.event_name, e.client_name
+            FROM event_production_requirements r
+            JOIN event_occurrences eo ON eo.id=r.occurrence_id
+            JOIN events e ON e.id=r.event_id
+            WHERE {' AND '.join(clauses)}
+            ORDER BY eo.event_date, e.event_name, r.sabor
+        """, params)
+        return cursor.fetchall()
+
+
+def mark_event_invoiced(event_id, invoice_reference, *, actor=None):
+    """Link the commercial invoice and move a completed event to invoiced."""
+    invoice_reference = (invoice_reference or '').strip()
+    if not invoice_reference:
+        raise ValueError('Indique a referência ou número da fatura.')
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT status FROM events WHERE id=%s FOR UPDATE", (event_id,))
+        event = cursor.fetchone()
+        if not event or normalize_event_status(event['status']) != 'realizado':
+            raise ValueError('A fatura só pode ser enviada depois de o evento estar realizado.')
+        cursor.execute("""
+            UPDATE events SET status='faturado', invoice_reference=%s, invoice_sent_at=NOW(),
+                status_changed_at=NOW(), updated_at=NOW() WHERE id=%s
+        """, (invoice_reference, event_id))
+        _insert_event_history(
+            cursor, event_id, 'invoice_sent', old_status='realizado', new_status='faturado',
+            actor=actor, details={'invoice_reference': invoice_reference},
+        )
+        conn.commit()
+
+
+def record_event_receipt(event_id, amount, received_at, *, payment_method, payment_reference=None, actor=None):
+    """Record a confirmed customer receipt; only a fully settled event is received."""
+    amount = _money(amount)
+    if amount <= 0:
+        raise ValueError('O valor recebido deve ser superior a zero.')
+    if not payment_method:
+        raise ValueError('Indique o método de pagamento.')
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT status, invoice_amount_eur, payment_amount_eur FROM events WHERE id=%s FOR UPDATE",
+            (event_id,),
+        )
+        event = cursor.fetchone()
+        if not event or normalize_event_status(event['status']) != 'faturado':
+            raise ValueError('O recebimento só pode ser confirmado após o envio da fatura.')
+        total_received = _money(event.get('payment_amount_eur')) + amount
+        invoice_total = _money(event.get('invoice_amount_eur'))
+        remaining = invoice_total - _money(event.get('payment_amount_eur'))
+        if remaining <= 0:
+            raise ValueError('O evento já não tem saldo em aberto.')
+        if amount > remaining:
+            raise ValueError(f'O recebimento não pode exceder o saldo em aberto ({remaining:.2f} €).')
+        paid_in_full = total_received >= invoice_total
+        cursor.execute("""
+            UPDATE events SET payment_amount_eur=%s, payment_received_at=%s,
+                payment_method=%s, payment_reference=%s, payment_received_by=%s,
+                payment_status=%s, status=CASE WHEN %s THEN 'recebido' ELSE status END,
+                status_changed_at=CASE WHEN %s THEN NOW() ELSE status_changed_at END,
+                updated_at=NOW()
+            WHERE id=%s
+        """, (total_received, received_at, payment_method, payment_reference or None, actor,
+              'received' if paid_in_full else 'partial', paid_in_full, paid_in_full, event_id))
+        _insert_event_history(
+            cursor, event_id, 'payment_received', old_status=event['status'],
+            new_status='recebido' if paid_in_full else event['status'], actor=actor,
+            details={'amount_eur': amount, 'total_received_eur': total_received,
+                     'payment_method': payment_method, 'reference': payment_reference,
+                     'paid_in_full': paid_in_full},
+        )
+        conn.commit()
+        return paid_in_full
 
 
 # ── lead_requests ──────────────────────────────────────────────────────────────
@@ -976,11 +1131,43 @@ def get_pipeline_dashboard():
               AND e.event_date >= %s
         """, (today,))
         won_future = cursor.fetchone()
+        cursor.execute("""
+            SELECT status, COUNT(*) AS count,
+                   COALESCE(SUM(invoice_amount_eur), 0) AS invoiced_value,
+                   COALESCE(SUM(payment_amount_eur), 0) AS received_value,
+                   COALESCE(SUM(GREATEST(invoice_amount_eur - COALESCE(payment_amount_eur, 0), 0)), 0)
+                       AS outstanding_value
+            FROM events
+            WHERE status IN ('adjudicado','sinalizado','realizado','faturado','recebido')
+            GROUP BY status
+        """)
+        financial_by_status = {row['status']: dict(row) for row in cursor.fetchall()}
+        cursor.execute("""
+            SELECT date_trunc('month', event_date)::date AS month,
+                   COALESCE(SUM(invoice_amount_eur), 0) AS forecast_value,
+                   COUNT(*) AS count
+            FROM events
+            WHERE event_date >= %s
+              AND status IN ('adjudicado','sinalizado','realizado','faturado')
+            GROUP BY 1 ORDER BY 1 LIMIT 6
+        """, (today.replace(day=1),))
+        monthly_forecast = cursor.fetchall()
+        cursor.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE status='adjudicado') AS deposits_pending,
+                COUNT(*) FILTER (WHERE status='cancelado') AS cancelled_count,
+                COUNT(*) FILTER (WHERE status='sinalizado' AND event_date < %s) AS operational_risk_count
+            FROM events
+        """, (today,))
+        finance_alerts = cursor.fetchone()
 
         return {
             'by_status': by_status,
             'won_future_value': float(won_future['won_future_value'] or 0),
             'won_future_count': int(won_future['won_future_count'] or 0),
+            'financial_by_status': financial_by_status,
+            'monthly_forecast': monthly_forecast,
+            'finance_alerts': dict(finance_alerts or {}),
         }
 
 
@@ -1916,7 +2103,7 @@ def accept_portal_quote(event_id, email, presented_revision):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
-            SELECT e.status, p.accepted_quote_revision, p.sent_quote_version_id
+            SELECT e.status, e.event_date, p.accepted_quote_revision, p.sent_quote_version_id
             FROM event_portal_requests p
             JOIN events e ON e.id = p.event_id
             WHERE e.id = %s AND p.email_normalized = %s
@@ -1950,9 +2137,14 @@ def accept_portal_quote(event_id, email, presented_revision):
         deposit_percentage = _money(deposit_row['value_gross']) if deposit_row else Decimal('0')
         cursor.execute("""
             UPDATE events SET status = 'adjudicado', status_changed_at = NOW(),
-                invoice_amount_eur = %s, deposit_amount_eur = %s, updated_at = NOW()
+                invoice_amount_eur = %s, deposit_amount_eur = %s,
+                expected_payment_date = %s, updated_at = NOW()
             WHERE id = %s
-        """, (total, _money(total * deposit_percentage / Decimal('100')), event_id))
+        """, (
+            total, _money(total * deposit_percentage / Decimal('100')),
+            event['event_date'] + timedelta(days=30) if event.get('event_date') else None,
+            event_id,
+        ))
         cursor.execute("""
             UPDATE event_portal_requests
             SET accepted_quote_revision = %s, quote_accepted_at = NOW(), updated_at = NOW()

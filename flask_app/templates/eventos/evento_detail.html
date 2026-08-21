@@ -74,6 +74,46 @@
             <div class="col-12"><small class="text-muted">Sinal previsto: {{ "%.2f"|format(event.deposit_amount_eur or 0) }} €. O upload do ficheiro será associado nesta base na fase operacional.</small></div>
         </form>
     </div>
+    <div class="card shadow-sm mb-3 border-danger">
+        <div class="card-header fw-semibold small">Rejeitar comprovativo</div>
+        <form method="post" class="card-body d-flex gap-2 align-items-end flex-wrap">
+            <input type="hidden" name="action" value="reject_deposit">
+            <div class="flex-grow-1">
+                <label class="form-label small mb-1">Motivo</label>
+                <input name="deposit_rejection_reason" class="form-control form-control-sm" required
+                       placeholder="Ex.: valor ilegível ou abaixo do sinal acordado">
+            </div>
+            <button class="btn btn-sm btn-outline-danger">Rejeitar comprovativo</button>
+        </form>
+    </div>
+    {% endif %}
+
+    {% if event.status == 'realizado' %}
+    <div class="card shadow-sm mb-3 border-info">
+        <div class="card-header fw-semibold small">🧾 Associar fatura enviada</div>
+        <form method="post" class="card-body d-flex gap-2 align-items-end flex-wrap">
+            <input type="hidden" name="action" value="mark_invoiced">
+            <div class="flex-grow-1">
+                <label class="form-label small mb-1">Número / referência da fatura</label>
+                <input name="invoice_reference" class="form-control form-control-sm" required>
+            </div>
+            <button class="btn btn-sm btn-info">Marcar como faturado</button>
+        </form>
+    </div>
+    {% endif %}
+
+    {% if event.status == 'faturado' %}
+    <div class="card shadow-sm mb-3 border-success">
+        <div class="card-header fw-semibold small">💶 Confirmar recebimento</div>
+        <form method="post" class="card-body row g-2 align-items-end">
+            <input type="hidden" name="action" value="record_receipt">
+            <div class="col-md-3"><label class="form-label small mb-1">Valor (€)</label><input type="number" step="0.01" min="0.01" name="receipt_amount" class="form-control form-control-sm" required></div>
+            <div class="col-md-3"><label class="form-label small mb-1">Data</label><input type="date" name="receipt_date" value="{{ today }}" class="form-control form-control-sm"></div>
+            <div class="col-md-3"><label class="form-label small mb-1">Método</label><select name="payment_method" class="form-select form-select-sm" required><option value="">Selecionar</option><option value="transferencia">Transferência</option><option value="numerario">Numerário</option><option value="cartao">Cartão</option><option value="outro">Outro</option></select></div>
+            <div class="col-md-3"><label class="form-label small mb-1">Referência / comprovativo</label><input name="payment_reference" class="form-control form-control-sm"></div>
+            <div class="col-12"><button class="btn btn-sm btn-success">Registar recebimento</button></div>
+        </form>
+    </div>
     {% endif %}
 
     <div class="card shadow-sm mb-3">

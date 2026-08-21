@@ -58,6 +58,22 @@
 </div>
 {% endif %}
 
+{% if necessidades_eventos %}
+<div class="card border-success mb-3">
+    <div class="card-header bg-success text-white py-2 fw-bold">
+        🍨 Necessidades confirmadas de eventos
+    </div>
+    <div class="card-body p-0">
+        {% for need in necessidades_eventos %}
+        <div class="px-3 py-2 border-bottom small d-flex justify-content-between gap-2">
+            <span><strong>{{ need.sabor }}</strong> · {{ need.event_name or need.client_name }}{% if need.venue %} · {{ need.venue }}{% endif %}</span>
+            <strong>{{ "%.2f"|format(need.required_kg) }} kg</strong>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <hr>
 
 {% if entradas %}

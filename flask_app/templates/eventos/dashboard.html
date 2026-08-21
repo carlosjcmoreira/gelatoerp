@@ -76,6 +76,29 @@
         </div>
     </div>
 
+    {% set finance = stats.financial_by_status %}
+    {% set alerts = stats.finance_alerts %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold small">💶 Dashboard financeiro</div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-6 col-lg-3"><div class="small text-muted">Sinais pendentes</div><div class="fs-5 fw-bold text-warning">{{ alerts.get('deposits_pending', 0) }}</div></div>
+                <div class="col-6 col-lg-3"><div class="small text-muted">Faturado</div><div class="fs-5 fw-bold">{{ "%.2f"|format(finance.get('faturado', {}).get('invoiced_value', 0)) }} €</div></div>
+                <div class="col-6 col-lg-3"><div class="small text-muted">Recebido</div><div class="fs-5 fw-bold text-success">{{ "%.2f"|format(finance.get('recebido', {}).get('received_value', 0)) }} €</div></div>
+                <div class="col-6 col-lg-3"><div class="small text-muted">Em risco / cancelados</div><div class="fs-5 fw-bold text-danger">{{ alerts.get('operational_risk_count', 0) }} / {{ alerts.get('cancelled_count', 0) }}</div></div>
+            </div>
+            {% if stats.monthly_forecast %}
+            <hr class="my-3">
+            <div class="small fw-semibold mb-1">Previsão dos próximos meses</div>
+            <div class="d-flex flex-wrap gap-3 small">
+                {% for month in stats.monthly_forecast %}
+                <span><strong>{{ month.month.strftime('%m/%Y') }}</strong>: {{ "%.2f"|format(month.forecast_value) }} € <span class="text-muted">({{ month.count }})</span></span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
     {% if notifications %}
     <div class="card shadow-sm mb-4">
         <div class="card-header fw-semibold small">🔔 Centro de notificações</div>

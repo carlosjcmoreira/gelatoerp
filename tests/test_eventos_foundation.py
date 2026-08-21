@@ -152,6 +152,80 @@ class EventDepositTests(unittest.TestCase):
                     7, '10', proof_reference='email confirmado', actor='equipa'
                 )
 
+    def test_validated_deposit_reserves_resources_and_records_status_transition(self):
+        cursor = _Cursor([{
+            'status': 'adjudicado', 'deposit_amount_eur': 15, 'invoice_amount_eur': 100,
+        }, {'flavours': [], 'estimated_guests': None}])
+        connection = _Connection(cursor)
+
+        with patch('db.eventos.db_connection', return_value=connection):
+            eventos.validate_event_deposit(7, '15', proof_reference='transferência', actor='equipa')
+
+        statements = '\n'.join(query for query, _ in cursor.queries)
+        self.assertIn("status = 'sinalizado'", statements)
+        self.assertIn("SET status='reserved'", statements)
+        self.assertGreaterEqual(statements.count('INSERT INTO event_history'), 2)
+
+
+class EventReceiptTests(unittest.TestCase):
+    def test_full_receipt_marks_event_received_and_is_audited(self):
+        cursor = _Cursor([{
+            'status': 'faturado', 'invoice_amount_eur': 100, 'payment_amount_eur': 0,
+        }])
+        connection = _Connection(cursor)
+
+        with patch('db.eventos.db_connection', return_value=connection):
+            complete = eventos.record_event_receipt(
+                7, '100', '2026-09-01', payment_method='transferencia', actor='equipa'
+            )
+
+        self.assertTrue(complete)
+        statements = '\n'.join(query for query, _ in cursor.queries)
+        self.assertIn("payment_status=%s", statements)
+        self.assertIn("INSERT INTO event_history", statements)
+
+    def test_partial_receipt_keeps_event_faturado(self):
+        cursor = _Cursor([{
+            'status': 'faturado', 'invoice_amount_eur': 100, 'payment_amount_eur': 0,
+        }])
+        connection = _Connection(cursor)
+
+        with patch('db.eventos.db_connection', return_value=connection):
+            complete = eventos.record_event_receipt(
+                7, '30', '2026-09-01', payment_method='transferencia', actor='equipa'
+            )
+
+        self.assertFalse(complete)
+
+    def test_deposit_is_included_when_settling_the_remaining_balance(self):
+        cursor = _Cursor([{
+            'status': 'faturado', 'invoice_amount_eur': 100, 'payment_amount_eur': 15,
+        }])
+        connection = _Connection(cursor)
+
+        with patch('db.eventos.db_connection', return_value=connection):
+            complete = eventos.record_event_receipt(
+                7, '85', '2026-09-01', payment_method='transferencia', actor='equipa'
+            )
+
+        self.assertTrue(complete)
+        update_params = next(
+            params for query, params in cursor.queries if 'UPDATE events SET payment_amount_eur' in query
+        )
+        self.assertEqual(str(update_params[0]), '100.00')
+
+    def test_receipt_cannot_exceed_the_remaining_balance(self):
+        cursor = _Cursor([{
+            'status': 'faturado', 'invoice_amount_eur': 100, 'payment_amount_eur': 15,
+        }])
+        connection = _Connection(cursor)
+
+        with patch('db.eventos.db_connection', return_value=connection):
+            with self.assertRaisesRegex(ValueError, 'exceder o saldo'):
+                eventos.record_event_receipt(
+                    7, '86', '2026-09-01', payment_method='transferencia', actor='equipa'
+                )
+
 
 class EventArchiveTests(unittest.TestCase):
     def test_archive_cancels_event_and_keeps_append_only_history(self):

@@ -784,10 +784,11 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
         vat_rows = cursor.fetchall()
 
         cursor.execute("""
-            SELECT expected_payment_date, COALESCE(SUM(invoice_amount_eur), 0) AS total
+            SELECT expected_payment_date,
+                   COALESCE(SUM(GREATEST(invoice_amount_eur - COALESCE(payment_amount_eur, 0), 0)), 0) AS total
             FROM events
             WHERE expected_payment_date BETWEEN %s AND %s
-              AND payment_status = 'pending'
+              AND payment_status IN ('pending', 'partial')
               AND status IN ('adjudicado', 'sinalizado', 'realizado', 'faturado', 'recebido')
             GROUP BY expected_payment_date
         """, (range_start, range_end))

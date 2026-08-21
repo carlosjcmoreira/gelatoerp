@@ -22,6 +22,7 @@ from database import (
     criar_ordem_transferencia, add_stock_producao,
     get_plano_ajuste_dia,
     get_eventos_adjudicados_para_producao, mark_production_alert_sent,
+    get_event_production_requirements,
     get_latest_pesagem_por_sabor_all_lojas, get_pesagens_loja_range, set_stock_producao,
     get_stock_producao_by_loja, upsert_pesagem_matosinhos_inicio,
     get_active_venda_stores, get_or_create_pending_batch,
@@ -952,7 +953,8 @@ def executar_plano():
                            entradas=entradas, data_plano=str(data_plano),
                            today=str(date.today()),
                            n_total=n_total, n_done=n_done,
-                           eventos_do_dia=eventos_do_dia)
+                           eventos_do_dia=eventos_do_dia,
+                           necessidades_eventos=get_event_production_requirements(data_plano))
 
 
 @producao_bp.route('/copiar-plano', methods=['POST'])

@@ -236,6 +236,41 @@ def run_migrations_eventos_v2_foundation():
                 "ALTER TABLE events ADD COLUMN IF NOT EXISTS reserved_at TIMESTAMP"
             )
             cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS invoice_reference VARCHAR(255)"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS invoice_sent_at TIMESTAMP"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_amount_eur NUMERIC(12,2) DEFAULT 0"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_method VARCHAR(80)"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_reference TEXT"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_received_by VARCHAR(255)"
+            )
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_production_requirements (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
+                    occurrence_id BIGINT NOT NULL REFERENCES event_occurrences(id) ON DELETE RESTRICT,
+                    sabor VARCHAR(255) NOT NULL,
+                    required_kg NUMERIC(12,2) NOT NULL CHECK (required_kg > 0),
+                    source VARCHAR(50) NOT NULL DEFAULT 'portal_acceptance',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(occurrence_id, sabor)
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_production_requirements_date "
+                "ON event_production_requirements(occurrence_id)"
+            )
+            cursor.execute(
                 "ALTER TABLE events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP"
             )
             cursor.execute(

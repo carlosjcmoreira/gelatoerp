@@ -644,7 +644,46 @@ def evento_detail(event_id):
                     event_id, raw_amount, proof_reference=proof_reference,
                     actor=_current_actor(), received_at=received_at,
                 )
-                flash('Sinal validado. O evento pode agora ser sinalizado e reservar recursos.', 'success')
+                flash('Sinal validado; as ocorrências e recursos foram reservados.', 'success')
+            except ValueError as exc:
+                flash(str(exc), 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
+        elif action == 'reject_deposit':
+            try:
+                db.reject_event_deposit(
+                    event_id, request.form.get('deposit_rejection_reason'),
+                    actor=_current_actor(),
+                )
+                flash('Comprovativo rejeitado. O evento continua adjudicado até receber um sinal válido.', 'warning')
+            except ValueError as exc:
+                flash(str(exc), 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
+        elif action == 'mark_invoiced':
+            try:
+                db.mark_event_invoiced(
+                    event_id, request.form.get('invoice_reference'), actor=_current_actor()
+                )
+                flash('Fatura associada e evento marcado como faturado.', 'success')
+            except ValueError as exc:
+                flash(str(exc), 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
+        elif action == 'record_receipt':
+            try:
+                complete = db.record_event_receipt(
+                    event_id, request.form.get('receipt_amount'),
+                    request.form.get('receipt_date') or date.today(),
+                    payment_method=request.form.get('payment_method'),
+                    payment_reference=request.form.get('payment_reference'),
+                    actor=_current_actor(),
+                )
+                flash(
+                    'Recebimento confirmado e evento encerrado.'
+                    if complete else 'Recebimento parcial registado; mantém-se o saldo em aberto.',
+                    'success',
+                )
             except ValueError as exc:
                 flash(str(exc), 'error')
             return redirect(url_for('eventos.evento_detail', event_id=event_id))
@@ -766,6 +805,7 @@ def evento_detail(event_id):
                             event_history=event_history,
                              quote_versions=quote_versions,
                             resource_conflicts=resource_conflicts,
+                            today=date.today().isoformat(),
                            tabs=tabs,
                            active_tab='pipeline')
 
