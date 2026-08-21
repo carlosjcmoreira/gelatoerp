@@ -60,7 +60,7 @@ from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clie
 from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
 from db.schema import run_migrations_drop_supplier_category, run_migrations_acesso_compras
 from db.schema import run_migrations_cost_centers_store_id
-from db.schema import run_migrations_eventos_v2_foundation
+from db.schema import run_migrations_eventos_v2_foundation, run_migrations_eventos_customer_portal
 
 
 def _start_sheets_sync_scheduler():
@@ -85,6 +85,29 @@ def _start_sheets_sync_scheduler():
 
     t = threading.Thread(target=_worker, daemon=True, name="sheets-sync")
     t.start()
+
+
+def _start_event_portal_cleanup_scheduler():
+    """Remove expired private proof files once a day in the single scheduler worker."""
+    def _worker():
+        import time
+        from flask_app.services.event_portal import cleanup_expired_portal_proofs
+
+        upload_root = os.path.join(
+            os.path.dirname(__file__), '..', 'private_uploads', 'event_proofs'
+        )
+        while True:
+            try:
+                removed = cleanup_expired_portal_proofs(upload_root)
+                if removed:
+                    logger.info("Removed %d expired event portal proof file(s)", removed)
+            except Exception as exc:
+                logger.warning("Event portal proof cleanup failed: %s", exc)
+            time.sleep(24 * 60 * 60)
+
+    threading.Thread(
+        target=_worker, daemon=True, name="event-portal-proof-cleanup"
+    ).start()
 
 
 def _seed_all_tiles():
@@ -151,6 +174,7 @@ def create_app():
         run_migrations_cashflow()
         run_migrations_credito()
         run_migrations_eventos_v2_foundation()
+        run_migrations_eventos_customer_portal()
         run_data_fix_quebras_march2026()
         run_data_fix_pesagem_april2026()
         run_data_fix_march1_dedup()

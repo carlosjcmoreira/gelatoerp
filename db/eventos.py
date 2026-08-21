@@ -4,6 +4,8 @@ from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger
 import json
+import hashlib
+import secrets
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
@@ -1197,6 +1199,10 @@ def delete_event(event_id, actor=None):
 
 # ── quote_items ────────────────────────────────────────────────────────────────
 
+def _lock_quote_event(cursor, event_id):
+    """Serialize quote editing with portal acceptance for the same event."""
+    cursor.execute("SELECT id FROM events WHERE id = %s FOR UPDATE", (event_id,))
+
 def get_quote_items(event_id):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -1208,6 +1214,7 @@ def add_quote_item(event_id, artigo_codigo, descricao, quantidade, preco_unitari
     snapshot = calculate_quote_line(quantidade, preco_unitario, taxa_iva)
     with db_connection() as conn:
         cursor = conn.cursor()
+        _lock_quote_event(cursor, event_id)
         cursor.execute("""
             INSERT INTO quote_items (
                 event_id, artigo_codigo, descricao, quantidade, preco_unitario, taxa_iva,
@@ -1230,6 +1237,7 @@ def update_quote_item(item_id, event_id, descricao, quantidade, preco_unitario,
     snapshot = calculate_quote_line(quantidade, preco_unitario, taxa_iva)
     with db_connection() as conn:
         cursor = conn.cursor()
+        _lock_quote_event(cursor, event_id)
         cursor.execute("""
             UPDATE quote_items SET
                 descricao=%s, quantidade=%s, preco_unitario=%s, taxa_iva=%s,
@@ -1249,6 +1257,7 @@ def update_quote_item(item_id, event_id, descricao, quantidade, preco_unitario,
 def delete_quote_item(item_id, event_id, actor=None):
     with db_connection() as conn:
         cursor = conn.cursor()
+        _lock_quote_event(cursor, event_id)
         cursor.execute("DELETE FROM quote_items WHERE id=%s AND event_id=%s", (item_id, event_id))
         _insert_event_history(
             cursor, event_id, 'quote_item_deleted', actor=actor,
@@ -1370,6 +1379,436 @@ def convert_lead_to_event(lead_id):
             cursor.execute("UPDATE lead_requests SET status='contacted', updated_at=NOW() WHERE id=%s", (lead_id,))
         conn.commit()
     return event_id
+
+# ── Customer event portal ───────────────────────────────────────────────────────
+
+def normalize_portal_email(value):
+    """Canonical email identity used exclusively by the public portal."""
+    email = (value or '').strip().casefold()
+    if not email or len(email) > 255 or email.count('@') != 1:
+        raise ValueError('Indique um email válido.')
+    local, domain = email.rsplit('@', 1)
+    if not local or '.' not in domain or ' ' in email:
+        raise ValueError('Indique um email válido.')
+    return email
+
+
+def calculate_portal_flavours(guests, scoops, flavours):
+    """Calculate a conservative customer estimate with the agreed serving rules."""
+    try:
+        guests = int(guests)
+        scoops = int(scoops)
+    except (TypeError, ValueError):
+        raise ValueError('Indique o número de participantes e de bolas.')
+    cleaned = [str(flavour).strip() for flavour in (flavours or []) if str(flavour).strip()]
+    cleaned = list(dict.fromkeys(cleaned))
+    if guests < 1 or guests > 5000:
+        raise ValueError('O número de participantes deve estar entre 1 e 5000.')
+    if scoops not in (1, 2):
+        raise ValueError('Escolha uma ou duas bolas por pessoa.')
+    if not cleaned or len(cleaned) > 6:
+        raise ValueError('Escolha entre um e seis sabores.')
+    grams_per_guest = 70 if scoops == 1 else 120
+    required_kg = Decimal(guests * grams_per_guest) / Decimal(1000)
+    per_flavour = max(
+        Decimal('2.00'),
+        (required_kg / len(cleaned)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+    )
+    quantities = [
+        {'name': flavour, 'kg': str(per_flavour)}
+        for flavour in cleaned
+    ]
+    total_kg = (per_flavour * len(cleaned)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    return {
+        'guests': guests,
+        'scoops': scoops,
+        'grams_per_guest': grams_per_guest,
+        'flavours': quantities,
+        'total_kg': total_kg,
+    }
+
+
+def get_portal_unavailable_dates():
+    """Return dates that deserve a warning on the customer-facing calendar."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT DISTINCT eo.event_date, 'confirmed' AS risk
+            FROM event_occurrences eo
+            JOIN events e ON e.id = eo.event_id
+            WHERE eo.event_date IS NOT NULL
+              AND e.status IN ('adjudicado', 'sinalizado', 'realizado', 'faturado', 'recebido')
+            UNION
+            SELECT DISTINCT eo.event_date, 'resource_risk' AS risk
+            FROM event_occurrences eo
+            JOIN event_resource_reservations err ON err.occurrence_id = eo.id
+            JOIN events e ON e.id = eo.event_id
+            WHERE eo.event_date IS NOT NULL
+              AND err.status IN ('requested', 'reserved')
+              AND err.risk_acknowledged = TRUE
+              AND e.status NOT IN ('rejeitado', 'cancelado')
+            ORDER BY event_date
+        """)
+        return cursor.fetchall()
+
+
+def _quote_revision(cursor, event_id, lock_rows=False):
+    cursor.execute("""
+        SELECT id, descricao, quantidade, preco_unitario, taxa_iva,
+               unit_price_gross, total_net, total_vat, total_gross, total
+        FROM quote_items WHERE event_id = %s ORDER BY id
+    """ + (" FOR UPDATE" if lock_rows else ""), (event_id,))
+    rows = cursor.fetchall()
+    fields = (
+        'id', 'descricao', 'quantidade', 'preco_unitario', 'taxa_iva',
+        'unit_price_gross', 'total_net', 'total_vat', 'total_gross', 'total',
+    )
+    normalized = [
+        [
+            str(row.get(field)) if row.get(field) is not None else None
+            for field in fields
+        ] if hasattr(row, 'get') else [
+            str(value) if value is not None else None for value in row
+        ]
+        for row in rows
+    ]
+    encoded = json.dumps(normalized, separators=(',', ':'), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode('utf-8')).hexdigest(), rows
+
+
+def create_portal_event_request(data):
+    """Create a public request, its occurrences and its initial estimate atomically."""
+    email = normalize_portal_email(data.get('client_email'))
+    occurrences = data.get('occurrences') or []
+    if not occurrences:
+        raise ValueError('Adicione pelo menos uma data para o evento.')
+    if not data.get('privacy_accepted'):
+        raise ValueError('É necessário aceitar a informação de privacidade.')
+    flavour_plan = calculate_portal_flavours(
+        data.get('estimated_guests'), data.get('servings_per_guest'), data.get('flavours'),
+    )
+    catering = bool(data.get('catering_requested'))
+    estimate_eligible = (
+        flavour_plan['guests'] <= 200 and len(occurrences) == 1 and not catering
+    )
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        access_code = secrets.token_urlsafe(9)
+        access_code_hash = hashlib.sha256(access_code.encode('utf-8')).hexdigest()
+        first = occurrences[0]
+        cursor.execute("""
+            INSERT INTO events (
+                source, event_name, event_type, event_date, event_time, event_end_time,
+                estimated_guests, venue, venue_address, client_name, client_email,
+                client_phone, status, internal_notes
+            ) VALUES (
+                'customer_portal', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, 'novos', %s
+            ) RETURNING id
+        """, (
+            data.get('event_name') or f"Pedido de {data.get('client_name', '').strip()}",
+            data.get('event_type'), first.get('event_date'), first.get('service_start_time'),
+            first.get('service_end_time'), flavour_plan['guests'], first.get('venue'),
+            first.get('venue_address'), data.get('client_name'), email,
+            data.get('client_phone'), 'Pedido submetido pelo portal de clientes.',
+        ))
+        event_row = cursor.fetchone()
+        event_id = event_row[0]
+        for number, occurrence in enumerate(occurrences, start=1):
+            cursor.execute("""
+                INSERT INTO event_occurrences (
+                    event_id, occurrence_number, event_date, venue, venue_address,
+                    latitude, longitude, estimated_km, service_start_time,
+                    service_end_time, expected_duration_minutes, logistics_notes, service_mode
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                event_id, number, occurrence.get('event_date'), occurrence.get('venue'),
+                occurrence.get('venue_address'), occurrence.get('latitude'),
+                occurrence.get('longitude'), occurrence.get('estimated_km'),
+                occurrence.get('service_start_time'), occurrence.get('service_end_time'),
+                occurrence.get('expected_duration_minutes'),
+                occurrence.get('logistics_notes'), occurrence.get('service_mode', 'pending'),
+            ))
+
+        estimate_base = estimate_vat = estimate_total = None
+        if estimate_eligible:
+            cursor.execute("""
+                SELECT value_gross, taxa_iva FROM event_pricing_settings
+                WHERE key = 'gelado_kg' AND active = TRUE
+            """)
+            price = cursor.fetchone() or (Decimal('0'), None)
+            snapshot = calculate_quote_line(flavour_plan['total_kg'], price[0], price[1])
+            estimate_base = snapshot['total_net']
+            estimate_vat = snapshot['total_vat']
+            estimate_total = snapshot['total_gross']
+            cursor.execute("""
+                INSERT INTO quote_items (
+                    event_id, artigo_codigo, descricao, quantidade, preco_unitario, taxa_iva,
+                    unit_price_gross, total_net, total_vat, total_gross
+                ) VALUES (%s, 'gelado_kg', 'Estimativa de gelado (portal)', %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                event_id, flavour_plan['total_kg'], price[0], price[1],
+                snapshot['unit_price_gross'], snapshot['total_net'],
+                snapshot['total_vat'], snapshot['total_gross'],
+            ))
+
+        cursor.execute("""
+            INSERT INTO event_portal_requests (
+                event_id, email_normalized, access_code_hash, marketing_consent, referral_source,
+                servings_per_guest, flavours, resource_preferences, catering_requested,
+                estimate_eligible, estimated_base_eur, estimated_vat_eur, estimated_total_eur,
+                public_message
+            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s)
+        """, (
+            event_id, email, access_code_hash, bool(data.get('marketing_consent')), data.get('referral_source'),
+            flavour_plan['scoops'], json.dumps(flavour_plan['flavours'], ensure_ascii=False),
+            json.dumps(data.get('resource_preferences') or [], ensure_ascii=False),
+            catering, estimate_eligible, estimate_base, estimate_vat, estimate_total,
+            (
+                'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.'
+                if estimate_eligible else
+                'Recebemos o seu pedido. Como envolve mais de 200 participantes, várias datas '
+                'ou catering, a equipa irá contactar para preparar uma proposta.'
+            ),
+        ))
+        _insert_event_history(
+            cursor, event_id, 'portal_request_submitted', actor=f'portal:{email}',
+            new_status='novos',
+            details={
+                'occurrence_count': len(occurrences),
+                'estimate_eligible': estimate_eligible,
+                'resource_preferences': data.get('resource_preferences') or [],
+            },
+        )
+        conn.commit()
+        return {
+            'event_id': event_id,
+            'estimate_eligible': estimate_eligible,
+            'estimated_base_eur': estimate_base,
+            'estimated_vat_eur': estimate_vat,
+            'estimated_total_eur': estimate_total,
+            'flavour_plan': flavour_plan,
+            'access_code': access_code,
+        }
+
+
+def record_portal_access(email, action, event_id=None, ip_fingerprint=None):
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO event_portal_access_log
+                (email_normalized, event_id, action, ip_fingerprint)
+            VALUES (%s, %s, %s, %s)
+        """, (normalize_portal_email(email), event_id, action, ip_fingerprint))
+        conn.commit()
+
+
+def verify_portal_request_access(email, access_code):
+    """Return only the individual request protected by the supplied code."""
+    normalized = normalize_portal_email(email)
+    candidate = hashlib.sha256((access_code or '').strip().encode('utf-8')).hexdigest()
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT event_id FROM event_portal_requests
+            WHERE email_normalized = %s AND access_code_hash = %s
+            """,
+            (normalized, candidate),
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+
+def get_portal_events_for_email(email):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT e.id, e.event_name, e.event_type, e.status, e.created_at,
+                   p.estimate_eligible, p.estimated_total_eur, p.public_message,
+                   (SELECT MIN(eo.event_date) FROM event_occurrences eo WHERE eo.event_id = e.id) AS next_date,
+                   (SELECT COUNT(*) FROM event_occurrences eo WHERE eo.event_id = e.id) AS occurrence_count
+            FROM event_portal_requests p
+            JOIN events e ON e.id = p.event_id
+            WHERE p.email_normalized = %s
+            ORDER BY e.created_at DESC
+        """, (normalize_portal_email(email),))
+        return cursor.fetchall()
+
+
+def get_portal_event_for_email(event_id, email):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT e.*, p.marketing_consent, p.referral_source, p.servings_per_guest,
+                   p.flavours, p.resource_preferences, p.catering_requested,
+                   p.estimate_eligible, p.estimated_base_eur, p.estimated_vat_eur,
+                   p.estimated_total_eur, p.public_message, p.logistics_message,
+                   p.accepted_quote_revision, p.quote_accepted_at,
+                   (SELECT MIN(eo.event_date) FROM event_occurrences eo
+                    WHERE eo.event_id = e.id) AS next_date,
+                   (SELECT COUNT(*) FROM event_occurrences eo
+                    WHERE eo.event_id = e.id) AS occurrence_count
+            FROM event_portal_requests p
+            JOIN events e ON e.id = p.event_id
+            WHERE e.id = %s AND p.email_normalized = %s
+        """, (event_id, normalize_portal_email(email)))
+        event = cursor.fetchone()
+        if not event:
+            return None
+        revision, quote_rows = _quote_revision(cursor, event_id)
+        cursor.execute("""
+            SELECT id, descricao, quantidade, taxa_iva, total_net, total_vat,
+                   COALESCE(total_gross, total) AS total_gross
+            FROM quote_items WHERE event_id = %s ORDER BY id
+        """, (event_id,))
+        event['quote_items_public'] = cursor.fetchall()
+        event['quote_revision'] = revision
+        event['quote_totals'] = get_event_quote_totals(event_id)
+        event['occurrences_public'] = get_event_occurrences(event_id)
+        cursor.execute("""
+            SELECT original_filename, purpose, created_at
+            FROM event_portal_files
+            WHERE event_id = %s AND deleted_at IS NULL
+            ORDER BY created_at DESC
+        """, (event_id,))
+        event['proofs'] = cursor.fetchall()
+        return event
+
+
+def accept_portal_quote(event_id, email, presented_revision):
+    """Accept only a sent, unchanged quote and leave deposit validation to staff."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT e.status, p.accepted_quote_revision
+            FROM event_portal_requests p
+            JOIN events e ON e.id = p.event_id
+            WHERE e.id = %s AND p.email_normalized = %s
+            FOR UPDATE
+        """, (event_id, normalize_portal_email(email)))
+        event = cursor.fetchone()
+        if not event:
+            raise ValueError('Pedido não encontrado.')
+        revision, _ = _quote_revision(cursor, event_id, lock_rows=True)
+        if presented_revision != revision:
+            raise ValueError('O orçamento foi alterado. Reveja-o e aceite a versão atual.')
+        if event['accepted_quote_revision'] == revision:
+            return False
+        if normalize_event_status(event['status']) != 'enviado':
+            raise ValueError('O orçamento ainda não está disponível para aceitação.')
+        cursor.execute("""
+            SELECT COALESCE(SUM(COALESCE(total_gross, total)), 0) AS total
+            FROM quote_items WHERE event_id = %s
+        """, (event_id,))
+        total = _money(cursor.fetchone()['total'])
+        if total <= 0:
+            raise ValueError('O orçamento não tem um valor positivo para aceitar.')
+        cursor.execute("""
+            SELECT value_gross FROM event_pricing_settings
+            WHERE key = 'sinal_percentagem' AND active = TRUE
+        """)
+        deposit_row = cursor.fetchone()
+        deposit_percentage = _money(deposit_row['value_gross']) if deposit_row else Decimal('0')
+        cursor.execute("""
+            UPDATE events SET status = 'adjudicado', status_changed_at = NOW(),
+                invoice_amount_eur = %s, deposit_amount_eur = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (total, _money(total * deposit_percentage / Decimal('100')), event_id))
+        cursor.execute("""
+            UPDATE event_portal_requests
+            SET accepted_quote_revision = %s, quote_accepted_at = NOW(), updated_at = NOW()
+            WHERE event_id = %s
+        """, (revision, event_id))
+        _insert_event_history(
+            cursor, event_id, 'portal_quote_accepted', old_status='enviado',
+            new_status='adjudicado', actor=f'portal:{normalize_portal_email(email)}',
+            details={'quote_revision': revision},
+        )
+        conn.commit()
+        return True
+
+
+def create_portal_file(event_id, email, metadata):
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 1 FROM event_portal_requests
+            WHERE event_id = %s AND email_normalized = %s
+        """, (event_id, normalize_portal_email(email)))
+        if not cursor.fetchone():
+            raise ValueError('Pedido não encontrado.')
+        cursor.execute("""
+            INSERT INTO event_portal_files (
+                event_id, storage_name, original_filename, content_type,
+                byte_size, purpose, expires_at
+            ) VALUES (%s, %s, %s, %s, %s, 'deposit_proof', %s)
+        """, (
+            event_id, metadata['storage_name'], metadata['original_filename'],
+            metadata['content_type'], metadata['byte_size'], metadata['expires_at'],
+        ))
+        _insert_event_history(
+            cursor, event_id, 'portal_deposit_proof_uploaded',
+            actor=f'portal:{normalize_portal_email(email)}',
+            details={'filename': metadata['original_filename']},
+        )
+        conn.commit()
+
+
+def assert_portal_event_access(event_id, email):
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 1 FROM event_portal_requests
+            WHERE event_id = %s AND email_normalized = %s
+        """, (event_id, normalize_portal_email(email)))
+        if not cursor.fetchone():
+            raise ValueError('Pedido não encontrado.')
+
+
+def expire_portal_files(now=None):
+    """Mark expired portal proofs deleted and return their private storage names."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE event_portal_files
+            SET deleted_at = NOW()
+            WHERE deleted_at IS NULL AND expires_at <= COALESCE(%s, NOW())
+            RETURNING storage_name
+        """, (now,))
+        names = [row[0] for row in cursor.fetchall()]
+        conn.commit()
+        return names
+
+
+def get_portal_geocode_cache(address_key):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT latitude, longitude, round_trip_km, provider, failed
+            FROM event_portal_geocode_cache WHERE address_key = %s
+        """, (address_key,))
+        return cursor.fetchone()
+
+
+def save_portal_geocode_cache(address_key, result):
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO event_portal_geocode_cache
+                (address_key, latitude, longitude, round_trip_km, provider, failed)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (address_key) DO UPDATE SET
+                latitude = EXCLUDED.latitude, longitude = EXCLUDED.longitude,
+                round_trip_km = EXCLUDED.round_trip_km, provider = EXCLUDED.provider,
+                failed = EXCLUDED.failed, updated_at = NOW()
+        """, (
+            address_key, result.get('latitude'), result.get('longitude'),
+            result.get('round_trip_km'), result.get('provider'), bool(result.get('failed')),
+        ))
+        conn.commit()
+
 
 # ── event_clients ───────────────────────────────────────────────────────────────
 

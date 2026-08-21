@@ -9,6 +9,7 @@ import os
 
 _LOCK_STOCK_PRODUCAO_LOJAS = 202612
 _LOCK_EVENTOS_V2_FOUNDATION = 2026821
+_LOCK_EVENTOS_CUSTOMER_PORTAL = 2026822
 
 
 def run_migrations_stock_producao_lojas():
@@ -385,6 +386,118 @@ def run_migrations_eventos_v2_foundation():
                 logger.warning(
                     "run_migrations_eventos_v2_foundation: could not release advisory lock"
                 )
+
+
+def run_migrations_eventos_customer_portal():
+    """Additive storage for the public customer event portal.
+
+    Portal data is deliberately separate from internal event notes and legacy
+    Google Sheets fields so public reads can be restricted by normalized email.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s)",
+                (_LOCK_EVENTOS_CUSTOMER_PORTAL,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_eventos_customer_portal: lock held, skipping")
+                return
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS source VARCHAR(50)")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20)")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_portal_requests (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_id INTEGER NOT NULL UNIQUE REFERENCES events(id) ON DELETE RESTRICT,
+                    email_normalized VARCHAR(255) NOT NULL,
+                    access_code_hash VARCHAR(128),
+                    privacy_version VARCHAR(40) NOT NULL DEFAULT 'portal-v1',
+                    privacy_accepted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    marketing_consent BOOLEAN NOT NULL DEFAULT FALSE,
+                    referral_source VARCHAR(255),
+                    servings_per_guest INTEGER NOT NULL DEFAULT 1,
+                    flavours JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    resource_preferences JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    catering_requested BOOLEAN NOT NULL DEFAULT FALSE,
+                    estimate_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+                    estimated_base_eur NUMERIC(12,2),
+                    estimated_vat_eur NUMERIC(12,2),
+                    estimated_total_eur NUMERIC(12,2),
+                    public_message TEXT,
+                    logistics_message TEXT,
+                    accepted_quote_revision VARCHAR(128),
+                    quote_accepted_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                ALTER TABLE event_portal_requests
+                ADD COLUMN IF NOT EXISTS access_code_hash VARCHAR(128)
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_portal_access_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    email_normalized VARCHAR(255) NOT NULL,
+                    event_id INTEGER REFERENCES events(id) ON DELETE SET NULL,
+                    action VARCHAR(80) NOT NULL,
+                    ip_fingerprint VARCHAR(128),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_portal_files (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
+                    storage_name VARCHAR(255) NOT NULL UNIQUE,
+                    original_filename VARCHAR(255) NOT NULL,
+                    content_type VARCHAR(100) NOT NULL,
+                    byte_size INTEGER NOT NULL,
+                    purpose VARCHAR(50) NOT NULL DEFAULT 'deposit_proof',
+                    expires_at TIMESTAMP NOT NULL,
+                    deleted_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_portal_geocode_cache (
+                    address_key VARCHAR(500) PRIMARY KEY,
+                    latitude NUMERIC(10,7),
+                    longitude NUMERIC(10,7),
+                    round_trip_km NUMERIC(10,2),
+                    provider VARCHAR(50),
+                    failed BOOLEAN NOT NULL DEFAULT FALSE,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_portal_requests_email "
+                "ON event_portal_requests(email_normalized, created_at DESC)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_portal_files_expiry "
+                "ON event_portal_files(expires_at) WHERE deleted_at IS NULL"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_portal_access_email "
+                "ON event_portal_access_log(email_normalized, created_at DESC)"
+            )
+            conn.commit()
+            logger.info("run_migrations_eventos_customer_portal: complete")
+        except Exception:
+            conn.rollback()
+            logger.exception("run_migrations_eventos_customer_portal failed")
+            raise
+        finally:
+            try:
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (_LOCK_EVENTOS_CUSTOMER_PORTAL,),
+                )
+                conn.commit()
+            except Exception:
+                logger.warning("run_migrations_eventos_customer_portal: could not release lock")
 
 SCHEMA_VERSION = 15
 

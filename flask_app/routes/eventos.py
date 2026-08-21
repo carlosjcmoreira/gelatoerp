@@ -1,8 +1,15 @@
 import os
 import sys
-from datetime import datetime, date
+import hashlib
+import secrets
+import time
+from datetime import datetime, date, timedelta
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_app.auth import login_required, perm_required
+from flask_app.services.event_portal import (
+    cleanup_expired_portal_proofs, resolve_event_address, save_private_portal_proof,
+    validate_portal_proof,
+)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import database as db
@@ -99,6 +106,296 @@ def _current_actor():
     if isinstance(user, dict):
         return user.get('email') or user.get('username') or user.get('name')
     return str(user) if user else None
+
+
+def _portal_csrf_token():
+    token = session.get('event_portal_csrf')
+    if not token:
+        token = secrets.token_urlsafe(24)
+        session['event_portal_csrf'] = token
+    return token
+
+
+def _require_portal_csrf():
+    supplied = request.form.get('csrf_token', '')
+    expected = session.get('event_portal_csrf', '')
+    if not expected or not secrets.compare_digest(supplied, expected):
+        raise ValueError('A página expirou. Atualize e tente novamente.')
+
+
+def _portal_email():
+    expires_at = session.get('event_portal_access_until', 0)
+    email = session.get('event_portal_email')
+    verified = session.get('event_portal_verified') is True
+    if not email or not verified or not isinstance(expires_at, (float, int)) or expires_at < time.time():
+        session.pop('event_portal_email', None)
+        session.pop('event_portal_access_until', None)
+        session.pop('event_portal_verified', None)
+        session.pop('event_portal_event_id', None)
+        return None
+    return email
+
+
+def _portal_event_id():
+    event_id = session.get('event_portal_event_id')
+    return event_id if isinstance(event_id, int) and event_id > 0 else None
+
+
+def _portal_ip_fingerprint():
+    remote = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+    return hashlib.sha256(remote.encode('utf-8')).hexdigest() if remote else None
+
+
+def _portal_end_time(start, duration_minutes):
+    if not start:
+        return None
+    try:
+        start_at = datetime.strptime(start, '%H:%M')
+        return (start_at + timedelta(minutes=int(duration_minutes))).strftime('%H:%M')
+    except (ValueError, TypeError):
+        return None
+
+
+def _portal_login_required():
+    email = _portal_email()
+    if email:
+        return email
+    flash('Indique o email e o código de consulta para ver os seus pedidos.', 'warning')
+    return None
+
+
+# ── Public customer event portal ───────────────────────────────────────────────
+
+@eventos_bp.route('/pedido-evento', methods=['GET', 'POST'])
+def portal_request():
+    if request.method == 'POST':
+        try:
+            _require_portal_csrf()
+            dates = request.form.getlist('occurrence_date[]')
+            start_times = request.form.getlist('occurrence_start[]')
+            venues = request.form.getlist('occurrence_venue[]')
+            addresses = request.form.getlist('occurrence_address[]')
+            occurrences = []
+            for index, raw_date in enumerate(dates):
+                if not raw_date:
+                    continue
+                try:
+                    event_date = datetime.strptime(raw_date, '%Y-%m-%d').date()
+                except ValueError:
+                    raise ValueError('Uma das datas do evento não é válida.')
+                if event_date < date.today():
+                    raise ValueError('Escolha uma data futura.')
+                venue = (venues[index] if index < len(venues) else '').strip()
+                address = (addresses[index] if index < len(addresses) else '').strip()
+                if not address:
+                    raise ValueError('Indique a morada de cada ocorrência.')
+                location = resolve_event_address(address)
+                duration = request.form.get('duration_minutes', '180')
+                occurrences.append({
+                    'event_date': event_date,
+                    'service_start_time': start_times[index] if index < len(start_times) else None,
+                    'service_end_time': _portal_end_time(
+                        start_times[index] if index < len(start_times) else None, duration,
+                    ),
+                    'expected_duration_minutes': int(duration),
+                    'venue': venue or 'Local indicado pelo cliente',
+                    'venue_address': address,
+                    'latitude': location.get('latitude'),
+                    'longitude': location.get('longitude'),
+                    'estimated_km': location.get('round_trip_km'),
+                    'logistics_notes': (
+                        'Geocoding pendente de revisão manual.'
+                        if location.get('manual_review') else None
+                    ),
+                    'service_mode': (
+                        'catering' if request.form.get('service_mode') == 'catering'
+                        else 'pending'
+                    ),
+                })
+            result = db.create_portal_event_request({
+                'event_name': request.form.get('event_name', '').strip(),
+                'event_type': request.form.get('event_type', '').strip(),
+                'estimated_guests': request.form.get('estimated_guests'),
+                'servings_per_guest': request.form.get('servings_per_guest'),
+                'flavours': request.form.getlist('flavours[]'),
+                'occurrences': occurrences,
+                'client_name': request.form.get('client_name', '').strip(),
+                'client_email': request.form.get('client_email', '').strip(),
+                'client_phone': request.form.get('client_phone', '').strip(),
+                'marketing_consent': request.form.get('marketing_consent') == '1',
+                'privacy_accepted': request.form.get('privacy_accepted') == '1',
+                'referral_source': request.form.get('referral_source', '').strip(),
+                'resource_preferences': request.form.getlist('resource_preferences[]'),
+                'catering_requested': request.form.get('service_mode') == 'catering',
+            })
+            email = db.normalize_portal_email(request.form.get('client_email'))
+            access_code = result.get('access_code')
+            if access_code:
+                session['event_portal_email'] = email
+                session['event_portal_verified'] = True
+                session['event_portal_access_until'] = time.time() + 30 * 60
+                session['event_portal_event_id'] = result['event_id']
+                session['event_portal_access_code_once'] = access_code
+            db.record_portal_access(email, 'request_submitted', result['event_id'], _portal_ip_fingerprint())
+            preferences = request.form.getlist('resource_preferences[]')
+            resource_ids = {
+                resource['code']: resource['id']
+                for resource in db.get_event_resources()
+            }
+            has_resource_risk = any(
+                db.get_resource_conflicts(
+                    resource_ids[preference], occurrence['event_date'],
+                    occurrence['service_start_time'], occurrence['service_end_time'],
+                )
+                for preference in preferences if preference in resource_ids
+                for occurrence in occurrences
+            )
+            if has_resource_risk:
+                flash(
+                    'A preferência de carrinho/arca tem disponibilidade limitada nessa data. '
+                    'A equipa pode propor serviço pelo cliente, catering ou outra alternativa.',
+                    'warning',
+                )
+            if access_code:
+                flash('Recebemos o seu pedido. Guarde o código de consulta mostrado abaixo.', 'success')
+                return redirect(url_for('eventos.portal_event', event_id=result['event_id']))
+            flash('Recebemos o seu pedido. Guarde o código de consulta mostrado abaixo.', 'success')
+            return redirect(url_for('eventos.portal_event', event_id=result['event_id']))
+        except ValueError as exc:
+            flash(str(exc), 'error')
+
+    calendar_dates = [
+        {'date': row['event_date'].isoformat(), 'risk': row['risk']}
+        for row in db.get_portal_unavailable_dates()
+    ]
+    return render_template(
+        'eventos/portal_request.html', calendar_dates=calendar_dates,
+        csrf_token=_portal_csrf_token(), form=request.form,
+    )
+
+
+@eventos_bp.route('/portal-eventos', methods=['GET', 'POST'])
+def portal_access():
+    if request.method == 'POST':
+        try:
+            _require_portal_csrf()
+            email = db.normalize_portal_email(request.form.get('email'))
+            event_id = db.verify_portal_request_access(email, request.form.get('access_code'))
+            if not event_id:
+                raise ValueError('O email ou o código de consulta não estão corretos.')
+            session['event_portal_email'] = email
+            session['event_portal_verified'] = True
+            session['event_portal_access_until'] = time.time() + 30 * 60
+            session['event_portal_event_id'] = event_id
+            db.record_portal_access(
+                email, 'email_access_started', event_id, _portal_ip_fingerprint()
+            )
+            return redirect(url_for('eventos.portal_events'))
+        except ValueError as exc:
+            flash(str(exc), 'error')
+    return render_template('eventos/portal_access.html', csrf_token=_portal_csrf_token())
+
+
+@eventos_bp.route('/portal-eventos/sair', methods=['POST'])
+def portal_logout():
+    try:
+        _require_portal_csrf()
+    except ValueError:
+        return redirect(url_for('eventos.portal_access'))
+    email = _portal_email()
+    if email:
+        db.record_portal_access(email, 'email_access_ended', ip_fingerprint=_portal_ip_fingerprint())
+    session.pop('event_portal_email', None)
+    session.pop('event_portal_access_until', None)
+    session.pop('event_portal_verified', None)
+    session.pop('event_portal_event_id', None)
+    flash('A consulta dos seus pedidos terminou.', 'success')
+    return redirect(url_for('eventos.portal_access'))
+
+
+@eventos_bp.route('/portal-eventos/pedidos')
+def portal_events():
+    email = _portal_login_required()
+    if not email:
+        return redirect(url_for('eventos.portal_access'))
+    event_id = _portal_event_id()
+    event = db.get_portal_event_for_email(event_id, email) if event_id else None
+    events = [event] if event else []
+    db.record_portal_access(email, 'event_list_viewed', ip_fingerprint=_portal_ip_fingerprint())
+    return render_template(
+        'eventos/portal_events.html', events=events, email=email,
+        csrf_token=_portal_csrf_token(), status_labels=STATUS_LABELS,
+        status_colors=STATUS_COLORS,
+    )
+
+
+@eventos_bp.route('/portal-eventos/pedido/<int:event_id>')
+def portal_event(event_id):
+    email = _portal_login_required()
+    if not email:
+        return redirect(url_for('eventos.portal_access'))
+    if event_id != _portal_event_id():
+        flash('Este código só permite consultar o pedido associado.', 'error')
+        return redirect(url_for('eventos.portal_events'))
+    event = db.get_portal_event_for_email(event_id, email)
+    if not event:
+        flash('Não foi possível consultar este pedido com o email atual.', 'error')
+        return redirect(url_for('eventos.portal_events'))
+    db.record_portal_access(email, 'event_viewed', event_id, _portal_ip_fingerprint())
+    return render_template(
+        'eventos/portal_event.html', event=event, csrf_token=_portal_csrf_token(),
+        status_labels=STATUS_LABELS, status_colors=STATUS_COLORS,
+        access_code_once=session.pop('event_portal_access_code_once', None),
+    )
+
+
+@eventos_bp.route('/portal-eventos/pedido/<int:event_id>/aceitar', methods=['POST'])
+def portal_accept_quote(event_id):
+    email = _portal_login_required()
+    if not email:
+        return redirect(url_for('eventos.portal_access'))
+    if event_id != _portal_event_id():
+        flash('Este código não permite alterar esse pedido.', 'error')
+        return redirect(url_for('eventos.portal_events'))
+    try:
+        _require_portal_csrf()
+        accepted = db.accept_portal_quote(event_id, email, request.form.get('quote_revision', ''))
+        db.record_portal_access(email, 'quote_accepted' if accepted else 'quote_accept_replayed', event_id, _portal_ip_fingerprint())
+        flash('Orçamento aceite. Aguarde as instruções para o sinal.', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('eventos.portal_event', event_id=event_id))
+
+
+@eventos_bp.route('/portal-eventos/pedido/<int:event_id>/comprovativo', methods=['POST'])
+def portal_upload_proof(event_id):
+    email = _portal_login_required()
+    if not email:
+        return redirect(url_for('eventos.portal_access'))
+    try:
+        _require_portal_csrf()
+        if event_id != _portal_event_id():
+            raise ValueError('Este código não permite alterar esse pedido.')
+        db.assert_portal_event_access(event_id, email)
+        validated = validate_portal_proof(request.files.get('proof_file'))
+        upload_root = os.path.join(os.path.dirname(__file__), '..', '..', 'private_uploads', 'event_proofs')
+        cleanup_expired_portal_proofs(upload_root)
+        metadata = save_private_portal_proof(validated, upload_root)
+        try:
+            db.create_portal_file(event_id, email, metadata)
+        except Exception:
+            try:
+                os.unlink(os.path.join(upload_root, metadata['storage_name']))
+            except FileNotFoundError:
+                pass
+            raise
+        db.record_portal_access(email, 'deposit_proof_uploaded', event_id, _portal_ip_fingerprint())
+        flash('Comprovativo recebido. A equipa irá validá-lo.', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    except Exception:
+        flash('Não foi possível guardar o comprovativo. Tente novamente.', 'error')
+    return redirect(url_for('eventos.portal_event', event_id=event_id))
 
 TABS = [
     {'id': 'dashboard', 'label': 'Dashboard', 'icon': '📊', 'url_endpoint': 'eventos.dashboard'},

@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block head %}
+<style>
+.portal-shell{max-width:920px;margin:0 auto;padding:2rem 1rem 4rem}.portal-hero{background:linear-gradient(135deg,#167c70,#35a394);color:#fff;border-radius:20px;padding:2rem;margin-bottom:1.25rem}.portal-card{border:0;border-radius:16px;box-shadow:0 8px 24px rgba(16,58,54,.09)}.occurrence{background:#f8fbfa;border:1px solid #d9ebe7;border-radius:12px;padding:1rem}.risk-dates{font-size:.82rem}.flavour-row .btn{min-width:38px}
+</style>
+{% endblock %}
+{% block content %}
+<div class="portal-shell">
+  <div class="portal-hero">
+    <div class="d-flex justify-content-between align-items-start gap-3">
+      <div><div class="small text-uppercase opacity-75">Eventos Scoopy</div><h1 class="h2 mb-2">Peça o seu evento</h1><p class="mb-0 opacity-90">Conte-nos o que imagina. A equipa confirma disponibilidade, logística e orçamento.</p></div>
+      <a href="{{ url_for('eventos.portal_access') }}" class="btn btn-light btn-sm text-nowrap">Acompanhar pedido</a>
+    </div>
+  </div>
+  {% if calendar_dates %}
+  <div class="alert alert-warning risk-dates"><strong>Disponibilidade indicativa:</strong> as datas abaixo já têm evento confirmado ou risco de recurso. Pode pedir na mesma, mas a equipa confirmará alternativas.
+    <div class="mt-1">{% for item in calendar_dates %}<span class="badge text-bg-warning me-1">{{ item.date }}</span>{% endfor %}</div>
+  </div>
+  {% endif %}
+  <form method="post" class="card portal-card" novalidate>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="card-body p-3 p-md-4">
+      <h2 class="h5 mb-3">O seu pedido</h2>
+      <div class="row g-3">
+        <div class="col-md-7"><label class="form-label">Nome do evento <span class="text-muted">(opcional)</span></label><input class="form-control" name="event_name" value="{{ form.get('event_name','') }}" placeholder="Ex.: Festa de verão da empresa"></div>
+        <div class="col-md-5"><label class="form-label">Tipo de evento *</label><select class="form-select" name="event_type" required><option value="">Selecionar…</option>{% for type in ['Aniversário','Casamento','Empresa','Festival','Outro'] %}<option {% if form.get('event_type')==type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></div>
+        <div class="col-sm-4"><label class="form-label">Participantes *</label><input id="guests" type="number" class="form-control" name="estimated_guests" min="1" max="5000" required value="{{ form.get('estimated_guests','') }}"></div>
+        <div class="col-sm-4"><label class="form-label">Bolas por pessoa *</label><select id="scoops" class="form-select" name="servings_per_guest"><option value="1">1 bola · 70 g</option><option value="2">2 bolas · 120 g</option></select></div>
+        <div class="col-sm-4"><label class="form-label">Duração prevista</label><select class="form-select" name="duration_minutes"><option value="120">2 horas</option><option value="180" selected>3 horas</option><option value="240">4 horas</option><option value="300">5 horas</option></select></div>
+      </div>
+
+      <hr class="my-4"><div class="d-flex justify-content-between align-items-center"><h2 class="h5 mb-0">Datas e local</h2><button class="btn btn-outline-secondary btn-sm" type="button" id="add-occurrence">+ Outra data</button></div>
+      <p class="small text-muted mt-2">Pedidos com várias datas são sempre confirmados pela equipa.</p>
+      <div id="occurrences" class="vstack gap-2">
+        <div class="occurrence">
+          <div class="row g-2"><div class="col-6 col-md-3"><label class="form-label small">Data *</label><input type="date" class="form-control date-input" name="occurrence_date[]" required></div><div class="col-6 col-md-3"><label class="form-label small">Hora de início</label><input type="time" class="form-control" name="occurrence_start[]"></div><div class="col-md-3"><label class="form-label small">Local</label><input class="form-control" name="occurrence_venue[]" placeholder="Nome do local"></div><div class="col-md-3"><label class="form-label small">Morada *</label><input class="form-control" name="occurrence_address[]" required placeholder="Rua, localidade"></div></div>
+          <div class="small text-warning mt-2 d-none date-risk">Esta data pode ter disponibilidade limitada. A equipa confirma antes de reservar.</div>
+        </div>
+      </div>
+
+      <hr class="my-4"><h2 class="h5">Gelado e serviço</h2>
+      <div class="row g-3"><div class="col-md-6"><label class="form-label">Como prefere o serviço?</label><select class="form-select" name="service_mode"><option value="niva_serves">A equipa Scoopy serve</option><option value="client_serves">Cliente/catering serve</option><option value="catering">Catering</option></select></div><div class="col-md-6"><label class="form-label d-block">Equipamento preferido</label><div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="resource_preferences[]" value="carrinho" id="cart"><label class="form-check-label" for="cart">Carrinho</label></div><div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="resource_preferences[]" value="arca" id="freezer"><label class="form-check-label" for="freezer">Arca</label></div><div class="small text-muted mt-1">Preferência sujeita a disponibilidade; nunca é uma reserva automática.</div></div></div>
+      <div class="mt-3"><label class="form-label">Sabores (1 a 6) *</label><div id="flavours" class="vstack gap-2"><div class="input-group flavour-row"><input class="form-control flavour-input" name="flavours[]" required placeholder="Ex.: Chocolate"><button class="btn btn-outline-danger remove-flavour" type="button" disabled>×</button></div></div><button class="btn btn-outline-secondary btn-sm mt-2" type="button" id="add-flavour">+ Adicionar sabor</button></div>
+      <div class="alert alert-info mt-3 mb-0" id="calculator">Indique participantes e sabores para ver as quantidades sugeridas.</div>
+
+      <hr class="my-4"><h2 class="h5">Contacto</h2>
+      <div class="row g-3"><div class="col-md-5"><label class="form-label">Nome *</label><input class="form-control" name="client_name" required value="{{ form.get('client_name','') }}"></div><div class="col-md-4"><label class="form-label">Email *</label><input class="form-control" type="email" name="client_email" required value="{{ form.get('client_email','') }}"></div><div class="col-md-3"><label class="form-label">Telefone *</label><input class="form-control" type="tel" name="client_phone" required value="{{ form.get('client_phone','') }}"></div><div class="col-md-6"><label class="form-label">Como chegou até nós?</label><input class="form-control" name="referral_source" placeholder="Ex.: Instagram, recomendação"></div></div>
+      <div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="marketing_consent" value="1" id="marketing"><label class="form-check-label small" for="marketing">Aceito receber novidades e campanhas da Scoopy.</label></div>
+      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="privacy_accepted" value="1" id="privacy" required><label class="form-check-label small" for="privacy">Li e aceito que os meus dados sejam usados para responder e gerir este pedido. Pode consultar ou pedir a remoção dos dados junto da equipa.</label></div>
+      <button class="btn btn-success w-100 mt-4 py-2">Enviar pedido</button>
+    </div>
+  </form>
+</div>
+<script>
+const riskyDates=new Set({{ calendar_dates|map(attribute='date')|list|tojson }});
+function bindDate(el){el.addEventListener('change',()=>el.closest('.occurrence').querySelector('.date-risk').classList.toggle('d-none',!riskyDates.has(el.value)));}
+document.querySelectorAll('.date-input').forEach(bindDate);
+document.getElementById('add-occurrence').onclick=()=>{const copy=document.querySelector('.occurrence').cloneNode(true);copy.querySelectorAll('input').forEach(i=>i.value='');copy.querySelector('.date-risk').classList.add('d-none');copy.insertAdjacentHTML('afterbegin','<button type="button" class="btn-close float-end remove-occurrence" aria-label="Remover data"></button>');document.getElementById('occurrences').append(copy);bindDate(copy.querySelector('.date-input'));copy.querySelector('.remove-occurrence').onclick=()=>copy.remove();};
+function calculate(){const guests=+document.getElementById('guests').value,scoops=+document.getElementById('scoops').value,flavours=[...document.querySelectorAll('.flavour-input')].map(x=>x.value.trim()).filter(Boolean);if(!guests||!flavours.length)return;const total=guests*(scoops===2?120:70)/1000,per=Math.max(2,total/flavours.length),actual=per*flavours.length;document.getElementById('calculator').textContent=`Estimativa: ${actual.toFixed(2)} kg no total · ${per.toFixed(2)} kg por sabor (${scoops===2?120:70} g por pessoa). O mínimo é 2 kg por sabor.`;}
+document.addEventListener('input',calculate);document.getElementById('scoops').addEventListener('change',calculate);
+document.getElementById('add-flavour').onclick=()=>{if(document.querySelectorAll('.flavour-input').length>=6)return;const row=document.createElement('div');row.className='input-group flavour-row';row.innerHTML='<input class="form-control flavour-input" name="flavours[]" required placeholder="Outro sabor"><button class="btn btn-outline-danger remove-flavour" type="button">×</button>';row.querySelector('button').onclick=()=>{row.remove();calculate();};document.getElementById('flavours').append(row);};
+</script>
+{% endblock %}

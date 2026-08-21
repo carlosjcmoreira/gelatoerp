@@ -3,6 +3,10 @@ import os
 bind = "0.0.0.0:5000"
 workers = 4
 worker_class = "sync"
+# Build the Flask application (and run its idempotent migrations) once in the
+# master process. Workers inherit the ready application, avoiding concurrent
+# ALTER TABLE calls during boot.
+preload_app = True
 timeout = 300
 keepalive = 5
 reuse_port = True
@@ -25,6 +29,10 @@ def post_fork(server, worker):
             from flask_app.app import _start_sheets_sync_scheduler
             server.log.info("Starting Google Sheets sync scheduler in worker %s (age=%s)", worker.pid, worker.age)
             _start_sheets_sync_scheduler()
+
+        from flask_app.app import _start_event_portal_cleanup_scheduler
+        server.log.info("Starting event portal proof cleanup in worker %s (age=%s)", worker.pid, worker.age)
+        _start_event_portal_cleanup_scheduler()
 
         import weather_scheduler as wsch
         server.log.info("Starting weather scheduler in worker %s (age=%s)", worker.pid, worker.age)
