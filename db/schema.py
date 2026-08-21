@@ -8,6 +8,7 @@ import os
 
 
 _LOCK_STOCK_PRODUCAO_LOJAS = 202612
+_LOCK_EVENTOS_V2_FOUNDATION = 2026821
 
 
 def run_migrations_stock_producao_lojas():
@@ -59,6 +60,331 @@ def run_migrations_stock_producao_lojas():
             )
 
         conn.commit()
+
+
+def run_migrations_eventos_v2_foundation():
+    """Create the v2 events foundation without discarding historical CRM data.
+
+    The existing ``events`` table remains the canonical commercial event record.
+    Older ``eventos`` / ``evento_items`` records are intentionally left intact:
+    they are still consumed by the already-shipped production integration.  This
+    migration adds the v2 structures alongside both models and backfills only a
+    primary occurrence for compatible ``events`` rows.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s)",
+                (_LOCK_EVENTOS_V2_FOUNDATION,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_eventos_v2_foundation: lock held by another worker, skipping"
+                )
+                return
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_occurrences (
+                    id SERIAL PRIMARY KEY,
+                    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                    occurrence_number INTEGER NOT NULL DEFAULT 1,
+                    event_date DATE,
+                    venue VARCHAR(255),
+                    venue_address TEXT,
+                    latitude NUMERIC(10,7),
+                    longitude NUMERIC(10,7),
+                    estimated_km NUMERIC(10,2),
+                    service_start_time TIME,
+                    service_end_time TIME,
+                    expected_duration_minutes INTEGER,
+                    logistics_notes TEXT,
+                    service_mode VARCHAR(30) NOT NULL DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(event_id, occurrence_number)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_resources (
+                    id SERIAL PRIMARY KEY,
+                    code VARCHAR(80) NOT NULL UNIQUE,
+                    name VARCHAR(255) NOT NULL,
+                    resource_type VARCHAR(80) NOT NULL DEFAULT 'equipment',
+                    capacity_carapinas INTEGER,
+                    capacity_flavors INTEGER,
+                    active BOOLEAN NOT NULL DEFAULT TRUE,
+                    notes TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CHECK (capacity_carapinas IS NULL OR capacity_carapinas >= 0),
+                    CHECK (capacity_flavors IS NULL OR capacity_flavors >= 0)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_resource_reservations (
+                    id SERIAL PRIMARY KEY,
+                    occurrence_id INTEGER NOT NULL REFERENCES event_occurrences(id) ON DELETE CASCADE,
+                    resource_id INTEGER NOT NULL REFERENCES event_resources(id) ON DELETE RESTRICT,
+                    status VARCHAR(30) NOT NULL DEFAULT 'requested',
+                    risk_acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+                    notes TEXT,
+                    reserved_by VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(occurrence_id, resource_id)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_pricing_settings (
+                    key VARCHAR(100) PRIMARY KEY,
+                    label VARCHAR(255) NOT NULL,
+                    setting_type VARCHAR(30) NOT NULL DEFAULT 'money',
+                    value_gross NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    taxa_iva NUMERIC(5,4),
+                    requires_tax_review BOOLEAN NOT NULL DEFAULT TRUE,
+                    active BOOLEAN NOT NULL DEFAULT TRUE,
+                    updated_by VARCHAR(255),
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CHECK (value_gross >= 0),
+                    CHECK (taxa_iva IS NULL OR (taxa_iva >= 0 AND taxa_iva <= 1))
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_history (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
+                    event_type VARCHAR(50) NOT NULL,
+                    old_status VARCHAR(50),
+                    new_status VARCHAR(50),
+                    actor VARCHAR(255),
+                    reason TEXT,
+                    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_date "
+                "ON event_occurrences(event_date)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_resource_reservations_resource "
+                "ON event_resource_reservations(resource_id)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_history_event_created "
+                "ON event_history(event_id, created_at DESC)"
+            )
+
+            # Keep the previous date/location fields for established screens, while
+            # adding the financial and operational snapshots used by v2.
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMP"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_amount_eur NUMERIC(12,2)"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_received_at TIMESTAMP"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_validated_at TIMESTAMP"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_verified_by VARCHAR(255)"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_proof_reference TEXT"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_non_refundable "
+                "BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS reserved_at TIMESTAMP"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP"
+            )
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS archived_by VARCHAR(255)"
+            )
+            # Existing databases created the first version with CASCADE.  Audit
+            # records must survive an archive attempt, so make the relationship
+            # restrictive too; this is safe to repeat on every startup.
+            cursor.execute(
+                "ALTER TABLE event_history DROP CONSTRAINT IF EXISTS event_history_event_id_fkey"
+            )
+            cursor.execute(
+                "ALTER TABLE event_history ADD CONSTRAINT event_history_event_id_fkey "
+                "FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE RESTRICT"
+            )
+            cursor.execute(
+                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS unit_price_gross NUMERIC(10,2)"
+            )
+            cursor.execute(
+                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS total_net NUMERIC(10,2)"
+            )
+            cursor.execute(
+                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS total_vat NUMERIC(10,2)"
+            )
+            cursor.execute(
+                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS total_gross NUMERIC(10,2)"
+            )
+            cursor.execute(
+                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS pricing_setting_key VARCHAR(100)"
+            )
+            cursor.execute(
+                "ALTER TABLE artigos_evento ADD COLUMN IF NOT EXISTS taxa_iva NUMERIC(5,4)"
+            )
+            cursor.execute(
+                "ALTER TABLE artigos_evento ADD COLUMN IF NOT EXISTS pricing_setting_key VARCHAR(100)"
+            )
+
+            # The defaults are editable starting points, not accounting truth.
+            # Historical quote lines with no explicit IVA remain untouched below.
+            pricing_defaults = [
+                ('gelado_kg', 'Gelado por kg', 'money', 31.80, 0.13),
+                ('servico_fixo', 'Serviço por ocorrência', 'money', 120.00, 0.23),
+                ('deslocacao_km', 'Deslocação por km', 'money', 0.00, 0.23),
+                ('carrinha_fixa', 'Carrinha por ocorrência', 'money', 35.00, 0.23),
+                ('carrinho_fixo', 'Carrinho por ocorrência', 'money', 40.00, 0.23),
+                ('arca_fixa', 'Arca por ocorrência', 'money', 20.00, 0.23),
+                ('sinal_percentagem', 'Sinal de reserva', 'percentage', 15.00, None),
+            ]
+            for key, label, setting_type, value_gross, taxa_iva in pricing_defaults:
+                cursor.execute(
+                    """
+                    INSERT INTO event_pricing_settings
+                        (key, label, setting_type, value_gross, taxa_iva, requires_tax_review)
+                    VALUES (%s, %s, %s, %s, %s, TRUE)
+                    ON CONFLICT (key) DO NOTHING
+                    """,
+                    (key, label, setting_type, value_gross, taxa_iva),
+                )
+
+            for code, name in (
+                ('carrinha', 'Carrinha de eventos'),
+                ('carrinho', 'Carrinho de gelado'),
+                ('arca', 'Arca de gelado'),
+            ):
+                cursor.execute(
+                    """
+                    INSERT INTO event_resources (code, name, resource_type)
+                    VALUES (%s, %s, 'equipment')
+                    ON CONFLICT (code) DO NOTHING
+                    """,
+                    (code, name),
+                )
+
+            # Move the active CRM table to the agreed pipeline.  The legacy
+            # production table named ``eventos`` remains untouched by design.
+            cursor.execute(
+                """
+                UPDATE events
+                SET status = CASE status
+                    WHEN 'lead' THEN 'novos'
+                    WHEN 'contacted' THEN 'orcamentado'
+                    WHEN 'negotiating' THEN 'orcamentado'
+                    WHEN 'proposal_sent' THEN 'enviado'
+                    WHEN 'won' THEN 'adjudicado'
+                    WHEN 'lost' THEN 'rejeitado'
+                    WHEN 'cancelled' THEN 'cancelado'
+                    ELSE status
+                END,
+                status_changed_at = COALESCE(status_changed_at, updated_at, created_at)
+                WHERE status IN ('lead', 'contacted', 'negotiating', 'proposal_sent',
+                                 'won', 'lost', 'cancelled')
+                """
+            )
+
+            # Backfill a single primary occurrence for the existing CRM data.
+            cursor.execute(
+                """
+                INSERT INTO event_occurrences (
+                    event_id, occurrence_number, event_date, venue, venue_address,
+                    service_start_time, service_end_time, logistics_notes
+                )
+                SELECT
+                    e.id, 1, e.event_date, e.venue, e.venue_address,
+                    CASE
+                        WHEN e.event_time ~ '^\\d{1,2}:\\d{2}(:\\d{2})?$'
+                        THEN e.event_time::time
+                        ELSE NULL
+                    END,
+                    CASE
+                        WHEN e.event_end_time ~ '^\\d{1,2}:\\d{2}(:\\d{2})?$'
+                        THEN e.event_end_time::time
+                        ELSE NULL
+                    END,
+                    e.internal_notes
+                FROM events e
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM event_occurrences eo
+                    WHERE eo.event_id = e.id
+                )
+                """
+            )
+
+            # Preserve historical totals without inventing IVA.  New or edited
+            # lines are snapshotted by db.eventos with their configured rate.
+            cursor.execute(
+                """
+                UPDATE quote_items
+                SET unit_price_gross = COALESCE(unit_price_gross, preco_unitario),
+                    total_gross = COALESCE(total_gross, total)
+                WHERE unit_price_gross IS NULL OR total_gross IS NULL
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE quote_items
+                SET total_net = ROUND(total / (1 + taxa_iva), 2),
+                    total_vat = total - ROUND(total / (1 + taxa_iva), 2),
+                    total_gross = total,
+                    unit_price_gross = COALESCE(unit_price_gross, preco_unitario)
+                WHERE taxa_iva IS NOT NULL
+                  AND (total_net IS NULL OR total_vat IS NULL)
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE artigos_evento
+                SET taxa_iva = CASE
+                    WHEN codigo IN ('gelado_kg', 'gelado_sabor') THEN 0.13
+                    ELSE 0.23
+                END
+                WHERE taxa_iva IS NULL
+                """
+            )
+
+            conn.commit()
+            logger.info("run_migrations_eventos_v2_foundation: complete")
+        except Exception:
+            conn.rollback()
+            logger.exception("run_migrations_eventos_v2_foundation failed")
+            raise
+        finally:
+            try:
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (_LOCK_EVENTOS_V2_FOUNDATION,),
+                )
+                conn.commit()
+            except Exception:
+                logger.warning(
+                    "run_migrations_eventos_v2_foundation: could not release advisory lock"
+                )
 
 SCHEMA_VERSION = 15
 

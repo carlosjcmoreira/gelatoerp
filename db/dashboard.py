@@ -252,13 +252,15 @@ def widget_eventos() -> dict:
         cur = conn.cursor()
         cur.execute(
             """SELECT COUNT(*) FROM events
-               WHERE status = 'won' AND event_date BETWEEN %s AND %s""",
+               WHERE status IN ('sinalizado', 'realizado', 'faturado', 'recebido')
+                 AND event_date BETWEEN %s AND %s""",
             (today, em_7_dias)
         )
         proximos_confirmados = int(cur.fetchone()[0])
         cur.execute(
             """SELECT event_name, event_date FROM events
-               WHERE status = 'won' AND event_date >= %s
+               WHERE status IN ('sinalizado', 'realizado', 'faturado', 'recebido')
+                 AND event_date >= %s
                ORDER BY event_date ASC LIMIT 1""",
             (today,)
         )

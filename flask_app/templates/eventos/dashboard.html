@@ -25,7 +25,7 @@
         </div>
 
         {% set total_pipeline = namespace(val=0, count=0) %}
-        {% for s in ['lead','contacted','proposal_sent','negotiating'] %}
+        {% for s in ['novos','orcamentado','enviado'] %}
             {% if s in by_status %}
                 {% set total_pipeline.val = total_pipeline.val + (by_status[s].total_value | float) %}
                 {% set total_pipeline.count = total_pipeline.count + (by_status[s].count | int) %}
@@ -43,7 +43,7 @@
             </div>
         </div>
 
-        {% set won_data = by_status.get('won', {}) %}
+        {% set won_data = by_status.get('adjudicado', {}) %}
         <div class="col-12 col-sm-6 col-lg-3">
             <div class="card border-success h-100 shadow-sm">
                 <div class="card-body text-center py-3">
@@ -58,7 +58,7 @@
 
         {% set total_all = namespace(val=0, count=0) %}
         {% for s, d in by_status.items() %}
-            {% if s not in ['lost','cancelled'] %}
+            {% if s not in ['rejeitado','cancelado'] %}
                 {% set total_all.val = total_all.val + (d.total_value | float) %}
                 {% set total_all.count = total_all.count + (d.count | int) %}
             {% endif %}
@@ -132,14 +132,14 @@
     </div>
 
     {% set won_future = stats.won_future_value %}
-    {% set pipeline_statuses = ['lead','contacted','proposal_sent','negotiating'] %}
+        {% set pipeline_statuses = ['novos','orcamentado','enviado'] %}
     {% set bar_total = namespace(val=0) %}
     {% for s in pipeline_statuses %}
         {% if s in by_status %}
             {% set bar_total.val = bar_total.val + (by_status[s].total_value | float) %}
         {% endif %}
     {% endfor %}
-    {% set bar_total.val = bar_total.val + (by_status.get('won', {}).get('total_value', 0) | float) %}
+    {% set bar_total.val = bar_total.val + (by_status.get('adjudicado', {}).get('total_value', 0) | float) %}
 
     {% if bar_total.val > 0 %}
     <div class="card shadow-sm">

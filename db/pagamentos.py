@@ -550,14 +550,15 @@ def compute_vat_period(year, month, rate_pos: float = None, rate_events: float =
 
         cursor.execute("""
             SELECT
-                COALESCE(SUM(qi.total * qi.taxa_iva) FILTER (WHERE qi.taxa_iva IS NOT NULL), 0) AS vat_events_real,
-                COALESCE(SUM(qi.total) FILTER (WHERE qi.taxa_iva IS NOT NULL), 0) AS events_base_real,
-                COALESCE(SUM(qi.total) FILTER (WHERE qi.taxa_iva IS NULL), 0) AS events_base_fallback
+                COALESCE(SUM(qi.total_vat) FILTER (WHERE qi.total_vat IS NOT NULL), 0) AS vat_events_real,
+                COALESCE(SUM(qi.total_net) FILTER (WHERE qi.total_net IS NOT NULL), 0) AS events_base_real,
+                COALESCE(SUM(COALESCE(qi.total_gross, qi.total))
+                         FILTER (WHERE qi.total_vat IS NULL), 0) AS events_base_fallback
             FROM events e
             JOIN quote_items qi ON qi.event_id = e.id
             WHERE EXTRACT(YEAR FROM e.event_date) = %s
               AND EXTRACT(MONTH FROM e.event_date) = %s
-              AND e.status = 'won'
+              AND e.status IN ('adjudicado', 'sinalizado', 'realizado', 'faturado', 'recebido')
         """, (year, month))
         vat_events_real, events_base_real, events_base_fallback = (float(v) for v in cursor.fetchone())
         vat_events_fallback = events_base_fallback * rate_events
@@ -787,7 +788,7 @@ def get_weekly_liquidity(weeks=6, exclude_invoice_id: int = None):
             FROM events
             WHERE expected_payment_date BETWEEN %s AND %s
               AND payment_status = 'pending'
-              AND status = 'won'
+              AND status IN ('adjudicado', 'sinalizado', 'realizado', 'faturado', 'recebido')
             GROUP BY expected_payment_date
         """, (range_start, range_end))
         event_rows = {r['expected_payment_date']: float(r['total']) for r in cursor.fetchall()}

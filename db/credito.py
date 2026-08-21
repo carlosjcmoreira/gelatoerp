@@ -653,7 +653,10 @@ def upsert_payment_method_config(metodo, label, ativo, taxa_percentagem=None, pr
 # EVENTOS / CRM
 # ═══════════════════════════════════════════════════════════════════════════════
 
-EVENT_STATUSES = ['lead', 'contacted', 'proposal_sent', 'negotiating', 'won', 'lost', 'cancelled']
+EVENT_STATUSES = [
+    'novos', 'orcamentado', 'enviado', 'adjudicado', 'rejeitado',
+    'sinalizado', 'realizado', 'faturado', 'recebido', 'cancelado',
+]
 
 # ── artigos_evento ─────────────────────────────────────────────────────────────
 

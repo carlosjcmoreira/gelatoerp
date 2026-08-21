@@ -10,7 +10,7 @@
         <h5 class="fw-bold mb-0">{{ event.event_name or event.client_name or 'Evento #' ~ event.id }}</h5>
     </div>
 
-    {% if event.status == 'won' %}
+    {% if event.status in ['adjudicado', 'sinalizado', 'realizado', 'faturado', 'recebido'] %}
     <div class="alert alert-success py-2 small">
         <strong>✅ Adjudicado</strong> —
         Faturação: <strong>{{ "%.2f"|format(event.invoice_amount_eur or 0) }} €</strong>
@@ -19,7 +19,7 @@
     </div>
     {% endif %}
 
-    {% if event.status == 'lost' and event.loss_reason %}
+    {% if event.status in ['rejeitado', 'cancelado'] and event.loss_reason %}
     <div class="alert alert-danger py-2 small">
         <strong>❌ Perdido</strong> — {{ event.loss_reason }}
     </div>
@@ -32,7 +32,7 @@
             <div class="d-flex flex-wrap gap-2">
                 {% for t in valid_transitions %}
                 <button type="button" class="btn btn-sm btn-outline-{{ status_colors[t] }}"
-                    onclick="confirmTransition('{{ t }}', '{{ status_labels[t] }}', {{ 'true' if t == 'lost' else 'false' }})">
+                    onclick="confirmTransition('{{ t }}', '{{ status_labels[t] }}', {{ 'true' if t in ['rejeitado', 'cancelado'] else 'false' }})">
                     → {{ status_labels[t] }}
                 </button>
                 {% endfor %}
@@ -48,6 +48,33 @@
         <input type="hidden" name="new_status" id="transition-status">
         <input type="hidden" name="loss_reason" id="loss-reason-hidden">
     </form>
+
+    {% if event.status == 'adjudicado' %}
+    <div class="card shadow-sm mb-3 border-warning">
+        <div class="card-header fw-semibold small">💳 Validar sinal não reembolsável</div>
+        <form method="post" class="card-body row g-2 align-items-end">
+            <input type="hidden" name="action" value="validate_deposit">
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1">Valor validado (€)</label>
+                <input type="number" name="deposit_amount" class="form-control form-control-sm"
+                       min="0.01" step="0.01" required value="{{ '%.2f'|format(event.deposit_amount_eur or 0) }}">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1">Data de receção</label>
+                <input type="date" name="deposit_received_at" class="form-control form-control-sm">
+            </div>
+            <div class="col-12 col-md-4">
+                <label class="form-label small mb-1">Referência do comprovativo</label>
+                <input type="text" name="deposit_proof_reference" class="form-control form-control-sm"
+                       required placeholder="Ex.: comprovativo conferido no email">
+            </div>
+            <div class="col-12 col-md-2">
+                <button class="btn btn-sm btn-warning w-100">Validar sinal</button>
+            </div>
+            <div class="col-12"><small class="text-muted">Sinal previsto: {{ "%.2f"|format(event.deposit_amount_eur or 0) }} €. O upload do ficheiro será associado nesta base na fase operacional.</small></div>
+        </form>
+    </div>
+    {% endif %}
 
     <div class="card shadow-sm mb-3">
         <div class="card-header fw-semibold small d-flex align-items-center justify-content-between flex-wrap gap-1">
@@ -152,6 +179,141 @@
     </div>
 
     <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold small">📍 Ocorrências e recursos</div>
+        <div class="card-body">
+            {% if resource_conflicts %}
+            <div class="alert alert-warning small py-2">
+                <strong>Conflitos detetados:</strong>
+                {% for conflict in resource_conflicts %}
+                    <div>• {{ conflict.event_name }} — {{ conflict.event_date }} {{ conflict.service_start_time }}</div>
+                {% endfor %}
+                <div class="mt-1">Para avançar, submeta novamente a reserva e marque “Assumo o risco do conflito”.</div>
+            </div>
+            {% endif %}
+
+            {% for occurrence in occurrences %}
+            <div class="border rounded p-2 mb-3">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div>
+                        <strong class="small">Ocorrência {{ occurrence.occurrence_number }}</strong>
+                        <div class="small text-muted">
+                            {{ occurrence.event_date.strftime('%d/%m/%Y') if occurrence.event_date else 'Data a definir' }}
+                            {% if occurrence.service_start_time %}· {{ occurrence.service_start_time.strftime('%H:%M') }}{% endif %}
+                            {% if occurrence.service_end_time %}–{{ occurrence.service_end_time.strftime('%H:%M') }}{% endif %}
+                            {% if occurrence.venue %}· {{ occurrence.venue }}{% endif %}
+                        </div>
+                    </div>
+                    <span class="badge bg-secondary">{{ occurrence.service_mode }}</span>
+                </div>
+                {% if occurrence.reservations %}
+                <div class="small mb-2">
+                    {% for reservation in occurrence.reservations %}
+                    <span class="badge text-bg-light border me-1 mb-1">
+                        {{ reservation.resource_name }} · {{ reservation.status }}
+                        {% if reservation.risk_acknowledged %}· risco assumido{% endif %}
+                    </span>
+                    {% if reservation.status in ['requested', 'reserved'] %}
+                    <form method="post" class="d-inline">
+                        <input type="hidden" name="action" value="release_resource">
+                        <input type="hidden" name="occurrence_id" value="{{ occurrence.id }}">
+                        <input type="hidden" name="resource_id" value="{{ reservation.resource_id }}">
+                        <button class="btn btn-xs btn-outline-danger py-0 px-1" onclick="return confirm('Libertar este recurso?')">libertar</button>
+                    </form>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+                <form method="post" class="row g-2 align-items-end">
+                    <input type="hidden" name="action" value="reserve_resource">
+                    <input type="hidden" name="occurrence_id" value="{{ occurrence.id }}">
+                    <div class="col-12 col-md-5">
+                        <label class="form-label small mb-1">Recurso</label>
+                        <select name="resource_id" class="form-select form-select-sm" required>
+                            <option value="">Selecionar…</option>
+                            {% for resource in resources %}
+                            <option value="{{ resource.id }}">{{ resource.name }}{% if resource.capacity_carapinas is not none %} · {{ resource.capacity_carapinas }} carapinas{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <div class="form-check small mt-md-4">
+                            <input class="form-check-input" type="checkbox" name="acknowledge_conflict" value="1" id="risk-{{ occurrence.id }}">
+                            <label class="form-check-label" for="risk-{{ occurrence.id }}">Assumo o risco do conflito</label>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <button class="btn btn-sm btn-outline-primary w-100">Reservar recurso</button>
+                    </div>
+                </form>
+            </div>
+            {% else %}
+            <p class="small text-muted">Ainda sem ocorrências. Adicione pelo menos uma data para poder reservar recursos.</p>
+            {% endfor %}
+
+            <hr>
+            <form method="post" class="row g-2 align-items-end">
+                <input type="hidden" name="action" value="add_occurrence">
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-1">Nova data</label>
+                    <input type="date" name="occurrence_date" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-1">Início</label>
+                    <input type="time" name="occurrence_start" class="form-control form-control-sm">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-1">Fim</label>
+                    <input type="time" name="occurrence_end" class="form-control form-control-sm">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small mb-1">Modo de serviço</label>
+                    <select name="service_mode" class="form-select form-select-sm">
+                        <option value="pending">A definir</option>
+                        <option value="niva_serves">Nivà serve</option>
+                        <option value="client_serves">Cliente/catering serve</option>
+                        <option value="delivery_only">Apenas entrega</option>
+                        <option value="catering">Catering</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label small mb-1">Local</label>
+                    <input type="text" name="occurrence_venue" class="form-control form-control-sm">
+                </div>
+                <div class="col-12">
+                    <label class="form-label small mb-1">Morada</label>
+                    <input type="text" name="occurrence_address" class="form-control form-control-sm">
+                </div>
+                <div class="col-12"><button class="btn btn-sm btn-outline-secondary">+ Adicionar ocorrência</button></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold small">🧾 Histórico do evento</div>
+        <div class="card-body p-0">
+            {% if event_history %}
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 small">
+                    <thead class="table-light"><tr><th>Quando</th><th>Ação</th><th>Alteração</th><th>Utilizador</th></tr></thead>
+                    <tbody>
+                    {% for entry in event_history[:15] %}
+                    <tr>
+                        <td>{{ entry.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td>{{ entry.event_type }}</td>
+                        <td>{{ entry.old_status or '—' }} → {{ entry.new_status or '—' }}{% if entry.reason %}<div class="text-muted">{{ entry.reason }}</div>{% endif %}</td>
+                        <td>{{ entry.actor or 'Sistema' }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="small text-muted p-3 mb-0">Ainda não há registos.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-3">
         <div class="card-header fw-semibold small d-flex align-items-center justify-content-between" style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#eventDetailsCollapse">
             <span>📋 Detalhes do Evento</span>
             <span class="text-muted small">▼</span>
@@ -213,6 +375,14 @@
                             <label class="form-label small">Notas internas</label>
                             <textarea name="internal_notes" class="form-control form-control-sm" rows="2">{{ event.internal_notes or '' }}</textarea>
                         </div>
+                        <div class="col-12">
+                            <div class="form-check small">
+                                <input class="form-check-input" type="checkbox" name="acknowledge_time_conflict" value="1" id="acknowledge-time-conflict">
+                                <label class="form-check-label" for="acknowledge-time-conflict">
+                                    Assumo o risco se esta alteração de data/hora criar conflito com recursos já reservados
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -221,9 +391,9 @@
 
     <div class="card shadow-sm mb-3 border-danger">
         <div class="card-body py-2">
-            <form method="post" onsubmit="return confirm('Eliminar este evento permanentemente?')">
+            <form method="post" onsubmit="return confirm('Arquivar este evento? O histórico será preservado.')">
                 <input type="hidden" name="action" value="delete">
-                <button type="submit" class="btn btn-sm btn-outline-danger">🗑️ Eliminar Evento</button>
+                <button type="submit" class="btn btn-sm btn-outline-danger">🗄️ Arquivar evento</button>
             </form>
         </div>
     </div>

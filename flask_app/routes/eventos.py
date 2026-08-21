@@ -15,45 +15,54 @@ from db.pagamentos import VAT_RATES
 eventos_bp = Blueprint('eventos', __name__)
 
 
-def _parse_taxa_iva(raw):
+def _parse_taxa_iva(raw, artigo_codigo=None):
     """Parse a per-line IVA rate submitted as a percentage (e.g. '13'). Defaults to
-    the configured events/catering estimate rate when missing or invalid."""
+    the editable event pricing configuration when missing or invalid."""
     try:
         pct = float((raw or '').replace(',', '.'))
         if pct < 0 or pct > 100:
             raise ValueError
         return round(pct / 100, 4)
     except (TypeError, ValueError):
-        return VAT_RATES['events_catering']
+        return db.get_default_quote_taxa_iva(artigo_codigo)
 
 STATUS_LABELS = {
-    'lead':          'Lead',
-    'contacted':     'Contactado',
-    'proposal_sent': 'Proposta Enviada',
-    'negotiating':   'Em Negociação',
-    'won':           'Adjudicado',
-    'lost':          'Perdido',
-    'cancelled':     'Cancelado',
+    'novos':         'Novos',
+    'orcamentado':   'Orçamentado',
+    'enviado':       'Enviado',
+    'adjudicado':    'Adjudicado',
+    'rejeitado':     'Rejeitado',
+    'sinalizado':    'Sinalizado',
+    'realizado':     'Realizado',
+    'faturado':      'Faturado',
+    'recebido':      'Recebido',
+    'cancelado':     'Cancelado',
 }
 
 STATUS_COLORS = {
-    'lead':          'secondary',
-    'contacted':     'info',
-    'proposal_sent': 'primary',
-    'negotiating':   'warning',
-    'won':           'success',
-    'lost':          'danger',
-    'cancelled':     'dark',
+    'novos':         'secondary',
+    'orcamentado':   'info',
+    'enviado':       'primary',
+    'adjudicado':    'success',
+    'rejeitado':     'danger',
+    'sinalizado':    'success',
+    'realizado':     'primary',
+    'faturado':      'info',
+    'recebido':      'success',
+    'cancelado':     'dark',
 }
 
 VALID_TRANSITIONS = {
-    'lead':          ['contacted', 'lost', 'cancelled'],
-    'contacted':     ['proposal_sent', 'negotiating', 'lost', 'cancelled'],
-    'proposal_sent': ['negotiating', 'won', 'lost', 'cancelled'],
-    'negotiating':   ['won', 'lost', 'cancelled'],
-    'won':           ['cancelled'],
-    'lost':          ['lead'],
-    'cancelled':     ['lead'],
+    'novos':         ['orcamentado', 'rejeitado', 'cancelado'],
+    'orcamentado':   ['enviado', 'rejeitado', 'cancelado'],
+    'enviado':       ['adjudicado', 'rejeitado', 'cancelado'],
+    'adjudicado':    ['sinalizado', 'cancelado'],
+    'sinalizado':    ['realizado', 'cancelado'],
+    'realizado':     ['faturado', 'cancelado'],
+    'faturado':      ['recebido', 'cancelado'],
+    'rejeitado':     [],
+    'recebido':      [],
+    'cancelado':     [],
 }
 
 LEAD_TRANSITIONS = {
@@ -83,6 +92,13 @@ def _parse_event_type(form):
     if radio == 'Outro':
         return form.get('event_type_other', '').strip()
     return radio
+
+
+def _current_actor():
+    user = session.get('user') or {}
+    if isinstance(user, dict):
+        return user.get('email') or user.get('username') or user.get('name')
+    return str(user) if user else None
 
 TABS = [
     {'id': 'dashboard', 'label': 'Dashboard', 'icon': '📊', 'url_endpoint': 'eventos.dashboard'},
@@ -202,10 +218,10 @@ def novo_evento():
             'client_name': request.form.get('client_name', '').strip(),
             'client_email': request.form.get('client_email', '').strip(),
             'client_phone': request.form.get('client_phone', '').strip(),
-            'status': 'lead',
+            'status': 'novos',
             'internal_notes': request.form.get('internal_notes', '').strip(),
         }
-        event_id = db.create_event(data)
+        event_id = db.create_event(data, actor=_current_actor())
         client_id = _int_or_none(request.form.get('client_id'))
         if client_id:
             db.link_event_client(event_id, client_id)
@@ -260,7 +276,14 @@ def evento_detail(event_id):
                 'loss_reason': event['loss_reason'],
                 'internal_notes': request.form.get('internal_notes', '').strip(),
             }
-            db.update_event(event_id, data)
+            try:
+                db.update_event(
+                    event_id, data, actor=_current_actor(),
+                    risk_acknowledged=request.form.get('acknowledge_time_conflict') == '1',
+                )
+            except ValueError as exc:
+                flash(str(exc), 'error')
+                return redirect(url_for('eventos.evento_detail', event_id=event_id))
             def _int_or_none2(v):
                 try:
                     return int(v) if v else None
@@ -275,20 +298,95 @@ def evento_detail(event_id):
         elif action == 'transition':
             new_status = request.form.get('new_status', '')
             loss_reason = request.form.get('loss_reason', '').strip()
-            ok, msg = db.transition_event_status(event_id, new_status, loss_reason)
+            ok, msg = db.transition_event_status(
+                event_id, new_status, loss_reason, actor=_current_actor()
+            )
             if ok:
                 flash(f'Estado alterado para «{STATUS_LABELS.get(new_status, new_status)}».', 'success')
             else:
                 flash(f'Erro: {msg}', 'error')
             return redirect(url_for('eventos.evento_detail', event_id=event_id))
 
+        elif action == 'validate_deposit':
+            raw_amount = request.form.get('deposit_amount', '').replace(',', '.')
+            proof_reference = request.form.get('deposit_proof_reference', '').strip()
+            received_at = request.form.get('deposit_received_at') or None
+            try:
+                db.validate_event_deposit(
+                    event_id, raw_amount, proof_reference=proof_reference,
+                    actor=_current_actor(), received_at=received_at,
+                )
+                flash('Sinal validado. O evento pode agora ser sinalizado e reservar recursos.', 'success')
+            except ValueError as exc:
+                flash(str(exc), 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
+        elif action == 'add_occurrence':
+            try:
+                occurrence_date = datetime.strptime(
+                    request.form.get('occurrence_date', ''), '%Y-%m-%d'
+                ).date()
+                occurrence_id = db.add_event_occurrence(event_id, {
+                    'event_date': occurrence_date,
+                    'venue': request.form.get('occurrence_venue', '').strip() or None,
+                    'venue_address': request.form.get('occurrence_address', '').strip() or None,
+                    'service_start_time': request.form.get('occurrence_start') or None,
+                    'service_end_time': request.form.get('occurrence_end') or None,
+                    'service_mode': request.form.get('service_mode') or 'pending',
+                }, actor=_current_actor())
+                flash(f'Ocorrência #{occurrence_id} adicionada.', 'success')
+            except (TypeError, ValueError):
+                flash('Preencha uma data válida para a ocorrência.', 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
+        elif action == 'reserve_resource':
+            try:
+                occurrence_id = int(request.form.get('occurrence_id', ''))
+                resource_id = int(request.form.get('resource_id', ''))
+                acknowledged = request.form.get('acknowledge_conflict') == '1'
+                saved, conflicts = db.reserve_event_resource(
+                    occurrence_id, resource_id, actor=_current_actor(),
+                    risk_acknowledged=acknowledged,
+                )
+                if saved:
+                    flash('Recurso registado para esta ocorrência.', 'success')
+                else:
+                    session['event_resource_conflicts'] = [
+                        {
+                            'event_name': conflict.get('event_name') or f"Evento #{conflict.get('event_id')}",
+                            'event_date': str(conflict.get('event_date') or ''),
+                            'service_start_time': str(conflict.get('service_start_time') or ''),
+                        }
+                        for conflict in conflicts
+                    ]
+                    flash('Existe um conflito. Reveja-o e confirme explicitamente o risco para avançar.', 'warning')
+            except (TypeError, ValueError):
+                flash('Selecione uma ocorrência e um recurso válidos.', 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
+        elif action == 'release_resource':
+            try:
+                db.release_event_resource(
+                    int(request.form.get('occurrence_id', '')),
+                    int(request.form.get('resource_id', '')),
+                    actor=_current_actor(),
+                )
+                flash('Recurso libertado.', 'success')
+            except (TypeError, ValueError) as exc:
+                flash(str(exc), 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
         elif action == 'delete':
-            db.delete_event(event_id)
-            flash('Evento eliminado.', 'success')
+            db.delete_event(event_id, actor=_current_actor())
+            flash('Evento arquivado. O histórico foi preservado.', 'success')
             return redirect(url_for('eventos.pipeline'))
 
     quote_items = db.get_quote_items(event_id)
     artigos = db.get_artigos_evento(apenas_ativos=True)
+    occurrences = db.get_event_occurrences(event_id)
+    resources = db.get_event_resources()
+    event_history = db.get_event_history(event_id)
+    resource_conflicts = session.pop('event_resource_conflicts', [])
     tabs = _get_tabs()
     transitions = VALID_TRANSITIONS.get(event['status'], [])
     return render_template('eventos/evento_detail.html',
@@ -298,6 +396,10 @@ def evento_detail(event_id):
                            status_labels=STATUS_LABELS,
                            status_colors=STATUS_COLORS,
                            valid_transitions=transitions,
+                            occurrences=occurrences,
+                            resources=resources,
+                            event_history=event_history,
+                            resource_conflicts=resource_conflicts,
                            tabs=tabs,
                            active_tab='pipeline')
 
@@ -324,15 +426,18 @@ def quote_action(event_id):
             preco_unitario = float(request.form.get('preco_unitario', '0').replace(',', '.'))
         except ValueError:
             preco_unitario = 0.0
-        taxa_iva = _parse_taxa_iva(request.form.get('taxa_iva'))
+        taxa_iva = _parse_taxa_iva(request.form.get('taxa_iva'), artigo_codigo)
 
         if not descricao and artigo_codigo:
             artigos = {a['codigo']: a['nome'] for a in db.get_artigos_evento()}
             descricao = artigos.get(artigo_codigo, artigo_codigo)
 
         if descricao:
-            db.add_quote_item(event_id, artigo_codigo or None, descricao, quantidade, preco_unitario, taxa_iva)
-            if event['status'] == 'won':
+            db.add_quote_item(
+                event_id, artigo_codigo or None, descricao, quantidade,
+                preco_unitario, taxa_iva, actor=_current_actor()
+            )
+            if db.normalize_event_status(event['status']) in db.EVENT_FINANCIAL_STATUSES:
                 db.recalc_event_invoice(event_id)
             flash('Artigo adicionado.', 'success')
         else:
@@ -340,8 +445,8 @@ def quote_action(event_id):
 
     elif action == 'delete_item':
         item_id = int(request.form.get('item_id', 0))
-        db.delete_quote_item(item_id, event_id)
-        if event['status'] == 'won':
+        db.delete_quote_item(item_id, event_id, actor=_current_actor())
+        if db.normalize_event_status(event['status']) in db.EVENT_FINANCIAL_STATUSES:
             db.recalc_event_invoice(event_id)
         flash('Artigo removido.', 'success')
 
@@ -356,9 +461,12 @@ def quote_action(event_id):
             preco_unitario = float(request.form.get('preco_unitario', '0').replace(',', '.'))
         except ValueError:
             preco_unitario = 0.0
-        taxa_iva = _parse_taxa_iva(request.form.get('taxa_iva'))
-        db.update_quote_item(item_id, event_id, descricao, quantidade, preco_unitario, taxa_iva)
-        if event['status'] == 'won':
+        taxa_iva = _parse_taxa_iva(request.form.get('taxa_iva'), None)
+        db.update_quote_item(
+            item_id, event_id, descricao, quantidade, preco_unitario,
+            taxa_iva, actor=_current_actor()
+        )
+        if db.normalize_event_status(event['status']) in db.EVENT_FINANCIAL_STATUSES:
             db.recalc_event_invoice(event_id)
         flash('Artigo actualizado.', 'success')
 
@@ -368,7 +476,7 @@ def quote_action(event_id):
 @eventos_bp.route('/backfill-iva', methods=['GET', 'POST'])
 @perm_required('acesso_financeiro')
 def backfill_iva():
-    """Reviewed admin action to set the real taxa_iva on past 'won' events whose
+    """Reviewed admin action to set the real IVA on committed events whose
     quote_items still have taxa_iva NULL, based on real invoicing records (paper
     invoices / accounting), so historical VAT periods stop showing as estimated."""
     if request.method == 'POST':
@@ -384,7 +492,7 @@ def backfill_iva():
             return redirect(url_for('eventos.backfill_iva'))
 
         event = db.get_event(event_id)
-        if not event or event['status'] != 'won':
+        if not event or db.normalize_event_status(event['status']) not in db.EVENT_FINANCIAL_STATUSES:
             flash('Evento não encontrado ou não adjudicado.', 'warning')
         else:
             updated = db.bulk_set_taxa_iva(event_id, taxa_iva)
