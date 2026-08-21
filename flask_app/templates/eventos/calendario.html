@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eventos.pipeline") %}
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div><h5 class="fw-bold mb-0">🗓️ Calendário operacional</h5><small class="text-muted">{{ start.strftime('%d/%m') }} — {{ end.strftime('%d/%m/%Y') }}</small></div>
+    <form method="get" class="d-flex gap-2"><input type="date" name="inicio" value="{{ start.isoformat() }}" class="form-control form-control-sm"><button class="btn btn-sm btn-outline-primary">Ir</button></form>
+  </div>
+  <div class="alert alert-light border small">Legenda: <span class="badge text-bg-primary">Nivà serve</span> <span class="badge text-bg-warning">Cliente/catering</span> <span class="badge text-bg-secondary">Entrega</span> · Carrinho/arca/carrinha aparecem em cada ocorrência.</div>
+  <div class="row g-3">{% for occurrence in occurrences %}
+    {% set mode = occurrence.service_mode %}
+    {% set color = 'primary' if mode=='niva_serves' else ('warning' if mode in ['client_serves','catering'] else 'secondary') %}
+    <div class="col-12 col-md-6 col-xl-4"><a class="card h-100 text-reset text-decoration-none border-{{ color }}" href="{{ url_for('eventos.evento_detail', event_id=occurrence.event_id) }}"><div class="card-body py-2">
+      <div class="d-flex justify-content-between gap-2"><strong>{{ occurrence.event_date.strftime('%a, %d/%m') }}</strong><span class="badge bg-{{ color }}">{{ occurrence.service_mode }}</span></div>
+      <div>{{ occurrence.service_start_time.strftime('%H:%M') if occurrence.service_start_time else 'Hora a definir' }} · {{ occurrence.event_name or occurrence.client_name }}</div>
+      <div class="small text-muted">{{ occurrence.venue or occurrence.venue_address or 'Local a definir' }}</div>
+      <div class="mt-1">{% for resource in occurrence.resources %}<span class="badge text-bg-light border">{{ resource }}</span> {% endfor %}</div>
+    </div></a></div>
+  {% else %}<div class="col-12 text-center text-muted py-5">Sem ocorrências neste período.</div>{% endfor %}</div>
+</div>
+{% endblock %}

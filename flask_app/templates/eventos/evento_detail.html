@@ -33,7 +33,7 @@
                 {% for t in valid_transitions %}
                 <button type="button" class="btn btn-sm btn-outline-{{ status_colors[t] }}"
                     onclick="confirmTransition('{{ t }}', '{{ status_labels[t] }}', {{ 'true' if t in ['rejeitado', 'cancelado'] else 'false' }})">
-                    → {{ status_labels[t] }}
+                    → {{ 'Criar nova proposta' if event.status == 'enviado' and t == 'orcamentado' else status_labels[t] }}
                 </button>
                 {% endfor %}
             </div>
@@ -96,6 +96,14 @@
                 {% endif %}
                 <span class="fw-bold">Total: {{ "%.2f"|format(total) }} €</span>
             </div>
+        </div>
+        <div class="card-body border-bottom py-2 small d-flex align-items-center justify-content-between gap-2 flex-wrap">
+            <span>Base: <strong>{{ "%.2f"|format(quote_totals.total_net or 0) if quote_totals.total_net is not none else '—' }} €</strong> · IVA: <strong>{{ "%.2f"|format(quote_totals.total_vat or 0) if quote_totals.total_vat is not none else '—' }} €</strong> · Total: <strong>{{ "%.2f"|format(quote_totals.total_gross or 0) }} €</strong></span>
+            <form method="post" action="{{ url_for('eventos.quote_action', event_id=event.id) }}" class="d-flex gap-1">
+                <input type="hidden" name="action" value="save_version">
+                <input name="version_reason" class="form-control form-control-sm" placeholder="Motivo/negociação (opcional)">
+                <button class="btn btn-sm btn-outline-primary">Guardar versão</button>
+            </form>
         </div>
         <div class="card-body p-0">
             {% if quote_items %}
@@ -175,7 +183,18 @@
                     </div>
                 </div>
             </form>
+            <form method="post" action="{{ url_for('eventos.quote_action', event_id=event.id) }}" class="row g-2 mt-2">
+                <input type="hidden" name="action" value="add_adjustment">
+                <div class="col-12 col-md-7"><input name="adjustment_reason" class="form-control form-control-sm" required placeholder="Justificação para desconto/exceção"></div>
+                <div class="col-7 col-md-3"><input name="adjustment_amount" type="number" min="0.01" step="0.01" class="form-control form-control-sm" required placeholder="Valor (€)"></div>
+                <div class="col-5 col-md-2"><button class="btn btn-sm btn-outline-warning w-100">Aplicar desconto</button></div>
+            </form>
         </div>
+        {% if quote_versions %}
+        <div class="card-footer small text-muted">
+            Versões: {% for version in quote_versions %}<span class="badge text-bg-light border">v{{ version.version_number }} · {{ "%.2f"|format(version.total_gross or 0) }} € · {{ version.created_at.strftime('%d/%m %H:%M') }}</span> {% endfor %}
+        </div>
+        {% endif %}
     </div>
 
     <div class="card shadow-sm mb-3">
@@ -205,6 +224,21 @@
                     </div>
                     <span class="badge bg-secondary">{{ occurrence.service_mode }}</span>
                 </div>
+                <details class="mb-2">
+                    <summary class="small text-primary">Editar ocorrência</summary>
+                    <form method="post" class="row g-2 mt-1">
+                        <input type="hidden" name="action" value="update_occurrence"><input type="hidden" name="occurrence_id" value="{{ occurrence.id }}">
+                        <div class="col-6 col-md-2"><input type="date" required name="occurrence_date" value="{{ occurrence.event_date.strftime('%Y-%m-%d') if occurrence.event_date else '' }}" class="form-control form-control-sm"></div>
+                        <div class="col-6 col-md-2"><input type="time" name="occurrence_start" value="{{ occurrence.service_start_time.strftime('%H:%M') if occurrence.service_start_time else '' }}" class="form-control form-control-sm"></div>
+                        <div class="col-6 col-md-2"><input type="time" name="occurrence_end" value="{{ occurrence.service_end_time.strftime('%H:%M') if occurrence.service_end_time else '' }}" class="form-control form-control-sm"></div>
+                        <div class="col-6 col-md-3"><select name="service_mode" class="form-select form-select-sm">{% for mode,label in [('pending','A definir'),('niva_serves','Nivà serve'),('client_serves','Cliente serve'),('delivery_only','Entrega'),('catering','Catering')] %}<option value="{{ mode }}" {{ 'selected' if occurrence.service_mode==mode }}>{{ label }}</option>{% endfor %}</select></div>
+                        <div class="col-12 col-md-3"><input name="occurrence_venue" value="{{ occurrence.venue or '' }}" placeholder="Local" class="form-control form-control-sm"></div>
+                        <div class="col-12"><input name="occurrence_address" value="{{ occurrence.venue_address or '' }}" placeholder="Morada" class="form-control form-control-sm"></div>
+                        <div class="col-12"><input name="logistics_notes" value="{{ occurrence.logistics_notes or '' }}" placeholder="Notas logísticas" class="form-control form-control-sm"></div>
+                        <div class="col-auto form-check ms-2"><input class="form-check-input" type="checkbox" name="acknowledge_occurrence_conflict" value="1" id="edit-risk-{{ occurrence.id }}"><label class="form-check-label small" for="edit-risk-{{ occurrence.id }}">Assumo risco</label></div><div class="col-auto"><button class="btn btn-sm btn-outline-primary">Guardar</button></div>
+                    </form>
+                    <form method="post" class="mt-1"><input type="hidden" name="action" value="delete_occurrence"><input type="hidden" name="occurrence_id" value="{{ occurrence.id }}"><button class="btn btn-xs btn-outline-danger" onclick="return confirm('Remover ocorrência?')">Remover ocorrência</button></form>
+                </details>
                 {% if occurrence.reservations %}
                 <div class="small mb-2">
                     {% for reservation in occurrence.reservations %}
@@ -240,6 +274,10 @@
                             <input class="form-check-input" type="checkbox" name="acknowledge_conflict" value="1" id="risk-{{ occurrence.id }}">
                             <label class="form-check-label" for="risk-{{ occurrence.id }}">Assumo o risco do conflito</label>
                         </div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small mb-1">Motivo se assumir conflito</label>
+                        <input name="conflict_reason" class="form-control form-control-sm" placeholder="Alternativa ou risco aceite">
                     </div>
                     <div class="col-12 col-md-3">
                         <button class="btn btn-sm btn-outline-primary w-100">Reservar recurso</button>

@@ -175,6 +175,27 @@ def run_migrations_eventos_v2_foundation():
                 """
             )
             cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_quote_versions (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE RESTRICT,
+                    version_number INTEGER NOT NULL,
+                    reason TEXT,
+                    created_by VARCHAR(255),
+                    snapshot JSONB NOT NULL,
+                    total_net NUMERIC(12,2),
+                    total_vat NUMERIC(12,2),
+                    total_gross NUMERIC(12,2) NOT NULL DEFAULT 0,
+                    quote_revision VARCHAR(128),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(event_id, version_number)
+                )
+                """
+            )
+            cursor.execute(
+                "ALTER TABLE event_quote_versions ADD COLUMN IF NOT EXISTS quote_revision VARCHAR(128)"
+            )
+            cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_date "
                 "ON event_occurrences(event_date)"
             )
@@ -426,6 +447,7 @@ def run_migrations_eventos_customer_portal():
                     estimated_total_eur NUMERIC(12,2),
                     public_message TEXT,
                     logistics_message TEXT,
+                    sent_quote_version_id BIGINT REFERENCES event_quote_versions(id) ON DELETE RESTRICT,
                     accepted_quote_revision VARCHAR(128),
                     quote_accepted_at TIMESTAMP,
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -435,6 +457,10 @@ def run_migrations_eventos_customer_portal():
             cursor.execute("""
                 ALTER TABLE event_portal_requests
                 ADD COLUMN IF NOT EXISTS access_code_hash VARCHAR(128)
+            """)
+            cursor.execute("""
+                ALTER TABLE event_portal_requests
+                ADD COLUMN IF NOT EXISTS sent_quote_version_id BIGINT
             """)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS event_portal_access_log (

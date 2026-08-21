@@ -1,76 +1,36 @@
 {% extends "base.html" %}
 {% set back_url = url_for("eventos.index") %}
-
-{% macro _render_event_card(ev) %}
-<div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('eventos.evento_detail', event_id=ev.id) }}" class="card text-decoration-none text-reset h-100 shadow-sm" style="border-left: 4px solid var(--bs-{{ status_colors[ev.status] }});">
-        <div class="card-body py-2 px-3">
-            <div class="d-flex align-items-start justify-content-between gap-2">
-                <div class="fw-semibold small text-truncate">{{ ev.event_name or ev.client_name or '(sem nome)' }}</div>
-                <span class="badge bg-{{ status_colors[ev.status] }} flex-shrink-0">{{ status_labels[ev.status] }}</span>
-            </div>
-            <div class="text-muted small mt-1">
-                {% if ev.event_date %}<span>📅 {{ ev.event_date.strftime('%d/%m/%Y') }}</span>{% endif %}
-                {% if ev.estimated_guests %}<span class="ms-2">👥 {{ ev.estimated_guests }}</span>{% endif %}
-            </div>
-            {% if ev.client_name %}<div class="small text-muted">👤 {{ ev.client_name }}</div>{% endif %}
-            {% if ev.venue %}<div class="small text-muted text-truncate">📍 {{ ev.venue }}</div>{% endif %}
-            {% if ev.quote_total %}
-            <div class="small fw-semibold mt-1">💶 {{ "%.2f"|format(ev.quote_total) }} €</div>
-            {% endif %}
-        </div>
-    </a>
-</div>
-{% endmacro %}
-
 {% block content %}
 <div class="container-fluid px-3 pt-3 pb-5">
-
-    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-        <h5 class="fw-bold mb-0">📋 Pipeline de Eventos</h5>
-        <a href="{{ url_for('eventos.novo_evento') }}" class="btn btn-sm btn-primary">+ Novo Evento</a>
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <div><h5 class="fw-bold mb-0">📋 Pipeline de Eventos</h5><small class="text-muted">{{ events|length }} resultado(s)</small></div>
+    <div class="d-flex gap-2"><a href="{{ url_for('eventos.calendario') }}" class="btn btn-sm btn-outline-secondary">🗓️ Calendário</a><a href="{{ url_for('eventos.novo_evento') }}" class="btn btn-sm btn-primary">+ Novo Evento</a></div>
+  </div>
+  <div class="d-flex flex-wrap gap-1 mb-3">
+    <a href="{{ url_for('eventos.pipeline') }}" class="btn btn-sm {{ 'btn-dark' if not status_filter else 'btn-outline-secondary' }}">Todos</a>
+    {% for s in all_statuses %}<a href="{{ url_for('eventos.pipeline', status=s) }}" class="btn btn-sm {{ 'btn-' ~ status_colors[s] if status_filter==s else 'btn-outline-' ~ status_colors[s] }}">{{ status_labels[s] }}</a>{% endfor %}
+  </div>
+  <form class="card card-body shadow-sm mb-3" method="get">
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    <div class="row g-2">
+      <div class="col-12 col-md-3"><label class="form-label small mb-1">Pesquisar</label><input name="q" value="{{ filters.search }}" class="form-control form-control-sm" placeholder="Evento, cliente ou email"></div>
+      <div class="col-6 col-md-2"><label class="form-label small mb-1">Cliente</label><input name="client" value="{{ filters.client }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-2"><label class="form-label small mb-1">Tipo</label><input name="event_type" value="{{ filters.event_type }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-2"><label class="form-label small mb-1">De</label><input type="date" name="date_from" value="{{ filters.date_from or '' }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-2"><label class="form-label small mb-1">Até</label><input type="date" name="date_to" value="{{ filters.date_to or '' }}" class="form-control form-control-sm"></div>
+      <div class="col-8 col-md-2"><label class="form-label small mb-1">Meio</label><select name="resource_id" class="form-select form-select-sm"><option value="">Todos</option>{% for r in resources %}<option value="{{ r.id }}" {{ 'selected' if filters.resource_id==r.id }}>{{ r.name }}</option>{% endfor %}</select></div>
+      <div class="col-4 col-md-1 d-flex align-items-end"><button class="btn btn-sm btn-primary w-100">Filtrar</button></div>
     </div>
-
-    <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
-        <a href="{{ url_for('eventos.pipeline') }}" class="btn btn-sm {% if not status_filter %}btn-dark{% else %}btn-outline-secondary{% endif %}">Todos</a>
-        {% for s in all_statuses %}
-        <a href="{{ url_for('eventos.pipeline', status=s) }}" class="btn btn-sm {% if status_filter == s %}btn-{{ status_colors[s] }}{% else %}btn-outline-{{ status_colors[s] }}{% endif %}">
-            {{ status_labels[s] }}
-        </a>
-        {% endfor %}
-    </div>
-
-    {% if not events %}
-    <div class="text-center text-muted py-5">
-        <div style="font-size:2.5rem;">📭</div>
-        <p class="mt-2">Nenhum evento encontrado.</p>
-    </div>
-    {% else %}
-
-    {% if not status_filter %}
-        {% for s in all_statuses %}
-        {% set group = events | selectattr('status', 'equalto', s) | list %}
-        {% if group %}
-        <div class="mb-4">
-            <div class="d-flex align-items-center gap-2 mb-2">
-                <span class="badge bg-{{ status_colors[s] }}">{{ status_labels[s] }}</span>
-                <small class="text-muted">{{ group | length }}</small>
-            </div>
-            <div class="row g-2">
-                {% for ev in group %}
-                {{ _render_event_card(ev) }}
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-        {% endfor %}
-    {% else %}
-        <div class="row g-2">
-            {% for ev in events %}
-            {{ _render_event_card(ev) }}
-            {% endfor %}
-        </div>
-    {% endif %}
-    {% endif %}
+  </form>
+  <div class="card shadow-sm"><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0 small">
+    <thead class="table-light"><tr><th>Evento / cliente</th><th>Data</th><th>Tipo</th><th>Origem</th><th>Estado</th><th class="text-end">Orçamento</th><th></th></tr></thead>
+    <tbody>{% for ev in events %}<tr>
+      <td><strong>{{ ev.event_name or '(sem nome)' }}</strong><div class="text-muted">{{ ev.client_name or 'Cliente a definir' }}</div></td>
+      <td>{{ ev.event_date.strftime('%d/%m/%Y') if ev.event_date else 'A definir' }}<div class="text-muted">{{ ev.event_time or '' }}</div></td>
+      <td>{{ ev.event_type or '—' }}</td><td><span class="badge text-bg-light border">{{ ev.source or 'manual' }}</span></td>
+      <td><span class="badge bg-{{ status_colors.get(ev.status, 'secondary') }}">{{ status_labels.get(ev.status, ev.status) }}</span></td>
+      <td class="text-end">{{ "%.2f"|format(ev.quote_total or 0) }} €</td><td class="text-end"><a href="{{ url_for('eventos.evento_detail', event_id=ev.id) }}" class="btn btn-xs btn-outline-primary py-0">Abrir</a></td>
+    </tr>{% else %}<tr><td colspan="7" class="text-center text-muted py-5">Nenhum evento encontrado com estes filtros.</td></tr>{% endfor %}</tbody>
+  </table></div></div>
 </div>
 {% endblock %}

@@ -35,7 +35,7 @@ _LEGACY_EVENT_STATUS_MAP = {
 VALID_EVENT_TRANSITIONS = {
     'novos': ('orcamentado', 'rejeitado', 'cancelado'),
     'orcamentado': ('enviado', 'rejeitado', 'cancelado'),
-    'enviado': ('adjudicado', 'rejeitado', 'cancelado'),
+    'enviado': ('orcamentado', 'adjudicado', 'rejeitado', 'cancelado'),
     'adjudicado': ('sinalizado', 'cancelado'),
     'sinalizado': ('realizado', 'cancelado'),
     'realizado': ('faturado', 'cancelado'),
@@ -331,6 +331,7 @@ def add_event_occurrence(event_id, data, actor=None):
             ),
         )
         occurrence_id = cursor.fetchone()['id']
+        _sync_event_schedule_from_occurrences(cursor, event_id)
         _insert_event_history(
             cursor, event_id, 'occurrence_added', actor=actor,
             details={'occurrence_id': occurrence_id, 'occurrence_number': next_number},
@@ -339,22 +340,27 @@ def add_event_occurrence(event_id, data, actor=None):
         return occurrence_id
 
 
-def update_event_occurrence(occurrence_id, data, actor=None, risk_acknowledged=False):
+def update_event_occurrence(occurrence_id, data, actor=None, risk_acknowledged=False,
+                            expected_event_id=None):
     if data.get('service_mode') and data['service_mode'] not in EVENT_SERVICE_MODES:
         raise ValueError('Modo de serviço inválido.')
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
-            "SELECT event_id FROM event_occurrences WHERE id = %s",
-            (occurrence_id,),
+            "SELECT * FROM event_occurrences WHERE id = %s AND (%s IS NULL OR event_id = %s)",
+            (occurrence_id, expected_event_id, expected_event_id),
         )
         row = cursor.fetchone()
         if not row:
             raise ValueError('Ocorrência não encontrada.')
+        def merged(field):
+            return data[field] if field in data else row.get(field)
+        event_date = merged('event_date')
+        service_start_time = merged('service_start_time')
+        service_end_time = merged('service_end_time')
         try:
             conflicts = _validate_occurrence_reservation_change(
-                cursor, occurrence_id, data.get('event_date'),
-                data.get('service_start_time'), data.get('service_end_time'),
+                cursor, occurrence_id, event_date, service_start_time, service_end_time,
                 risk_acknowledged=risk_acknowledged,
             )
         except Exception:
@@ -371,13 +377,14 @@ def update_event_occurrence(occurrence_id, data, actor=None, risk_acknowledged=F
             WHERE id = %s
             """,
             (
-                data.get('event_date'), data.get('venue'), data.get('venue_address'),
-                data.get('latitude'), data.get('longitude'), data.get('estimated_km'),
-                data.get('service_start_time'), data.get('service_end_time'),
-                data.get('expected_duration_minutes'), data.get('logistics_notes'),
-                data.get('service_mode'), occurrence_id,
+                event_date, merged('venue'), merged('venue_address'),
+                merged('latitude'), merged('longitude'), merged('estimated_km'),
+                service_start_time, service_end_time,
+                merged('expected_duration_minutes'), merged('logistics_notes'),
+                merged('service_mode'), occurrence_id,
             ),
         )
+        _sync_event_schedule_from_occurrences(cursor, row['event_id'])
         _insert_event_history(
             cursor, row['event_id'], 'occurrence_updated', actor=actor,
             details={
@@ -387,6 +394,57 @@ def update_event_occurrence(occurrence_id, data, actor=None, risk_acknowledged=F
             },
         )
         conn.commit()
+
+
+def delete_event_occurrence(occurrence_id, actor=None, expected_event_id=None):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT event_id, occurrence_number FROM event_occurrences "
+            "WHERE id=%s AND (%s IS NULL OR event_id=%s) FOR UPDATE",
+            (occurrence_id, expected_event_id, expected_event_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError('Ocorrência não encontrada.')
+        cursor.execute("SELECT COUNT(*) AS count FROM event_occurrences WHERE event_id=%s", (row['event_id'],))
+        if cursor.fetchone()['count'] <= 1:
+            raise ValueError('Um evento deve manter pelo menos uma ocorrência.')
+        cursor.execute("DELETE FROM event_occurrences WHERE id=%s", (occurrence_id,))
+        _sync_event_schedule_from_occurrences(cursor, row['event_id'])
+        _insert_event_history(
+            cursor, row['event_id'], 'occurrence_deleted', actor=actor,
+            details={'occurrence_id': occurrence_id, 'occurrence_number': row['occurrence_number']},
+        )
+        conn.commit()
+
+
+def _sync_event_schedule_from_occurrences(cursor, event_id):
+    """Keep legacy event columns aligned with the next operational occurrence."""
+    cursor.execute("""
+        SELECT event_date, venue, venue_address, service_start_time, service_end_time
+        FROM event_occurrences
+        WHERE event_id=%s
+        ORDER BY event_date NULLS LAST, service_start_time NULLS LAST, occurrence_number, id
+        LIMIT 1
+    """, (event_id,))
+    primary = cursor.fetchone()
+    if not primary:
+        return
+    def value(name):
+        return primary[name] if hasattr(primary, 'get') else None
+    start = value('service_start_time')
+    end = value('service_end_time')
+    cursor.execute("""
+        UPDATE events SET event_date=%s, event_time=%s, event_end_time=%s,
+            venue=%s, venue_address=%s, updated_at=NOW()
+        WHERE id=%s
+    """, (
+        value('event_date'),
+        start.strftime('%H:%M') if start else '',
+        end.strftime('%H:%M') if end else '',
+        value('venue'), value('venue_address'), event_id,
+    ))
 
 
 def get_event_resources(active_only=True):
@@ -506,14 +564,14 @@ def get_resource_conflicts(resource_id, event_date, service_start_time=None,
 
 
 def reserve_event_resource(occurrence_id, resource_id, *, actor=None,
-                           risk_acknowledged=False, notes=None):
+                            risk_acknowledged=False, notes=None, expected_event_id=None):
     """Record a requested reservation, refusing unacknowledged resource conflicts."""
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             "SELECT event_id, event_date, service_start_time, service_end_time "
-            "FROM event_occurrences WHERE id = %s",
-            (occurrence_id,),
+            "FROM event_occurrences WHERE id = %s AND (%s IS NULL OR event_id = %s)",
+            (occurrence_id, expected_event_id, expected_event_id),
         )
         occurrence = cursor.fetchone()
         if not occurrence:
@@ -567,13 +625,13 @@ def reserve_event_resource(occurrence_id, resource_id, *, actor=None,
         return True, conflicts
 
 
-def release_event_resource(occurrence_id, resource_id, *, actor=None):
+def release_event_resource(occurrence_id, resource_id, *, actor=None, expected_event_id=None):
     """Release a resource without erasing the original reservation audit."""
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
-            "SELECT event_id FROM event_occurrences WHERE id = %s",
-            (occurrence_id,),
+            "SELECT event_id FROM event_occurrences WHERE id = %s AND (%s IS NULL OR event_id = %s)",
+            (occurrence_id, expected_event_id, expected_event_id),
         )
         occurrence = cursor.fetchone()
         if not occurrence:
@@ -928,25 +986,108 @@ def get_pipeline_dashboard():
 
 # ── events ─────────────────────────────────────────────────────────────────────
 
-def get_events(status=None):
+def get_events(status=None, search=None, client=None, event_type=None,
+               date_from=None, date_to=None, resource_id=None):
     status = normalize_event_status(status) if status else None
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
+        clauses, params = [], []
         if status:
-            cursor.execute("""
-                SELECT e.*, 
-                    COALESCE((SELECT SUM(total) FROM quote_items WHERE event_id=e.id), 0) as quote_total
-                FROM events e
-                WHERE e.status=%s
-                ORDER BY e.event_date ASC NULLS LAST, e.created_at DESC
-            """, (status,))
-        else:
-            cursor.execute("""
-                SELECT e.*,
-                    COALESCE((SELECT SUM(total) FROM quote_items WHERE event_id=e.id), 0) as quote_total
-                FROM events e
-                ORDER BY e.event_date ASC NULLS LAST, e.created_at DESC
-            """)
+            clauses.append("e.status=%s")
+            params.append(status)
+        if search:
+            clauses.append("(e.event_name ILIKE %s OR e.client_name ILIKE %s OR e.client_email ILIKE %s)")
+            params.extend([f"%{search.strip()}%"] * 3)
+        if client:
+            clauses.append("e.client_name ILIKE %s")
+            params.append(f"%{client.strip()}%")
+        if event_type:
+            clauses.append("e.event_type=%s")
+            params.append(event_type)
+        if date_from or date_to:
+            occurrence_dates = ["eo.event_id=e.id"]
+            if date_from:
+                occurrence_dates.append("eo.event_date >= %s")
+                params.append(date_from)
+            if date_to:
+                occurrence_dates.append("eo.event_date <= %s")
+                params.append(date_to)
+            clauses.append(
+                "EXISTS (SELECT 1 FROM event_occurrences eo WHERE "
+                + " AND ".join(occurrence_dates) + ")"
+            )
+        if resource_id:
+            clauses.append("""EXISTS (
+                SELECT 1 FROM event_occurrences eo
+                JOIN event_resource_reservations err ON err.occurrence_id=eo.id
+                WHERE eo.event_id=e.id AND err.resource_id=%s
+                  AND err.status IN ('requested','reserved')
+            )""")
+            params.append(resource_id)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        cursor.execute(f"""
+            SELECT e.*, COALESCE((
+                SELECT SUM(COALESCE(total_gross,total)) FROM quote_items WHERE event_id=e.id
+            ), 0) AS quote_total
+            FROM events e {where}
+            ORDER BY e.event_date ASC NULLS LAST, e.created_at DESC
+        """, params)
+        return cursor.fetchall()
+
+
+def get_event_calendar_occurrences(date_from, date_to):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT eo.*, e.event_name, e.client_name, e.status,
+                   COALESCE(json_agg(er.code ORDER BY er.code)
+                     FILTER (WHERE er.id IS NOT NULL), '[]'::json) AS resources
+            FROM event_occurrences eo
+            JOIN events e ON e.id=eo.event_id
+            LEFT JOIN event_resource_reservations err
+              ON err.occurrence_id=eo.id AND err.status IN ('requested','reserved')
+            LEFT JOIN event_resources er ON er.id=err.resource_id
+            WHERE eo.event_date BETWEEN %s AND %s
+              AND e.status NOT IN ('rejeitado','cancelado')
+            GROUP BY eo.id, e.id
+            ORDER BY eo.event_date, eo.service_start_time NULLS FIRST, eo.id
+        """, (date_from, date_to))
+        return cursor.fetchall()
+
+
+def get_event_notifications(today=None):
+    today = today or date.today()
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT * FROM (
+                SELECT e.id AS event_id, 'new_request' AS kind, 'Novo pedido' AS title,
+                       e.event_name, e.created_at AS occurred_at
+                FROM events e WHERE e.status='novos'
+                UNION ALL
+                SELECT e.id, 'accepted_quote', 'Orçamento aceite', e.event_name, l.created_at
+                FROM event_portal_access_log l JOIN events e ON e.id=l.event_id
+                WHERE l.action='quote_accepted'
+                UNION ALL
+                SELECT e.id, 'proof_uploaded', 'Comprovativo carregado', e.event_name, l.created_at
+                FROM event_portal_access_log l JOIN events e ON e.id=l.event_id
+                WHERE l.action='deposit_proof_uploaded'
+                UNION ALL
+                SELECT e.id, 'payment_received', 'Pagamento recebido', e.event_name, e.updated_at
+                FROM events e WHERE e.payment_status='received'
+                UNION ALL
+                SELECT e.id, 'resource_conflict', 'Conflito de recurso assumido', e.event_name, err.updated_at
+                FROM event_resource_reservations err
+                JOIN event_occurrences eo ON eo.id=err.occurrence_id
+                JOIN events e ON e.id=eo.event_id
+                WHERE err.risk_acknowledged=TRUE AND err.status IN ('requested','reserved')
+                UNION ALL
+                SELECT e.id, 'event_soon', 'Evento nos próximos 7 dias', e.event_name,
+                       e.event_date::timestamp
+                FROM events e WHERE e.event_date BETWEEN %s AND %s
+                  AND e.status IN ('adjudicado','sinalizado')
+            ) alerts ORDER BY occurred_at DESC NULLS LAST LIMIT 30
+        """, (today, today + timedelta(days=7)))
         return cursor.fetchall()
 
 def get_event(event_id):
@@ -1097,6 +1238,28 @@ def transition_event_status(event_id, new_status, loss_reason=None, actor=None):
             return False, f"Transição inválida de '{old_status}' para '{new_status}'"
 
         updates = {'status': new_status, 'loss_reason': None}
+        if new_status == 'orcamentado':
+            cursor.execute("SELECT COUNT(*) AS count FROM quote_items WHERE event_id=%s", (event_id,))
+            if cursor.fetchone()['count'] == 0:
+                return False, "Crie pelo menos uma linha de orçamento antes de o preparar."
+        if new_status == 'enviado':
+            cursor.execute(
+                "SELECT COALESCE(SUM(COALESCE(total_gross,total)), 0) AS total, COUNT(*) AS count "
+                "FROM quote_items WHERE event_id=%s",
+                (event_id,),
+            )
+            quote = cursor.fetchone()
+            if not quote['count'] or quote['total'] <= 0:
+                return False, "O orçamento atual deve ter pelo menos uma linha e total positivo."
+            revision = _quote_revision(cursor, event_id, lock_rows=True)
+            cursor.execute(
+                "SELECT id FROM event_quote_versions WHERE event_id=%s AND quote_revision=%s "
+                "AND total_gross > 0 ORDER BY version_number DESC LIMIT 1",
+                (event_id, revision),
+            )
+            sent_version = cursor.fetchone()
+            if not sent_version:
+                return False, "Guarde a versão atual do orçamento antes de registar o envio ao cliente."
 
         if new_status in ('rejeitado', 'cancelado'):
             if not loss_reason or not loss_reason.strip():
@@ -1143,6 +1306,12 @@ def transition_event_status(event_id, new_status, loss_reason=None, actor=None):
                     THEN COALESCE(reserved_at, NOW()) ELSE reserved_at END
             WHERE id=%(id)s
         """, updates)
+        if new_status == 'enviado':
+            cursor.execute(
+                "UPDATE event_portal_requests SET sent_quote_version_id=%s, updated_at=NOW() "
+                "WHERE event_id=%s",
+                (sent_version['id'], event_id),
+            )
         if new_status == 'sinalizado':
             cursor.execute(
                 """
@@ -1264,6 +1433,55 @@ def delete_quote_item(item_id, event_id, actor=None):
             details={'item_id': item_id},
         )
         conn.commit()
+
+
+def create_quote_version(event_id, reason=None, actor=None):
+    """Freeze the current quote before a negotiation or send; later edits stay separate."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        _lock_quote_event(cursor, event_id)
+        cursor.execute("SELECT * FROM quote_items WHERE event_id=%s ORDER BY id", (event_id,))
+        items = cursor.fetchall()
+        total_gross = sum(
+            Decimal(str(item.get('total_gross') if item.get('total_gross') is not None else item.get('total') or 0))
+            for item in items
+        )
+        if not items or total_gross <= 0:
+            raise ValueError('Não é possível guardar uma versão sem linhas e total positivo.')
+        total_net = sum((Decimal(str(item.get('total_net') or 0)) for item in items), Decimal('0'))
+        total_vat = sum((Decimal(str(item.get('total_vat') or 0)) for item in items), Decimal('0'))
+        revision = _quote_revision(cursor, event_id, lock_rows=True)
+        cursor.execute(
+            "SELECT COALESCE(MAX(version_number), 0)+1 AS next_version "
+            "FROM event_quote_versions WHERE event_id=%s",
+            (event_id,),
+        )
+        version = cursor.fetchone()['next_version']
+        cursor.execute("""
+            INSERT INTO event_quote_versions
+              (event_id, version_number, reason, created_by, snapshot, total_net, total_vat, total_gross, quote_revision)
+            VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s)
+        """, (
+            event_id, version, reason or None, actor,
+            json.dumps(items, ensure_ascii=False, default=str),
+            total_net, total_vat, total_gross, revision,
+        ))
+        _insert_event_history(
+            cursor, event_id, 'quote_version_created', actor=actor, reason=reason,
+            details={'version': version, 'item_count': len(items)},
+        )
+        conn.commit()
+        return version
+
+
+def get_quote_versions(event_id):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT * FROM event_quote_versions WHERE event_id=%s ORDER BY version_number DESC",
+            (event_id,),
+        )
+        return cursor.fetchall()
 
 
 def get_won_events_missing_taxa_iva():
@@ -1645,7 +1863,7 @@ def get_portal_event_for_email(event_id, email):
                    p.flavours, p.resource_preferences, p.catering_requested,
                    p.estimate_eligible, p.estimated_base_eur, p.estimated_vat_eur,
                    p.estimated_total_eur, p.public_message, p.logistics_message,
-                   p.accepted_quote_revision, p.quote_accepted_at,
+                    p.sent_quote_version_id, p.accepted_quote_revision, p.quote_accepted_at,
                    (SELECT MIN(eo.event_date) FROM event_occurrences eo
                     WHERE eo.event_id = e.id) AS next_date,
                    (SELECT COUNT(*) FROM event_occurrences eo
@@ -1657,15 +1875,31 @@ def get_portal_event_for_email(event_id, email):
         event = cursor.fetchone()
         if not event:
             return None
-        revision, quote_rows = _quote_revision(cursor, event_id)
-        cursor.execute("""
-            SELECT id, descricao, quantidade, taxa_iva, total_net, total_vat,
-                   COALESCE(total_gross, total) AS total_gross
-            FROM quote_items WHERE event_id = %s ORDER BY id
-        """, (event_id,))
-        event['quote_items_public'] = cursor.fetchall()
-        event['quote_revision'] = revision
-        event['quote_totals'] = get_event_quote_totals(event_id)
+        if event['sent_quote_version_id']:
+            cursor.execute("""
+                SELECT snapshot, quote_revision, total_net, total_vat, total_gross
+                FROM event_quote_versions WHERE id=%s AND event_id=%s
+            """, (event['sent_quote_version_id'], event_id))
+            sent_quote = cursor.fetchone()
+        else:
+            sent_quote = None
+        if sent_quote:
+            quote_items = sent_quote['snapshot'] or []
+            for item in quote_items:
+                for field in ('total_net', 'total_vat', 'total_gross'):
+                    if item.get(field) is not None:
+                        item[field] = Decimal(str(item[field]))
+            event['quote_items_public'] = quote_items
+            event['quote_revision'] = sent_quote['quote_revision']
+            event['quote_totals'] = {
+                'total_net': sent_quote['total_net'],
+                'total_vat': sent_quote['total_vat'],
+                'total_gross': sent_quote['total_gross'],
+            }
+        else:
+            event['quote_items_public'] = []
+            event['quote_revision'] = None
+            event['quote_totals'] = {'total_net': None, 'total_vat': None, 'total_gross': Decimal('0')}
         event['occurrences_public'] = get_event_occurrences(event_id)
         cursor.execute("""
             SELECT original_filename, purpose, created_at
@@ -1682,7 +1916,7 @@ def accept_portal_quote(event_id, email, presented_revision):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
-            SELECT e.status, p.accepted_quote_revision
+            SELECT e.status, p.accepted_quote_revision, p.sent_quote_version_id
             FROM event_portal_requests p
             JOIN events e ON e.id = p.event_id
             WHERE e.id = %s AND p.email_normalized = %s
@@ -1691,18 +1925,21 @@ def accept_portal_quote(event_id, email, presented_revision):
         event = cursor.fetchone()
         if not event:
             raise ValueError('Pedido não encontrado.')
-        revision, _ = _quote_revision(cursor, event_id, lock_rows=True)
-        if presented_revision != revision:
-            raise ValueError('O orçamento foi alterado. Reveja-o e aceite a versão atual.')
+        if not event['sent_quote_version_id']:
+            raise ValueError('O orçamento ainda não tem uma versão enviada.')
+        cursor.execute("""
+            SELECT quote_revision, total_gross FROM event_quote_versions
+            WHERE id=%s AND event_id=%s FOR UPDATE
+        """, (event['sent_quote_version_id'], event_id))
+        sent_quote = cursor.fetchone()
+        if not sent_quote or presented_revision != sent_quote['quote_revision']:
+            raise ValueError('A versão enviada já não está disponível. Contacte a equipa.')
+        revision = sent_quote['quote_revision']
         if event['accepted_quote_revision'] == revision:
             return False
         if normalize_event_status(event['status']) != 'enviado':
             raise ValueError('O orçamento ainda não está disponível para aceitação.')
-        cursor.execute("""
-            SELECT COALESCE(SUM(COALESCE(total_gross, total)), 0) AS total
-            FROM quote_items WHERE event_id = %s
-        """, (event_id,))
-        total = _money(cursor.fetchone()['total'])
+        total = _money(sent_quote['total_gross'])
         if total <= 0:
             raise ValueError('O orçamento não tem um valor positivo para aceitar.')
         cursor.execute("""

@@ -76,6 +76,20 @@
         </div>
     </div>
 
+    {% if notifications %}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold small">🔔 Centro de notificações</div>
+        <div class="list-group list-group-flush">
+            {% for notice in notifications[:8] %}
+            <a href="{{ url_for('eventos.evento_detail', event_id=notice.event_id) }}" class="list-group-item list-group-item-action small d-flex justify-content-between gap-2">
+                <span><strong>{{ notice.title }}</strong> · {{ notice.event_name or ('Evento #' ~ notice.event_id) }}</span>
+                <span class="text-muted text-nowrap">{{ notice.occurred_at.strftime('%d/%m %H:%M') if notice.occurred_at else '' }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="card shadow-sm mb-4">
         <div class="card-header fw-semibold small">Oportunidades por Estado</div>
         <div class="card-body p-0">

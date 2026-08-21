@@ -62,7 +62,7 @@ STATUS_COLORS = {
 VALID_TRANSITIONS = {
     'novos':         ['orcamentado', 'rejeitado', 'cancelado'],
     'orcamentado':   ['enviado', 'rejeitado', 'cancelado'],
-    'enviado':       ['adjudicado', 'rejeitado', 'cancelado'],
+    'enviado':       ['orcamentado', 'adjudicado', 'rejeitado', 'cancelado'],
     'adjudicado':    ['sinalizado', 'cancelado'],
     'sinalizado':    ['realizado', 'cancelado'],
     'realizado':     ['faturado', 'cancelado'],
@@ -400,9 +400,11 @@ def portal_upload_proof(event_id):
 TABS = [
     {'id': 'dashboard', 'label': 'Dashboard', 'icon': '📊', 'url_endpoint': 'eventos.dashboard'},
     {'id': 'pipeline',  'label': 'Pipeline',  'icon': '📋', 'url_endpoint': 'eventos.pipeline'},
+    {'id': 'calendario', 'label': 'Calendário', 'icon': '🗓️', 'url_endpoint': 'eventos.calendario'},
     {'id': 'leads',     'label': 'Leads do Formulário', 'icon': '📥', 'url_endpoint': 'eventos.leads'},
     {'id': 'clientes',  'label': 'Clientes',  'icon': '👥', 'url_endpoint': 'eventos.clientes'},
     {'id': 'artigos',   'label': 'Artigos',   'icon': '🏷️', 'url_endpoint': 'eventos.artigos'},
+    {'id': 'configuracao', 'label': 'Configuração', 'icon': '⚙️', 'url_endpoint': 'eventos.configuracao'},
     {'id': 'recebimentos', 'label': 'Recebimentos', 'icon': '💶', 'url_endpoint': 'eventos.recebimentos'},
 ]
 
@@ -453,11 +455,13 @@ def index():
 @login_required
 def dashboard():
     stats = db.get_pipeline_dashboard()
+    notifications = db.get_event_notifications()
     tabs = _get_tabs()
     all_statuses = db.EVENT_STATUSES
     return render_template('eventos/dashboard.html',
                            stats=stats,
                            all_statuses=all_statuses,
+                           notifications=notifications,
                            status_labels=STATUS_LABELS,
                            status_colors=STATUS_COLORS,
                            tabs=tabs,
@@ -470,18 +474,45 @@ def dashboard():
 @login_required
 def pipeline():
     status_filter = request.args.get('status', '')
-    events = db.get_events(status=status_filter if status_filter else None)
+    filters = {
+        'search': request.args.get('q', '').strip(),
+        'client': request.args.get('client', '').strip(),
+        'event_type': request.args.get('event_type', '').strip(),
+        'date_from': request.args.get('date_from', '').strip() or None,
+        'date_to': request.args.get('date_to', '').strip() or None,
+        'resource_id': request.args.get('resource_id', type=int),
+    }
+    events = db.get_events(status=status_filter or None, **filters)
     all_statuses = db.EVENT_STATUSES
     tabs = _get_tabs()
     return render_template('eventos/pipeline.html',
                            events=events,
                            status_filter=status_filter,
+                            filters=filters,
+                            resources=db.get_event_resources(),
                            all_statuses=all_statuses,
                            status_labels=STATUS_LABELS,
                            status_colors=STATUS_COLORS,
                            valid_transitions=VALID_TRANSITIONS,
                            tabs=tabs,
                            active_tab='pipeline')
+
+
+@eventos_bp.route('/calendario')
+@login_required
+def calendario():
+    start_raw = request.args.get('inicio', '')
+    try:
+        start = datetime.strptime(start_raw, '%Y-%m-%d').date() if start_raw else date.today()
+    except ValueError:
+        start = date.today()
+    end = start + timedelta(days=27)
+    occurrences = db.get_event_calendar_occurrences(start, end)
+    return render_template(
+        'eventos/calendario.html', occurrences=occurrences, start=start, end=end,
+        status_labels=STATUS_LABELS, status_colors=STATUS_COLORS,
+        tabs=_get_tabs(), active_tab='calendario',
+    )
 
 
 # ── Event detail / edit ────────────────────────────────────────────────────────
@@ -636,6 +667,37 @@ def evento_detail(event_id):
                 flash('Preencha uma data válida para a ocorrência.', 'error')
             return redirect(url_for('eventos.evento_detail', event_id=event_id))
 
+        elif action == 'update_occurrence':
+            try:
+                occurrence_id = int(request.form.get('occurrence_id', ''))
+                occurrence_date = datetime.strptime(request.form.get('occurrence_date', ''), '%Y-%m-%d').date()
+                db.update_event_occurrence(occurrence_id, {
+                    'event_date': occurrence_date,
+                    'venue': request.form.get('occurrence_venue', '').strip() or None,
+                    'venue_address': request.form.get('occurrence_address', '').strip() or None,
+                    'service_start_time': request.form.get('occurrence_start') or None,
+                    'service_end_time': request.form.get('occurrence_end') or None,
+                    'service_mode': request.form.get('service_mode') or 'pending',
+                    'logistics_notes': request.form.get('logistics_notes', '').strip() or None,
+                }, actor=_current_actor(),
+                   risk_acknowledged=request.form.get('acknowledge_occurrence_conflict') == '1',
+                   expected_event_id=event_id)
+                flash('Ocorrência atualizada.', 'success')
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or 'Não foi possível atualizar a ocorrência.', 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
+        elif action == 'delete_occurrence':
+            try:
+                db.delete_event_occurrence(
+                    int(request.form.get('occurrence_id', '')), actor=_current_actor(),
+                    expected_event_id=event_id,
+                )
+                flash('Ocorrência removida.', 'success')
+            except (TypeError, ValueError) as exc:
+                flash(str(exc), 'error')
+            return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
         elif action == 'reserve_resource':
             try:
                 occurrence_id = int(request.form.get('occurrence_id', ''))
@@ -644,6 +706,8 @@ def evento_detail(event_id):
                 saved, conflicts = db.reserve_event_resource(
                     occurrence_id, resource_id, actor=_current_actor(),
                     risk_acknowledged=acknowledged,
+                    notes=request.form.get('conflict_reason', '').strip() or None,
+                    expected_event_id=event_id,
                 )
                 if saved:
                     flash('Recurso registado para esta ocorrência.', 'success')
@@ -667,6 +731,7 @@ def evento_detail(event_id):
                     int(request.form.get('occurrence_id', '')),
                     int(request.form.get('resource_id', '')),
                     actor=_current_actor(),
+                    expected_event_id=event_id,
                 )
                 flash('Recurso libertado.', 'success')
             except (TypeError, ValueError) as exc:
@@ -679,16 +744,19 @@ def evento_detail(event_id):
             return redirect(url_for('eventos.pipeline'))
 
     quote_items = db.get_quote_items(event_id)
+    quote_totals = db.get_event_quote_totals(event_id)
     artigos = db.get_artigos_evento(apenas_ativos=True)
     occurrences = db.get_event_occurrences(event_id)
     resources = db.get_event_resources()
     event_history = db.get_event_history(event_id)
+    quote_versions = db.get_quote_versions(event_id)
     resource_conflicts = session.pop('event_resource_conflicts', [])
     tabs = _get_tabs()
     transitions = VALID_TRANSITIONS.get(event['status'], [])
     return render_template('eventos/evento_detail.html',
                            event=event,
                            quote_items=quote_items,
+                            quote_totals=quote_totals,
                            artigos=artigos,
                            status_labels=STATUS_LABELS,
                            status_colors=STATUS_COLORS,
@@ -696,6 +764,7 @@ def evento_detail(event_id):
                             occurrences=occurrences,
                             resources=resources,
                             event_history=event_history,
+                             quote_versions=quote_versions,
                             resource_conflicts=resource_conflicts,
                            tabs=tabs,
                            active_tab='pipeline')
@@ -711,6 +780,13 @@ def quote_action(event_id):
         return redirect(url_for('eventos.pipeline'))
 
     action = request.form.get('action', '')
+    if (
+        action in ('add_item', 'edit_item', 'delete_item', 'add_adjustment')
+        and db.normalize_event_status(event['status'])
+        in ('enviado', 'adjudicado', 'sinalizado', 'realizado', 'faturado', 'recebido')
+    ):
+        flash('O orçamento enviado/aceite está fechado. Crie uma nova proposta antes de voltar a enviá-la.', 'warning')
+        return redirect(url_for('eventos.evento_detail', event_id=event_id))
 
     if action == 'add_item':
         artigo_codigo = request.form.get('artigo_codigo', '').strip()
@@ -766,8 +842,68 @@ def quote_action(event_id):
         if db.normalize_event_status(event['status']) in db.EVENT_FINANCIAL_STATUSES:
             db.recalc_event_invoice(event_id)
         flash('Artigo actualizado.', 'success')
+    elif action == 'save_version':
+        try:
+            version = db.create_quote_version(
+                event_id, request.form.get('version_reason', '').strip(), actor=_current_actor()
+            )
+            flash(f'Versão {version} do orçamento guardada.', 'success')
+        except ValueError as exc:
+            flash(str(exc), 'error')
+    elif action == 'add_adjustment':
+        reason = request.form.get('adjustment_reason', '').strip()
+        try:
+            amount = abs(float(request.form.get('adjustment_amount', '0').replace(',', '.')))
+            if not reason or amount <= 0:
+                raise ValueError('Indique um valor e justificação para o desconto/exceção.')
+            db.add_quote_item(
+                event_id, 'ajuste_manual', f'Desconto/exceção: {reason}', 1, -amount, 0,
+                actor=_current_actor(),
+            )
+            if db.normalize_event_status(event['status']) in db.EVENT_FINANCIAL_STATUSES:
+                db.recalc_event_invoice(event_id)
+            flash('Desconto/exceção registado no orçamento.', 'success')
+        except ValueError as exc:
+            flash(str(exc), 'error')
 
     return redirect(url_for('eventos.evento_detail', event_id=event_id))
+
+
+@eventos_bp.route('/configuracao', methods=['GET', 'POST'])
+@perm_required('acesso_administrativo')
+def configuracao():
+    if request.method == 'POST':
+        action = request.form.get('action')
+        try:
+            if action == 'resource':
+                db.upsert_event_resource(
+                    request.form.get('code', '').strip(),
+                    request.form.get('name', '').strip(),
+                    request.form.get('resource_type', 'equipment').strip(),
+                    request.form.get('capacity_carapinas', type=int),
+                    request.form.get('capacity_flavors', type=int),
+                    request.form.get('active') == '1',
+                    request.form.get('notes', '').strip() or None,
+                )
+                flash('Meio guardado.', 'success')
+            elif action == 'pricing':
+                raw_rate = request.form.get('taxa_iva')
+                rate = None if request.form.get('setting_type') == 'percentage' and not raw_rate else _parse_taxa_iva(raw_rate)
+                db.upsert_event_pricing_setting(
+                    request.form.get('key', '').strip(), request.form.get('label', '').strip(),
+                    request.form.get('setting_type', 'money'), request.form.get('value_gross', '0'),
+                    rate, actor=_current_actor(),
+                    requires_tax_review=request.form.get('requires_tax_review') == '1',
+                    active=request.form.get('active') == '1',
+                )
+                flash('Preço/configuração guardado.', 'success')
+        except ValueError as exc:
+            flash(str(exc), 'error')
+        return redirect(url_for('eventos.configuracao'))
+    return render_template(
+        'eventos/configuracao.html', resources=db.get_event_resources(active_only=False),
+        pricing=db.get_event_pricing_settings(), tabs=_get_tabs(), active_tab='configuracao',
+    )
 
 
 @eventos_bp.route('/backfill-iva', methods=['GET', 'POST'])

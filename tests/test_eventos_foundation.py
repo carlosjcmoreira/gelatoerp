@@ -341,6 +341,20 @@ class EventQuoteRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         update_item.assert_called_once()
 
+    def test_sent_quote_cannot_be_changed_without_returning_to_negotiation(self):
+        with self.app.test_client() as client, \
+             patch('flask_app.routes.eventos.db.get_event', return_value={'status': 'enviado'}), \
+             patch('flask_app.routes.eventos.db.update_quote_item') as update_item:
+            with client.session_transaction() as session:
+                session['user'] = {'username': 'equipa'}
+            response = client.post(
+                '/eventos/evento/7/quote',
+                data={'action': 'edit_item', 'item_id': '4', 'descricao': 'Serviço'},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        update_item.assert_not_called()
+
 
 class EventFoundationMigrationTests(unittest.TestCase):
     def test_migration_is_additive_and_backfills_without_legacy_deletion(self):
