@@ -1,4 +1,4 @@
-"""Contracts for store-specific public Event portal branding."""
+"""Contracts for the single public Event form configuration."""
 
 import io
 import tempfile
@@ -147,6 +147,22 @@ class BrandPersistenceTests(unittest.TestCase):
         self.assertEqual(insert_params[1], "Gelato Norte")
         self.assertEqual(insert_params[2], "logo.png")
 
+    def test_public_save_reuses_the_active_default_without_exposing_store_choice(self):
+        cursor = _Cursor([(7,)])
+        connection = _Connection(cursor)
+        values = validate_brand_form({"brand_name": "Gelato Norte"})
+
+        with patch("db.eventos.db_connection", return_value=connection):
+            eventos.save_public_portal_brand_config(values, logo_filename="logo.png")
+
+        statements = "\n".join(sql for sql, _ in cursor.queries)
+        self.assertIn("FOR UPDATE OF s", statements)
+        self.assertIn("UPDATE event_portal_brand_configs SET is_default=FALSE", statements)
+        self.assertIn("INSERT INTO event_portal_brand_configs", statements)
+        insert_params = cursor.queries[-1][1]
+        self.assertEqual(insert_params[0], 7)
+        self.assertEqual(insert_params[1], "Gelato Norte")
+
     def test_brand_save_checks_fresh_store_status_inside_transaction(self):
         cursor = _Cursor([(False,)])
         connection = _Connection(cursor)
@@ -194,59 +210,68 @@ class BrandRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.location, "/")
 
-    def test_admin_can_open_editor_with_real_preview(self):
-        store = {"id": 1, "name": "Matosinhos", "is_active": True}
+    def test_admin_can_open_single_form_editor_with_preview_and_public_link(self):
         brand = default_portal_brand()
         brand["store_id"] = 1
         with self.app.test_client() as client, \
-             patch("flask_app.routes.eventos.get_all_stores", return_value=[store]), \
-             patch("flask_app.routes.eventos.db.get_portal_brand_config", return_value=brand), \
+              patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=brand), \
              patch("db.tiles.get_tile_visibility", return_value={}), \
              patch("db.tiles.get_tile_labels", return_value={}), \
              patch("db.tiles.get_tile_icons", return_value={}):
             self._user(client, acesso_administrativo=True)
-            response = client.get("/eventos/configuracao/portal-marca?store_id=1")
+            response = client.get("/eventos/configuracao/portal-marca?store_id=999")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Pré-visualização", response.get_data(as_text=True))
+        page = response.get_data(as_text=True)
+        self.assertIn("Formulário público de Eventos", page)
+        self.assertIn("Pré-visualização", page)
+        self.assertIn('href="/eventos/pedido-evento"', page)
+        self.assertIn('target="_blank"', page)
+        self.assertNotIn("store-picker", page)
+        self.assertNotIn('name="store_id"', page)
 
     def test_brand_editor_post_requires_csrf_before_any_write(self):
-        store = {"id": 1, "name": "Matosinhos", "is_active": True}
         with self.app.test_client() as client, \
-             patch("flask_app.routes.eventos.get_all_stores", return_value=[store]), \
-             patch("flask_app.routes.eventos.db.get_portal_brand_config", return_value=default_portal_brand()), \
-             patch("flask_app.routes.eventos.db.save_portal_brand_config") as save_brand:
+              patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=default_portal_brand()), \
+              patch("flask_app.routes.eventos.db.save_public_portal_brand_config") as save_brand:
             self._user(client, acesso_administrativo=True)
             response = client.post("/eventos/configuracao/portal-marca", data={
-                "store_id": "1", "brand_name": "Marca alterada",
+                "brand_name": "Marca alterada",
             })
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("página expirou", response.get_data(as_text=True))
         save_brand.assert_not_called()
 
-    def test_inactive_store_cannot_replace_public_default(self):
-        store = {"id": 2, "name": "Loja inativa", "is_active": False}
+    def test_saved_editor_values_update_the_single_public_configuration(self):
         brand = default_portal_brand()
         with self.app.test_client() as client, \
-             patch("flask_app.routes.eventos.get_all_stores", return_value=[store]), \
-             patch("flask_app.routes.eventos.db.get_portal_brand_config", return_value=brand), \
-             patch("flask_app.routes.eventos.get_store", return_value=store), \
-             patch("flask_app.routes.eventos.db.save_portal_brand_config") as save_brand, \
+              patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=brand), \
+              patch("flask_app.routes.eventos.db.save_public_portal_brand_config") as save_brand, \
              patch("db.tiles.get_tile_visibility", return_value={}), \
              patch("db.tiles.get_tile_labels", return_value={}), \
              patch("db.tiles.get_tile_icons", return_value={}):
             self._user(client, acesso_administrativo=True)
-            client.get("/eventos/configuracao/portal-marca?store_id=2")
+            client.get("/eventos/configuracao/portal-marca")
             with client.session_transaction() as session:
                 token = session["event_portal_brand_csrf"]
             response = client.post("/eventos/configuracao/portal-marca", data={
-                "store_id": "2", "csrf_token": token, "is_default": "1",
+                "csrf_token": token, "brand_name": "Gelato da Praia",
             })
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("loja ativa", response.get_data(as_text=True))
-        save_brand.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/eventos/configuracao/portal-marca")
+        values = save_brand.call_args.args[0]
+        self.assertEqual(values["brand_name"], "Gelato da Praia")
+        self.assertIsNone(values["store_id"])
+
+    def test_editor_disables_only_its_blur_submit_scroll(self):
+        root = Path(__file__).parent.parent
+        template = (root / "flask_app" / "templates" / "eventos" / "configuracao_portal_marca.html").read_text()
+        base_template = (root / "flask_app" / "templates" / "base.html").read_text()
+
+        self.assertIn('data-ios-submit-scroll="false"', template)
+        self.assertIn("scope.dataset.iosSubmitScroll === 'false'", base_template)
 
     def test_public_request_uses_default_brand_and_server_sets_its_store(self):
         brand = default_portal_brand()

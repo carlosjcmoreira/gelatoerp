@@ -1946,6 +1946,65 @@ def get_default_portal_brand():
         return _portal_brand_from_row(cursor.fetchone())
 
 
+def save_public_portal_brand_config(values, logo_filename=None):
+    """Save the unique public form configuration without exposing store choice.
+
+    Historic portal requests retain their brand_store_id.  This update reuses
+    the active public brand's internal owner, or adopts the first active store
+    only when this is the first public configuration.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT s.id
+                FROM stores s
+                LEFT JOIN event_portal_brand_configs c ON c.store_id = s.id
+                WHERE s.is_active = TRUE
+                ORDER BY COALESCE(c.is_default, FALSE) DESC,
+                         c.updated_at DESC NULLS LAST, s.id
+                LIMIT 1
+                FOR UPDATE OF s
+            """)
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError('Não existe uma loja ativa para associar o formulário público.')
+            store_id = row[0]
+            cursor.execute(
+                "UPDATE event_portal_brand_configs SET is_default=FALSE, updated_at=NOW() "
+                "WHERE is_default=TRUE"
+            )
+            cursor.execute("""
+                INSERT INTO event_portal_brand_configs (
+                    store_id, brand_name, logo_filename, primary_color, accent_color,
+                    background_color, text_color, button_color, button_text_color,
+                    form_title, form_intro, confirmation_message, contact_text,
+                    field_labels, visible_fields, is_default
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                ON CONFLICT (store_id) DO UPDATE SET
+                    brand_name=EXCLUDED.brand_name, logo_filename=EXCLUDED.logo_filename,
+                    primary_color=EXCLUDED.primary_color, accent_color=EXCLUDED.accent_color,
+                    background_color=EXCLUDED.background_color, text_color=EXCLUDED.text_color,
+                    button_color=EXCLUDED.button_color, button_text_color=EXCLUDED.button_text_color,
+                    form_title=EXCLUDED.form_title, form_intro=EXCLUDED.form_intro,
+                    confirmation_message=EXCLUDED.confirmation_message,
+                    contact_text=EXCLUDED.contact_text, field_labels=EXCLUDED.field_labels,
+                    visible_fields=EXCLUDED.visible_fields, is_default=TRUE,
+                    updated_at=NOW()
+            """, (
+                store_id, values['brand_name'], logo_filename,
+                values['primary_color'], values['accent_color'], values['background_color'],
+                values['text_color'], values['button_color'], values['button_text_color'],
+                values['form_title'], values['form_intro'], values['confirmation_message'],
+                values['contact_text'], json.dumps(values['field_labels'], ensure_ascii=False),
+                json.dumps(values['visible_fields'], ensure_ascii=False),
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def save_portal_brand_config(store_id, values, logo_filename=None, is_default=False):
     """Upsert one store identity; selecting default atomically clears the old one."""
     with db_connection() as conn:

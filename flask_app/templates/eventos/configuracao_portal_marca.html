@@ -8,18 +8,14 @@
 {% block content %}
 <div class="container-fluid px-3 pt-3 pb-5">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
-    <div><h5 class="fw-bold mb-1">Marca do portal de Eventos</h5><p class="text-muted small mb-0">A marca aplica-se apenas às páginas públicas. O backoffice continua Scoopy.</p></div>
+    <div><h5 class="fw-bold mb-1">Formulário público de Eventos</h5><p class="text-muted small mb-0">Configure a apresentação usada no formulário público. O backoffice continua Scoopy.</p></div>
     <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('eventos.configuracao') }}">← Configuração</a>
   </div>
-  {% if not stores %}<div class="alert alert-warning">Não existem lojas para configurar.</div>{% else %}
-  <div class="card shadow-sm border-0 mb-3"><div class="card-body">
-    <label class="form-label fw-semibold" for="store-picker">Loja / marca</label>
-    <select id="store-picker" class="form-select" style="max-width:440px" onchange="location.href='{{ url_for('eventos.configuracao_portal_marca') }}?store_id='+this.value">
-      {% for store in stores %}<option value="{{ store.id }}" {% if selected_store and store.id == selected_store.id %}selected{% endif %}>{{ store.name }}{% if not store.is_active %} (inativa){% endif %}</option>{% endfor %}
-    </select>
-  </div></div>
-  <form method="post" enctype="multipart/form-data">
-    <input type="hidden" name="store_id" value="{{ selected_store.id }}">
+  <div class="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <span>As alterações guardadas aparecem aqui e no formulário público real.</span>
+    <a class="btn btn-primary btn-sm" href="{{ url_for('eventos.portal_request') }}" target="_blank" rel="noopener" data-no-loading>↗ Abrir formulário público</a>
+  </div>
+  <form method="post" enctype="multipart/form-data" data-ios-submit-scroll="false">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="row g-3">
       <div class="col-xl-7">
@@ -53,8 +49,7 @@
             <div class="col-md-6"><label class="form-label small">{{ label }}</label><input class="form-control form-control-sm" name="label_{{ key }}" value="{{ brand.field_labels.get(key, label) }}" {% if key == 'submit' %}data-preview="submit-label"{% endif %}></div>
           {% endfor %}
           </div>
-          <div class="form-check form-switch mt-4"><input class="form-check-input" type="checkbox" role="switch" id="is-default" name="is_default" value="1" {% if brand.is_default %}checked{% endif %}><label class="form-check-label" for="is-default">Usar esta marca como predefinição do formulário público</label></div>
-          <button class="btn btn-primary mt-3">Guardar marca de {{ selected_store.name }}</button>
+          <button class="btn btn-primary mt-3">Guardar formulário</button>
         </div></div>
       </div>
       <div class="col-xl-5">
@@ -66,7 +61,7 @@
         </div>
       </div>
     </div>
-  </form>{% endif %}
+  </form>
 </div>
 <script>
 const preview=document.getElementById('brand-preview');

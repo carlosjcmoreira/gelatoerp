@@ -143,6 +143,16 @@ class EventosAccessTests(unittest.TestCase):
         configured_ids = {tile['id'] for tile in _TILE_MASTER['eventos']}
         self.assertEqual({tab['id'] for tab in TABS}, configured_ids)
 
+    def test_formulario_tile_opens_the_admin_form_editor(self):
+        with self.app.test_request_context('/eventos/'):
+            with patch('db.tiles.get_tile_visibility', return_value={}), \
+                 patch('db.tiles.get_tile_labels', return_value={}), \
+                 patch('db.tiles.get_tile_icons', return_value={}):
+                tabs = {tab['id']: tab for tab in _get_tabs()}
+
+        self.assertEqual(tabs['formulario']['label'], 'Formulário')
+        self.assertEqual(tabs['formulario']['url'], '/eventos/configuracao/portal-marca')
+
     def test_hidden_event_tile_remains_hidden_for_authorized_users(self):
         with self.app.test_request_context('/eventos/'):
             with patch('db.tiles.get_tile_visibility', return_value={'calendario': False}), \

@@ -213,8 +213,12 @@
                to the whole document when the field isn't inside one) so pages
                with several stacked forms don't jump to an unrelated button
                far down the page. */
-            var scope = e.target.closest('form') || document;
-            /* iOS keyboard takes ~300 ms to animate away; wait 350 ms so the
+             var scope = e.target.closest('form') || document;
+             /* Long editors can have their submit button far below the field
+                that was just edited. They can opt out of this repositioning
+                while pages that need it retain the existing behaviour. */
+             if (scope !== document && scope.dataset.iosSubmitScroll === 'false') return;
+             /* iOS keyboard takes ~300 ms to animate away; wait 350 ms so the
                new viewport height is stable before we measure button positions. */
             setTimeout(function() { ensureSubmitVisible(scope); }, 350);
         }, true);

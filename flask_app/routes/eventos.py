@@ -22,7 +22,6 @@ from database import (
     upsert_evento_items, registar_pagamento_evento, get_eventos_recebimentos,
 )
 from db.pagamentos import VAT_RATES
-from db.stores import get_all_stores, get_store
 
 eventos_bp = Blueprint('eventos', __name__)
 
@@ -434,6 +433,7 @@ TABS = [
     {'id': 'pipeline',  'label': 'Pipeline',  'icon': '📋', 'url_endpoint': 'eventos.pipeline'},
     {'id': 'calendario', 'label': 'Calendário', 'icon': '🗓️', 'url_endpoint': 'eventos.calendario'},
     {'id': 'leads',     'label': 'Leads do Formulário', 'icon': '📥', 'url_endpoint': 'eventos.leads'},
+    {'id': 'formulario', 'label': 'Formulário', 'icon': '📝', 'url_endpoint': 'eventos.configuracao_portal_marca'},
     {'id': 'clientes',  'label': 'Clientes',  'icon': '👥', 'url_endpoint': 'eventos.clientes'},
     {'id': 'artigos',   'label': 'Artigos',   'icon': '🏷️', 'url_endpoint': 'eventos.artigos'},
     {'id': 'configuracao', 'label': 'Configuração', 'icon': '⚙️', 'url_endpoint': 'eventos.configuracao'},
@@ -981,26 +981,16 @@ def configuracao():
 @eventos_bp.route('/configuracao/portal-marca', methods=['GET', 'POST'])
 @perm_required('acesso_administrativo')
 def configuracao_portal_marca():
-    """Admin-only editor for the customer-facing identity of each store."""
-    stores = get_all_stores()
-    store_ids = {store['id'] for store in stores}
-    try:
-        selected_store_id = int(request.values.get('store_id') or (stores[0]['id'] if stores else 0))
-    except (TypeError, ValueError):
-        selected_store_id = 0
-    if selected_store_id not in store_ids:
-        flash('Selecione uma loja válida para configurar a marca.', 'error')
-        return redirect(url_for('eventos.configuracao'))
+    """Admin-only editor for the single public Events form configuration.
 
-    brand = db.get_portal_brand_config(selected_store_id) if selected_store_id else default_portal_brand()
+    The database still keeps store associations because existing portal requests
+    reference the brand that was used when they were submitted.  The editor,
+    however, intentionally exposes only the one active public configuration.
+    """
+    brand = db.get_default_portal_brand()
     if request.method == 'POST':
         try:
             _require_admin_portal_brand_csrf()
-            fresh_store = get_store(selected_store_id)
-            if not fresh_store:
-                raise ValueError('A loja selecionada já não existe.')
-            if request.form.get('is_default') == '1' and not fresh_store['is_active']:
-                raise ValueError('Só uma loja ativa pode ser a marca pública predefinida.')
             values = validate_brand_form(request.form)
             logo_filename = brand.get('logo_filename')
             if request.form.get('remove_logo') == '1':
@@ -1009,23 +999,18 @@ def configuracao_portal_marca():
                 validated_logo = validate_portal_logo(request.files['logo_file'])
                 static_root = os.path.join(os.path.dirname(__file__), '..', 'static')
                 logo_filename = save_public_portal_logo(validated_logo, static_root)
-            db.save_portal_brand_config(
-                selected_store_id, values, logo_filename=logo_filename,
-                is_default=request.form.get('is_default') == '1',
+            db.save_public_portal_brand_config(
+                values, logo_filename=logo_filename,
             )
-            flash('A marca pública foi guardada.', 'success')
-            return redirect(url_for(
-                'eventos.configuracao_portal_marca', store_id=selected_store_id
-            ))
+            flash('O formulário público foi guardado.', 'success')
+            return redirect(url_for('eventos.configuracao_portal_marca'))
         except ValueError as exc:
             flash(str(exc), 'error')
             brand = {**brand, **request.form.to_dict()}
 
-    selected_store = next((store for store in stores if store['id'] == selected_store_id), None)
     return render_template(
         'eventos/configuracao_portal_marca.html',
-        stores=stores, selected_store=selected_store, brand=brand,
-        tabs=_get_tabs(), active_tab='configuracao',
+        brand=brand, tabs=_get_tabs(), active_tab='formulario',
         csrf_token=_admin_portal_brand_csrf_token(),
     )
 
