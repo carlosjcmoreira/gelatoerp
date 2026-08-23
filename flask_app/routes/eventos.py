@@ -10,6 +10,10 @@ from flask_app.services.event_portal import (
     cleanup_expired_portal_proofs, resolve_event_address, save_private_portal_proof,
     validate_portal_proof,
 )
+from flask_app.services.event_portal_brand import (
+    default_portal_brand, save_public_portal_logo, validate_brand_form,
+    validate_portal_logo,
+)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import database as db
@@ -18,6 +22,7 @@ from database import (
     upsert_evento_items, registar_pagamento_evento, get_eventos_recebimentos,
 )
 from db.pagamentos import VAT_RATES
+from db.stores import get_all_stores, get_store
 
 eventos_bp = Blueprint('eventos', __name__)
 
@@ -123,6 +128,21 @@ def _require_portal_csrf():
         raise ValueError('A página expirou. Atualize e tente novamente.')
 
 
+def _admin_portal_brand_csrf_token():
+    token = session.get('event_portal_brand_csrf')
+    if not token:
+        token = secrets.token_urlsafe(24)
+        session['event_portal_brand_csrf'] = token
+    return token
+
+
+def _require_admin_portal_brand_csrf():
+    supplied = request.form.get('csrf_token', '')
+    expected = session.get('event_portal_brand_csrf', '')
+    if not expected or not secrets.compare_digest(supplied, expected):
+        raise ValueError('A página expirou. Atualize e tente novamente.')
+
+
 def _portal_email():
     expires_at = session.get('event_portal_access_until', 0)
     email = session.get('event_portal_email')
@@ -168,6 +188,7 @@ def _portal_login_required():
 
 @eventos_bp.route('/pedido-evento', methods=['GET', 'POST'])
 def portal_request():
+    brand = db.get_default_portal_brand()
     if request.method == 'POST':
         try:
             _require_portal_csrf()
@@ -227,6 +248,8 @@ def portal_request():
                 'referral_source': request.form.get('referral_source', '').strip(),
                 'resource_preferences': request.form.getlist('resource_preferences[]'),
                 'catering_requested': request.form.get('service_mode') == 'catering',
+                'brand_store_id': brand.get('store_id'),
+                'confirmation_message': brand.get('confirmation_message'),
             })
             email = db.normalize_portal_email(request.form.get('client_email'))
             access_code = result.get('access_code')
@@ -270,7 +293,7 @@ def portal_request():
     ]
     return render_template(
         'eventos/portal_request.html', calendar_dates=calendar_dates,
-        csrf_token=_portal_csrf_token(), form=request.form,
+        csrf_token=_portal_csrf_token(), form=request.form, brand=brand,
     )
 
 
@@ -293,7 +316,10 @@ def portal_access():
             return redirect(url_for('eventos.portal_events'))
         except ValueError as exc:
             flash(str(exc), 'error')
-    return render_template('eventos/portal_access.html', csrf_token=_portal_csrf_token())
+    return render_template(
+        'eventos/portal_access.html', csrf_token=_portal_csrf_token(),
+        brand=db.get_default_portal_brand(),
+    )
 
 
 @eventos_bp.route('/portal-eventos/sair', methods=['POST'])
@@ -321,11 +347,16 @@ def portal_events():
     event_id = _portal_event_id()
     event = db.get_portal_event_for_email(event_id, email) if event_id else None
     events = [event] if event else []
+    brand = (
+        db.get_portal_brand_config(event.get('brand_store_id'))
+        if event and event.get('brand_store_id')
+        else db.get_default_portal_brand()
+    )
     db.record_portal_access(email, 'event_list_viewed', ip_fingerprint=_portal_ip_fingerprint())
     return render_template(
         'eventos/portal_events.html', events=events, email=email,
         csrf_token=_portal_csrf_token(), status_labels=STATUS_LABELS,
-        status_colors=STATUS_COLORS,
+        status_colors=STATUS_COLORS, brand=brand,
     )
 
 
@@ -346,6 +377,7 @@ def portal_event(event_id):
         'eventos/portal_event.html', event=event, csrf_token=_portal_csrf_token(),
         status_labels=STATUS_LABELS, status_colors=STATUS_COLORS,
         access_code_once=session.pop('event_portal_access_code_once', None),
+        brand=event.get('portal_brand') or db.get_default_portal_brand(),
     )
 
 
@@ -943,6 +975,58 @@ def configuracao():
     return render_template(
         'eventos/configuracao.html', resources=db.get_event_resources(active_only=False),
         pricing=db.get_event_pricing_settings(), tabs=_get_tabs(), active_tab='configuracao',
+    )
+
+
+@eventos_bp.route('/configuracao/portal-marca', methods=['GET', 'POST'])
+@perm_required('acesso_administrativo')
+def configuracao_portal_marca():
+    """Admin-only editor for the customer-facing identity of each store."""
+    stores = get_all_stores()
+    store_ids = {store['id'] for store in stores}
+    try:
+        selected_store_id = int(request.values.get('store_id') or (stores[0]['id'] if stores else 0))
+    except (TypeError, ValueError):
+        selected_store_id = 0
+    if selected_store_id not in store_ids:
+        flash('Selecione uma loja válida para configurar a marca.', 'error')
+        return redirect(url_for('eventos.configuracao'))
+
+    brand = db.get_portal_brand_config(selected_store_id) if selected_store_id else default_portal_brand()
+    if request.method == 'POST':
+        try:
+            _require_admin_portal_brand_csrf()
+            fresh_store = get_store(selected_store_id)
+            if not fresh_store:
+                raise ValueError('A loja selecionada já não existe.')
+            if request.form.get('is_default') == '1' and not fresh_store['is_active']:
+                raise ValueError('Só uma loja ativa pode ser a marca pública predefinida.')
+            values = validate_brand_form(request.form)
+            logo_filename = brand.get('logo_filename')
+            if request.form.get('remove_logo') == '1':
+                logo_filename = None
+            if request.files.get('logo_file') and request.files['logo_file'].filename:
+                validated_logo = validate_portal_logo(request.files['logo_file'])
+                static_root = os.path.join(os.path.dirname(__file__), '..', 'static')
+                logo_filename = save_public_portal_logo(validated_logo, static_root)
+            db.save_portal_brand_config(
+                selected_store_id, values, logo_filename=logo_filename,
+                is_default=request.form.get('is_default') == '1',
+            )
+            flash('A marca pública foi guardada.', 'success')
+            return redirect(url_for(
+                'eventos.configuracao_portal_marca', store_id=selected_store_id
+            ))
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            brand = {**brand, **request.form.to_dict()}
+
+    selected_store = next((store for store in stores if store['id'] == selected_store_id), None)
+    return render_template(
+        'eventos/configuracao_portal_marca.html',
+        stores=stores, selected_store=selected_store, brand=brand,
+        tabs=_get_tabs(), active_tab='configuracao',
+        csrf_token=_admin_portal_brand_csrf_token(),
     )
 
 

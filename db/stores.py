@@ -73,6 +73,23 @@ def upsert_store(store_id, name, address, latitude, longitude, store_type,
         cursor = conn.cursor()
         try:
             if store_id:
+                # Lock the store first.  Brand assignment takes this same lock
+                # before setting is_default, so a deactivation cannot slip between
+                # the default-brand check and the store update.
+                cursor.execute(
+                    "SELECT is_active FROM stores WHERE id=%s FOR UPDATE", (store_id,)
+                )
+                if not cursor.fetchone():
+                    raise ValueError('A loja selecionada já não existe.')
+                if not is_active:
+                    cursor.execute("""
+                        SELECT 1 FROM event_portal_brand_configs
+                        WHERE store_id=%s AND is_default=TRUE FOR UPDATE
+                    """, (store_id,))
+                    if cursor.fetchone():
+                        raise ValueError(
+                            'Defina outra marca pública antes de desativar esta loja.'
+                        )
                 cursor.execute("""
                     UPDATE stores SET name=%s, address=%s, latitude=%s, longitude=%s,
                         store_type=%s, is_active=%s, receives_transfers=%s,
@@ -97,13 +114,34 @@ def upsert_store(store_id, name, address, latitude, longitude, store_type,
         except psycopg2.IntegrityError:
             conn.rollback()
             return False
+        except ValueError:
+            conn.rollback()
+            raise
 
 
 def toggle_store_active(store_id: int, is_active: bool):
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("UPDATE stores SET is_active=%s WHERE id=%s", (is_active, store_id))
-        conn.commit()
+        try:
+            cursor.execute(
+                "SELECT is_active FROM stores WHERE id=%s FOR UPDATE", (store_id,)
+            )
+            if not cursor.fetchone():
+                raise ValueError('A loja selecionada já não existe.')
+            if not is_active:
+                cursor.execute("""
+                    SELECT 1 FROM event_portal_brand_configs
+                    WHERE store_id=%s AND is_default=TRUE FOR UPDATE
+                """, (store_id,))
+                if cursor.fetchone():
+                    raise ValueError(
+                        'Defina outra marca pública antes de desativar esta loja.'
+                    )
+            cursor.execute("UPDATE stores SET is_active=%s WHERE id=%s", (is_active, store_id))
+            conn.commit()
+        except ValueError:
+            conn.rollback()
+            raise
     invalidate('active_venda_stores', 'vendas_module_stores', 'all_stores', 'landing_stores')
 
 

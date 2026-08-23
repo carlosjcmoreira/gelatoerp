@@ -490,6 +490,39 @@ def run_migrations_eventos_customer_portal():
                 )
             """)
             cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_portal_brand_configs (
+                    id BIGSERIAL PRIMARY KEY,
+                    store_id INTEGER NOT NULL UNIQUE REFERENCES stores(id) ON DELETE RESTRICT,
+                    brand_name VARCHAR(120) NOT NULL DEFAULT 'Scoopy',
+                    logo_filename VARCHAR(255),
+                    primary_color VARCHAR(7) NOT NULL DEFAULT '#167C70',
+                    accent_color VARCHAR(7) NOT NULL DEFAULT '#35A394',
+                    background_color VARCHAR(7) NOT NULL DEFAULT '#FFF8F2',
+                    text_color VARCHAR(7) NOT NULL DEFAULT '#173B38',
+                    button_color VARCHAR(7) NOT NULL DEFAULT '#167C70',
+                    button_text_color VARCHAR(7) NOT NULL DEFAULT '#FFFFFF',
+                    form_title VARCHAR(160) NOT NULL DEFAULT 'Peça o seu evento',
+                    form_intro TEXT NOT NULL DEFAULT '',
+                    confirmation_message TEXT NOT NULL DEFAULT '',
+                    contact_text TEXT NOT NULL DEFAULT '',
+                    field_labels JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    visible_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_event_portal_brand_default
+                ON event_portal_brand_configs (is_default)
+                WHERE is_default = TRUE
+            """)
+            cursor.execute("""
+                ALTER TABLE event_portal_requests
+                ADD COLUMN IF NOT EXISTS brand_store_id INTEGER
+                REFERENCES stores(id) ON DELETE RESTRICT
+            """)
+            cursor.execute("""
                 ALTER TABLE event_portal_requests
                 ADD COLUMN IF NOT EXISTS access_code_hash VARCHAR(128)
             """)

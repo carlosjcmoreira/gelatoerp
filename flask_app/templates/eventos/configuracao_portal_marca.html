@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% set back_url = url_for("eventos.configuracao") %}
+{% block head %}
+<style>
+  .brand-preview{--p:{{ brand.primary_color }};--a:{{ brand.accent_color }};--bg:{{ brand.background_color }};--t:{{ brand.text_color }};--b:{{ brand.button_color }};--bt:{{ brand.button_text_color }};background:var(--bg);color:var(--t);border-radius:18px;overflow:hidden;border:1px solid #dfe5e3}.brand-preview .hero{background:linear-gradient(135deg,var(--p),var(--a));color:#fff;padding:1.35rem}.brand-preview .body{padding:1rem}.brand-preview .sample-button{background:var(--b);color:var(--bt);border:0}.brand-preview .sample-logo{max-width:54px;max-height:54px;object-fit:contain;background:#fff;border-radius:10px;padding:4px}
+</style>
+{% endblock %}
+{% block content %}
+<div class="container-fluid px-3 pt-3 pb-5">
+  <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+    <div><h5 class="fw-bold mb-1">Marca do portal de Eventos</h5><p class="text-muted small mb-0">A marca aplica-se apenas às páginas públicas. O backoffice continua Scoopy.</p></div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('eventos.configuracao') }}">← Configuração</a>
+  </div>
+  {% if not stores %}<div class="alert alert-warning">Não existem lojas para configurar.</div>{% else %}
+  <div class="card shadow-sm border-0 mb-3"><div class="card-body">
+    <label class="form-label fw-semibold" for="store-picker">Loja / marca</label>
+    <select id="store-picker" class="form-select" style="max-width:440px" onchange="location.href='{{ url_for('eventos.configuracao_portal_marca') }}?store_id='+this.value">
+      {% for store in stores %}<option value="{{ store.id }}" {% if selected_store and store.id == selected_store.id %}selected{% endif %}>{{ store.name }}{% if not store.is_active %} (inativa){% endif %}</option>{% endfor %}
+    </select>
+  </div></div>
+  <form method="post" enctype="multipart/form-data">
+    <input type="hidden" name="store_id" value="{{ selected_store.id }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="row g-3">
+      <div class="col-xl-7">
+        <div class="card shadow-sm border-0"><div class="card-body">
+          <h6 class="fw-bold">Identidade apresentada ao cliente</h6>
+          <div class="row g-3 mt-1">
+            <div class="col-md-7"><label class="form-label">Nome comercial</label><input class="form-control" name="brand_name" value="{{ brand.brand_name }}" data-preview="brand-name" required></div>
+            <div class="col-md-5"><label class="form-label">Logótipo (PNG, JPG ou WebP · máx. 2 MB)</label><input class="form-control" type="file" name="logo_file" accept="image/png,image/jpeg,image/webp" id="logo-file"></div>
+            {% if brand.logo_filename %}<div class="col-12 small d-flex align-items-center gap-2"><img src="{{ url_for('static', filename='uploads/event_portal_brands/' ~ brand.logo_filename) }}" alt="" style="max-height:34px;max-width:120px"><label class="form-check-label"><input type="checkbox" class="form-check-input me-1" name="remove_logo" value="1">Remover logótipo atual</label></div>{% endif %}
+            {% for key,label in [('primary_color','Cor principal'),('accent_color','Cor de destaque'),('background_color','Fundo'),('text_color','Texto'),('button_color','Botão'),('button_text_color','Texto do botão')] %}
+            <div class="col-sm-4"><label class="form-label">{{ label }}</label><div class="input-group"><input type="color" class="form-control form-control-color" value="{{ brand[key] }}" data-color-target="{{ key }}"><input class="form-control" name="{{ key }}" value="{{ brand[key] }}" pattern="#[0-9A-Fa-f]{6}" data-preview-color="{{ key }}" required></div></div>
+            {% endfor %}
+          </div>
+          <hr class="my-4"><h6 class="fw-bold">Textos públicos</h6>
+          <div class="row g-3 mt-1">
+            <div class="col-md-6"><label class="form-label">Título</label><input class="form-control" name="form_title" value="{{ brand.form_title }}" data-preview="form-title" required></div>
+            <div class="col-md-6"><label class="form-label">Texto de contacto</label><input class="form-control" name="contact_text" value="{{ brand.contact_text }}" data-preview="contact-text" required></div>
+            <div class="col-12"><label class="form-label">Apresentação</label><textarea class="form-control" name="form_intro" rows="2" data-preview="form-intro" required>{{ brand.form_intro }}</textarea></div>
+            <div class="col-12"><label class="form-label">Mensagem após envio</label><textarea class="form-control" name="confirmation_message" rows="2" required>{{ brand.confirmation_message }}</textarea></div>
+          </div>
+          <hr class="my-4"><h6 class="fw-bold">Campos e secções opcionais</h6>
+          <p class="small text-muted">Os campos indispensáveis e o consentimento de privacidade permanecem sempre protegidos.</p>
+          <div class="row g-2">
+          {% for key,label in [('event_name','Nome do evento'),('duration','Duração'),('service_mode','Tipo de serviço'),('resource_preferences','Equipamento preferido'),('referral_source','Origem do contacto'),('marketing_consent','Consentimento de marketing')] %}
+            <div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="visible_{{ key }}" value="1" {% if brand.visible_fields.get(key, true) %}checked{% endif %} data-preview-section="{{ key }}"><span class="form-check-label">Mostrar {{ label|lower }}</span></label></div>
+          {% endfor %}
+          </div>
+          <hr class="my-4"><h6 class="fw-bold">Rótulos</h6>
+          <div class="row g-2">
+          {% for key,label in [('event_name','Nome do evento'),('event_type','Tipo de evento'),('estimated_guests','Participantes'),('servings_per_guest','Bolas por pessoa'),('duration','Duração'),('occurrences','Datas e local'),('flavours','Sabores'),('service_mode','Tipo de serviço'),('resource_preferences','Equipamento preferido'),('contact','Contacto'),('client_name','Nome'),('client_email','Email'),('client_phone','Telefone'),('referral_source','Origem do contacto'),('marketing_consent','Consentimento de marketing'),('submit','Botão de envio')] %}
+            <div class="col-md-6"><label class="form-label small">{{ label }}</label><input class="form-control form-control-sm" name="label_{{ key }}" value="{{ brand.field_labels.get(key, label) }}" {% if key == 'submit' %}data-preview="submit-label"{% endif %}></div>
+          {% endfor %}
+          </div>
+          <div class="form-check form-switch mt-4"><input class="form-check-input" type="checkbox" role="switch" id="is-default" name="is_default" value="1" {% if brand.is_default %}checked{% endif %}><label class="form-check-label" for="is-default">Usar esta marca como predefinição do formulário público</label></div>
+          <button class="btn btn-primary mt-3">Guardar marca de {{ selected_store.name }}</button>
+        </div></div>
+      </div>
+      <div class="col-xl-5">
+        <div class="position-sticky" style="top:1rem"><div class="d-flex justify-content-between align-items-center mb-2"><h6 class="fw-bold mb-0">Pré-visualização</h6><span class="badge text-bg-light border">Sem criar pedido</span></div>
+          <div class="brand-preview" id="brand-preview">
+            <div class="hero"><div class="d-flex gap-2 align-items-start"><img id="preview-logo" class="sample-logo d-none" alt=""><div><div class="small text-uppercase opacity-75" id="preview-brand-name">{{ brand.brand_name }}</div><div class="h5 mb-1" id="preview-form-title">{{ brand.form_title }}</div><p class="small mb-0 opacity-75" id="preview-form-intro">{{ brand.form_intro }}</p></div></div></div>
+            <div class="body"><div class="fw-semibold mb-2">Pedido de evento</div><div class="row g-2"><div class="col-7"><label class="small">Tipo de evento *</label><div class="form-control form-control-sm bg-white">Aniversário</div></div><div class="col-5"><label class="small">Participantes *</label><div class="form-control form-control-sm bg-white">80</div></div><div class="col-12 preview-optional" data-section="event_name"><label class="small">Nome do evento</label><div class="form-control form-control-sm bg-white">Festa de verão</div></div></div><div class="border-top mt-3 pt-3"><div class="fw-semibold small">Contacto</div><p class="small text-muted mb-2" id="preview-contact-text">{{ brand.contact_text }}</p><div class="form-control form-control-sm bg-white">cliente@exemplo.pt</div></div><button type="button" class="btn sample-button w-100 mt-3 btn-sm" id="preview-submit">{{ brand.field_labels.get('submit','Enviar pedido') }}</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>{% endif %}
+</div>
+<script>
+const preview=document.getElementById('brand-preview');
+const cssMap={primary_color:'--p',accent_color:'--a',background_color:'--bg',text_color:'--t',button_color:'--b',button_text_color:'--bt'};
+document.querySelectorAll('[data-preview]').forEach(input=>input.addEventListener('input',()=>{const target=document.getElementById('preview-'+input.dataset.preview);if(target)target.textContent=input.value;}));
+document.querySelectorAll('[data-preview-color]').forEach(input=>{input.addEventListener('input',()=>{if(/^#[0-9a-f]{6}$/i.test(input.value))preview.style.setProperty(cssMap[input.dataset.previewColor],input.value)});});
+document.querySelectorAll('[data-color-target]').forEach(input=>input.addEventListener('input',()=>{const text=document.querySelector(`[name="${input.dataset.colorTarget}"]`);text.value=input.value;text.dispatchEvent(new Event('input'));}));
+document.querySelectorAll('[data-preview-section]').forEach(input=>input.addEventListener('change',()=>document.querySelectorAll(`[data-section="${input.dataset.previewSection}"]`).forEach(el=>el.classList.toggle('d-none',!input.checked))));
+document.getElementById('logo-file')?.addEventListener('change',event=>{const file=event.target.files[0],img=document.getElementById('preview-logo');if(file){img.src=URL.createObjectURL(file);img.classList.remove('d-none');}});
+</script>
+{% endblock %}

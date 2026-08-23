@@ -1340,20 +1340,26 @@ def gestao_lojas():
             if not name:
                 erro = 'O nome da loja é obrigatório.'
             else:
-                ok = db.upsert_store(store_id, name, address, latitude, longitude,
-                                     store_type, is_active, receives_transfers,
-                                     requires_eod_weighing, pos_store_code, opened_at,
-                                     shows_on_landing)
-                if ok:
-                    msg = 'Loja guardada com sucesso.'
-                else:
-                    erro = 'Erro ao guardar loja. O nome pode já existir.'
+                try:
+                    ok = db.upsert_store(store_id, name, address, latitude, longitude,
+                                         store_type, is_active, receives_transfers,
+                                         requires_eod_weighing, pos_store_code, opened_at,
+                                         shows_on_landing)
+                    if ok:
+                        msg = 'Loja guardada com sucesso.'
+                    else:
+                        erro = 'Erro ao guardar loja. O nome pode já existir.'
+                except ValueError as exc:
+                    erro = str(exc)
 
         elif action == 'toggle_active':
             store_id = int(request.form.get('store_id'))
             is_active = request.form.get('is_active') == '1'
-            db.toggle_store_active(store_id, is_active)
-            msg = 'Estado da loja actualizado.'
+            try:
+                db.toggle_store_active(store_id, is_active)
+                msg = 'Estado da loja actualizado.'
+            except ValueError as exc:
+                erro = str(exc)
 
         elif action == 'delete_store':
             store_id = int(request.form.get('store_id'))

@@ -1,0 +1,13 @@
+{% macro styles(brand) -%}
+<style>
+  :root{--portal-primary:{{ brand.primary_color }};--portal-accent:{{ brand.accent_color }};--portal-background:{{ brand.background_color }};--portal-text:{{ brand.text_color }};--portal-button:{{ brand.button_color }};--portal-button-text:{{ brand.button_text_color }}}
+  body{background:var(--portal-background);color:var(--portal-text)}.portal-shell{max-width:920px;margin:0 auto;padding:2rem 1rem 4rem}.portal-hero{background:linear-gradient(135deg,var(--portal-primary),var(--portal-accent));color:#fff;border-radius:20px;padding:2rem;margin-bottom:1.25rem}.portal-card{border:0;border-radius:16px;box-shadow:0 8px 24px rgba(16,58,54,.09)}.portal-button{background:var(--portal-button);border-color:var(--portal-button);color:var(--portal-button-text)}.portal-button:hover,.portal-button:focus{background:var(--portal-button);border-color:var(--portal-button);color:var(--portal-button-text);filter:brightness(.92)}.portal-logo{max-height:52px;max-width:150px;object-fit:contain;background:#fff;padding:.3rem;border-radius:.6rem}
+</style>
+{%- endmacro %}
+
+{% macro identity(brand, light=false) -%}
+<div class="d-flex align-items-center gap-2">
+  {% if brand.logo_filename %}<img class="portal-logo" src="{{ url_for('static', filename='uploads/event_portal_brands/' ~ brand.logo_filename) }}" alt="{{ brand.brand_name }}">{% endif %}
+  <span class="small text-uppercase {% if light %}opacity-75{% else %}text-muted{% endif %}">{{ brand.brand_name }}</span>
+</div>
+{%- endmacro %}

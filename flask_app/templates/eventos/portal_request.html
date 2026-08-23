@@ -1,14 +1,15 @@
 {% extends 'base.html' %}
+{% from 'eventos/_portal_brand.html' import styles, identity %}
+{% block title %}{{ brand.brand_name }} · Eventos{% endblock %}
 {% block head %}
-<style>
-.portal-shell{max-width:920px;margin:0 auto;padding:2rem 1rem 4rem}.portal-hero{background:linear-gradient(135deg,#167c70,#35a394);color:#fff;border-radius:20px;padding:2rem;margin-bottom:1.25rem}.portal-card{border:0;border-radius:16px;box-shadow:0 8px 24px rgba(16,58,54,.09)}.occurrence{background:#f8fbfa;border:1px solid #d9ebe7;border-radius:12px;padding:1rem}.risk-dates{font-size:.82rem}.flavour-row .btn{min-width:38px}
-</style>
+{{ styles(brand) }}
+<style>.occurrence{background:#f8fbfa;border:1px solid #d9ebe7;border-radius:12px;padding:1rem}.risk-dates{font-size:.82rem}.flavour-row .btn{min-width:38px}</style>
 {% endblock %}
 {% block content %}
 <div class="portal-shell">
   <div class="portal-hero">
     <div class="d-flex justify-content-between align-items-start gap-3">
-      <div><div class="small text-uppercase opacity-75">Eventos Scoopy</div><h1 class="h2 mb-2">Peça o seu evento</h1><p class="mb-0 opacity-90">Conte-nos o que imagina. A equipa confirma disponibilidade, logística e orçamento.</p></div>
+      <div>{{ identity(brand, true) }}<h1 class="h2 mb-2 mt-2">{{ brand.form_title }}</h1><p class="mb-0 opacity-90">{{ brand.form_intro }}</p></div>
       <a href="{{ url_for('eventos.portal_access') }}" class="btn btn-light btn-sm text-nowrap">Acompanhar pedido</a>
     </div>
   </div>
@@ -22,14 +23,14 @@
     <div class="card-body p-3 p-md-4">
       <h2 class="h5 mb-3">O seu pedido</h2>
       <div class="row g-3">
-        <div class="col-md-7"><label class="form-label">Nome do evento <span class="text-muted">(opcional)</span></label><input class="form-control" name="event_name" value="{{ form.get('event_name','') }}" placeholder="Ex.: Festa de verão da empresa"></div>
-        <div class="col-md-5"><label class="form-label">Tipo de evento *</label><select class="form-select" name="event_type" required><option value="">Selecionar…</option>{% for type in ['Aniversário','Casamento','Empresa','Festival','Outro'] %}<option {% if form.get('event_type')==type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></div>
-        <div class="col-sm-4"><label class="form-label">Participantes *</label><input id="guests" type="number" class="form-control" name="estimated_guests" min="1" max="5000" required value="{{ form.get('estimated_guests','') }}"></div>
-        <div class="col-sm-4"><label class="form-label">Bolas por pessoa *</label><select id="scoops" class="form-select" name="servings_per_guest"><option value="1">1 bola · 70 g</option><option value="2">2 bolas · 120 g</option></select></div>
-        <div class="col-sm-4"><label class="form-label">Duração prevista</label><select class="form-select" name="duration_minutes"><option value="120">2 horas</option><option value="180" selected>3 horas</option><option value="240">4 horas</option><option value="300">5 horas</option></select></div>
+        {% if brand.visible_fields.get('event_name', true) %}<div class="col-md-7"><label class="form-label">{{ brand.field_labels.get('event_name','Nome do evento') }} <span class="text-muted">(opcional)</span></label><input class="form-control" name="event_name" value="{{ form.get('event_name','') }}" placeholder="Ex.: Festa de verão da empresa"></div>{% endif %}
+        <div class="{% if brand.visible_fields.get('event_name', true) %}col-md-5{% else %}col-md-6{% endif %}"><label class="form-label">{{ brand.field_labels.get('event_type','Tipo de evento') }} *</label><select class="form-select" name="event_type" required><option value="">Selecionar…</option>{% for type in ['Aniversário','Casamento','Empresa','Festival','Outro'] %}<option {% if form.get('event_type')==type %}selected{% endif %}>{{ type }}</option>{% endfor %}</select></div>
+        <div class="col-sm-4"><label class="form-label">{{ brand.field_labels.get('estimated_guests','Participantes') }} *</label><input id="guests" type="number" class="form-control" name="estimated_guests" min="1" max="5000" required value="{{ form.get('estimated_guests','') }}"></div>
+        <div class="col-sm-4"><label class="form-label">{{ brand.field_labels.get('servings_per_guest','Bolas por pessoa') }} *</label><select id="scoops" class="form-select" name="servings_per_guest"><option value="1">1 bola · 70 g</option><option value="2">2 bolas · 120 g</option></select></div>
+        {% if brand.visible_fields.get('duration', true) %}<div class="col-sm-4"><label class="form-label">{{ brand.field_labels.get('duration','Duração prevista') }}</label><select class="form-select" name="duration_minutes"><option value="120">2 horas</option><option value="180" selected>3 horas</option><option value="240">4 horas</option><option value="300">5 horas</option></select></div>{% endif %}
       </div>
 
-      <hr class="my-4"><div class="d-flex justify-content-between align-items-center"><h2 class="h5 mb-0">Datas e local</h2><button class="btn btn-outline-secondary btn-sm" type="button" id="add-occurrence">+ Outra data</button></div>
+      <hr class="my-4"><div class="d-flex justify-content-between align-items-center"><h2 class="h5 mb-0">{{ brand.field_labels.get('occurrences','Datas e local') }}</h2><button class="btn btn-outline-secondary btn-sm" type="button" id="add-occurrence">+ Outra data</button></div>
       <p class="small text-muted mt-2">Pedidos com várias datas são sempre confirmados pela equipa.</p>
       <div id="occurrences" class="vstack gap-2">
         <div class="occurrence">
@@ -39,15 +40,15 @@
       </div>
 
       <hr class="my-4"><h2 class="h5">Gelado e serviço</h2>
-      <div class="row g-3"><div class="col-md-6"><label class="form-label">Como prefere o serviço?</label><select class="form-select" name="service_mode"><option value="niva_serves">A equipa Scoopy serve</option><option value="client_serves">Cliente/catering serve</option><option value="catering">Catering</option></select></div><div class="col-md-6"><label class="form-label d-block">Equipamento preferido</label><div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="resource_preferences[]" value="carrinho" id="cart"><label class="form-check-label" for="cart">Carrinho</label></div><div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="resource_preferences[]" value="arca" id="freezer"><label class="form-check-label" for="freezer">Arca</label></div><div class="small text-muted mt-1">Preferência sujeita a disponibilidade; nunca é uma reserva automática.</div></div></div>
-      <div class="mt-3"><label class="form-label">Sabores (1 a 6) *</label><div id="flavours" class="vstack gap-2"><div class="input-group flavour-row"><input class="form-control flavour-input" name="flavours[]" required placeholder="Ex.: Chocolate"><button class="btn btn-outline-danger remove-flavour" type="button" disabled>×</button></div></div><button class="btn btn-outline-secondary btn-sm mt-2" type="button" id="add-flavour">+ Adicionar sabor</button></div>
+      <div class="row g-3">{% if brand.visible_fields.get('service_mode', true) %}<div class="col-md-6"><label class="form-label">{{ brand.field_labels.get('service_mode','Como prefere o serviço?') }}</label><select class="form-select" name="service_mode"><option value="niva_serves">A equipa {{ brand.brand_name }} serve</option><option value="client_serves">Cliente/catering serve</option><option value="catering">Catering</option></select></div>{% endif %}{% if brand.visible_fields.get('resource_preferences', true) %}<div class="col-md-6"><label class="form-label d-block">{{ brand.field_labels.get('resource_preferences','Equipamento preferido') }}</label><div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="resource_preferences[]" value="carrinho" id="cart"><label class="form-check-label" for="cart">Carrinho</label></div><div class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="resource_preferences[]" value="arca" id="freezer"><label class="form-check-label" for="freezer">Arca</label></div><div class="small text-muted mt-1">Preferência sujeita a disponibilidade; nunca é uma reserva automática.</div></div>{% endif %}</div>
+      <div class="mt-3"><label class="form-label">{{ brand.field_labels.get('flavours','Sabores (1 a 6)') }} *</label><div id="flavours" class="vstack gap-2"><div class="input-group flavour-row"><input class="form-control flavour-input" name="flavours[]" required placeholder="Ex.: Chocolate"><button class="btn btn-outline-danger remove-flavour" type="button" disabled>×</button></div></div><button class="btn btn-outline-secondary btn-sm mt-2" type="button" id="add-flavour">+ Adicionar sabor</button></div>
       <div class="alert alert-info mt-3 mb-0" id="calculator">Indique participantes e sabores para ver as quantidades sugeridas.</div>
 
-      <hr class="my-4"><h2 class="h5">Contacto</h2>
-      <div class="row g-3"><div class="col-md-5"><label class="form-label">Nome *</label><input class="form-control" name="client_name" required value="{{ form.get('client_name','') }}"></div><div class="col-md-4"><label class="form-label">Email *</label><input class="form-control" type="email" name="client_email" required value="{{ form.get('client_email','') }}"></div><div class="col-md-3"><label class="form-label">Telefone *</label><input class="form-control" type="tel" name="client_phone" required value="{{ form.get('client_phone','') }}"></div><div class="col-md-6"><label class="form-label">Como chegou até nós?</label><input class="form-control" name="referral_source" placeholder="Ex.: Instagram, recomendação"></div></div>
-      <div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="marketing_consent" value="1" id="marketing"><label class="form-check-label small" for="marketing">Aceito receber novidades e campanhas da Scoopy.</label></div>
-      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="privacy_accepted" value="1" id="privacy" required><label class="form-check-label small" for="privacy">Li e aceito que os meus dados sejam usados para responder e gerir este pedido. Pode consultar ou pedir a remoção dos dados junto da equipa.</label></div>
-      <button class="btn btn-success w-100 mt-4 py-2">Enviar pedido</button>
+      <hr class="my-4"><h2 class="h5">{{ brand.field_labels.get('contact','Contacto') }}</h2><p class="small text-muted">{{ brand.contact_text }}</p>
+      <div class="row g-3"><div class="col-md-5"><label class="form-label">{{ brand.field_labels.get('client_name','Nome') }} *</label><input class="form-control" name="client_name" required value="{{ form.get('client_name','') }}"></div><div class="col-md-4"><label class="form-label">{{ brand.field_labels.get('client_email','Email') }} *</label><input class="form-control" type="email" name="client_email" required value="{{ form.get('client_email','') }}"></div><div class="col-md-3"><label class="form-label">{{ brand.field_labels.get('client_phone','Telefone') }} *</label><input class="form-control" type="tel" name="client_phone" required value="{{ form.get('client_phone','') }}"></div>{% if brand.visible_fields.get('referral_source', true) %}<div class="col-md-6"><label class="form-label">{{ brand.field_labels.get('referral_source','Como chegou até nós?') }}</label><input class="form-control" name="referral_source" placeholder="Ex.: Instagram, recomendação"></div>{% endif %}</div>
+      {% if brand.visible_fields.get('marketing_consent', true) %}<div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="marketing_consent" value="1" id="marketing"><label class="form-check-label small" for="marketing">{{ brand.field_labels.get('marketing_consent','Aceito receber novidades e campanhas.') }}</label></div>{% endif %}
+      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="privacy_accepted" value="1" id="privacy" required><label class="form-check-label small" for="privacy">{{ brand.field_labels.get('privacy','Li e aceito que os meus dados sejam usados para responder e gerir este pedido.') }}</label></div>
+      <button class="btn portal-button w-100 mt-4 py-2">{{ brand.field_labels.get('submit','Enviar pedido') }}</button>
     </div>
   </form>
 </div>

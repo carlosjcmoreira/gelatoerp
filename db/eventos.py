@@ -65,6 +65,32 @@ EVENT_SERVICE_MODES = (
     'catering',
 )
 
+_PORTAL_BRAND_DEFAULTS = {
+    'brand_name': 'Scoopy',
+    'logo_filename': None,
+    'primary_color': '#167C70',
+    'accent_color': '#35A394',
+    'background_color': '#FFF8F2',
+    'text_color': '#173B38',
+    'button_color': '#167C70',
+    'button_text_color': '#FFFFFF',
+    'form_title': 'Peça o seu evento',
+    'form_intro': (
+        'Conte-nos o que imagina. A equipa confirma disponibilidade, logística e orçamento.'
+    ),
+    'confirmation_message': (
+        'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.'
+    ),
+    'contact_text': 'Deixe-nos os seus contactos para podermos responder ao pedido.',
+    'field_labels': {},
+    'visible_fields': {
+        'event_name': True, 'duration': True, 'service_mode': True,
+        'resource_preferences': True, 'referral_source': True,
+        'marketing_consent': True,
+    },
+    'is_default': False,
+}
+
 
 def normalize_event_status(status: str | None) -> str:
     """Map legacy CRM statuses to the agreed v2 pipeline."""
@@ -1857,6 +1883,118 @@ def get_portal_unavailable_dates():
         return cursor.fetchall()
 
 
+def _portal_brand_from_row(row):
+    brand = dict(_PORTAL_BRAND_DEFAULTS)
+    brand['field_labels'] = dict(_PORTAL_BRAND_DEFAULTS['field_labels'])
+    brand['visible_fields'] = dict(_PORTAL_BRAND_DEFAULTS['visible_fields'])
+    if row:
+        brand.update(dict(row))
+        brand['field_labels'] = {
+            **_PORTAL_BRAND_DEFAULTS['field_labels'],
+            **(row.get('field_labels') or {}),
+        }
+        brand['visible_fields'] = {
+            **_PORTAL_BRAND_DEFAULTS['visible_fields'],
+            **(row.get('visible_fields') or {}),
+        }
+    return brand
+
+
+def get_portal_brand_config(store_id):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT id, store_id, brand_name, logo_filename, primary_color, accent_color,
+                   background_color, text_color, button_color, button_text_color,
+                   form_title, form_intro, confirmation_message, contact_text,
+                   field_labels, visible_fields, is_default
+            FROM event_portal_brand_configs
+            WHERE store_id = %s
+        """, (store_id,))
+        return _portal_brand_from_row(cursor.fetchone())
+
+
+def get_portal_brand_configs():
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT id, store_id, brand_name, logo_filename, primary_color, accent_color,
+                   background_color, text_color, button_color, button_text_color,
+                   form_title, form_intro, confirmation_message, contact_text,
+                   field_labels, visible_fields, is_default
+            FROM event_portal_brand_configs
+            ORDER BY store_id
+        """)
+        return [_portal_brand_from_row(row) for row in cursor.fetchall()]
+
+
+def get_default_portal_brand():
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT c.id, c.store_id, c.brand_name, c.logo_filename, c.primary_color,
+                   c.accent_color, c.background_color, c.text_color, c.button_color,
+                   c.button_text_color, c.form_title, c.form_intro,
+                   c.confirmation_message, c.contact_text, c.field_labels,
+                   c.visible_fields, c.is_default
+            FROM event_portal_brand_configs c
+            JOIN stores s ON s.id = c.store_id
+            WHERE s.is_active = TRUE
+            ORDER BY c.is_default DESC, c.updated_at DESC
+            LIMIT 1
+        """)
+        return _portal_brand_from_row(cursor.fetchone())
+
+
+def save_portal_brand_config(store_id, values, logo_filename=None, is_default=False):
+    """Upsert one store identity; selecting default atomically clears the old one."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT is_active FROM stores WHERE id=%s FOR UPDATE", (store_id,)
+            )
+            store = cursor.fetchone()
+            if not store:
+                raise ValueError('A loja selecionada já não existe.')
+            if is_default and not store[0]:
+                raise ValueError('Só uma loja ativa pode ser a marca pública predefinida.')
+            if is_default:
+                cursor.execute(
+                    "UPDATE event_portal_brand_configs SET is_default=FALSE, updated_at=NOW() "
+                    "WHERE is_default=TRUE"
+                )
+            cursor.execute("""
+                INSERT INTO event_portal_brand_configs (
+                    store_id, brand_name, logo_filename, primary_color, accent_color,
+                    background_color, text_color, button_color, button_text_color,
+                    form_title, form_intro, confirmation_message, contact_text,
+                    field_labels, visible_fields, is_default
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (store_id) DO UPDATE SET
+                    brand_name=EXCLUDED.brand_name, logo_filename=EXCLUDED.logo_filename,
+                    primary_color=EXCLUDED.primary_color, accent_color=EXCLUDED.accent_color,
+                    background_color=EXCLUDED.background_color, text_color=EXCLUDED.text_color,
+                    button_color=EXCLUDED.button_color, button_text_color=EXCLUDED.button_text_color,
+                    form_title=EXCLUDED.form_title, form_intro=EXCLUDED.form_intro,
+                    confirmation_message=EXCLUDED.confirmation_message,
+                    contact_text=EXCLUDED.contact_text, field_labels=EXCLUDED.field_labels,
+                    visible_fields=EXCLUDED.visible_fields, is_default=EXCLUDED.is_default,
+                    updated_at=NOW()
+            """, (
+                store_id, values['brand_name'], logo_filename,
+                values['primary_color'], values['accent_color'], values['background_color'],
+                values['text_color'], values['button_color'], values['button_text_color'],
+                values['form_title'], values['form_intro'], values['confirmation_message'],
+                values['contact_text'], json.dumps(values['field_labels'], ensure_ascii=False),
+                json.dumps(values['visible_fields'], ensure_ascii=False), is_default,
+            ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def _quote_revision(cursor, event_id, lock_rows=False):
     cursor.execute("""
         SELECT id, descricao, quantidade, preco_unitario, taxa_iva,
@@ -1963,19 +2101,20 @@ def create_portal_event_request(data):
                 event_id, email_normalized, access_code_hash, marketing_consent, referral_source,
                 servings_per_guest, flavours, resource_preferences, catering_requested,
                 estimate_eligible, estimated_base_eur, estimated_vat_eur, estimated_total_eur,
-                public_message
-            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s)
+                public_message, brand_store_id
+            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             event_id, email, access_code_hash, bool(data.get('marketing_consent')), data.get('referral_source'),
             flavour_plan['scoops'], json.dumps(flavour_plan['flavours'], ensure_ascii=False),
             json.dumps(data.get('resource_preferences') or [], ensure_ascii=False),
             catering, estimate_eligible, estimate_base, estimate_vat, estimate_total,
-            (
+            data.get('confirmation_message') or (
                 'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.'
                 if estimate_eligible else
                 'Recebemos o seu pedido. Como envolve mais de 200 participantes, várias datas '
                 'ou catering, a equipa irá contactar para preparar uma proposta.'
             ),
+            data.get('brand_store_id'),
         ))
         _insert_event_history(
             cursor, event_id, 'portal_request_submitted', actor=f'portal:{email}',
@@ -2031,6 +2170,7 @@ def get_portal_events_for_email(email):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
             SELECT e.id, e.event_name, e.event_type, e.status, e.created_at,
+                   p.brand_store_id,
                    p.estimate_eligible, p.estimated_total_eur, p.public_message,
                    (SELECT MIN(eo.event_date) FROM event_occurrences eo WHERE eo.event_id = e.id) AS next_date,
                    (SELECT COUNT(*) FROM event_occurrences eo WHERE eo.event_id = e.id) AS occurrence_count
@@ -2049,7 +2189,8 @@ def get_portal_event_for_email(event_id, email):
             SELECT e.*, p.marketing_consent, p.referral_source, p.servings_per_guest,
                    p.flavours, p.resource_preferences, p.catering_requested,
                    p.estimate_eligible, p.estimated_base_eur, p.estimated_vat_eur,
-                   p.estimated_total_eur, p.public_message, p.logistics_message,
+                    p.estimated_total_eur, p.public_message, p.logistics_message,
+                    p.brand_store_id,
                     p.sent_quote_version_id, p.accepted_quote_revision, p.quote_accepted_at,
                    (SELECT MIN(eo.event_date) FROM event_occurrences eo
                     WHERE eo.event_id = e.id) AS next_date,
@@ -2062,6 +2203,11 @@ def get_portal_event_for_email(event_id, email):
         event = cursor.fetchone()
         if not event:
             return None
+        event['portal_brand'] = (
+            get_portal_brand_config(event['brand_store_id'])
+            if event.get('brand_store_id')
+            else get_default_portal_brand()
+        )
         if event['sent_quote_version_id']:
             cursor.execute("""
                 SELECT snapshot, quote_revision, total_net, total_vat, total_gross

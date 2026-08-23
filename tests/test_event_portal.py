@@ -128,7 +128,8 @@ class PortalAccessRouteTests(unittest.TestCase):
         with self.app.test_client() as client, \
              patch('flask_app.routes.eventos.db.record_portal_access'), \
              patch('flask_app.routes.eventos.db.verify_portal_request_access', return_value=42) as verify_access, \
-             patch('flask_app.routes.eventos.db.get_portal_event_for_email', return_value=portal_event) as get_event:
+              patch('flask_app.routes.eventos.db.get_portal_event_for_email', return_value=portal_event) as get_event, \
+              patch('flask_app.routes.eventos.db.get_default_portal_brand', return_value={}):
             client.get('/eventos/portal-eventos')
             response = client.post(
                 '/eventos/portal-eventos',
@@ -147,7 +148,8 @@ class PortalAccessRouteTests(unittest.TestCase):
     def test_unverified_email_cannot_start_a_portal_session(self):
         with self.app.test_client() as client, \
              patch('flask_app.routes.eventos.db.verify_portal_request_access', return_value=None), \
-             patch('flask_app.routes.eventos.db.record_portal_access') as record_access:
+              patch('flask_app.routes.eventos.db.record_portal_access') as record_access, \
+              patch('flask_app.routes.eventos.db.get_default_portal_brand', return_value={}):
             client.get('/eventos/portal-eventos')
             response = client.post(
                 '/eventos/portal-eventos',
@@ -191,7 +193,8 @@ class PortalAccessRouteTests(unittest.TestCase):
 
     def test_post_without_csrf_does_not_start_email_access(self):
         with self.app.test_client() as client, \
-             patch('flask_app.routes.eventos.db.record_portal_access') as record_access:
+              patch('flask_app.routes.eventos.db.record_portal_access') as record_access, \
+              patch('flask_app.routes.eventos.db.get_default_portal_brand', return_value={}):
             response = client.post('/eventos/portal-eventos', data={'email': 'owner@example.com'})
 
         self.assertEqual(response.status_code, 200)
