@@ -55,7 +55,7 @@ def _make_db_conn():
 
 
 def _run_mapa(cost_centers, inv_rows_2026, store_id=None,
-              sales_split=None, inv_rows_prior=None):
+              sales_split=None, inv_rows_prior=None, junction_rows=None):
     """Call the real get_mapa_exploracao(2026, store_id) with controlled data.
 
     Args:
@@ -67,6 +67,7 @@ def _run_mapa(cost_centers, inv_rows_2026, store_id=None,
         store_id       passed to get_mapa_exploracao (None = consolidated)
         sales_split    dict {store_id: pct}; defaults to 50/50
         inv_rows_prior same format for the prior year (default: empty)
+        junction_rows  dict {invoice_id: [(cc_id, pct), ...]}; defaults to empty
     """
     from db.mapa_exploracao import get_mapa_exploracao
 
@@ -74,6 +75,8 @@ def _run_mapa(cost_centers, inv_rows_2026, store_id=None,
         sales_split = SALES_SPLIT_50_50
     if inv_rows_prior is None:
         inv_rows_prior = []
+    if junction_rows is None:
+        junction_rows = {}
 
     def _mock_load_invoice_rows(year):
         return inv_rows_2026 if year == 2026 else inv_rows_prior
@@ -82,7 +85,7 @@ def _run_mapa(cost_centers, inv_rows_2026, store_id=None,
         # Module-level loaders (can be patched directly)
         patch('db.mapa_exploracao._load_invoice_rows',
               side_effect=_mock_load_invoice_rows),
-        patch('db.mapa_exploracao._load_junction_rows', return_value={}),
+        patch('db.mapa_exploracao._load_junction_rows', return_value=junction_rows),
         # db_connection used by the nested _query_vendas / _count_sem_cc
         patch('db.mapa_exploracao.db_connection', side_effect=_make_db_conn),
         # Helpers imported inside the function body
@@ -278,6 +281,139 @@ class TestEdgeCases(unittest.TestCase):
         ) + result['unallocated_costs'][99].get(4, 0.0)
         self.assertAlmostEqual(total, 250.0, places=2,
             msg="Σ store costs + unallocated must equal the invoice amount")
+
+
+class TestResolveCCSlices(unittest.TestCase):
+    """Junction rows must preserve every invoice euro during expansion."""
+
+    def setUp(self):
+        from db.mapa_exploracao import _resolve_cc_slices
+        self.resolve = _resolve_cc_slices
+
+    def test_100_percent_junction_split_uses_only_junction_ccs(self):
+        rows = [(101, 4, 99, 999, 250.0)]
+        junction = {101: [(10, 60.0), (20, 40.0)]}
+
+        slices = self.resolve(rows, junction)
+
+        self.assertEqual(
+            slices,
+            [
+                (101, 4, 99, 10, 150.0),
+                (101, 4, 99, 20, 100.0),
+            ],
+        )
+        self.assertAlmostEqual(sum(item[-1] for item in slices), 250.0, places=6)
+        self.assertNotIn(999, [item[3] for item in slices])
+
+    def test_partial_junction_split_remainder_falls_back_to_legacy_cc(self):
+        rows = [(102, 6, 99, 30, 250.0)]
+        junction = {102: [(10, 60.0)]}
+
+        slices = self.resolve(rows, junction)
+
+        self.assertEqual(
+            slices,
+            [
+                (102, 6, 99, 10, 150.0),
+                (102, 6, 99, 30, 100.0),
+            ],
+        )
+        self.assertAlmostEqual(sum(item[-1] for item in slices), 250.0, places=6)
+
+    def test_mixed_store_and_shared_ccs_preserve_the_full_amount(self):
+        rows = [(103, 8, 99, None, 125.0)]
+        junction = {103: [(10, 40.0), (20, 60.0)]}
+
+        slices = self.resolve(rows, junction)
+
+        self.assertEqual([item[3] for item in slices], [10, 20])
+        self.assertEqual([item[-1] for item in slices], [50.0, 75.0])
+        self.assertAlmostEqual(sum(item[-1] for item in slices), 125.0, places=6)
+
+    def test_cc_less_remainder_is_retained_as_none(self):
+        rows = [(104, 9, 99, None, 80.0)]
+        junction = {104: [(10, 75.0)]}
+
+        slices = self.resolve(rows, junction)
+
+        self.assertEqual(
+            slices,
+            [
+                (104, 9, 99, 10, 60.0),
+                (104, 9, 99, None, 20.0),
+            ],
+        )
+        self.assertAlmostEqual(sum(item[-1] for item in slices), 80.0, places=6)
+
+
+class TestProcessSlicesConservation(unittest.TestCase):
+    """The complete P&L path must account for every invoice allocation."""
+
+    COST_CENTERS = [
+        {'id': 10, 'name': 'CC Bolhão', 'store_id': 1, 'ativo': True},
+        {'id': 20, 'name': 'Faturas Partilhadas', 'store_id': None, 'ativo': True},
+        {'id': 30, 'name': 'CC Matosinhos', 'store_id': 2, 'ativo': True},
+    ]
+
+    # All invoices are in month 3 so the total can be checked in one P&L cell.
+    # The first four paths are:
+    #   • 100 % junction split across store + shared CCs
+    #   • partial junction split with legacy-CC remainder
+    #   • partial junction split with a CC-less remainder
+    #   • cat_id=None, which belongs to the global "Sem categoria" line
+    INV_ROWS = [
+        (201, 3, 99, 30, 100.0),
+        (202, 3, 99, 30, 250.0),
+        (203, 3, 99, None, 80.0),
+        (204, 3, None, None, 70.0),
+    ]
+    JUNCTION_ROWS = {
+        201: [(10, 40.0), (20, 60.0)],
+        202: [(20, 60.0)],
+        203: [(10, 75.0)],
+    }
+
+    def test_allocated_unallocated_and_uncategorized_sum_to_all_invoices(self):
+        result = _run_mapa(
+            self.COST_CENTERS,
+            self.INV_ROWS,
+            sales_split={1: 25.0, 2: 75.0},
+            junction_rows=self.JUNCTION_ROWS,
+        )
+
+        allocated = sum(
+            result['store_costs'][sid][99].get(3, 0.0)
+            for sid in [1, 2]
+        )
+        unallocated = result['unallocated_costs'][99].get(3, 0.0)
+        uncategorized = result['costs_uncat'].get(3, 0.0)
+
+        self.assertAlmostEqual(allocated, 410.0, places=2)
+        self.assertAlmostEqual(unallocated, 20.0, places=2)
+        self.assertAlmostEqual(uncategorized, 70.0, places=2)
+        self.assertAlmostEqual(
+            allocated + unallocated + uncategorized,
+            sum(row[-1] for row in self.INV_ROWS),
+            places=2,
+            msg="Σ allocated + unallocated + Sem categoria must equal invoice totals",
+        )
+
+    def test_mixed_and_partial_paths_reach_the_expected_destinations(self):
+        result = _run_mapa(
+            self.COST_CENTERS,
+            self.INV_ROWS,
+            sales_split={1: 25.0, 2: 75.0},
+            junction_rows=self.JUNCTION_ROWS,
+        )
+
+        # All categorized invoices are aggregated in the same month:
+        # invoices 201 + 202 exercise mixed/shared/legacy paths, while invoice
+        # 203 contributes its allocated 75 % to store 1.
+        self.assertAlmostEqual(result['store_costs'][1][99].get(3, 0.0), 55.0 + 37.5 + 60.0, places=2)
+        self.assertAlmostEqual(result['store_costs'][2][99].get(3, 0.0), 45.0 + 112.5 + 100.0, places=2)
+        # Invoice 203: 25 % remains genuinely unallocated.
+        self.assertAlmostEqual(result['unallocated_costs'][99].get(3, 0.0), 20.0, places=2)
 
 
 if __name__ == '__main__':
