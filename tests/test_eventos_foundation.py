@@ -399,7 +399,7 @@ class EventQuoteRouteTests(unittest.TestCase):
              patch('flask_app.routes.eventos.db.get_event', return_value={'status': 'novos'}), \
              patch('flask_app.routes.eventos.db.update_quote_item') as update_item:
             with client.session_transaction() as session:
-                session['user'] = {'username': 'equipa'}
+                session['user'] = {'username': 'equipa', 'acesso_eventos': True}
             response = client.post(
                 '/eventos/evento/7/quote',
                 data={
@@ -420,7 +420,7 @@ class EventQuoteRouteTests(unittest.TestCase):
              patch('flask_app.routes.eventos.db.get_event', return_value={'status': 'enviado'}), \
              patch('flask_app.routes.eventos.db.update_quote_item') as update_item:
             with client.session_transaction() as session:
-                session['user'] = {'username': 'equipa'}
+                session['user'] = {'username': 'equipa', 'acesso_eventos': True}
             response = client.post(
                 '/eventos/evento/7/quote',
                 data={'action': 'edit_item', 'item_id': '4', 'descricao': 'Serviço'},

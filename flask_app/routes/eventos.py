@@ -439,7 +439,7 @@ def _parse_decimal(s):
 
 
 @eventos_bp.route('/')
-@login_required
+@perm_required('acesso_eventos')
 def index():
     from db.tiles import get_module_labels
     custom_mod = get_module_labels().get('eventos')
@@ -452,7 +452,7 @@ def index():
 # ── Dashboard ──────────────────────────────────────────────────────────────────
 
 @eventos_bp.route('/dashboard')
-@login_required
+@perm_required('acesso_eventos')
 def dashboard():
     stats = db.get_pipeline_dashboard()
     notifications = db.get_event_notifications()
@@ -471,7 +471,7 @@ def dashboard():
 # ── Pipeline ───────────────────────────────────────────────────────────────────
 
 @eventos_bp.route('/pipeline')
-@login_required
+@perm_required('acesso_eventos')
 def pipeline():
     status_filter = request.args.get('status', '')
     filters = {
@@ -499,7 +499,7 @@ def pipeline():
 
 
 @eventos_bp.route('/calendario')
-@login_required
+@perm_required('acesso_eventos')
 def calendario():
     start_raw = request.args.get('inicio', '')
     try:
@@ -518,7 +518,7 @@ def calendario():
 # ── Event detail / edit ────────────────────────────────────────────────────────
 
 @eventos_bp.route('/evento/novo', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def novo_evento():
     if request.method == 'POST':
         def _int_or_none(v):
@@ -565,7 +565,7 @@ def novo_evento():
 
 
 @eventos_bp.route('/evento/<int:event_id>', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def evento_detail(event_id):
     event = db.get_event(event_id)
     if not event:
@@ -813,7 +813,7 @@ def evento_detail(event_id):
 # ── Quote items ────────────────────────────────────────────────────────────────
 
 @eventos_bp.route('/evento/<int:event_id>/quote', methods=['POST'])
-@login_required
+@perm_required('acesso_eventos')
 def quote_action(event_id):
     event = db.get_event(event_id)
     if not event:
@@ -910,7 +910,7 @@ def quote_action(event_id):
 
 
 @eventos_bp.route('/configuracao', methods=['GET', 'POST'])
-@perm_required('acesso_administrativo')
+@perm_required('acesso_eventos')
 def configuracao():
     if request.method == 'POST':
         action = request.form.get('action')
@@ -947,6 +947,7 @@ def configuracao():
 
 
 @eventos_bp.route('/backfill-iva', methods=['GET', 'POST'])
+@perm_required('acesso_eventos')
 @perm_required('acesso_financeiro')
 def backfill_iva():
     """Reviewed admin action to set the real IVA on committed events whose
@@ -979,7 +980,7 @@ def backfill_iva():
 # ── Leads ──────────────────────────────────────────────────────────────────────
 
 @eventos_bp.route('/leads')
-@login_required
+@perm_required('acesso_eventos')
 def leads():
     status_filter = request.args.get('status', '')
     leads_list = db.get_leads(status=status_filter if status_filter else None)
@@ -994,7 +995,7 @@ def leads():
 
 
 @eventos_bp.route('/leads/nova', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def nova_lead():
     if request.method == 'POST':
         def _int_or_none(v):
@@ -1043,7 +1044,7 @@ def nova_lead():
 
 
 @eventos_bp.route('/leads/<int:lead_id>', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def lead_detail(lead_id):
     lead = db.get_lead(lead_id)
     if not lead:
@@ -1134,7 +1135,7 @@ def lead_detail(lead_id):
 # ── Google Sheets sync ─────────────────────────────────────────────────────────
 
 @eventos_bp.route('/sync-sheets', methods=['POST'])
-@login_required
+@perm_required('acesso_eventos')
 def sync_sheets():
     try:
         from flask_app.google_sheets_sync import sync_leads_from_sheet
@@ -1151,7 +1152,7 @@ def sync_sheets():
 # ── Artigos de evento ──────────────────────────────────────────────────────────
 
 @eventos_bp.route('/artigos', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def artigos():
     if request.method == 'POST':
         action = request.form.get('action', '')
@@ -1206,7 +1207,7 @@ def artigos():
 # ── Clientes de evento ──────────────────────────────────────────────────────────
 
 @eventos_bp.route('/clientes', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def clientes():
     if request.method == 'POST':
         action = request.form.get('action', '')
@@ -1252,7 +1253,7 @@ def clientes():
 
 
 @eventos_bp.route('/clientes/search')
-@login_required
+@perm_required('acesso_eventos')
 def clientes_search():
     q = request.args.get('q', '').strip()
     results = db.search_event_clients(q) if q else []
@@ -1260,7 +1261,7 @@ def clientes_search():
 
 
 @eventos_bp.route('/clientes/<int:client_id>', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def cliente_detail(client_id):
     client = db.get_event_client(client_id)
     if not client:
@@ -1292,7 +1293,7 @@ def cliente_detail(client_id):
 # ── Recebimentos de eventos (Fase 2) ───────────────────────────────────────────
 
 @eventos_bp.route('/recebimentos/novo', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def novo_recebimento_evento():
     if request.method == 'POST':
         cliente = request.form.get('cliente', '').strip()
@@ -1339,7 +1340,7 @@ def novo_recebimento_evento():
 
 
 @eventos_bp.route('/recebimentos/evento/<int:evento_id>')
-@login_required
+@perm_required('acesso_eventos')
 def detalhe_evento(evento_id):
     evento, items = get_evento_by_id(evento_id)
     if not evento:
@@ -1363,7 +1364,7 @@ def detalhe_evento(evento_id):
 
 
 @eventos_bp.route('/recebimentos/evento/<int:evento_id>/editar', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def editar_evento(evento_id):
     evento, items = get_evento_by_id(evento_id)
     if not evento:
@@ -1413,7 +1414,7 @@ def editar_evento(evento_id):
 
 
 @eventos_bp.route('/recebimentos/evento/<int:evento_id>/eliminar', methods=['POST'])
-@login_required
+@perm_required('acesso_eventos')
 def eliminar_evento(evento_id):
     delete_evento(evento_id)
     flash('Evento eliminado.', 'success')
@@ -1421,7 +1422,7 @@ def eliminar_evento(evento_id):
 
 
 @eventos_bp.route('/recebimentos/evento/<int:evento_id>/pagamento', methods=['GET', 'POST'])
-@login_required
+@perm_required('acesso_eventos')
 def registar_pagamento(evento_id):
     evento, items = get_evento_by_id(evento_id)
     if not evento:
@@ -1452,7 +1453,7 @@ def registar_pagamento(evento_id):
 
 
 @eventos_bp.route('/recebimentos')
-@login_required
+@perm_required('acesso_eventos')
 def recebimentos():
     payment_filter = request.args.get('payment_status', '')
     eventos = get_eventos_recebimentos()
