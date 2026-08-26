@@ -6,3 +6,4 @@
 - [Supplier identity matching](supplier-identity-matching.md) — treat NIFs with/without PT as one identity; aliases are trusted only after confirmed merges, never as fuzzy matches.
 - [Supplier common names](supplier-common-names.md) — common names are presentation-only; legal identity and historical invoice text remain immutable through this feature.
 - [Portal brand default invariants](portal-brand-default-invariants.md) — public default brands must stay attached to active stores, with store-row locking shared by brand and store lifecycle writes.
+- [B2B transfer destinations](b2b-transfer-destinations.md) — external recipients are typed destinations, never stores; they must not create internal receipt stock.

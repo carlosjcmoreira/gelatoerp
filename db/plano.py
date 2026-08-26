@@ -551,7 +551,13 @@ def _insert_evento(cursor, ordem_id: int, event_type: str, utilizador: str | Non
         raise
 
 
-def get_or_create_pending_batch(data: date, area_origem: str, loja_destino: str) -> str:
+def get_or_create_pending_batch(
+    data: date,
+    area_origem: str,
+    loja_destino: str,
+    destino_tipo: str = 'loja',
+    destino_nome: str = None,
+) -> str:
     """Return batch_id for an existing pendente batch with matching (data, area_origem, loja_destino),
     or generate a new UUID if none exists. Never touches the DB — safe to call before any INSERT."""
     import uuid as _uuid
@@ -560,23 +566,55 @@ def get_or_create_pending_batch(data: date, area_origem: str, loja_destino: str)
         cursor.execute("""
             SELECT DISTINCT batch_id FROM ordens_transferencia
             WHERE data = %s AND area_origem = %s AND loja_destino = %s
+              AND destino_tipo = %s
+              AND COALESCE(destino_nome, '') = COALESCE(%s, '')
               AND status = 'pendente' AND batch_id IS NOT NULL
             LIMIT 1
-        """, (data, area_origem, loja_destino))
+        """, (data, area_origem, loja_destino, destino_tipo, destino_nome))
         row = cursor.fetchone()
     if row and row[0]:
         return row[0]
     return str(_uuid.uuid4())
 
 
-def criar_ordem_transferencia(data: date, area_origem: str, produto: str, quantidade: float, unidade: str = 'kg', loja_destino: str = 'Bolhão', sabor: str = None, criado_por: str = None, data_prevista: date = None, batch_id: str = None):
+def criar_ordem_transferencia(
+    data: date,
+    area_origem: str,
+    produto: str,
+    quantidade: float,
+    unidade: str = 'kg',
+    loja_destino: str = 'Bolhão',
+    sabor: str = None,
+    criado_por: str = None,
+    data_prevista: date = None,
+    batch_id: str = None,
+    destino_tipo: str = 'loja',
+    destino_nome: str = None,
+):
+    if destino_tipo not in ('loja', 'b2b'):
+        raise ValueError("Tipo de destino inválido")
+    destino_nome = (destino_nome or '').strip() or None
+    if destino_tipo == 'b2b':
+        if not destino_nome:
+            raise ValueError("A entidade destinatária é obrigatória para destinos B2B")
+        loja_destino = 'B2B'
+    else:
+        destino_nome = None
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO ordens_transferencia (data, area_origem, produto, sabor, quantidade, unidade, loja_destino, criado_por, data_prevista, batch_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO ordens_transferencia (
+                data, area_origem, produto, sabor, quantidade, unidade,
+                loja_destino, criado_por, data_prevista, batch_id,
+                destino_tipo, destino_nome
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        """, (data, area_origem, produto, sabor, quantidade, unidade, loja_destino, criado_por, data_prevista or data, batch_id))
+        """, (
+            data, area_origem, produto, sabor, quantidade, unidade,
+            loja_destino, criado_por, data_prevista or data, batch_id,
+            destino_tipo, destino_nome,
+        ))
         order_id = cursor.fetchone()[0]
         _insert_evento(cursor, order_id, 'criado', criado_por)
         conn.commit()
@@ -595,7 +633,7 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
     with db_connection() as conn:
         cursor = conn.cursor()
         query = """
-            SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista, motivo_rejeicao, batch_id, loja_origem
+            SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista, motivo_rejeicao, batch_id, loja_origem, destino_tipo, destino_nome
             FROM ordens_transferencia WHERE 1=1
         """
         params = []
@@ -627,7 +665,8 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
         'id': r[0], 'data': r[1], 'area_origem': r[2], 'produto': r[3], 'sabor': r[4],
         'quantidade': float(r[5]), 'unidade': r[6], 'loja_destino': r[7], 'status': r[8],
         'criado_por': r[9], 'confirmado_por': r[10], 'confirmado_em': r[11], 'created_at': r[12],
-        'data_prevista': r[13], 'motivo_rejeicao': r[14], 'batch_id': r[15], 'loja_origem': r[16]
+        'data_prevista': r[13], 'motivo_rejeicao': r[14], 'batch_id': r[15], 'loja_origem': r[16],
+        'destino_tipo': r[17] or 'loja', 'destino_nome': r[18]
     } for r in rows]
 
 
@@ -689,7 +728,8 @@ def get_ordens_transferencia_with_events(
             "SELECT o.id, o.data, o.area_origem, o.produto, o.sabor,"
             " o.quantidade, o.unidade, o.loja_destino, o.status,"
             " o.criado_por, o.confirmado_por, o.confirmado_em,"
-            " o.created_at, o.data_prevista, o.motivo_rejeicao"
+            " o.created_at, o.data_prevista, o.motivo_rejeicao,"
+            " o.destino_tipo, o.destino_nome"
             f" FROM ordens_transferencia o{where}"
             " ORDER BY o.created_at DESC LIMIT %s OFFSET %s"
         )
@@ -700,6 +740,7 @@ def get_ordens_transferencia_with_events(
             'quantidade': float(r[5]), 'unidade': r[6], 'loja_destino': r[7], 'status': r[8],
             'criado_por': r[9], 'confirmado_por': r[10], 'confirmado_em': r[11],
             'created_at': r[12], 'data_prevista': r[13], 'motivo_rejeicao': r[14],
+            'destino_tipo': r[15] or 'loja', 'destino_nome': r[16],
             'eventos': [],
         } for r in rows]
 
@@ -747,14 +788,17 @@ def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT area_origem, produto, sabor, quantidade, unidade, loja_destino
+            SELECT area_origem, produto, sabor, quantidade, unidade, loja_destino,
+                   destino_tipo
             FROM ordens_transferencia
             WHERE id = %s AND status = 'pendente'
         """, (ordem_id,))
         ordem = cursor.fetchone()
         if not ordem:
             return False
-        area_origem, produto, sabor, quantidade, unidade, loja_destino = ordem
+        area_origem, produto, sabor, quantidade, unidade, loja_destino, destino_tipo = ordem
+        if destino_tipo == 'b2b':
+            return False
         cursor.execute("""
             UPDATE ordens_transferencia
             SET status = 'confirmada', confirmado_por = %s, confirmado_em = NOW()
@@ -798,7 +842,8 @@ def rejeitar_ordem_transferencia(ordem_id: int, confirmado_por: str, motivo: str
 
 def criar_transferencia_entre_lojas(
     data: date, sabor: str, loja_origem: str, loja_destino: str,
-    quantidade_kg: float, criado_por: str, data_prevista: date = None
+    quantidade_kg: float, criado_por: str, data_prevista: date = None,
+    destino_tipo: str = 'loja', destino_nome: str = None,
 ) -> int:
     """Create a store-to-store gelado transfer order.
 
@@ -810,6 +855,16 @@ def criar_transferencia_entre_lojas(
 
     Returns the new order ID.  Raises on any DB error (caller should handle).
     """
+    if destino_tipo not in ('loja', 'b2b'):
+        raise ValueError("Tipo de destino inválido")
+    destino_nome = (destino_nome or '').strip() or None
+    if destino_tipo == 'b2b':
+        if not destino_nome:
+            raise ValueError("A entidade destinatária é obrigatória para destinos B2B")
+        loja_destino = 'B2B'
+    else:
+        destino_nome = None
+
     with db_connection() as conn:
         cursor = conn.cursor()
         qty = abs(float(quantidade_kg))
@@ -821,10 +876,14 @@ def criar_transferencia_entre_lojas(
         cursor.execute("""
             INSERT INTO ordens_transferencia
                 (data, area_origem, produto, sabor, quantidade, unidade,
-                 loja_destino, loja_origem, status, criado_por, data_prevista)
-            VALUES (%s, 'Gelado', %s, %s, %s, 'kg', %s, %s, 'pendente', %s, %s)
+                 loja_destino, loja_origem, status, criado_por, data_prevista,
+                 destino_tipo, destino_nome)
+            VALUES (%s, 'Gelado', %s, %s, %s, 'kg', %s, %s, 'pendente', %s, %s, %s, %s)
             RETURNING id
-        """, (data, sabor, sabor, qty, loja_destino, loja_origem, criado_por, data_prevista or data))
+        """, (
+            data, sabor, sabor, qty, loja_destino, loja_origem, criado_por,
+            data_prevista or data, destino_tipo, destino_nome,
+        ))
         order_id = cursor.fetchone()[0]
         _insert_evento(cursor, order_id, 'criado', criado_por)
         conn.commit()

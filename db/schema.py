@@ -1248,7 +1248,9 @@ def run_migrations():
                 criado_por VARCHAR(100),
                 confirmado_por VARCHAR(100),
                 confirmado_em TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                destino_tipo VARCHAR(20) NOT NULL DEFAULT 'loja',
+                destino_nome VARCHAR(255)
             )
         ''')
 
@@ -4290,6 +4292,48 @@ def run_migrations_loja_origem():
             logger.error("run_migrations_loja_origem failed: %s", exc)
             try:
                 conn.rollback()
+            except Exception:
+                pass
+
+
+def run_migrations_transferencias_destino():
+    """Add typed destinations to transfer orders (idempotent, advisory lock 202676)."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(202676)")
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_transferencias_destino: lock held by another worker, skipping")
+                return
+            cursor.execute("""
+                ALTER TABLE ordens_transferencia
+                ADD COLUMN IF NOT EXISTS destino_tipo VARCHAR(20) NOT NULL DEFAULT 'loja'
+            """)
+            cursor.execute("""
+                ALTER TABLE ordens_transferencia
+                ADD COLUMN IF NOT EXISTS destino_nome VARCHAR(255)
+            """)
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET destino_tipo = 'loja'
+                WHERE destino_tipo IS NULL OR destino_tipo NOT IN ('loja', 'b2b')
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_ordens_transferencia_destino
+                ON ordens_transferencia (destino_tipo, destino_nome)
+            """)
+            conn.commit()
+            logger.info("run_migrations_transferencias_destino: destination columns ready")
+        except Exception as exc:
+            logger.error("run_migrations_transferencias_destino failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(202676)")
+                conn.commit()
             except Exception:
                 pass
 

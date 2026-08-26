@@ -684,7 +684,9 @@ def transferir_gelado():
 
     if request.method == 'POST':
         sabor = request.form.get('sabor', '').strip()
+        destino_tipo = request.form.get('destino_tipo', 'loja').strip().lower()
         loja_destino = request.form.get('loja_destino', '').strip()
+        destino_nome = request.form.get('destino_nome', '').strip()
         username = session.get('user', {}).get('username', 'system')
 
         try:
@@ -698,10 +700,24 @@ def transferir_gelado():
         if quantidade_kg <= 0:
             flash('A quantidade deve ser superior a zero.', 'error')
             return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
-        if not loja_destino:
-            flash('Seleccione uma loja de destino.', 'error')
+        active_store_names = {s['name'] for s in get_active_venda_stores()}
+        if destino_tipo == 'b2b':
+            if not destino_nome:
+                flash('Indique a entidade destinatária para a transferência B2B.', 'error')
+                return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+            if len(destino_nome) > 255:
+                flash('A entidade destinatária não pode ter mais de 255 caracteres.', 'error')
+                return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+            loja_destino = 'B2B'
+        elif destino_tipo == 'loja':
+            destino_nome = None
+            if not loja_destino or loja_destino not in active_store_names:
+                flash('Seleccione uma loja de destino válida.', 'error')
+                return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
+        else:
+            flash('Tipo de destino inválido.', 'error')
             return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
-        if loja_destino == loja_nome:
+        if destino_tipo == 'loja' and loja_destino == loja_nome:
             flash('A loja de destino não pode ser a mesma que a loja de origem.', 'error')
             return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
 
@@ -727,9 +743,12 @@ def transferir_gelado():
                 loja_destino=loja_destino,
                 quantidade_kg=quantidade_kg,
                 criado_por=username,
+                destino_tipo=destino_tipo,
+                destino_nome=destino_nome,
             )
+            destino_label = destino_nome if destino_tipo == 'b2b' else loja_destino
             flash(
-                f'Transferência de {quantidade_kg:.3f} kg de {sabor} para {loja_destino} '
+                f'Transferência de {quantidade_kg:.3f} kg de {sabor} para {destino_label} '
                 f'criada com sucesso (ordem #{ordem_id}).', 'success'
             )
         except Exception:

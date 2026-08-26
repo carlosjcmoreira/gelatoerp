@@ -1029,12 +1029,33 @@ def transferir():
                 data_prevista = datetime.strptime(data_prevista_str, '%Y-%m-%d').date()
             except ValueError:
                 pass
-        loja_destino = request.form.get('loja_destino', 'Bolhão')
+        destino_tipo = request.form.get('destino_tipo', 'loja').strip().lower()
+        loja_destino = request.form.get('loja_destino', 'Bolhão').strip()
+        destino_nome = request.form.get('destino_nome', '').strip()
         active_store_names = {s['name'] for s in get_active_venda_stores()}
-        if loja_destino not in active_store_names:
-            loja_destino = 'Bolhão'
+        if destino_tipo == 'b2b':
+            if not destino_nome:
+                flash("Indique a entidade destinatária para a transferência B2B.", "warning")
+                return redirect(url_for('producao.transferir'))
+            if len(destino_nome) > 255:
+                flash("A entidade destinatária não pode ter mais de 255 caracteres.", "warning")
+                return redirect(url_for('producao.transferir'))
+            loja_destino = 'B2B'
+        elif destino_tipo == 'loja':
+            destino_nome = None
+            if loja_destino not in active_store_names:
+                flash("Loja de destino inválida.", "warning")
+                return redirect(url_for('producao.transferir'))
+        else:
+            flash("Tipo de destino inválido.", "warning")
+            return redirect(url_for('producao.transferir'))
         try:
-            batch_id = get_or_create_pending_batch(today, 'Gelado', loja_destino)
+            batch_id = get_or_create_pending_batch(
+                today, 'Gelado', loja_destino, destino_tipo, destino_nome
+            )
+            stock_loja = loja_destino
+            if destino_tipo == 'b2b':
+                stock_loja = 'Bolhão'
             import re as _re
             form_pairs = []
             for key in request.form:
@@ -1049,8 +1070,8 @@ def transferir():
                 if qty <= 0:
                     continue
 
-                stock_disponivel = get_stock_producao(today, sabor, loja_destino)
-                other_loja = 'Matosinhos' if loja_destino == 'Bolhão' else 'Bolhão'
+                stock_disponivel = get_stock_producao(today, sabor, stock_loja)
+                other_loja = 'Matosinhos' if stock_loja == 'Bolhão' else 'Bolhão'
 
                 if qty > stock_disponivel:
                     deficit = qty - stock_disponivel
@@ -1058,16 +1079,21 @@ def transferir():
                     transferir_de_other = min(deficit, stock_other)
                     if transferir_de_other > 0:
                         reduzir_stock_producao(today, sabor, other_loja, transferir_de_other)
-                        add_stock_producao(today, sabor, loja_destino, transferir_de_other)
+                        add_stock_producao(today, sabor, stock_loja, transferir_de_other)
                         stock_disponivel += transferir_de_other
 
                 if qty > stock_disponivel:
                     qty = stock_disponivel
                 if qty > 0:
-                    reduced = reduzir_stock_producao(today, sabor, loja_destino, qty)
+                    reduced = reduzir_stock_producao(today, sabor, stock_loja, qty)
                     if reduced:
                         add_transferencia(today, sabor, loja_destino, qty)
-                        criar_ordem_transferencia(today, 'Gelado', sabor, qty, 'kg', loja_destino, sabor=sabor, criado_por=username, data_prevista=data_prevista, batch_id=batch_id)
+                        criar_ordem_transferencia(
+                            today, 'Gelado', sabor, qty, 'kg', loja_destino,
+                            sabor=sabor, criado_por=username,
+                            data_prevista=data_prevista, batch_id=batch_id,
+                            destino_tipo=destino_tipo, destino_nome=destino_nome,
+                        )
                         ordens_count += 1
         except psycopg2.DatabaseError:
             raise

@@ -15,12 +15,25 @@
             <span class="badge bg-primary">Gelado</span>
         </div>
         <div class="mb-2">
+            <label class="form-label small mb-1">Destino</label>
+            <select name="destino_tipo" id="destino_tipo" class="form-select form-select-sm mb-2" required>
+                <option value="loja">Loja interna</option>
+                <option value="b2b">B2B / Cliente externo</option>
+            </select>
+            <div id="destino_loja_fields">
             <label class="form-label small mb-1">Loja de destino</label>
-            <select name="loja_destino" class="form-select form-select-sm">
+            <select name="loja_destino" id="loja_destino" class="form-select form-select-sm" required>
                 {% for loja in lojas_venda %}
                 <option value="{{ loja.name }}">{{ loja.name }}</option>
                 {% endfor %}
             </select>
+            </div>
+            <div id="destino_b2b_fields" class="d-none">
+                <label class="form-label small mb-1">Entidade destinatária</label>
+                <input type="text" name="destino_nome" id="destino_nome"
+                       class="form-control form-control-sm" maxlength="255"
+                       placeholder="Ex: Sogrape" autocomplete="organization">
+            </div>
         </div>
         <div>
             <label class="form-label small mb-1">Data prevista de entrega</label>
@@ -111,6 +124,21 @@
     {% if cards %}
     adicionarArtigo();
     {% endif %}
+
+    var destinoTipo = document.getElementById('destino_tipo');
+    var destinoLojaFields = document.getElementById('destino_loja_fields');
+    var destinoB2BFields = document.getElementById('destino_b2b_fields');
+    var lojaDestino = document.getElementById('loja_destino');
+    var destinoNome = document.getElementById('destino_nome');
+    function syncDestino() {
+        var isB2B = destinoTipo.value === 'b2b';
+        destinoLojaFields.classList.toggle('d-none', isB2B);
+        destinoB2BFields.classList.toggle('d-none', !isB2B);
+        lojaDestino.required = !isB2B;
+        destinoNome.required = isB2B;
+    }
+    destinoTipo.addEventListener('change', syncDestino);
+    syncDestino();
 })();
 </script>
 {% endblock %}

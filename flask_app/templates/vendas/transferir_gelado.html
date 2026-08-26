@@ -7,8 +7,8 @@
     <h5 class="mb-2">🛒 Vendas {{ loja_nome }}</h5>
     <h6 class="mb-1">📤 Transferir Gelado</h6>
     <p class="text-muted small mb-3">
-        Envie gelado desta loja para outra. O stock é descontado imediatamente e a loja
-        de destino confirma a receção no seu módulo de Vendas.
+        Envie gelado desta loja para outra loja ou para um cliente externo. O stock é
+        descontado imediatamente; as lojas internas confirmam a receção no módulo de Vendas.
     </p>
 
     {% include "components/flash_messages.html" ignore missing %}
@@ -53,8 +53,14 @@
                 </div>
 
                 <div class="mb-4">
-                    <label for="loja_destino" class="form-label fw-semibold">Loja de destino</label>
+                    <label for="destino_tipo" class="form-label fw-semibold">Destino</label>
+                    <select class="form-select mb-2" id="destino_tipo" name="destino_tipo" required>
+                        <option value="loja">Loja interna</option>
+                        <option value="b2b">B2B / Cliente externo</option>
+                    </select>
+                    <div id="destino_loja_fields">
                     {% if lojas_destino %}
+                    <label for="loja_destino" class="form-label small">Loja de destino</label>
                     <select class="form-select" id="loja_destino" name="loja_destino" required>
                         <option value="">— seleccionar —</option>
                         {% for loja in lojas_destino %}
@@ -64,15 +70,19 @@
                     {% else %}
                     <p class="text-muted small">Nenhuma outra loja activa disponível.</p>
                     {% endif %}
+                    </div>
+                    <div id="destino_b2b_fields" class="d-none">
+                        <label for="destino_nome" class="form-label small">Entidade destinatária</label>
+                        <input type="text" class="form-control" id="destino_nome" name="destino_nome"
+                               maxlength="255" placeholder="Ex: Sogrape" autocomplete="organization">
+                    </div>
                 </div>
 
-                {% if lojas_destino %}
                 <div class="d-grid">
                     <button type="submit" class="btn btn-primary btn-lg" id="btn-enviar">
                         📤 Enviar Transferência
                     </button>
                 </div>
-                {% endif %}
             </form>
         </div>
     </div>
@@ -102,14 +112,20 @@
                 <tr>
                     <td>{{ o.sabor }}</td>
                     <td class="text-end">{{ '%.3f'|format(o.quantidade) }}</td>
-                    <td>{{ o.loja_destino }}</td>
+                    <td>
+                        {% if o.destino_tipo == 'b2b' %}
+                        <span class="badge bg-info text-dark">B2B</span> {{ o.destino_nome }}
+                        {% else %}
+                        {{ o.loja_destino }}
+                        {% endif %}
+                    </td>
                     <td class="text-nowrap">{{ o.data }}</td>
                     <td>
                         {% if o.status == 'pendente' %}
                         <span class="badge bg-warning text-dark">pendente</span>
-                        {% elif o.status == 'confirmado' %}
+                        {% elif o.status == 'confirmada' %}
                         <span class="badge bg-success">confirmado</span>
-                        {% elif o.status == 'rejeitado' %}
+                        {% elif o.status == 'rejeitada' %}
                         <span class="badge bg-danger">rejeitado</span>
                         {% else %}
                         <span class="badge bg-secondary">{{ o.status }}</span>
@@ -173,6 +189,21 @@ function validarQuantidade() {
 document.addEventListener('DOMContentLoaded', function () {
     const qtyInput = document.getElementById('quantidade');
     if (qtyInput) qtyInput.addEventListener('input', validarQuantidade);
+
+    const tipo = document.getElementById('destino_tipo');
+    const lojaFields = document.getElementById('destino_loja_fields');
+    const b2bFields = document.getElementById('destino_b2b_fields');
+    const loja = document.getElementById('loja_destino');
+    const nome = document.getElementById('destino_nome');
+    function syncDestino() {
+        const isB2B = tipo.value === 'b2b';
+        lojaFields.classList.toggle('d-none', isB2B);
+        b2bFields.classList.toggle('d-none', !isB2B);
+        if (loja) loja.required = !isB2B;
+        nome.required = isB2B;
+    }
+    tipo.addEventListener('change', syncDestino);
+    syncDestino();
 });
 </script>
 {% endblock %}

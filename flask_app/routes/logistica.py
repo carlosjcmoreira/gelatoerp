@@ -50,7 +50,12 @@ def transferencias():
         grupos = defaultdict(list)
         for o in todas:
             dp = o.get('data_prevista') or o['data']
-            key = (dp, o['loja_destino'])
+            destino_label = (
+                f"B2B · {o['destino_nome']}"
+                if o.get('destino_tipo') == 'b2b'
+                else o['loja_destino']
+            )
+            key = (dp, destino_label)
             grupos[key].append(o)
 
         for (dp, loja), ordens in sorted(grupos.items(), key=lambda x: x[0][0], reverse=True):
@@ -121,7 +126,14 @@ def transferencias():
             page=page,
             per_page=PER_PAGE,
         )
-        lojas = sorted({o['loja_destino'] for o in get_ordens_transferencia()})
+        todas_ordens = get_ordens_transferencia()
+        lojas = sorted({
+            o['loja_destino']
+            for o in todas_ordens
+            if o.get('destino_tipo') != 'b2b'
+        })
+        if any(o.get('destino_tipo') == 'b2b' for o in todas_ordens):
+            lojas.append('B2B')
 
     return render_template(
         'logistica/transferencias.html',

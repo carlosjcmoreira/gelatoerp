@@ -23,7 +23,7 @@
 
 {% if tab == 'ativas' %}
 {# ═══ ATIVAS tab ══════════════════════════════════════════════════════════ #}
-<p class="text-muted small mb-3">Vista consolidada das transferências agrupadas por data prevista e loja de destino.</p>
+<p class="text-muted small mb-3">Vista consolidada das transferências agrupadas por data prevista e destino.</p>
 
 {% if transferencias %}
 {% for t in transferencias %}
@@ -181,7 +181,11 @@
         <td><span class="badge bg-{{ area_color }}" style="font-size:0.7rem;">{{ o.area_origem }}</span></td>
         <td>{{ o.produto }}{% if o.sabor and o.sabor != o.produto %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
         <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
-        <td class="text-center">{{ o.loja_destino }}</td>
+        <td class="text-center">
+            {% if o.destino_tipo == 'b2b' %}
+            <span class="badge bg-info text-dark">B2B</span> {{ o.destino_nome }}
+            {% else %}{{ o.loja_destino }}{% endif %}
+        </td>
         <td class="text-center">{{ o.data.strftime('%d/%m/%Y') if o.data else '—' }}</td>
         <td class="text-center">{% if o.data_prevista %}{{ o.data_prevista.strftime('%d/%m') }}{% else %}—{% endif %}</td>
         <td class="text-center"><span class="badge bg-{{ status_color }}" style="font-size:0.7rem;">{{ status_label }}</span></td>
@@ -237,7 +241,7 @@
         </div>
         <div class="mt-1 text-muted" style="font-size:0.78rem;">
             <span>{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</span>
-            &nbsp;·&nbsp;<span>{{ o.loja_destino }}</span>
+            &nbsp;·&nbsp;<span>{% if o.destino_tipo == 'b2b' %}B2B · {{ o.destino_nome }}{% else %}{{ o.loja_destino }}{% endif %}</span>
             &nbsp;·&nbsp;<span>{{ o.data.strftime('%d/%m/%Y') if o.data else '—' }}</span>
         </div>
         <div id="mob-eventos-{{ o.id }}" style="display:none; margin-top:8px;">
