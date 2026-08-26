@@ -305,17 +305,28 @@ def faturas():
         _fqs_d['page'] = page
     filter_qs = '?' + urlencode(_fqs_d) if _fqs_d else '?'
 
+    # Keep the current sort on pagination, status badges and evidence toggles.
+    # Header sort links use filter_qs because they append a replacement sort.
+    _state_fqs_d = dict(_fqs_d)
+    if order_by != 'issue_date':
+        _state_fqs_d['order_by'] = order_by
+    if order_dir != 'desc':
+        _state_fqs_d['order_dir'] = order_dir
+
     # Build sem_evidencia toggle URLs
     # Off URL uses sem_evidencia=0 (not removal) so _has_any_filter_param stays True
     # and session restore doesn't swallow the explicit "clear" intent.
-    _fqs_no_ev = {k: v for k, v in _fqs_d.items() if k != 'sem_evidencia'}
+    _fqs_no_ev = {k: v for k, v in _state_fqs_d.items() if k != 'sem_evidencia'}
     _fqs_with_ev = {**_fqs_no_ev, 'sem_evidencia': '1'}
     _fqs_ev_zero = {**_fqs_no_ev, 'sem_evidencia': '0'}
     sem_ev_off_url = '?' + urlencode(_fqs_ev_zero)
     sem_ev_on_url = '?' + urlencode(_fqs_with_ev)
 
     # Build base query (no status) for badge strip counts
-    _bfqs_d = {k: v for k, v in _fqs_d.items() if k != 'status'}
+    _bfqs_d = {
+        k: v for k, v in _state_fqs_d.items()
+        if k not in ('status', 'page')
+    }
     base_filter_qs = '?' + urlencode(_bfqs_d) if _bfqs_d else '?'
     _count_base = {k: v for k, v in filter_kwargs.items() if k != 'status'}
     status_counts = {

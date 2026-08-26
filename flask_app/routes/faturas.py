@@ -359,7 +359,14 @@ def index():
     statuses_filter = [s for s in request.args.getlist('status') if s]
     show_all = request.args.get('all', '') == '1'
     order_by = request.args.get('order_by', 'due_date')
+    if order_by not in (
+        'issue_date', 'due_date', 'paid_date', 'amount_eur', 'supplier_name',
+        'invoice_number', 'status', 'centro_custo_name', 'categoria_custo_name',
+    ):
+        order_by = 'due_date'
     order_dir = request.args.get('order_dir', 'asc')
+    if order_dir not in ('asc', 'desc'):
+        order_dir = 'asc'
     search = request.args.get('q', '').strip()
     centro_custo_raw = request.args.get('centro_custo_id', '')
     categoria_custo_raw = request.args.get('categoria_custo_id', '')
@@ -504,8 +511,18 @@ def index():
         _filter_params.append(('date_field', date_field))
     filter_qs = ('?' + urlencode(_filter_params)) if _filter_params else '?'
 
+    # Links that change a filter or page must retain the active sort.  The
+    # header macro deliberately receives filter_qs without sorting so it can
+    # append the replacement order_by/order_dir pair without duplicates.
+    _state_filter_params = list(_filter_params)
+    if order_by != 'due_date':
+        _state_filter_params.append(('order_by', order_by))
+    if order_dir != 'asc':
+        _state_filter_params.append(('order_dir', order_dir))
+    state_filter_qs = ('?' + urlencode(_state_filter_params)) if _state_filter_params else '?'
+
     # Build sem_evidencia toggle URLs from the fully-populated params list
-    _params_no_ev = [p for p in _filter_params if p[0] != 'sem_evidencia']
+    _params_no_ev = [p for p in _state_filter_params if p[0] != 'sem_evidencia']
     _params_with_ev = _params_no_ev + [('sem_evidencia', '1')]
     sem_ev_off_url = ('?' + urlencode(_params_no_ev)) if _params_no_ev else '?'
     sem_ev_on_url = '?' + urlencode(_params_with_ev)
@@ -560,6 +577,10 @@ def index():
         _type_badge_params.append(('month', month_raw))
     if date_field != 'due_date':
         _type_badge_params.append(('date_field', date_field))
+    if order_by != 'due_date':
+        _type_badge_params.append(('order_by', order_by))
+    if order_dir != 'asc':
+        _type_badge_params.append(('order_dir', order_dir))
     type_badge_base_qs = urlencode(_type_badge_params)
 
     return render_template(
@@ -580,6 +601,7 @@ def index():
         stores=stores,
         today=today,
         filter_qs=filter_qs,
+         base_filter_qs=state_filter_qs,
         confirming_contracts=confirming_contracts,
         payment_methods=payment_methods,
         cost_centers=cost_centers,

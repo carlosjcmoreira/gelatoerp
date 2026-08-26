@@ -2117,8 +2117,10 @@ function openFbarPanel(field, anchor) {
             '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="closeFbarPanel()">Cancelar</button></div>';
 
     } else if (field === 'centro_custo') {
-        var curCC = String(FBAR_DATA.activeCentroCusto||'');
-        h += '<select id="fbar-cc-sel" class="form-select form-select-sm mb-3"><option value="">— Todos os centros —</option>';
+        var curCC = FBAR_DATA.activeSemCC ? '__none__' : String(FBAR_DATA.activeCentroCusto||'');
+        h += '<select id="fbar-cc-sel" class="form-select form-select-sm mb-3">' +
+             '<option value="">— Todos os centros —</option>' +
+             '<option value="__none__"'+(curCC==='__none__'?' selected':'')+'>⚠️ Sem centro de custo</option>';
         FBAR_DATA.costCenters.forEach(function(c) {
             h += '<option value="'+c.id+'"'+(curCC===String(c.id)?' selected':'')+'>'+c.code+' — '+c.name+'</option>';
         });
@@ -2229,9 +2231,20 @@ function applyCostCategoryFilter() {
 }
 function applyCCFilter() {
     var val=((document.getElementById('fbar-cc-sel')||{}).value||'');
-    _fbarSet('ff-cc','centro_custo_id',val); document.getElementById('filter-form').requestSubmit();
+    if (val === '__none__') {
+        _fbarSet('ff-cc', 'centro_custo_id', '');
+        _fbarSet('ff-sem-cc', 'sem_cc', '1');
+    } else if (val) {
+        _fbarSet('ff-sem-cc', 'sem_cc', '');
+        _fbarSet('ff-cc', 'centro_custo_id', val);
+    } else {
+        _fbarSet('ff-cc', 'centro_custo_id', '');
+        _fbarSet('ff-sem-cc', 'sem_cc', '');
+    }
+    document.getElementById('filter-form').requestSubmit();
 }
 function applySemCCFilter() {
+    _fbarSet('ff-cc', 'centro_custo_id', '');
     _fbarSet('ff-sem-cc', 'sem_cc', '1');
     document.getElementById('filter-form').requestSubmit();
 }

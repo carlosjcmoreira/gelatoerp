@@ -1426,6 +1426,9 @@ _ORDER_COL_MAP = {
     'cfo_confirmed_date': 'i.cfo_confirmed_date',
     # These names are selected by get_invoices below and can therefore be
     # referenced safely by the table's sortable column headers.
+    # PostgreSQL accepts a SELECT alias directly in ORDER BY, but not when the
+    # alias is nested inside an expression such as LOWER(centro_custo_name).
+    # Keep this as the bare displayed-label alias.
     'centro_custo_name': 'centro_custo_name',
     'categoria_custo_name': 'LOWER(ccat.name)',
 }

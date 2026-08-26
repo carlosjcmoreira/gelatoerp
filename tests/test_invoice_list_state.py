@@ -137,6 +137,25 @@ class TestDocumentListStickyReferences(unittest.TestCase):
         self.assertEqual(self.source.count('class="document-table-scroll table-responsive"'), 1)
         self.assertIn('{% if invoices %}', self.source)
 
+    def test_cost_center_filter_has_explicit_unassigned_option(self):
+        self.assertIn("FBAR_DATA.activeSemCC ? '__none__'", self.source)
+        self.assertIn('value="__none__"', self.source)
+        self.assertIn('Sem centro de custo', self.source)
+        self.assertIn("_fbarSet('ff-cc', 'centro_custo_id', '')", self.source)
+
+    def test_cost_center_filter_clears_conflicting_filter_state(self):
+        self.assertIn(
+            "if (val === '__none__') {\n"
+            "        _fbarSet('ff-cc', 'centro_custo_id', '');\n"
+            "        _fbarSet('ff-sem-cc', 'sem_cc', '1');",
+            self.source,
+        )
+        self.assertIn(
+            "_fbarSet('ff-sem-cc', 'sem_cc', '');\n"
+            "        _fbarSet('ff-cc', 'centro_custo_id', val);",
+            self.source,
+        )
+
 
 class _RecordingCursor:
     def __init__(self, fetchone_results, update_counts=()):
@@ -654,10 +673,11 @@ class TestComprasFilterState(unittest.TestCase):
 
     def test_cost_filters_and_sort_are_forwarded_and_saved(self):
         from flask_app.routes import compras as compras_route
+        compras_route.count_invoices.return_value = 120
 
         response = self.client.get(
             '/compras/faturas?sem_cc=1&centro_custo_id=8&categoria_custo_id=4'
-            '&order_by=centro_custo_name&order_dir=asc'
+            '&order_by=centro_custo_name&order_dir=asc&page=3'
         )
 
         self.assertEqual(response.status_code, 200)
@@ -672,6 +692,12 @@ class TestComprasFilterState(unittest.TestCase):
         self.assertTrue(template_kwargs['sem_cc_filter'])
         self.assertEqual(template_kwargs['centro_custo_filter'], 8)
         self.assertEqual(template_kwargs['categoria_custo_filter'], 4)
+        self.assertIn('sem_cc=1', template_kwargs['filter_qs'])
+        self.assertIn('page=3', template_kwargs['filter_qs'])
+        self.assertNotIn('order_by=', template_kwargs['filter_qs'])
+        self.assertIn('order_by=centro_custo_name', template_kwargs['base_filter_qs'])
+        self.assertIn('order_dir=asc', template_kwargs['base_filter_qs'])
+        self.assertNotIn('page=', template_kwargs['base_filter_qs'])
 
         with self.client.session_transaction() as session:
             self.assertEqual(session['faturas_filters']['sem_cc'], '1')

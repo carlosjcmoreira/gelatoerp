@@ -156,6 +156,7 @@ class TestCostCenterInvoiceFilters(unittest.TestCase):
             from db.faturas import get_invoices
             get_invoices(order_by='centro_custo_name')
         self.assertIn("ORDER BY centro_custo_name ASC", cur.execute.call_args[0][0])
+        self.assertNotIn("LOWER(centro_custo_name)", cur.execute.call_args[0][0])
 
         cur = _make_cursor(fetchall=[])
         conn = _make_conn(cur)
