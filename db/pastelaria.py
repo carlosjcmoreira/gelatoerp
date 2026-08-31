@@ -237,6 +237,28 @@ def get_produtos_pastelaria() -> list:
             produtos.append(', '.join(parts))
     return produtos
 
+
+def get_bolo_tamanhos() -> list:
+    """Return active cake sizes in their configured display order."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT nome
+            FROM tamanhos_bolo_pastelaria
+            WHERE ativo = TRUE
+            ORDER BY ordem, nome
+        """)
+        return [row[0] for row in cursor.fetchall()]
+
+
+def build_bolo_product_label(tamanho: str, sabores: list, cobertura: str = '') -> str:
+    """Build the stable display/stock key for a configured cake."""
+    sabores_text = ' + '.join(sabores)
+    label = f"Bolo — {tamanho} — {sabores_text}"
+    if cobertura:
+        label += f" — Cobertura: {cobertura}"
+    return label
+
 def get_all_produtos_pastelaria() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()

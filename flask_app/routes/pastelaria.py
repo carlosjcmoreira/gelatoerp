@@ -9,7 +9,7 @@ from database import (
     add_contagem_stock, delete_contagem_stock, get_contagem_stock_df,
     get_ultimo_stock_balcao,
     upsert_plano_area, marcar_produto_no_plano, remover_produto_do_plano,
-    get_plano_do_dia_area, get_plano_produto,
+    get_plano_do_dia_area, get_plano_produto, get_plano_intervalo_area,
     update_producao_real_area, update_plano_status_area,
     upsert_stock_producao_area, get_stock_producao_area_all,
     get_stock_producao_area, reduzir_stock_producao_area,
@@ -28,7 +28,6 @@ AREA = 'pastelaria'
 TABS = [
     {'id': 'stock_balcao', 'label': 'Visão de Stock', 'icon': '📦', 'endpoint': 'pastelaria.stock_balcao'},
     {'id': 'planear', 'label': 'Planear Produção', 'icon': '📋', 'endpoint': 'pastelaria.planear'},
-    {'id': 'produzir', 'label': 'Produzir', 'icon': '▶️', 'endpoint': 'pastelaria.produzir'},
     {'id': 'transferir', 'label': 'Transferir para Loja', 'icon': '🔄', 'endpoint': 'pastelaria.transferir'},
     {'id': 'quebra', 'label': 'Registar Quebra', 'icon': '⚠️', 'endpoint': 'pastelaria.registar_quebra'},
     {'id': 'reconciliacao', 'label': 'Reconciliação', 'icon': '📊', 'endpoint': 'pastelaria.reconciliacao'},
@@ -55,6 +54,59 @@ def _parse_int(val_str, default=0):
         return int(s)
     except ValueError:
         return default
+
+
+def _week_start(value):
+    """Return the Monday for a date-like value, defaulting to this week."""
+    try:
+        parsed = date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        parsed = date.today()
+    return parsed - timedelta(days=parsed.weekday())
+
+
+def _week_days(start):
+    return [start + timedelta(days=offset) for offset in range(7)]
+
+
+def validate_bolo_configuration(tamanho, sabores, cobertura, tamanhos, sabores_validos, coberturas):
+    """Validate and canonicalise the configurable cake fields."""
+    options = {str(option).strip().casefold(): str(option).strip() for option in tamanhos}
+    tamanho_key = str(tamanho or '').strip().casefold()
+    if not tamanho_key or tamanho_key not in options:
+        return None, 'Selecione um tamanho de Bolo válido.'
+
+    sabores_validos_map = {
+        str(option).strip().casefold(): str(option).strip()
+        for option in sabores_validos
+    }
+    escolhidos = [str(s).strip() for s in (sabores or []) if str(s).strip()]
+    if not 1 <= len(escolhidos) <= 3:
+        return None, 'O Bolo deve ter entre 1 e 3 sabores.'
+    sabores_canonicos = []
+    vistos = set()
+    for sabor in escolhidos:
+        key = sabor.casefold()
+        if key not in sabores_validos_map:
+            return None, f'Sabor de Bolo inválido: {sabor}.'
+        if key in vistos:
+            return None, 'Os sabores do Bolo não podem repetir-se.'
+        vistos.add(key)
+        sabores_canonicos.append(sabores_validos_map[key])
+
+    coberturas_map = {
+        str(option).strip().casefold(): str(option).strip()
+        for option in coberturas
+    }
+    cobertura_text = str(cobertura or '').strip()
+    if cobertura_text and cobertura_text.casefold() not in coberturas_map:
+        return None, f'Cobertura de Bolo inválida: {cobertura_text}.'
+
+    return {
+        'tamanho': options[tamanho_key],
+        'sabores': sabores_canonicos,
+        'cobertura': coberturas_map.get(cobertura_text.casefold(), '') if cobertura_text else '',
+    }, None
 
 
 @pastelaria_bp.route('/')
@@ -147,8 +199,10 @@ def stock_balcao():
 @pastelaria_bp.route('/planear', methods=['GET', 'POST'])
 @perm_required('acesso_pastelaria')
 def planear():
-    produtos = get_produtos_pastelaria()
-    today = date.today()
+    produtos = get_produtos_pastelaria() or []
+    produtos_normais = [p for p in produtos if p.strip().casefold() != 'bolo']
+    week_start = _week_start(request.values.get('week_start'))
+    week_days = _week_days(week_start)
     msg = None
     msg_type = None
 
@@ -157,60 +211,127 @@ def planear():
 
         if action == 'save_plano':
             count = 0
-            for produto in produtos:
-                est_bol = _parse_int(request.form.get(f'est_bol_{produto}', '0'))
-                est_mat = _parse_int(request.form.get(f'est_mat_{produto}', '0'))
-                est_total = est_bol + est_mat
-                if est_total > 0:
-                    upsert_plano_area(AREA, today, produto, est_total,
-                                      estimada_bolhao=est_bol, estimada_matosinhos=est_mat)
-                    marcar_produto_no_plano(AREA, today, produto)
-                    count += 1
+            for day in week_days:
+                day_key = day.isoformat()
+                for index, produto in enumerate(produtos_normais):
+                    est_bol = _parse_int(
+                        request.form.get(f'est_bol_{day_key}_{index}', '0')
+                    )
+                    est_mat = _parse_int(
+                        request.form.get(f'est_mat_{day_key}_{index}', '0')
+                    )
+                    est_total = est_bol + est_mat
+                    if est_total > 0:
+                        upsert_plano_area(
+                            AREA, day, produto, est_total,
+                            estimada_bolhao=est_bol,
+                            estimada_matosinhos=est_mat,
+                            nota=request.form.get(f'nota_{day_key}_{index}', ''),
+                        )
+                        marcar_produto_no_plano(AREA, day, produto)
+                        count += 1
             if count > 0:
-                msg = f'Plano guardado com {count} produto(s)!'
+                msg = f'Plano semanal guardado com {count} artigo(s)!'
                 msg_type = 'success'
             else:
                 msg = 'Nenhuma quantidade definida.'
                 msg_type = 'warning'
 
+        elif action == 'save_bolo':
+            bolo_data_str = request.form.get('bolo_data', '')
+            try:
+                bolo_data = date.fromisoformat(bolo_data_str)
+            except ValueError:
+                bolo_data = None
+            if bolo_data not in week_days:
+                msg = 'Escolha um dia dentro da semana apresentada.'
+                msg_type = 'warning'
+            else:
+                config, error = validate_bolo_configuration(
+                    request.form.get('bolo_tamanho'),
+                    [request.form.get(f'bolo_sabor_{index}', '') for index in range(1, 4)],
+                    request.form.get('bolo_cobertura', ''),
+                    db.get_bolo_tamanhos(),
+                    db.get_sabores_list(),
+                    [c['nome'] for c in db.get_all_coberturas() if c['ativo']],
+                )
+                bolo_bol = _parse_int(request.form.get('bolo_qtd_bolhao', '0'))
+                bolo_mat = _parse_int(request.form.get('bolo_qtd_matosinhos', '0'))
+                if error:
+                    msg, msg_type = error, 'warning'
+                elif bolo_bol + bolo_mat <= 0:
+                    msg, msg_type = 'Indique uma quantidade de Bolo para pelo menos uma loja.', 'warning'
+                else:
+                    produto = db.build_bolo_product_label(
+                        config['tamanho'], config['sabores'], config['cobertura']
+                    )
+                    upsert_plano_area(
+                        AREA, bolo_data, produto, bolo_bol + bolo_mat,
+                        estimada_bolhao=bolo_bol,
+                        estimada_matosinhos=bolo_mat,
+                        item_tipo='bolo',
+                        bolo_tamanho=config['tamanho'],
+                        bolo_sabor_1=config['sabores'][0],
+                        bolo_sabor_2=config['sabores'][1] if len(config['sabores']) > 1 else None,
+                        bolo_sabor_3=config['sabores'][2] if len(config['sabores']) > 2 else None,
+                        bolo_cobertura=config['cobertura'] or None,
+                        nota=request.form.get('bolo_nota', ''),
+                    )
+                    marcar_produto_no_plano(AREA, bolo_data, produto)
+                    msg = f'Bolo adicionado ao plano de {bolo_data.strftime("%d/%m")}.'
+                    msg_type = 'success'
+
         elif action == 'remover_produto':
+            data_str = request.form.get('data', '')
             produto = request.form.get('produto', '')
-            if produto:
-                remover_produto_do_plano(AREA, today, produto)
+            try:
+                item_date = date.fromisoformat(data_str)
+            except ValueError:
+                item_date = None
+            if produto and item_date in week_days:
+                remover_produto_do_plano(AREA, item_date, produto)
                 msg = f'{produto} removido do plano.'
                 msg_type = 'success'
 
-    plano_atual = get_plano_do_dia_area(AREA, today)
-    plano_dict = {p['produto']: p for p in plano_atual}
-
-    ultimo_stock = get_ultimo_stock_balcao(AREA)
-    stock_bolhao_map = {}
-    stock_mat_map = {}
-    for s in ultimo_stock:
-        if s['loja'] == 'Bolhão':
-            stock_bolhao_map[s['produto']] = s['quantidade']
-        elif s['loja'] == 'Matosinhos':
-            stock_mat_map[s['produto']] = s['quantidade']
-
-    produtos_data = []
-    for p in produtos:
-        plano = plano_dict.get(p)
-        produtos_data.append({
-            'nome': p,
-            'estimado': plano['estimado'] if plano else 0,
-            'estimado_bolhao': plano['estimado_bolhao'] if plano else 0,
-            'estimado_matosinhos': plano['estimado_matosinhos'] if plano else 0,
-            'no_plano': True if plano else False,
-            'stock_bolhao': stock_bolhao_map.get(p, 0),
-            'stock_matosinhos': stock_mat_map.get(p, 0),
+    plano_rows = get_plano_intervalo_area(AREA, week_start, week_days[-1])
+    rows_by_day = {day: [] for day in week_days}
+    for row in plano_rows:
+        rows_by_day.setdefault(row['data'], []).append(row)
+    days = []
+    day_labels = ('Segunda-feira', 'Terça-feira', 'Quarta-feira',
+                  'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo')
+    for day in week_days:
+        rows = rows_by_day.get(day, [])
+        rows_by_product = {row['produto']: row for row in rows}
+        standard_rows = []
+        for produto in produtos_normais:
+            row = rows_by_product.get(produto, {})
+            standard_rows.append({
+                'nome': produto,
+                'estimado_bolhao': row.get('estimado_bolhao', 0),
+                'estimado_matosinhos': row.get('estimado_matosinhos', 0),
+                'estimado': row.get('estimado', 0),
+                'nota': row.get('nota', ''),
+            })
+        days.append({
+            'date': day,
+            'iso': day.isoformat(),
+            'label': day_labels[day.weekday()],
+            'rows': rows,
+            'standard_rows': standard_rows,
+            'bolo_rows': [row for row in rows if row.get('item_tipo') == 'bolo'],
         })
 
     return render_template('pastelaria/planear.html',
                            active_tab='planear',
                            tabs=_tabs_with_urls(),
-                           produtos=produtos_data,
-                           plano=plano_atual,
-                           today=today.isoformat(),
+                           days=days,
+                           week_start=week_start,
+                           previous_week=(week_start - timedelta(days=7)).isoformat(),
+                           next_week=(week_start + timedelta(days=7)).isoformat(),
+                           bolo_tamanhos=db.get_bolo_tamanhos(),
+                           bolo_sabores=db.get_sabores_list(),
+                           bolo_coberturas=[c for c in db.get_all_coberturas() if c['ativo']],
                            msg=msg,
                            msg_type=msg_type)
 
@@ -308,12 +429,14 @@ def transferir():
                 data_prevista = datetime.strptime(data_prevista_str, '%Y-%m-%d').date()
             except ValueError:
                 pass
+        if data_prevista is None:
+            flash('Data prevista inválida.', 'error')
+            return redirect(url_for('pastelaria.transferir'))
         loja_destino = request.form.get('loja_destino', '')
         active_store_names = {s['name'] for s in get_active_venda_stores()}
         if loja_destino not in active_store_names:
             flash('Loja de destino inválida.', 'error')
             return redirect(url_for('pastelaria.transferir'))
-        batch_id = get_or_create_pending_batch(today, 'Pastelaria', loja_destino)
         import re as _re
         form_pairs = []
         for key in request.form:
@@ -321,26 +444,66 @@ def transferir():
             if m:
                 n = int(m.group(1))
                 form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
+
+        requested = []
         for _, produto, qty_str in sorted(form_pairs, key=lambda x: x[0]):
-            if not produto:
-                continue
             qty = _parse_int(qty_str)
-            if qty <= 0:
-                continue
-            stock_disponivel = get_stock_producao_area(AREA, today, produto)
-            if qty > stock_disponivel:
-                qty = stock_disponivel
-            if qty > 0:
-                reduced = reduzir_stock_producao_area(AREA, today, produto, qty)
-                if reduced:
-                    criar_ordem_transferencia(today, 'Pastelaria', produto, qty, 'und', loja_destino, criado_por=username, data_prevista=data_prevista, batch_id=batch_id)
-                    ordens_count += 1
+            if produto and qty > 0:
+                requested.append((produto, qty))
+
+        configured_products = {
+            produto for produto in get_produtos_pastelaria()
+            if produto.strip().casefold() != 'bolo'
+        }
+        persisted_products = {
+            row['produto'] for row in get_plano_do_dia_area(AREA, data_prevista)
+        }
+        persisted_products.update(
+            row['produto'] for row in get_stock_producao_area_all(AREA, today)
+        )
+        persisted_products.update(
+            row['produto'] for row in get_ultimo_stock_balcao(AREA)
+        )
+        allowed_products = configured_products | persisted_products
+        invalid_products = sorted({
+            produto for produto, _ in requested if produto not in allowed_products
+        })
+        if invalid_products:
+            flash(
+                'Artigo inválido ou não planeado para a data prevista: '
+                + ', '.join(invalid_products),
+                'error',
+            )
+            return redirect(url_for(
+                'pastelaria.transferir',
+                data_prevista=data_prevista.isoformat(),
+            ))
+
+        batch_id = get_or_create_pending_batch(today, 'Pastelaria', loja_destino)
+        for produto, qty in requested:
+            # The weekly plan is a manual dispatch decision. Digital production
+            # stock is informational only and must not block or truncate it.
+            criar_ordem_transferencia(
+                today, 'Pastelaria', produto, qty, 'und', loja_destino,
+                criado_por=username, data_prevista=data_prevista, batch_id=batch_id
+            )
+            ordens_count += 1
         if ordens_count > 0:
             flash(f"{ordens_count} ordem(ns) de transferência criada(s)!", "success")
         else:
             flash("Nenhuma transferência registada. Verifique as quantidades.", "info")
-        return redirect(url_for('pastelaria.transferir'))
+        return redirect(url_for(
+            'pastelaria.transferir',
+            data_prevista=data_prevista.isoformat(),
+        ))
 
+    data_prevista = today
+    requested_date = request.args.get('data_prevista', '')
+    if requested_date:
+        try:
+            data_prevista = date.fromisoformat(requested_date)
+        except ValueError:
+            pass
     stock_prod = get_stock_producao_area_all(AREA, today)
     lojas_venda = get_active_venda_stores()
 
@@ -353,7 +516,17 @@ def transferir():
         balcao_map[key][s['loja']] = {'quantidade': s['quantidade'], 'data': s['data']}
 
     prod_map = {sp['produto']: sp['quantidade'] for sp in stock_prod}
-    all_produtos = sorted(set(list(prod_map.keys()) + list(balcao_map.keys())))
+    plano_data_prevista = get_plano_do_dia_area(AREA, data_prevista)
+    configured_products = [
+        produto for produto in get_produtos_pastelaria()
+        if produto.strip().casefold() != 'bolo'
+    ]
+    all_produtos = sorted(set(
+        list(prod_map.keys())
+        + list(balcao_map.keys())
+        + configured_products
+        + [row['produto'] for row in plano_data_prevista]
+    ))
 
     cards = []
     for produto in all_produtos:
@@ -371,7 +544,9 @@ def transferir():
             'data_balcao_bolhao': data_bol.strftime('%d/%m') if data_bol else '-',
         })
 
-    cards_transferivel = [c for c in cards if c['stock_prod'] > 0]
+    # Every known article is selectable: the operator confirms physical
+    # availability when preparing the dispatch.
+    cards_transferivel = cards
 
     return render_template('pastelaria/transferir.html',
                            active_tab='transferir',
@@ -379,7 +554,7 @@ def transferir():
                            cards=cards,
                            cards_transferivel=cards_transferivel,
                            lojas_venda=lojas_venda,
-                           today=str(today))
+                           data_prevista=data_prevista.isoformat())
 
 
 def _parse_decimal(val_str, default=0.0):

@@ -7,3 +7,4 @@
 - [Supplier common names](supplier-common-names.md) — common names are presentation-only; legal identity and historical invoice text remain immutable through this feature.
 - [Portal brand default invariants](portal-brand-default-invariants.md) — public default brands must stay attached to active stores, with store-row locking shared by brand and store lifecycle writes.
 - [B2B transfer destinations](b2b-transfer-destinations.md) — external recipients are typed destinations, never stores; they must not create internal receipt stock.
+- [Pastelaria manual dispatch](pastelaria-manual-dispatch.md) — weekly pastry transfers are operator decisions, not digital-production-stock withdrawals; cake identity stays date-plan-bound.

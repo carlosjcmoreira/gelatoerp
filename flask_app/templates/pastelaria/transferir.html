@@ -27,7 +27,10 @@
             </div>
             <div>
                 <label class="form-label small mb-1">Data prevista de entrega</label>
-                <input type="date" name="data_prevista" class="form-control form-control-sm" value="{{ today }}">
+                <input type="date" name="data_prevista" class="form-control form-control-sm"
+                       value="{{ data_prevista }}" required
+                       onchange="window.location.href='{{ url_for('pastelaria.transferir') }}?data_prevista=' + this.value">
+                <div class="form-text">Ao mudar a data, são carregados os Bolos planeados para esse dia.</div>
             </div>
         </div>
     </div>
@@ -45,14 +48,14 @@
             <div id="stockRefBody" class="accordion-collapse collapse">
                 <div class="accordion-body p-0">
                     <p class="text-muted px-2 pt-2 mb-1" style="font-size:0.75rem;">
-                        <strong>Dispon. p/ transf.</strong> = produção real registada menos transferências já criadas.<br>
+                        <strong>Stock digital</strong> = produção anteriormente registada; serve apenas como referência e não limita a ordem.<br>
                         <strong>Balcão</strong> = última contagem manual (ver "Visão de Stock").
                     </p>
                     <table class="table table-sm mb-0" style="font-size:0.8rem;">
                         <thead class="table-light">
                             <tr>
                                 <th>Produto</th>
-                                <th class="text-center">Dispon. p/ transf.</th>
+                                <th class="text-center">Stock digital</th>
                                 <th class="text-center">Balcão Mat.</th>
                                 <th class="text-center">Balcão Bol.</th>
                             </tr>
@@ -81,19 +84,15 @@
         </div>
     </div>
 
-    {% if cards_transferivel %}
     <div id="artigos-container"></div>
 
     <button type="button" class="btn btn-outline-secondary w-100 mb-3"
             onclick="adicionarArtigo()" style="font-size:0.85rem;">
         + Adicionar artigo
     </button>
-    {% else %}
-    <div class="alert alert-info small">Sem stock de produção disponível para transferir. Registe produção real na página "Produzir" primeiro.</div>
-    {% endif %}
 
     {% else %}
-    <div class="alert alert-info small">Sem stock registado. Registe produção real na página "Produzir" ou contagens em "Visão de Stock".</div>
+    <div class="alert alert-info small">Sem produtos de pastelaria configurados.</div>
     {% endif %}
     </form>
 
@@ -116,7 +115,7 @@
         var div = document.createElement('div');
         div.className = 'card mb-2 artigo-row';
         var options = produtos.map(function(p) {
-            return '<option value="' + p.nome + '">' + p.nome + ' (' + p.stock + ' und)</option>';
+            return '<option value="' + p.nome + '">' + p.nome + '</option>';
         }).join('');
         div.innerHTML =
             '<div class="card-body p-2">' +

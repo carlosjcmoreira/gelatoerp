@@ -30,20 +30,38 @@ def _stock_prod_table(area: str) -> str:
 
 
 def upsert_plano_area(area: str, data: date, produto: str, producao_estimada: int,
-                      estimada_bolhao: int = 0, estimada_matosinhos: int = 0):
+                      estimada_bolhao: int = 0, estimada_matosinhos: int = 0,
+                      item_tipo: str = 'standard', bolo_tamanho: str = None,
+                      bolo_sabor_1: str = None, bolo_sabor_2: str = None,
+                      bolo_sabor_3: str = None, bolo_cobertura: str = None,
+                      nota: str = None):
     tbl = _plano_table(area)
     with db_connection() as conn:
         cursor = conn.cursor()
         if area == 'pastelaria':
             cursor.execute(f"""
-                INSERT INTO {tbl} (data, produto, producao_estimada, producao_estimada_bolhao, producao_estimada_matosinhos)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO {tbl} (
+                    data, produto, producao_estimada,
+                    producao_estimada_bolhao, producao_estimada_matosinhos,
+                    item_tipo, bolo_tamanho, bolo_sabor_1, bolo_sabor_2,
+                    bolo_sabor_3, bolo_cobertura, nota
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (data, produto) DO UPDATE SET
                     producao_estimada = EXCLUDED.producao_estimada,
                     producao_estimada_bolhao = EXCLUDED.producao_estimada_bolhao,
                     producao_estimada_matosinhos = EXCLUDED.producao_estimada_matosinhos,
+                    item_tipo = EXCLUDED.item_tipo,
+                    bolo_tamanho = EXCLUDED.bolo_tamanho,
+                    bolo_sabor_1 = EXCLUDED.bolo_sabor_1,
+                    bolo_sabor_2 = EXCLUDED.bolo_sabor_2,
+                    bolo_sabor_3 = EXCLUDED.bolo_sabor_3,
+                    bolo_cobertura = EXCLUDED.bolo_cobertura,
+                    nota = COALESCE(EXCLUDED.nota, {tbl}.nota),
                     updated_at = NOW()
-            """, (data, produto, producao_estimada, estimada_bolhao, estimada_matosinhos))
+            """, (data, produto, producao_estimada, estimada_bolhao,
+                  estimada_matosinhos, item_tipo, bolo_tamanho, bolo_sabor_1,
+                  bolo_sabor_2, bolo_sabor_3, bolo_cobertura, nota))
         else:
             cursor.execute(f"""
                 INSERT INTO {tbl} (data, produto, producao_estimada)
@@ -85,7 +103,9 @@ def get_plano_do_dia_area(area: str, data: date) -> list:
             cursor.execute(f"""
                 SELECT produto, producao_estimada, producao_real,
                        COALESCE(status, 'pendente'), COALESCE(nota, ''),
-                       COALESCE(producao_estimada_bolhao, 0), COALESCE(producao_estimada_matosinhos, 0)
+                       COALESCE(producao_estimada_bolhao, 0), COALESCE(producao_estimada_matosinhos, 0),
+                       COALESCE(item_tipo, 'standard'), bolo_tamanho,
+                       bolo_sabor_1, bolo_sabor_2, bolo_sabor_3, bolo_cobertura
                 FROM {tbl}
                 WHERE data = %s AND no_plano = TRUE
                 ORDER BY produto
@@ -100,6 +120,10 @@ def get_plano_do_dia_area(area: str, data: date) -> list:
                     'nota': r[4],
                     'estimado_bolhao': int(r[5]),
                     'estimado_matosinhos': int(r[6]),
+                    'item_tipo': r[7],
+                    'bolo_tamanho': r[8],
+                    'bolo_sabores': [s for s in (r[9], r[10], r[11]) if s],
+                    'bolo_cobertura': r[12],
                 }
                 for r in rows
             ]
@@ -119,6 +143,54 @@ def get_plano_do_dia_area(area: str, data: date) -> list:
                 }
                 for r in rows
             ]
+
+
+def get_plano_intervalo_area(area: str, data_inicio: date, data_fim: date) -> list:
+    """Return visible plan rows for an inclusive date range."""
+    tbl = _plano_table(area)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        if area == 'pastelaria':
+            cursor.execute(f"""
+                SELECT data, produto, producao_estimada, producao_real,
+                       COALESCE(status, 'pendente'), COALESCE(nota, ''),
+                       COALESCE(producao_estimada_bolhao, 0),
+                       COALESCE(producao_estimada_matosinhos, 0),
+                       COALESCE(item_tipo, 'standard'), bolo_tamanho,
+                       bolo_sabor_1, bolo_sabor_2, bolo_sabor_3, bolo_cobertura
+                FROM {tbl}
+                WHERE data BETWEEN %s AND %s AND no_plano = TRUE
+                ORDER BY data, produto
+            """, (data_inicio, data_fim))
+            rows = cursor.fetchall()
+            return [
+                {
+                    'data': r[0],
+                    'produto': r[1],
+                    'estimado': int(r[2] or 0),
+                    'real': int(r[3]) if r[3] is not None else None,
+                    'status': r[4],
+                    'nota': r[5],
+                    'estimado_bolhao': int(r[6] or 0),
+                    'estimado_matosinhos': int(r[7] or 0),
+                    'item_tipo': r[8],
+                    'bolo_tamanho': r[9],
+                    'bolo_sabores': [s for s in (r[10], r[11], r[12]) if s],
+                    'bolo_cobertura': r[13],
+                }
+                for r in rows
+            ]
+        cursor.execute(f"""
+            SELECT data, produto, producao_estimada, producao_real
+            FROM {tbl}
+            WHERE data BETWEEN %s AND %s AND no_plano = TRUE
+            ORDER BY data, produto
+        """, (data_inicio, data_fim))
+        return [
+            {'data': r[0], 'produto': r[1], 'estimado': int(r[2] or 0),
+             'real': int(r[3]) if r[3] is not None else None}
+            for r in cursor.fetchall()
+        ]
 
 
 def get_plano_produto(area: str, data: date, produto: str) -> dict:

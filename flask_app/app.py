@@ -60,6 +60,7 @@ from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clie
 from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
 from db.schema import run_migrations_drop_supplier_category, run_migrations_acesso_compras
 from db.schema import run_migrations_cost_centers_store_id
+from db.schema import run_migrations_pastelaria_plano
 from db.schema import run_migrations_eventos_v2_foundation, run_migrations_eventos_customer_portal
 
 
@@ -145,6 +146,11 @@ def _seed_all_tiles():
             _conn.cursor().execute(
                 "DELETE FROM tile_config WHERE module = 'producao' AND tile_id IN ('receitas', 'sabores_ativos')"
             )
+            # Pastelaria now works from the weekly manual plan; production
+            # registration is retained only as a legacy-compatible route.
+            _conn.cursor().execute(
+                "DELETE FROM tile_config WHERE module = 'pastelaria' AND tile_id = 'produzir'"
+            )
             _conn.commit()
 
         logger.info("_seed_all_tiles: all module tiles seeded")
@@ -188,6 +194,7 @@ def create_app():
         run_migrations_preco_caixa_kg()
         run_migrations_centros_custo()
         run_migrations_cost_centers_store_id()
+        run_migrations_pastelaria_plano()
         run_migrations_colaboradores_smart()
         run_migrations_transferencias_motivo()
         run_migrations_transferencias_eventos()

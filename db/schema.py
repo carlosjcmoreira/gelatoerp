@@ -5306,3 +5306,52 @@ def run_migrations_cost_centers_store_id():
             )
 
         conn.commit()
+
+
+_LOCK_PASTELARIA_PLANO = 202716
+
+
+def run_migrations_pastelaria_plano():
+    """Add structured cake configuration fields and configurable cake sizes."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", (_LOCK_PASTELARIA_PLANO,))
+        if not cursor.fetchone()[0]:
+            logger.info("run_migrations_pastelaria_plano: lock held, skipping")
+            return
+
+        for column, definition in (
+            ("item_tipo", "VARCHAR(20) NOT NULL DEFAULT 'standard'"),
+            ("bolo_tamanho", "VARCHAR(20)"),
+            ("bolo_sabor_1", "VARCHAR(255)"),
+            ("bolo_sabor_2", "VARCHAR(255)"),
+            ("bolo_sabor_3", "VARCHAR(255)"),
+            ("bolo_cobertura", "VARCHAR(255)"),
+        ):
+            cursor.execute(
+                f"ALTER TABLE plano_producao_pastelaria "
+                f"ADD COLUMN IF NOT EXISTS {column} {definition}"
+            )
+
+        cursor.execute("""
+            UPDATE plano_producao_pastelaria
+            SET item_tipo = 'standard'
+            WHERE item_tipo IS NULL
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tamanhos_bolo_pastelaria (
+                id SERIAL PRIMARY KEY,
+                nome VARCHAR(20) NOT NULL UNIQUE,
+                ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                ordem INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        for ordem, nome in enumerate(("11 cm", "22 cm", "26 cm"), start=1):
+            cursor.execute("""
+                INSERT INTO tamanhos_bolo_pastelaria (nome, ordem)
+                VALUES (%s, %s)
+                ON CONFLICT (nome) DO NOTHING
+            """, (nome, ordem))
+        conn.commit()
+        logger.info("run_migrations_pastelaria_plano: schema ready")
