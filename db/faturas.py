@@ -1779,16 +1779,32 @@ def _build_invoice_where(status: str = None, statuses: list = None,
                          document_type: str = None,
                          sem_evidencia: bool = None,
                          sem_cc: bool = None,
+                         sem_categoria: bool = None,
+                         primary_centro_custo_id: int = None,
+                         sem_primary_cc: bool = None,
+                         exclude_drafts: bool = False,
                          exclude_gov: bool = False,
                          category: str = None):
     where = []
     params = []
     # 'overdue' is a virtual status: scheduled invoices with due_date in the past
     if no_status_filter:
-        pass  # no status constraint — include all statuses including drafts
+        if exclude_drafts:
+            where.append("i.status != 'draft'")
     elif statuses:
-        where.append("i.status = ANY(%s)")
-        params.append(statuses)
+        stored_statuses = [value for value in statuses if value != 'overdue']
+        overdue_clause = (
+            "i.status IN ('pending_review', 'scheduled') "
+            "AND i.due_date < CURRENT_DATE"
+        )
+        if 'overdue' in statuses and stored_statuses:
+            where.append(f"(i.status = ANY(%s) OR ({overdue_clause}))")
+            params.append(stored_statuses)
+        elif 'overdue' in statuses:
+            where.append(overdue_clause)
+        else:
+            where.append("i.status = ANY(%s)")
+            params.append(stored_statuses)
     elif status == 'overdue':
         where.append("i.status IN ('pending_review', 'scheduled') AND i.due_date < CURRENT_DATE")
     elif status:
@@ -1806,6 +1822,9 @@ def _build_invoice_where(status: str = None, statuses: list = None,
     if categoria_custo_id:
         where.append("i.categoria_custo_id = %s")
         params.append(categoria_custo_id)
+    if primary_centro_custo_id:
+        where.append("i.centro_custo_id = %s")
+        params.append(primary_centro_custo_id)
     if supplier_id:
         where.append("i.supplier_id = %s")
         params.append(supplier_id)
@@ -1863,6 +1882,10 @@ def _build_invoice_where(status: str = None, statuses: list = None,
                 WHERE icc.invoice_id = i.id
             )
         )""")
+    if sem_categoria:
+        where.append("i.categoria_custo_id IS NULL")
+    if sem_primary_cc:
+        where.append("i.centro_custo_id IS NULL")
     if exclude_gov:
         # Exclude invoices from government/tax entities (AT, SS, etc.)
         # Matched via the known NIF list or the entidade_governamental flag on the supplier record.
@@ -1892,6 +1915,10 @@ def get_invoices(status: str = None, statuses: list = None,
                  document_type: str = None,
                  sem_evidencia: bool = None,
                  sem_cc: bool = None,
+                 sem_categoria: bool = None,
+                 primary_centro_custo_id: int = None,
+                 sem_primary_cc: bool = None,
+                 exclude_drafts: bool = False,
                  exclude_gov: bool = False,
                   limit: int = None, offset: int = 0,
                   category: str = None) -> list:
@@ -1904,7 +1931,11 @@ def get_invoices(status: str = None, statuses: list = None,
             supplier_name=supplier_name, supplier_names=supplier_names,
             supplier_id=supplier_id, date_from=date_from, date_to=date_to,
             date_field=date_field, document_type=document_type,
-            sem_evidencia=sem_evidencia, sem_cc=sem_cc, exclude_gov=exclude_gov,
+            sem_evidencia=sem_evidencia, sem_cc=sem_cc,
+            sem_categoria=sem_categoria,
+            primary_centro_custo_id=primary_centro_custo_id,
+            sem_primary_cc=sem_primary_cc,
+            exclude_drafts=exclude_drafts, exclude_gov=exclude_gov,
             category=category,
         )
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
@@ -1986,6 +2017,10 @@ def count_invoices(status: str = None, statuses: list = None,
                    document_type: str = None,
                    sem_evidencia: bool = None,
                     sem_cc: bool = None,
+                   sem_categoria: bool = None,
+                   primary_centro_custo_id: int = None,
+                   sem_primary_cc: bool = None,
+                   exclude_drafts: bool = False,
                     exclude_gov: bool = False,
                     category: str = None) -> int:
     where_clause, params = _build_invoice_where(
@@ -1995,7 +2030,11 @@ def count_invoices(status: str = None, statuses: list = None,
         supplier_name=supplier_name, supplier_names=supplier_names,
         supplier_id=supplier_id, date_from=date_from, date_to=date_to,
         date_field=date_field, document_type=document_type,
-        sem_evidencia=sem_evidencia, sem_cc=sem_cc, exclude_gov=exclude_gov,
+        sem_evidencia=sem_evidencia, sem_cc=sem_cc,
+        sem_categoria=sem_categoria,
+        primary_centro_custo_id=primary_centro_custo_id,
+        sem_primary_cc=sem_primary_cc,
+        exclude_drafts=exclude_drafts, exclude_gov=exclude_gov,
         category=category,
     )
     with db_connection() as conn:
@@ -2881,123 +2920,417 @@ def get_paid_counts_by_supplier(supplier_ids: list,
         return {row[0]: row[1] for row in cursor.fetchall()}
 
 
-def get_contas_por_fornecedor(status_filter: str = None,
-                               status_filters: list = None,
-                               exclude_gov: bool = False) -> list:
-    """
-    Returns a list of all non-draft invoices and credit notes, grouped by supplier.
-    Each entry contains:
-      - supplier_name, supplier_nif
-      - n_docs: total number of documents
-      - total_faturas: sum of invoice amounts (positive)
-      - total_nc: sum of credit note amounts (positive)
-      - saldo_liquido: total_nc - total_faturas (negative means owed)
-      - invoices: list of individual invoice dicts
+GROUPED_INVOICE_DETAIL_LIMIT = 25
+GROUPED_INVOICE_PAGE_SIZE = 20
 
-    status_filters: list of statuses to include (e.g. ['pending_review', 'scheduled']).
-                    Takes precedence over status_filter when provided.
-    status_filter:  single status string for backwards-compatible callers.
-                    Ignored when status_filters is set.
-                    Defaults to all non-draft invoices when both are None.
-    exclude_gov:    when True, exclude invoices from government/tax entities (AT, SS)
-                    identified by their NIF or the entidade_governamental flag.
-    """
+_GROUPED_INVOICE_COLUMNS = """
+    i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
+    i.invoice_number, i.amount_eur, i.vat_amount_eur,
+    i.issue_date, i.due_date, i.category,
+    i.onedrive_subfolder, i.onedrive_path, i.pdf_filename,
+    i.status, i.ocr_confidence, i.created_by,
+    i.cfo_confirmed_date, i.paid_date, i.notes, i.created_at,
+    i.onedrive_web_url,
+    i.document_type,
+    i.centro_custo_id,
+    i.categoria_custo_id,
+    (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf,
+    s.name AS supplier_legal_name,
+    COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
+"""
+
+
+def _normalise_grouped_detail_limit(detail_limit: int) -> int:
+    """Keep grouped responses bounded even when a caller supplies a bad limit."""
+    try:
+        return min(max(0, int(detail_limit)), 100)
+    except (TypeError, ValueError):
+        return GROUPED_INVOICE_DETAIL_LIMIT
+
+
+def _grouped_invoice_details(
+        group_by: str,
+        status_filter: str = None,
+        status_filters: list = None,
+        exclude_gov: bool = False,
+        only_without_group: bool = False,
+        date_from=None,
+        date_to=None,
+        date_field: str = 'issue_date',
+        detail_limit: int = GROUPED_INVOICE_DETAIL_LIMIT,
+) -> dict:
+    """Fetch only a bounded detail window for each grouped invoice bucket."""
+    group_expressions = {
+        'supplier': (
+            "CASE WHEN i.supplier_id IS NOT NULL "
+            "THEN 'supplier:' || i.supplier_id::text "
+            "ELSE 'unlinked:' || COALESCE(i.supplier_name, '') END"
+        ),
+        'centro_custo': "COALESCE(i.centro_custo_id::text, 'sem_centro')",
+        'categoria_custo': "COALESCE(i.categoria_custo_id::text, 'sem_categoria')",
+    }
+    group_expression = group_expressions.get(group_by)
+    if not group_expression:
+        raise ValueError(f'Unsupported invoice group: {group_by}')
+
+    where_clause, params = _build_invoice_where(
+        status=status_filter,
+        statuses=status_filters,
+        date_from=date_from,
+        date_to=date_to,
+        date_field=date_field,
+        exclude_gov=exclude_gov,
+    )
+    if only_without_group:
+        group_column = {
+            'centro_custo': 'i.centro_custo_id',
+            'categoria_custo': 'i.categoria_custo_id',
+        }[group_by]
+        where_clause += f"{' AND' if where_clause else 'WHERE'} {group_column} IS NULL"
+
+    limit = _normalise_grouped_detail_limit(detail_limit)
     with db_connection() as conn:
         cursor = conn.cursor()
-        params = []
-        if status_filters is not None:
-            extra_where = "AND i.status = ANY(%s)"
-            params.append(status_filters)
-        elif status_filter == 'overdue':
-            extra_where = "AND i.status IN ('pending_review', 'scheduled') AND i.due_date < CURRENT_DATE"
-        elif status_filter:
-            extra_where = "AND i.status = %s"
-            params.append(status_filter)
-        else:
-            extra_where = ""
-        if exclude_gov:
-            extra_where += """
-            AND (
-                (i.supplier_nif IS NULL OR i.supplier_nif NOT IN %s)
-                AND NOT EXISTS (
-                    SELECT 1 FROM suppliers s
-                    WHERE s.id = i.supplier_id AND s.entidade_governamental = true
-                )
-            )"""
-            params.append(_GOV_NIFS)
         cursor.execute(f"""
-            SELECT i.id, i.supplier_id, i.supplier_name, i.supplier_nif,
-                   i.invoice_number, i.amount_eur, i.vat_amount_eur,
-                   i.issue_date, i.due_date, i.category,
-                   i.onedrive_subfolder, i.onedrive_path, i.pdf_filename,
-                   i.status, i.ocr_confidence, i.created_by,
-                   i.cfo_confirmed_date, i.paid_date, i.notes, i.created_at,
-                   i.onedrive_web_url,
-                   i.document_type,
-                   i.centro_custo_id,
-                   i.categoria_custo_id,
-                    (i.pdf_data IS NOT NULL AND octet_length(i.pdf_data) > 0) AS has_pdf,
-                    s.name AS supplier_legal_name,
-                    COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
-            FROM invoices i
-            LEFT JOIN suppliers s ON s.id = i.supplier_id
-            WHERE i.status != 'draft' {extra_where}
-            ORDER BY LOWER(COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name)), i.due_date ASC NULLS LAST
-        """, params)
+            WITH filtered AS (
+                SELECT {_GROUPED_INVOICE_COLUMNS},
+                       {group_expression} AS grouped_invoice_key
+                FROM invoices i
+                LEFT JOIN suppliers s ON s.id = i.supplier_id
+                {where_clause}
+            ),
+            ranked AS (
+                SELECT filtered.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY grouped_invoice_key
+                           ORDER BY due_date ASC NULLS LAST, created_at DESC, id DESC
+                       ) AS detail_rank
+                FROM filtered
+            )
+            SELECT id, supplier_id, supplier_name, supplier_nif,
+                   invoice_number, amount_eur, vat_amount_eur,
+                   issue_date, due_date, category,
+                   onedrive_subfolder, onedrive_path, pdf_filename,
+                   status, ocr_confidence, created_by,
+                   cfo_confirmed_date, paid_date, notes, created_at,
+                   onedrive_web_url, document_type,
+                   centro_custo_id, categoria_custo_id,
+                   has_pdf, supplier_legal_name, supplier_display_name,
+                   grouped_invoice_key
+            FROM ranked
+            WHERE detail_rank <= %s
+            ORDER BY grouped_invoice_key, due_date ASC NULLS LAST,
+                     created_at DESC, id DESC
+        """, [*params, limit])
         rows = cursor.fetchall()
 
-    def _to_inv(r):
-        inv = _row_to_invoice(r)
-        inv['has_pdf'] = bool(r[24]) if len(r) > 24 else False
-        inv['supplier_legal_name'] = r[25] if len(r) > 25 else inv['supplier_name']
-        inv['supplier_display_name'] = r[26] if len(r) > 26 else inv['supplier_name']
-        return inv
+    grouped = {}
+    for row in rows:
+        inv = _row_to_invoice(row)
+        inv['has_pdf'] = bool(row[24]) if len(row) > 24 else False
+        inv['supplier_legal_name'] = row[25] if len(row) > 25 else inv['supplier_name']
+        inv['supplier_display_name'] = row[26] if len(row) > 26 else inv['supplier_name']
+        grouped.setdefault(row[27], []).append(inv)
+    return grouped
 
-    invoices = [_to_inv(r) for r in rows]
 
-    from collections import defaultdict
-    groups = defaultdict(lambda: {
-        'group_key': None,
-        'supplier_id': None,
-        'supplier_raw_name': None,
-        'supplier_name': None,
-        'supplier_legal_name': None,
-        'supplier_nif': None,
-        'invoices': [],
-        'total_faturas': 0.0,
-        'total_nc': 0.0,
-    })
+def get_invoice_group_summaries(
+        group_by: str,
+        status_filter: str = None,
+        status_filters: list = None,
+        exclude_gov: bool = False,
+        only_without_group: bool = False,
+        date_from=None,
+        date_to=None,
+        date_field: str = 'issue_date',
+        group_limit: int = GROUPED_INVOICE_PAGE_SIZE,
+        group_offset: int = 0,
+) -> list:
+    """Return exact SQL totals for cost-centre/category invoice groups.
 
-    for inv in invoices:
-        if inv['supplier_id'] is not None:
-            key = f"supplier:{inv['supplier_id']}"
-        else:
-            key = f"unlinked:{inv['supplier_name'] or ''}"
-        g = groups[key]
-        g['group_key'] = key
-        g['supplier_id'] = inv['supplier_id']
-        g['supplier_raw_name'] = inv['supplier_name']
-        g['supplier_name'] = inv['supplier_display_name'] or '(sem fornecedor)'
-        if g['supplier_legal_name'] is None:
-            g['supplier_legal_name'] = inv['supplier_legal_name']
-        if g['supplier_nif'] is None:
-            g['supplier_nif'] = inv['supplier_nif']
-        g['invoices'].append(inv)
-        amt = abs(float(inv['amount_eur'] or 0))
-        if inv['document_type'] == 'nota_credito':
-            g['total_nc'] += amt
-        else:
-            g['total_faturas'] += amt
+    The aggregate query scans the filtered relation but returns one row per
+    group. Details are deliberately fetched separately by
+    :func:`get_invoice_group_details`, so a large history never becomes a
+    large Python object on the initial request.
+    """
+    group_config = {
+        'centro_custo': {
+            'key': "COALESCE(i.centro_custo_id::text, 'sem_centro')",
+            'label': (
+                "CASE WHEN i.centro_custo_id IS NULL THEN 'Sem centro de custo' "
+                "ELSE COALESCE(cc.code || ' — ' || cc.name, 'Sem centro de custo') END"
+            ),
+            'column': 'i.centro_custo_id',
+            'joins': 'LEFT JOIN cost_centers cc ON cc.id = i.centro_custo_id',
+        },
+        'categoria_custo': {
+            'key': "COALESCE(i.categoria_custo_id::text, 'sem_categoria')",
+            'label': (
+                "CASE WHEN i.categoria_custo_id IS NULL THEN 'Sem categoria' "
+                "ELSE COALESCE(ccat.name, 'Sem categoria') END"
+            ),
+            'column': 'i.categoria_custo_id',
+            'joins': 'LEFT JOIN cost_categories ccat ON ccat.id = i.categoria_custo_id',
+        },
+    }
+    config = group_config.get(group_by)
+    if not config:
+        raise ValueError(f'Unsupported invoice group: {group_by}')
+
+    where_clause, params = _build_invoice_where(
+        status=status_filter,
+        statuses=status_filters,
+        date_from=date_from,
+        date_to=date_to,
+        date_field=date_field,
+        exclude_gov=exclude_gov,
+    )
+    if only_without_group:
+        where_clause += f"{' AND' if where_clause else 'WHERE'} {config['column']} IS NULL"
+
+    group_limit = min(max(1, int(group_limit)), 100)
+    group_offset = max(0, int(group_offset))
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            WITH grouped AS (
+                SELECT {config['key']} AS group_key,
+                       {config['label']} AS label,
+                       COUNT(*) AS invoice_count,
+                       COALESCE(SUM(i.amount_eur), 0) AS total
+                FROM invoices i
+                {config['joins']}
+                {where_clause}
+                GROUP BY {config['key']}, {config['label']}
+            )
+            SELECT group_key, label, invoice_count, total,
+                   COUNT(*) OVER() AS total_groups
+            FROM grouped
+            ORDER BY CASE WHEN group_key IN ('sem_centro', 'sem_categoria')
+                          THEN 1 ELSE 0 END,
+                     LOWER(label)
+            LIMIT %s OFFSET %s
+        """, [*params, group_limit, group_offset])
+        rows = cursor.fetchall()
+
+    return [
+        {
+            'key': row[0],
+            'label': row[1],
+            'count': int(row[2] or 0),
+            'total': float(row[3] or 0),
+            'total_groups': int(row[4] or 0),
+            'invoices': [],
+        }
+        for row in rows
+    ]
+
+
+def get_invoice_group_details(
+        group_by: str,
+        status_filter: str = None,
+        status_filters: list = None,
+        exclude_gov: bool = False,
+        only_without_group: bool = False,
+        date_from=None,
+        date_to=None,
+        date_field: str = 'issue_date',
+        detail_limit: int = GROUPED_INVOICE_DETAIL_LIMIT,
+) -> dict:
+    """Return at most ``detail_limit`` invoices per cost group."""
+    return _grouped_invoice_details(
+        group_by=group_by,
+        status_filter=status_filter,
+        status_filters=status_filters,
+        exclude_gov=exclude_gov,
+        only_without_group=only_without_group,
+        date_from=date_from,
+        date_to=date_to,
+        date_field=date_field,
+        detail_limit=detail_limit,
+    )
+
+
+def get_contas_por_fornecedor(
+        status_filter: str = None,
+        status_filters: list = None,
+        exclude_gov: bool = False,
+        date_from=None,
+        date_to=None,
+        date_field: str = 'issue_date',
+        detail_limit: int = GROUPED_INVOICE_DETAIL_LIMIT,
+        group_limit: int = GROUPED_INVOICE_PAGE_SIZE,
+        group_offset: int = 0,
+) -> list:
+    """Return exact supplier totals with a bounded detail window per supplier.
+
+    ``status_filters`` takes precedence over ``status_filter``. The summary
+    query is independent from the detail query, so the complete invoice
+    history is never materialised in Python.
+    """
+    where_clause, params = _build_invoice_where(
+        status=status_filter,
+        statuses=status_filters,
+        date_from=date_from,
+        date_to=date_to,
+        date_field=date_field,
+        exclude_gov=exclude_gov,
+    )
+    supplier_key = (
+        "CASE WHEN i.supplier_id IS NOT NULL "
+        "THEN 'supplier:' || i.supplier_id::text "
+        "ELSE 'unlinked:' || COALESCE(i.supplier_name, '') END"
+    )
+    group_limit = min(max(1, int(group_limit)), 100)
+    group_offset = max(0, int(group_offset))
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            WITH grouped AS (
+                SELECT {supplier_key} AS group_key,
+                       i.supplier_id,
+                       CASE WHEN i.supplier_id IS NULL
+                            THEN i.supplier_name ELSE NULL END AS supplier_raw_name,
+                       COALESCE(s.nif, MAX(i.supplier_nif)) AS supplier_nif,
+                       s.name AS supplier_legal_name,
+                       COALESCE(NULLIF(s.common_name, ''), s.name,
+                                CASE WHEN i.supplier_id IS NULL
+                                     THEN i.supplier_name ELSE NULL END)
+                           AS supplier_display_name,
+                       COUNT(*) AS invoice_count,
+                       COALESCE(SUM(
+                           CASE WHEN i.document_type = 'nota_credito'
+                                THEN 0 ELSE ABS(COALESCE(i.amount_eur, 0)) END
+                       ), 0) AS total_faturas,
+                       COALESCE(SUM(
+                           CASE WHEN i.document_type = 'nota_credito'
+                                THEN ABS(COALESCE(i.amount_eur, 0)) ELSE 0 END
+                       ), 0) AS total_nc
+                FROM invoices i
+                LEFT JOIN suppliers s ON s.id = i.supplier_id
+                {where_clause}
+                GROUP BY {supplier_key}, i.supplier_id,
+                         CASE WHEN i.supplier_id IS NULL
+                              THEN i.supplier_name ELSE NULL END,
+                         s.name, s.common_name, s.nif
+            )
+            SELECT grouped.*, COUNT(*) OVER() AS total_groups
+            FROM grouped
+            ORDER BY LOWER(COALESCE(supplier_display_name, '(sem fornecedor)'))
+            LIMIT %s OFFSET %s
+        """, [*params, group_limit, group_offset])
+        summary_rows = cursor.fetchall()
+
+        # Backwards compatibility for custom cursor adapters that still return
+        # the former invoice-shaped rows for this query. Production PostgreSQL
+        # returns the nine-column aggregate shape above.
+        if summary_rows and len(summary_rows[0]) > 10:
+            groups = {}
+            for row in summary_rows:
+                inv = _row_to_invoice(row)
+                inv['has_pdf'] = bool(row[24]) if len(row) > 24 else False
+                inv['supplier_legal_name'] = row[25] if len(row) > 25 else inv['supplier_name']
+                inv['supplier_display_name'] = row[26] if len(row) > 26 else inv['supplier_name']
+                key = (
+                    f"supplier:{inv['supplier_id']}"
+                    if inv['supplier_id'] is not None
+                    else f"unlinked:{inv['supplier_name'] or ''}"
+                )
+                group = groups.setdefault(key, {
+                    'group_key': key,
+                    'supplier_id': inv['supplier_id'],
+                    'supplier_raw_name': inv['supplier_name'],
+                    'supplier_name': inv['supplier_display_name'] or '(sem fornecedor)',
+                    'supplier_legal_name': inv['supplier_legal_name'],
+                    'supplier_nif': inv['supplier_nif'],
+                    'invoices': [],
+                    'total_faturas': 0.0,
+                    'total_nc': 0.0,
+                })
+                group['invoices'].append(inv)
+                amount = abs(float(inv['amount_eur'] or 0))
+                if inv['document_type'] == 'nota_credito':
+                    group['total_nc'] += amount
+                else:
+                    group['total_faturas'] += amount
+            result = []
+            for group in groups.values():
+                group['n_docs'] = len(group['invoices'])
+                group['total_faturas'] = round(group['total_faturas'], 2)
+                group['total_nc'] = round(group['total_nc'], 2)
+                group['saldo_liquido'] = round(
+                    group['total_nc'] - group['total_faturas'], 2,
+                )
+                group['detail_has_more'] = False
+                result.append(group)
+            return sorted(result, key=lambda item: item['supplier_name'].lower())
+
+        detail_params = list(params)
+        limit = _normalise_grouped_detail_limit(detail_limit)
+        detail_rows = []
+        if limit:
+            cursor.execute(f"""
+                WITH filtered AS (
+                    SELECT {_GROUPED_INVOICE_COLUMNS},
+                           {supplier_key} AS grouped_invoice_key
+                    FROM invoices i
+                    LEFT JOIN suppliers s ON s.id = i.supplier_id
+                    {where_clause}
+                ),
+                ranked AS (
+                    SELECT filtered.*,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY grouped_invoice_key
+                               ORDER BY due_date ASC NULLS LAST, created_at DESC, id DESC
+                           ) AS detail_rank
+                    FROM filtered
+                )
+                SELECT id, supplier_id, supplier_name, supplier_nif,
+                       invoice_number, amount_eur, vat_amount_eur,
+                       issue_date, due_date, category,
+                       onedrive_subfolder, onedrive_path, pdf_filename,
+                       status, ocr_confidence, created_by,
+                       cfo_confirmed_date, paid_date, notes, created_at,
+                       onedrive_web_url, document_type,
+                       centro_custo_id, categoria_custo_id,
+                       has_pdf, supplier_legal_name, supplier_display_name,
+                       grouped_invoice_key
+                FROM ranked
+                WHERE detail_rank <= %s
+                ORDER BY grouped_invoice_key, due_date ASC NULLS LAST,
+                         created_at DESC, id DESC
+            """, [*detail_params, limit])
+            detail_rows = cursor.fetchall()
+
+    details = {}
+    for row in detail_rows:
+        inv = _row_to_invoice(row)
+        inv['has_pdf'] = bool(row[24]) if len(row) > 24 else False
+        inv['supplier_legal_name'] = row[25] if len(row) > 25 else inv['supplier_name']
+        inv['supplier_display_name'] = row[26] if len(row) > 26 else inv['supplier_name']
+        details.setdefault(row[27], []).append(inv)
 
     result = []
-    for g in groups.values():
-        g['n_docs'] = len(g['invoices'])
-        g['saldo_liquido'] = round(g['total_nc'] - g['total_faturas'], 2)
-        g['total_faturas'] = round(g['total_faturas'], 2)
-        g['total_nc'] = round(g['total_nc'], 2)
-        result.append(g)
-
-    result.sort(key=lambda x: (x['supplier_name'] or '').lower())
+    for row in summary_rows:
+        key = row[0]
+        total_faturas = round(float(row[7] or 0), 2)
+        total_nc = round(float(row[8] or 0), 2)
+        invoices = details.get(key, [])
+        result.append({
+            'group_key': key,
+            'supplier_id': row[1],
+            'supplier_raw_name': row[2],
+            'supplier_name': row[5] or '(sem fornecedor)',
+            'supplier_legal_name': row[4],
+            'supplier_nif': row[3],
+            'invoices': invoices,
+            'n_docs': int(row[6] or 0),
+            'total_faturas': total_faturas,
+            'total_nc': total_nc,
+            'saldo_liquido': round(total_nc - total_faturas, 2),
+            'total_groups': int(row[9] or 0),
+            'detail_has_more': len(invoices) < int(row[6] or 0),
+        })
     return result
 
 

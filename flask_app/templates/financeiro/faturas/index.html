@@ -174,6 +174,10 @@
     <!-- Status filter bar -->
     <form method="get" class="mb-3" data-no-loading>
         <input type="hidden" name="view" value="fornecedor">
+        {% if request.args.get('date_field') %}<input type="hidden" name="date_field" value="{{ request.args.get('date_field') }}">{% endif %}
+        {% if request.args.get('date_from') %}<input type="hidden" name="date_from" value="{{ request.args.get('date_from') }}">{% endif %}
+        {% if request.args.get('date_to') %}<input type="hidden" name="date_to" value="{{ request.args.get('date_to') }}">{% endif %}
+        {% if request.args.get('month') %}<input type="hidden" name="month" value="{{ request.args.get('month') }}">{% endif %}
         <div class="d-flex flex-wrap gap-2 align-items-center">
             <select name="forn_status" class="form-select form-select-sm" style="width:auto; min-width:180px"
                     onchange="this.form.submit()">
@@ -186,10 +190,10 @@
                 <option value="all" {% if forn_status == 'all' %}selected{% endif %}>🗂 Todos os estados</option>
             </select>
             {% if forn_status and forn_status != '' %}
-            <a href="{{ url_for('faturas.index', view='fornecedor') }}" class="btn btn-outline-secondary btn-sm"
+            <a href="{{ url_for('faturas.index', view='fornecedor', date_field=request.args.get('date_field'), date_from=request.args.get('date_from'), date_to=request.args.get('date_to'), month=request.args.get('month')) }}" class="btn btn-outline-secondary btn-sm"
                onclick="localStorage.removeItem('forn_status_pref')">✕ Repor</a>
             {% endif %}
-            <span class="text-muted small ms-1">{{ grupos|length }} fornecedor{{ 'es' if grupos|length != 1 }}</span>
+            <span class="text-muted small ms-1">{{ grupos|length }} fornecedor{{ 'es' if grupos|length != 1 }} nesta página</span>
         </div>
     </form>
 
@@ -245,9 +249,9 @@
                  style="cursor:pointer" data-bs-toggle="collapse" data-bs-target="#grupo-body-{{ gid }}"
                  aria-expanded="true" aria-controls="grupo-body-{{ gid }}">
                 <div class="d-flex align-items-center gap-2">
-                    <input type="checkbox" class="form-check-input cb-grupo" data-grupo="{{ gid }}"
+                    {% if grupo.invoices %}<input type="checkbox" class="form-check-input cb-grupo" data-grupo="{{ gid }}"
                            title="Selecionar todos de {{ grupo.supplier_name }}"
-                           onclick="event.stopPropagation()">
+                           onclick="event.stopPropagation()">{% endif %}
                     <div>
                         <span class="fw-semibold" title="{% if grupo.supplier_legal_name %}Nome legal: {{ grupo.supplier_legal_name }}{% endif %}">{{ grupo.supplier_name }}</span>
                         {% if grupo.supplier_nif %}
@@ -280,6 +284,7 @@
             </div>
             <div class="collapse show" id="grupo-body-{{ gid }}">
             <div class="card-body p-0">
+                {% if grupo.invoices %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
                         <thead class="table-light">
@@ -341,6 +346,13 @@
                         </tbody>
                     </table>
                 </div>
+                {% endif %}
+                {% if grupo.detail_has_more %}
+                <div class="px-3 py-2 border-top text-muted small">
+                    Os detalhes são carregados na lista paginada para manter esta vista rápida.
+                    <a href="{{ grupo.details_url }}" class="ms-1">Ver {{ grupo.n_docs }} documento{{ 's' if grupo.n_docs != 1 }} →</a>
+                </div>
+                {% endif %}
             </div>
             </div>{# /collapse #}
         </div>
@@ -357,6 +369,15 @@
         <a href="{{ url_for('faturas.index') }}" class="btn btn-outline-secondary btn-sm">Ver todos os documentos</a>
         {% endif %}
     </div>
+    {% endif %}
+    {% if total_group_pages > 1 %}
+    <nav aria-label="Páginas de fornecedores">
+        <ul class="pagination pagination-sm justify-content-center mt-3">
+            <li class="page-item {% if not group_prev_url %}disabled{% endif %}"><a class="page-link" href="{{ group_prev_url or '#' }}">Anterior</a></li>
+            <li class="page-item disabled"><span class="page-link">Página {{ group_page }} de {{ total_group_pages }}</span></li>
+            <li class="page-item {% if not group_next_url %}disabled{% endif %}"><a class="page-link" href="{{ group_next_url or '#' }}">Seguinte</a></li>
+        </ul>
+    </nav>
     {% endif %}
 
 {% elif view == 'centro_custo' %}
@@ -394,6 +415,10 @@
     <!-- Status filter bar -->
     <form method="get" class="mb-3" data-no-loading>
         <input type="hidden" name="view" value="centro_custo">
+        {% if request.args.get('date_field') %}<input type="hidden" name="date_field" value="{{ request.args.get('date_field') }}">{% endif %}
+        {% if request.args.get('date_from') %}<input type="hidden" name="date_from" value="{{ request.args.get('date_from') }}">{% endif %}
+        {% if request.args.get('date_to') %}<input type="hidden" name="date_to" value="{{ request.args.get('date_to') }}">{% endif %}
+        {% if request.args.get('month') %}<input type="hidden" name="month" value="{{ request.args.get('month') }}">{% endif %}
         <div class="d-flex flex-wrap gap-2 align-items-center">
             <select name="cc_status" class="form-select form-select-sm" style="width:auto; min-width:180px"
                     onchange="this.form.submit()">
@@ -406,10 +431,10 @@
                 <option value="all" {% if cc_status == 'all' %}selected{% endif %}>🗂 Todos os estados</option>
             </select>
             {% if cc_status and cc_status != '' %}
-            <a href="{{ url_for('faturas.index', view='centro_custo') }}" class="btn btn-outline-secondary btn-sm"
+            <a href="{{ url_for('faturas.index', view='centro_custo', date_field=request.args.get('date_field'), date_from=request.args.get('date_from'), date_to=request.args.get('date_to'), month=request.args.get('month')) }}" class="btn btn-outline-secondary btn-sm"
                onclick="localStorage.removeItem('cc_status_pref')">✕ Repor</a>
             {% endif %}
-            <span class="text-muted small ms-1">{{ grupos_cc|length }} centro{{ 's' if grupos_cc|length != 1 }}</span>
+            <span class="text-muted small ms-1">{{ grupos_cc|length }} centro{{ 's' if grupos_cc|length != 1 }} nesta página</span>
         </div>
     </form>
 
@@ -442,7 +467,7 @@
         <span>
             <strong>{{ sem_cc_count }} fatura{{ 's' if sem_cc_count != 1 }} sem centro de custo</strong>
             ({{ '%.2f €'|format(sem_cc_total) }}) — utilize a atribuição em massa abaixo para as classificar.
-            <a href="{{ url_for('faturas.index', sem_cc='1') }}" class="alert-link ms-1">Ver no modo documento →</a>
+            <a href="{{ sem_cc_details_url }}" class="alert-link ms-1">Ver no modo documento →</a>
         </span>
     </div>
     {% endif %}
@@ -460,7 +485,7 @@
             <span class="text-muted small">{{ grupo.count }} fatura{{ 's' if grupo.count != 1 }}
             — <span class="{% if _is_sem_cc %}text-warning-emphasis{% else %}text-danger{% endif %} fw-semibold">{{ '%.2f €'|format(grupo.total) }}</span></span>
         </div>
-        <div class="table-responsive">
+        {% if grupo.invoices %}<div class="table-responsive">
             <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
                 <thead class="table-light">
                     <tr>
@@ -505,7 +530,13 @@
                 {% endfor %}
                 </tbody>
             </table>
+        </div>{% endif %}
+        {% if grupo.detail_has_more %}
+        <div class="px-3 py-2 border-top text-muted small">
+            Os detalhes são carregados na lista paginada para manter esta vista rápida.
+            <a href="{{ grupo.details_url }}" class="ms-1">Ver {{ grupo.count }} fatura{{ 's' if grupo.count != 1 }} →</a>
         </div>
+        {% endif %}
     </div>
     {% endfor %}
     {% else %}
@@ -517,6 +548,15 @@
            onclick="localStorage.removeItem('cc_status_pref')">✕ Limpar filtro</a>
         {% endif %}
     </div>
+    {% endif %}
+    {% if total_group_pages > 1 %}
+    <nav aria-label="Páginas de centros de custo">
+        <ul class="pagination pagination-sm justify-content-center mt-3">
+            <li class="page-item {% if not group_prev_url %}disabled{% endif %}"><a class="page-link" href="{{ group_prev_url or '#' }}">Anterior</a></li>
+            <li class="page-item disabled"><span class="page-link">Página {{ group_page }} de {{ total_group_pages }}</span></li>
+            <li class="page-item {% if not group_next_url %}disabled{% endif %}"><a class="page-link" href="{{ group_next_url or '#' }}">Seguinte</a></li>
+        </ul>
+    </nav>
     {% endif %}
 
 {% elif view == 'categoria_custo' %}
@@ -554,6 +594,10 @@
     <!-- Status filter bar -->
     <form method="get" class="mb-3" data-no-loading>
         <input type="hidden" name="view" value="categoria_custo">
+        {% if request.args.get('date_field') %}<input type="hidden" name="date_field" value="{{ request.args.get('date_field') }}">{% endif %}
+        {% if request.args.get('date_from') %}<input type="hidden" name="date_from" value="{{ request.args.get('date_from') }}">{% endif %}
+        {% if request.args.get('date_to') %}<input type="hidden" name="date_to" value="{{ request.args.get('date_to') }}">{% endif %}
+        {% if request.args.get('month') %}<input type="hidden" name="month" value="{{ request.args.get('month') }}">{% endif %}
         <div class="d-flex flex-wrap gap-2 align-items-center">
             <select name="cat_status" class="form-select form-select-sm" style="width:auto; min-width:180px"
                     onchange="this.form.submit()">
@@ -566,7 +610,7 @@
                 <option value="all" {% if cat_status == 'all' %}selected{% endif %}>🗂 Todos os estados</option>
             </select>
             {% if cat_status and cat_status != '' %}
-            <a href="{{ url_for('faturas.index', view='categoria_custo') }}" class="btn btn-outline-secondary btn-sm"
+            <a href="{{ url_for('faturas.index', view='categoria_custo', date_field=request.args.get('date_field'), date_from=request.args.get('date_from'), date_to=request.args.get('date_to'), month=request.args.get('month')) }}" class="btn btn-outline-secondary btn-sm"
                onclick="localStorage.removeItem('cat_status_pref')">✕ Repor</a>
             {% endif %}
             <span class="text-muted small ms-1">{{ grupos_cat|length }} categoria{{ 's' if grupos_cat|length != 1 }}</span>
@@ -605,7 +649,7 @@
             <span class="text-muted small">{{ grupo.count }} fatura{{ 's' if grupo.count != 1 }}
             — <span class="text-danger fw-semibold">{{ '%.2f €'|format(grupo.total) }}</span></span>
         </div>
-        <div class="table-responsive">
+        {% if grupo.invoices %}<div class="table-responsive">
             <table class="table table-sm table-hover mb-0" style="font-size:0.8rem;">
                 <thead class="table-light">
                     <tr>
@@ -650,7 +694,13 @@
                 {% endfor %}
                 </tbody>
             </table>
+        </div>{% endif %}
+        {% if grupo.detail_has_more %}
+        <div class="px-3 py-2 border-top text-muted small">
+            Os detalhes são carregados na lista paginada para manter esta vista rápida.
+            <a href="{{ grupo.details_url }}" class="ms-1">Ver {{ grupo.count }} fatura{{ 's' if grupo.count != 1 }} →</a>
         </div>
+        {% endif %}
     </div>
     {% endfor %}
     {% else %}
@@ -662,6 +712,15 @@
            onclick="localStorage.removeItem('cat_status_pref')">✕ Limpar filtro</a>
         {% endif %}
     </div>
+    {% endif %}
+    {% if total_group_pages > 1 %}
+    <nav aria-label="Páginas de categorias">
+        <ul class="pagination pagination-sm justify-content-center mt-3">
+            <li class="page-item {% if not group_prev_url %}disabled{% endif %}"><a class="page-link" href="{{ group_prev_url or '#' }}">Anterior</a></li>
+            <li class="page-item disabled"><span class="page-link">Página {{ group_page }} de {{ total_group_pages }}</span></li>
+            <li class="page-item {% if not group_next_url %}disabled{% endif %}"><a class="page-link" href="{{ group_next_url or '#' }}">Seguinte</a></li>
+        </ul>
+    </nav>
     {% endif %}
 
 {% else %}

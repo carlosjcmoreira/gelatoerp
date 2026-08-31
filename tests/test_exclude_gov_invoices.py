@@ -5,8 +5,8 @@ Verifies that:
 1. _build_invoice_where appends the NIF exclusion clause when exclude_gov=True.
 2. get_contas_por_fornecedor accepts exclude_gov and injects the exclusion SQL.
 3. get_invoices / count_invoices pass exclude_gov through to _build_invoice_where.
-4. The Financeiro route's group views (fornecedor, centro_custo, categoria_custo) call
-   the underlying query functions with exclude_gov=True.
+4. The Financeiro route's SQL summary/detail group helpers are called with
+   exclude_gov=True.
 5. The Compras document-list view calls get_invoices / count_invoices with exclude_gov=True.
 
 Run with:
@@ -220,36 +220,53 @@ class TestFinanceiroGroupViewsExcludeGov(unittest.TestCase):
                     f"get_contas_por_fornecedor calls: {mock_fn.call_args_list}"
                 )
 
-    def test_centro_custo_view_calls_get_invoices_with_exclude_gov(self):
-        """view=centro_custo must call get_invoices(exclude_gov=True)."""
+    def test_centro_custo_view_calls_group_queries_with_exclude_gov(self):
+        """view=centro_custo must exclude government rows in both bounded queries."""
         app = _make_app()
         with app.test_client() as client:
             _set_financeiro_session(client)
-            with patch('flask_app.routes.faturas.get_invoices', return_value=[]) as mock_gi, \
+            with patch('flask_app.routes.faturas.get_invoice_group_summaries',
+                       return_value=[]) as mock_summary, \
                  patch('flask_app.routes.faturas.get_confirming_contracts', return_value=[]), \
                  patch('flask_app.routes.faturas.get_payment_methods_config', return_value=[]), \
                  patch('flask_app.routes.faturas.get_cost_centers', return_value=[]), \
                  patch('flask_app.routes.faturas.render_template', return_value=''):
                 client.get('/financeiro/faturas/?view=centro_custo')
-                self.assertTrue(
-                    any(c.kwargs.get('exclude_gov') is True for c in mock_gi.call_args_list),
-                    f"get_invoices calls: {mock_gi.call_args_list}"
-                )
+                self.assertTrue(mock_summary.call_args.kwargs['exclude_gov'])
 
-    def test_categoria_custo_view_calls_get_invoices_with_exclude_gov(self):
-        """view=categoria_custo must call get_invoices(exclude_gov=True)."""
+    def test_categoria_custo_view_calls_group_queries_with_exclude_gov(self):
+        """view=categoria_custo must exclude government rows in both bounded queries."""
         app = _make_app()
         with app.test_client() as client:
             _set_financeiro_session(client)
-            with patch('flask_app.routes.faturas.get_invoices', return_value=[]) as mock_gi, \
+            with patch('flask_app.routes.faturas.get_invoice_group_summaries',
+                       return_value=[]) as mock_summary, \
                  patch('flask_app.routes.faturas.get_confirming_contracts', return_value=[]), \
                  patch('flask_app.routes.faturas.get_payment_methods_config', return_value=[]), \
                  patch('flask_app.routes.faturas.render_template', return_value=''):
                 client.get('/financeiro/faturas/?view=categoria_custo')
-                self.assertTrue(
-                    any(c.kwargs.get('exclude_gov') is True for c in mock_gi.call_args_list),
-                    f"get_invoices calls: {mock_gi.call_args_list}"
+                self.assertTrue(mock_summary.call_args.kwargs['exclude_gov'])
+
+
+class TestGroupedViewPagination(unittest.TestCase):
+    def test_out_of_range_supplier_page_redirects_to_last_page(self):
+        app = _make_app()
+        with app.test_client() as client:
+            _set_financeiro_session(client)
+            with patch(
+                'flask_app.routes.faturas.get_contas_por_fornecedor',
+                side_effect=[[], [{'total_groups': 41}]],
+            ) as mock_groups, \
+                 patch('flask_app.routes.faturas.get_confirming_contracts', return_value=[]), \
+                 patch('flask_app.routes.faturas.get_payment_methods_config', return_value=[]):
+                response = client.get(
+                    '/financeiro/faturas/?view=fornecedor&group_page=999',
+                    follow_redirects=False,
                 )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('group_page=3', response.headers['Location'])
+        self.assertEqual(mock_groups.call_count, 2)
 
 
 # ---------------------------------------------------------------------------

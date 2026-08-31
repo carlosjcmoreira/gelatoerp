@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import logging
+import math
 from datetime import date, datetime
 from io import BytesIO
 
@@ -50,7 +51,9 @@ from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair
                           apply_supplier_invoice_classifications,
                           count_invoices, get_distinct_invoice_categories,
                           get_scheduled_invoice_total,
-                          get_duplicate_invoice_ids)
+                          get_duplicate_invoice_ids,
+                          get_invoice_group_summaries,
+                          GROUPED_INVOICE_PAGE_SIZE)
 from flask_app.utils.finance import (
     parse_date as _parse_date,
     parse_float as _parse_float,
@@ -67,6 +70,80 @@ ALLOWED_IMAGE_EXTENSIONS = {'jpg', 'jpeg', 'png', 'heic', 'heif', 'webp'}
 
 def _ext(filename: str) -> str:
     return filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+
+
+def _grouped_date_filters():
+    """Read the shared date filter format used by the document list."""
+    import calendar
+
+    date_field = request.args.get('date_field', 'due_date').strip()
+    if date_field not in ('issue_date', 'due_date', 'paid_date'):
+        date_field = 'due_date'
+    date_from_raw = request.args.get('date_from', '').strip()
+    date_to_raw = request.args.get('date_to', '').strip()
+    month_raw = request.args.get('month', '').strip()
+    if month_raw and not date_from_raw and not date_to_raw:
+        try:
+            year, month = int(month_raw[:4]), int(month_raw[5:7])
+            _, last_day = calendar.monthrange(year, month)
+            date_from_raw = f'{year:04d}-{month:02d}-01'
+            date_to_raw = f'{year:04d}-{month:02d}-{last_day:02d}'
+        except (ValueError, IndexError):
+            pass
+    date_from = _parse_date(date_from_raw)
+    date_to = _parse_date(date_to_raw)
+    return date_field, date_from_raw, date_to_raw, date_from, date_to
+
+
+def _grouped_status_query(status_value: str) -> dict:
+    """Translate a grouped status selection to the paginated document list."""
+    if status_value == 'all':
+        return {'all': '1', 'exclude_drafts': '1'}
+    if status_value == 'overdue':
+        return {'status': 'overdue'}
+    if status_value:
+        return {'status': status_value}
+    return {'status': ['pending_review', 'scheduled']}
+
+
+def _grouped_details_url(group_by: str, group: dict, status_value: str,
+                         date_field: str, date_from_raw: str,
+                         date_to_raw: str) -> str:
+    """Link the bounded preview to the normal SQL-paginated invoice list."""
+    params = {
+        'view': 'documento',
+        'exclude_gov': '1',
+        **_grouped_status_query(status_value),
+    }
+    if date_field != 'due_date':
+        params['date_field'] = date_field
+    if date_from_raw:
+        params['date_from'] = date_from_raw
+    if date_to_raw:
+        params['date_to'] = date_to_raw
+
+    if group_by == 'supplier':
+        if group.get('supplier_id'):
+            params['supplier_id'] = group['supplier_id']
+        else:
+            params['supplier_name'] = group.get('supplier_raw_name') or ''
+    elif group_by == 'centro_custo':
+        if group.get('key') == 'sem_centro':
+            params['sem_primary_cc'] = '1'
+        else:
+            params['primary_centro_custo_id'] = group['key']
+    elif group_by == 'categoria_custo':
+        if group.get('key') == 'sem_categoria':
+            params['sem_categoria'] = '1'
+        else:
+            params['categoria_custo_id'] = group['key']
+    return url_for('faturas.index', **params)
+
+
+def _grouped_page_url(page: int) -> str:
+    params = request.args.to_dict(flat=False)
+    params['group_page'] = str(page)
+    return url_for('faturas.index', **params)
 
 
 def _panel_redirect(invoice_id: int):
@@ -142,6 +219,11 @@ def index():
     from db.centros_custo import get_cost_categories as _gccat
     view = request.args.get('view', 'documento')
     today = date.today()
+    try:
+        group_page = max(1, int(request.args.get('group_page', '1')))
+    except (TypeError, ValueError):
+        group_page = 1
+    group_offset = (group_page - 1) * GROUPED_INVOICE_PAGE_SIZE
 
     confirming_contracts = get_confirming_contracts()
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
@@ -164,17 +246,42 @@ def index():
         _valid_forn_statuses = ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', 'all', '')
         if forn_status not in _valid_forn_statuses:
             forn_status = ''
+        grouped_date_field, grouped_date_from_raw, grouped_date_to_raw, grouped_date_from, grouped_date_to = _grouped_date_filters()
 
         # Default (empty) = show only active/pending invoices; 'all' = no filter
         # exclude_gov=True: government/tax entities (AT, SS) are not commercial suppliers;
         # exclude them from the grouped supplier view in both Financeiro and Compras contexts.
         _default_active = (forn_status == '')
-        if _default_active:
-            grupos = get_contas_por_fornecedor(status_filters=['pending_review', 'scheduled'], exclude_gov=True)
-        elif forn_status == 'all':
-            grupos = get_contas_por_fornecedor(status_filter=None, exclude_gov=True)
-        else:
-            grupos = get_contas_por_fornecedor(status_filter=forn_status, exclude_gov=True)
+        supplier_status_kwargs = (
+            {'status_filters': ['pending_review', 'scheduled']}
+            if _default_active else
+            {'status_filter': forn_status if forn_status != 'all' else None}
+        )
+        supplier_group_kwargs = {
+            **supplier_status_kwargs,
+            'exclude_gov': True,
+            'date_from': grouped_date_from,
+            'date_to': grouped_date_to,
+            'date_field': grouped_date_field,
+            'detail_limit': 0,
+        }
+        grupos = get_contas_por_fornecedor(
+            **supplier_group_kwargs,
+            group_limit=GROUPED_INVOICE_PAGE_SIZE,
+            group_offset=group_offset,
+        )
+        if not grupos and group_page > 1:
+            first_group = get_contas_por_fornecedor(
+                **supplier_group_kwargs, group_limit=1, group_offset=0,
+            )
+            last_page = max(
+                1,
+                math.ceil(
+                    (first_group[0]['total_groups'] if first_group else 0)
+                    / GROUPED_INVOICE_PAGE_SIZE
+                ),
+            )
+            return redirect(_grouped_page_url(last_page))
 
         # Fetch paid counts per supplier for badge (only when not already showing paid)
         forn_paid_counts = {}
@@ -188,12 +295,19 @@ def index():
             forn_paid_counts = get_paid_counts_by_supplier(supplier_ids, unlinked_names)
 
         for grupo in grupos:
+            grupo['detail_has_more'] = len(grupo.get('invoices', [])) < grupo.get('n_docs', 0)
+            grupo['details_url'] = _grouped_details_url(
+                'supplier', grupo, forn_status, grouped_date_field,
+                grouped_date_from_raw, grouped_date_to_raw,
+            )
             for inv in grupo.get('invoices', []):
                 if inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today:
                     inv['display_status'] = 'overdue'
                     inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
                 else:
                     inv['display_status'] = inv['status']
+        total_groups = grupos[0]['total_groups'] if grupos else 0
+        total_group_pages = max(1, math.ceil(total_groups / GROUPED_INVOICE_PAGE_SIZE))
         return render_template(
             'financeiro/faturas/index.html',
             view='fornecedor',
@@ -213,56 +327,80 @@ def index():
             document_type_labels=DOCUMENT_TYPE_LABELS,
             forn_status=forn_status,
             forn_paid_counts=forn_paid_counts,
+            group_page=group_page,
+            total_group_pages=total_group_pages,
+            group_prev_url=_grouped_page_url(group_page - 1) if group_page > 1 else None,
+            group_next_url=_grouped_page_url(group_page + 1) if group_page < total_group_pages else None,
         )
 
     if view == 'centro_custo':
-        # Group all non-draft invoices by centro_custo.
+        # Group all non-draft invoices by centro_custo. The summary is SQL
+        # aggregated; only a bounded preview is loaded for each group.
         # exclude_gov=True: AT/SS tax entities are not meaningful cost-centre entries.
         _valid_cc_statuses = ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', 'all', '')
         cc_status = request.args.get('cc_status', '').strip()
         if cc_status not in _valid_cc_statuses:
             cc_status = ''
-        all_invoices = get_invoices(exclude_gov=True)
-        from collections import defaultdict
-        grupos_cc = defaultdict(lambda: {'label': None, 'total': 0.0, 'count': 0, 'invoices': []})
-        cc_map = {cc['id']: cc for cc in get_cost_centers(ativo_only=False)}
-        for inv in all_invoices:
-            is_overdue = inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today
-            if is_overdue:
-                inv['display_status'] = 'overdue'
-                inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
-            else:
-                inv['display_status'] = inv['status']
-            # Apply status filter
-            if cc_status == '' and inv['status'] not in ('pending_review', 'scheduled'):
-                continue
-            elif cc_status == 'overdue' and not is_overdue:
-                continue
-            elif cc_status == 'pending_review' and inv['status'] != 'pending_review':
-                continue
-            elif cc_status == 'scheduled' and inv['status'] != 'scheduled':
-                continue
-            elif cc_status == 'paid' and inv['status'] != 'paid':
-                continue
-            elif cc_status == 'cancelled' and inv['status'] != 'cancelled':
-                continue
-            cc_id = inv.get('centro_custo_id')
-            key = cc_id or 'sem_centro'
-            if grupos_cc[key]['label'] is None:
-                if cc_id and cc_id in cc_map:
-                    cc = cc_map[cc_id]
-                    grupos_cc[key]['label'] = f"{cc['code']} — {cc['name']}"
-                else:
-                    grupos_cc[key]['label'] = 'Sem centro de custo'
-            grupos_cc[key]['invoices'].append(inv)
-            grupos_cc[key]['total'] += float(inv.get('amount_eur') or 0)
-            grupos_cc[key]['count'] += 1
-        # Sort: sem_centro last, others alphabetically
-        sorted_grupos = sorted(
-            [{'key': k, **v} for k, v in grupos_cc.items()],
-            key=lambda g: ('z' if g['key'] == 'sem_centro' else g['label'].lower())
+        grouped_date_field, grouped_date_from_raw, grouped_date_to_raw, grouped_date_from, grouped_date_to = _grouped_date_filters()
+        status_kwargs = (
+            {'status_filters': ['pending_review', 'scheduled']}
+            if cc_status == '' else
+            {'status_filter': cc_status if cc_status != 'all' else None}
         )
-        _sem_cc_grp = next((g for g in sorted_grupos if g['key'] == 'sem_centro'), None)
+        sorted_grupos = get_invoice_group_summaries(
+            'centro_custo',
+            **status_kwargs,
+            exclude_gov=True,
+            date_from=grouped_date_from,
+            date_to=grouped_date_to,
+            date_field=grouped_date_field,
+            group_limit=GROUPED_INVOICE_PAGE_SIZE,
+            group_offset=group_offset,
+        )
+        if not sorted_grupos and group_page > 1:
+            first_group = get_invoice_group_summaries(
+                'centro_custo',
+                **status_kwargs,
+                exclude_gov=True,
+                date_from=grouped_date_from,
+                date_to=grouped_date_to,
+                date_field=grouped_date_field,
+                group_limit=1,
+                group_offset=0,
+            )
+            last_page = max(
+                1,
+                math.ceil(
+                    (first_group[0]['total_groups'] if first_group else 0)
+                    / GROUPED_INVOICE_PAGE_SIZE
+                ),
+            )
+            return redirect(_grouped_page_url(last_page))
+        for grupo in sorted_grupos:
+            grupo['invoices'] = []
+            grupo['detail_has_more'] = grupo['count'] > 0
+            grupo['details_url'] = _grouped_details_url(
+                'centro_custo', grupo, cc_status, grouped_date_field,
+                grouped_date_from_raw, grouped_date_to_raw,
+            )
+        total_groups = sorted_grupos[0]['total_groups'] if sorted_grupos else 0
+        total_group_pages = max(1, math.ceil(total_groups / GROUPED_INVOICE_PAGE_SIZE))
+        sem_cc_details_url = _grouped_details_url(
+            'centro_custo', {'key': 'sem_centro'}, cc_status,
+            grouped_date_field, grouped_date_from_raw, grouped_date_to_raw,
+        )
+        sem_cc_groups = get_invoice_group_summaries(
+            'centro_custo',
+            **status_kwargs,
+            exclude_gov=True,
+            only_without_group=True,
+            date_from=grouped_date_from,
+            date_to=grouped_date_to,
+            date_field=grouped_date_field,
+            group_limit=1,
+            group_offset=0,
+        )
+        _sem_cc_grp = sem_cc_groups[0] if sem_cc_groups else None
         sem_cc_count = _sem_cc_grp['count'] if _sem_cc_grp else 0
         sem_cc_total = _sem_cc_grp['total'] if _sem_cc_grp else 0.0
         return render_template(
@@ -284,57 +422,67 @@ def index():
             categoria_custo_filter=None,
             document_type_labels=DOCUMENT_TYPE_LABELS,
             cc_status=cc_status,
+            sem_cc_details_url=sem_cc_details_url,
+            group_page=group_page,
+            total_group_pages=total_group_pages,
+            group_prev_url=_grouped_page_url(group_page - 1) if group_page > 1 else None,
+            group_next_url=_grouped_page_url(group_page + 1) if group_page < total_group_pages else None,
         )
 
     if view == 'categoria_custo':
-        from collections import defaultdict
-        from db.centros_custo import get_cost_categories
+        # As with cost centres, aggregate the complete filtered set in SQL and
+        # fetch only a small detail preview for each category.
         sem_categoria_only = request.args.get('sem_categoria') == '1'
         _valid_cat_statuses = ('pending_review', 'scheduled', 'paid', 'cancelled', 'overdue', 'all', '')
         cat_status = request.args.get('cat_status', '').strip()
         if cat_status not in _valid_cat_statuses:
             cat_status = ''
-        # exclude_gov=True: AT/SS tax entities are not meaningful cost-category entries.
-        all_invoices = get_invoices(exclude_gov=True)
-        cat_map = {c['id']: c for c in get_cost_categories(ativo_only=False)}
-        grupos_cat = defaultdict(lambda: {'label': None, 'total': 0.0, 'count': 0, 'invoices': []})
-        for inv in all_invoices:
-            cat_id = inv.get('categoria_custo_id')
-            if sem_categoria_only and cat_id:
-                continue
-            is_overdue = inv['status'] in ('pending_review', 'scheduled') and inv.get('due_date') and inv['due_date'] < today
-            if is_overdue:
-                inv['display_status'] = 'overdue'
-                inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
-            else:
-                inv['display_status'] = inv['status']
-            # Apply status filter
-            if cat_status == '' and inv['status'] not in ('pending_review', 'scheduled'):
-                continue
-            elif cat_status == 'overdue' and not is_overdue:
-                continue
-            elif cat_status == 'pending_review' and inv['status'] != 'pending_review':
-                continue
-            elif cat_status == 'scheduled' and inv['status'] != 'scheduled':
-                continue
-            elif cat_status == 'paid' and inv['status'] != 'paid':
-                continue
-            elif cat_status == 'cancelled' and inv['status'] != 'cancelled':
-                continue
-            key = cat_id or 'sem_categoria'
-            if grupos_cat[key]['label'] is None:
-                if cat_id and cat_id in cat_map:
-                    cat = cat_map[cat_id]
-                    grupos_cat[key]['label'] = cat['name']
-                else:
-                    grupos_cat[key]['label'] = 'Sem categoria'
-            grupos_cat[key]['invoices'].append(inv)
-            grupos_cat[key]['total'] += float(inv.get('amount_eur') or 0)
-            grupos_cat[key]['count'] += 1
-        sorted_grupos_cat = sorted(
-            [{'key': k, **v} for k, v in grupos_cat.items()],
-            key=lambda g: ('z' if g['key'] == 'sem_categoria' else g['label'].lower())
+        grouped_date_field, grouped_date_from_raw, grouped_date_to_raw, grouped_date_from, grouped_date_to = _grouped_date_filters()
+        status_kwargs = (
+            {'status_filters': ['pending_review', 'scheduled']}
+            if cat_status == '' else
+            {'status_filter': cat_status if cat_status != 'all' else None}
         )
+        sorted_grupos_cat = get_invoice_group_summaries(
+            'categoria_custo',
+            **status_kwargs,
+            exclude_gov=True,
+            only_without_group=sem_categoria_only,
+            date_from=grouped_date_from,
+            date_to=grouped_date_to,
+            date_field=grouped_date_field,
+            group_limit=GROUPED_INVOICE_PAGE_SIZE,
+            group_offset=group_offset,
+        )
+        if not sorted_grupos_cat and group_page > 1:
+            first_group = get_invoice_group_summaries(
+                'categoria_custo',
+                **status_kwargs,
+                exclude_gov=True,
+                only_without_group=sem_categoria_only,
+                date_from=grouped_date_from,
+                date_to=grouped_date_to,
+                date_field=grouped_date_field,
+                group_limit=1,
+                group_offset=0,
+            )
+            last_page = max(
+                1,
+                math.ceil(
+                    (first_group[0]['total_groups'] if first_group else 0)
+                    / GROUPED_INVOICE_PAGE_SIZE
+                ),
+            )
+            return redirect(_grouped_page_url(last_page))
+        for grupo in sorted_grupos_cat:
+            grupo['invoices'] = []
+            grupo['detail_has_more'] = grupo['count'] > 0
+            grupo['details_url'] = _grouped_details_url(
+                'categoria_custo', grupo, cat_status, grouped_date_field,
+                grouped_date_from_raw, grouped_date_to_raw,
+            )
+        total_groups = sorted_grupos_cat[0]['total_groups'] if sorted_grupos_cat else 0
+        total_group_pages = max(1, math.ceil(total_groups / GROUPED_INVOICE_PAGE_SIZE))
         return render_template(
             'financeiro/faturas/index.html',
             view='categoria_custo',
@@ -353,6 +501,10 @@ def index():
             sem_categoria_only=sem_categoria_only,
             document_type_labels=DOCUMENT_TYPE_LABELS,
             cat_status=cat_status,
+            group_page=group_page,
+            total_group_pages=total_group_pages,
+            group_prev_url=_grouped_page_url(group_page - 1) if group_page > 1 else None,
+            group_next_url=_grouped_page_url(group_page + 1) if group_page < total_group_pages else None,
         )
 
     import calendar as _calendar
@@ -376,6 +528,8 @@ def index():
     categoria_custo_raw = request.args.get('categoria_custo_id', '')
     centro_custo_filter = int(centro_custo_raw) if centro_custo_raw else None
     categoria_custo_filter = int(categoria_custo_raw) if categoria_custo_raw else None
+    primary_cc_raw = request.args.get('primary_centro_custo_id', '').strip()
+    primary_cc_filter = int(primary_cc_raw) if primary_cc_raw.isdigit() else None
     document_type_filter = request.args.get('document_type', '').strip()
     if document_type_filter not in DOCUMENT_TYPE_LABELS:
         document_type_filter = ''
@@ -393,6 +547,10 @@ def index():
             supplier_id_filter = None
 
     sem_cc_filter = request.args.get('sem_cc', '') == '1'
+    sem_categoria_filter = request.args.get('sem_categoria', '') == '1'
+    sem_primary_cc_filter = request.args.get('sem_primary_cc', '') == '1'
+    exclude_drafts_filter = request.args.get('exclude_drafts', '') == '1'
+    exclude_gov_filter = request.args.get('exclude_gov', '') == '1'
     category_filter = request.args.get('category', '').strip()
     sem_evidencia_filter = request.args.get('sem_evidencia', '') == '1'
     try:
@@ -457,6 +615,11 @@ def index():
         date_to=date_to,
         date_field=date_field,
         sem_cc=sem_cc_filter or None,
+        sem_categoria=sem_categoria_filter or None,
+        primary_centro_custo_id=primary_cc_filter,
+        sem_primary_cc=sem_primary_cc_filter or None,
+        exclude_drafts=exclude_drafts_filter,
+        exclude_gov=exclude_gov_filter,
         sem_evidencia=sem_evidencia_filter or None,
         category=category_filter or None,
     )
@@ -508,6 +671,16 @@ def index():
         _filter_params.append(('sem_evidencia', '1'))
     if sem_cc_filter:
         _filter_params.append(('sem_cc', '1'))
+    if sem_categoria_filter:
+        _filter_params.append(('sem_categoria', '1'))
+    if primary_cc_filter:
+        _filter_params.append(('primary_centro_custo_id', str(primary_cc_filter)))
+    if sem_primary_cc_filter:
+        _filter_params.append(('sem_primary_cc', '1'))
+    if exclude_drafts_filter:
+        _filter_params.append(('exclude_drafts', '1'))
+    if exclude_gov_filter:
+        _filter_params.append(('exclude_gov', '1'))
     if date_from_raw:
         _filter_params.append(('date_from', date_from_raw))
     if date_to_raw:
@@ -576,6 +749,16 @@ def index():
         _type_badge_params.append(('sem_evidencia', '1'))
     if sem_cc_filter:
         _type_badge_params.append(('sem_cc', '1'))
+    if sem_categoria_filter:
+        _type_badge_params.append(('sem_categoria', '1'))
+    if primary_cc_filter:
+        _type_badge_params.append(('primary_centro_custo_id', str(primary_cc_filter)))
+    if sem_primary_cc_filter:
+        _type_badge_params.append(('sem_primary_cc', '1'))
+    if exclude_drafts_filter:
+        _type_badge_params.append(('exclude_drafts', '1'))
+    if exclude_gov_filter:
+        _type_badge_params.append(('exclude_gov', '1'))
     if date_from_raw:
         _type_badge_params.append(('date_from', date_from_raw))
     if date_to_raw:
@@ -637,6 +820,7 @@ def index():
         all_categories=all_categories,
         sem_evidencia_filter=sem_evidencia_filter,
         sem_cc_filter=sem_cc_filter,
+        sem_categoria_filter=sem_categoria_filter,
         sem_evidencia_count=sem_evidencia_count,
         sem_ev_on_url=sem_ev_on_url,
         sem_ev_off_url=sem_ev_off_url,
