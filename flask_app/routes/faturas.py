@@ -40,7 +40,8 @@ from database import (
 import flask_app.services.faturas as faturas_svc
 from flask_app.services import ServiceError
 from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair,
-                        get_all_supplier_aliases, delete_supplier_alias, add_supplier_alias,
+                        get_all_supplier_aliases, delete_supplier_alias_with_stats,
+                        add_supplier_alias,
                         get_invoice_status_labels_map, get_invoice_audit_log,
                         get_invoice_deletion_log,
                         get_saved_views, save_view, delete_saved_view,
@@ -2326,9 +2327,17 @@ def fornecedores():
         elif action == 'delete_alias':
             alias_id_str = request.form.get('alias_id', '').strip()
             if alias_id_str.isdigit():
-                ok = delete_supplier_alias(int(alias_id_str))
-                if ok:
-                    flash('Alias eliminado.', 'success')
+                result = delete_supplier_alias_with_stats(int(alias_id_str))
+                if result['deleted']:
+                    updated = result['invoices_updated']
+                    if updated:
+                        flash(
+                            f'Alias eliminado. NIF actualizado em {updated} '
+                            f'fatura(s) histórica(s).',
+                            'success',
+                        )
+                    else:
+                        flash('Alias eliminado. Nenhuma fatura histórica precisou de atualização.', 'success')
                 else:
                     flash('Alias não encontrado.', 'warning')
             else:

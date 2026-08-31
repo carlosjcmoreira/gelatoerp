@@ -767,18 +767,91 @@ def get_all_supplier_aliases() -> dict:
         return {}
 
 
-def delete_supplier_alias(alias_id: int) -> bool:
-    """Delete a single alias row by primary key. Returns True if deleted."""
+def delete_supplier_alias_with_stats(alias_id: int) -> dict:
+    """Remove an alias and canonicalise matching historical invoice NIFs.
+
+    The alias row and the invoice updates deliberately share one transaction.
+    Only invoices already linked to the alias' supplier are touched; this must
+    never become a supplier reassignment mechanism.
+    """
     try:
         with db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM supplier_aliases WHERE id = %s", (alias_id,))
-            deleted = cursor.rowcount > 0
-            conn.commit()
-        return deleted
+            try:
+                cursor.execute("""
+                    SELECT supplier_id, alias_nif
+                    FROM supplier_aliases
+                    WHERE id = %s
+                    FOR UPDATE
+                """, (alias_id,))
+                alias_row = cursor.fetchone()
+                if not alias_row:
+                    return {'deleted': False, 'invoices_updated': 0}
+
+                supplier_id, alias_nif = alias_row
+                cursor.execute("""
+                    SELECT nif
+                    FROM suppliers
+                    WHERE id = %s
+                    FOR SHARE
+                """, (supplier_id,))
+                supplier_row = cursor.fetchone()
+                if not supplier_row or not supplier_row[0]:
+                    raise ValueError(
+                        f'Fornecedor {supplier_id} do alias {alias_id} não encontrado '
+                        'ou sem NIF canónico.'
+                    )
+
+                canonical_nif = _normalize_nif(supplier_row[0])
+                invoices_updated = 0
+                normalized_alias_nif = _normalize_nif(alias_nif)
+                if normalized_alias_nif:
+                    # Strip formatting and the optional PT prefix on both sides.
+                    # The supplier_id predicate prevents touching another
+                    # supplier even if the same NIF appears in bad legacy data.
+                    cursor.execute("""
+                        UPDATE invoices
+                        SET supplier_nif = %s
+                        WHERE supplier_id = %s
+                          AND NULLIF(
+                              regexp_replace(
+                                  regexp_replace(UPPER(COALESCE(supplier_nif, '')),
+                                                 '[[:space:]-]', '', 'g'),
+                                  '^PT', ''
+                              ),
+                              ''
+                          ) = regexp_replace(%s, '^PT', '')
+                    """, (canonical_nif, supplier_id, normalized_alias_nif))
+                    invoices_updated = cursor.rowcount
+
+                cursor.execute(
+                    "DELETE FROM supplier_aliases WHERE id = %s",
+                    (alias_id,),
+                )
+                if cursor.rowcount <= 0:
+                    raise RuntimeError(f'Alias {alias_id} desapareceu durante a remoção.')
+
+                conn.commit()
+                return {
+                    'deleted': True,
+                    'invoices_updated': invoices_updated,
+                }
+            except Exception:
+                conn.rollback()
+                raise
     except Exception as exc:
         logger.warning('delete_supplier_alias(%s) failed: %s', alias_id, exc)
-        return False
+        return {'deleted': False, 'invoices_updated': 0}
+
+
+def delete_supplier_alias(alias_id: int) -> bool:
+    """Delete a single alias row by primary key. Returns True if deleted.
+
+    Kept as a boolean wrapper for callers that predate the historical-NIF
+    update. Use ``delete_supplier_alias_with_stats`` when the update count is
+    needed for user feedback.
+    """
+    return delete_supplier_alias_with_stats(alias_id)['deleted']
 
 
 def add_supplier_alias(supplier_id: int, alias_name: str, alias_nif: str = None) -> bool:

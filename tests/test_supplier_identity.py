@@ -77,6 +77,90 @@ class TestSupplierAliasBackfill(unittest.TestCase):
             'GRASUMOS, COMÉRCIO DE BEBIDAS, LDA.',
         )
 
+
+class TestSupplierAliasDeletion(unittest.TestCase):
+    def _connection(self, cursor):
+        conn = MagicMock()
+        conn.cursor.return_value = cursor
+        conn.__enter__ = lambda instance: instance
+        conn.__exit__ = MagicMock(return_value=False)
+        return conn
+
+    def test_deleting_nif_alias_updates_matching_historical_invoices(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (44, 'PT501234567'),  # alias
+            ('PT506454223',),     # canonical supplier NIF
+        ]
+        cursor.rowcount = 3
+
+        with patch('db.faturas.db_connection', return_value=self._connection(cursor)):
+            from db.faturas import delete_supplier_alias_with_stats
+            result = delete_supplier_alias_with_stats(9)
+
+        self.assertEqual(result, {'deleted': True, 'invoices_updated': 3})
+        update_call = next(
+            call for call in cursor.execute.call_args_list
+            if 'UPDATE invoices' in call.args[0]
+        )
+        self.assertEqual(update_call.args[1], ('PT506454223', 44, 'PT501234567'))
+        delete_call = cursor.execute.call_args_list[-1]
+        self.assertIn('DELETE FROM supplier_aliases', delete_call.args[0])
+        self.assertEqual(delete_call.args[1], (9,))
+
+    def test_alias_without_nif_does_not_update_invoices(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (44, None),             # alias
+            ('PT506454223',),       # canonical supplier NIF
+        ]
+        cursor.rowcount = 1
+
+        with patch('db.faturas.db_connection', return_value=self._connection(cursor)):
+            from db.faturas import delete_supplier_alias_with_stats
+            result = delete_supplier_alias_with_stats(9)
+
+        self.assertEqual(result, {'deleted': True, 'invoices_updated': 0})
+        statements = [call.args[0] for call in cursor.execute.call_args_list]
+        self.assertFalse(any('UPDATE invoices' in statement for statement in statements))
+        self.assertIn('DELETE FROM supplier_aliases', statements[-1])
+
+    def test_missing_alias_is_idempotent_and_does_not_commit(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = None
+        conn = self._connection(cursor)
+
+        with patch('db.faturas.db_connection', return_value=conn):
+            from db.faturas import delete_supplier_alias_with_stats
+            result = delete_supplier_alias_with_stats(999)
+
+        self.assertEqual(result, {'deleted': False, 'invoices_updated': 0})
+        conn.commit.assert_not_called()
+        cursor.execute.assert_called_once()
+
+    def test_failure_rolls_back_invoice_update_and_alias_deletion(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (44, '501234567'),
+            ('PT506454223',),
+        ]
+        cursor.rowcount = 1
+
+        def fail_on_delete(sql, params=None):
+            if 'DELETE FROM supplier_aliases' in sql:
+                raise RuntimeError('simulated delete failure')
+
+        cursor.execute.side_effect = fail_on_delete
+        conn = self._connection(cursor)
+
+        with patch('db.faturas.db_connection', return_value=conn):
+            from db.faturas import delete_supplier_alias_with_stats
+            result = delete_supplier_alias_with_stats(9)
+
+        self.assertEqual(result, {'deleted': False, 'invoices_updated': 0})
+        conn.rollback.assert_called_once()
+        conn.commit.assert_not_called()
+
     def test_backfill_requires_nif_agreement_for_an_alias_with_nif(self):
         cursor = MagicMock()
         cursor.fetchall.return_value = [('Grasumos', 'PT506454223')]
