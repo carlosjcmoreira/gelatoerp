@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import logging
+import uuid
 from flask import Flask, session, redirect, url_for, g, request, render_template
 from functools import wraps
 
@@ -169,11 +170,41 @@ def create_app():
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
+    @app.before_request
+    def start_request_metrics():
+        from performance_metrics import begin_request
+        g._performance_token = begin_request()
+        g.request_id = uuid.uuid4().hex
+
+    @app.after_request
+    def log_request_metrics(response):
+        from performance_metrics import snapshot
+        metrics = snapshot()
+        response_bytes = response.calculate_content_length()
+        route = request.url_rule.rule if request.url_rule else '<unmatched>'
+        request_logger = logging.getLogger('gunicorn.error')
+        if not request_logger.handlers:
+            request_logger = logger
+        request_logger.info(
+            'request_metrics request_id=%s method=%s route=%s status=%d '
+            'duration_ms=%.1f db_duration_ms=%.1f query_count=%d response_bytes=%s',
+            g.get('request_id', '-'), request.method, route, response.status_code,
+            metrics['duration_ms'], metrics['db_duration_ms'],
+            metrics['query_count'],
+            response_bytes if response_bytes is not None else 'unknown',
+        )
+        response.headers['X-Request-ID'] = g.get('request_id', '-')
+        return response
+
+    @app.teardown_request
+    def finish_request_metrics(_error):
+        from performance_metrics import end_request
+        end_request(g.pop('_performance_token', None))
+
     with app.app_context():
         init_database()
         run_migrations()
         run_faturas_migrations()
-        run_data_fix_delete_auto_quebras()
         run_migrations_m0()
         run_migrations_forecast()
         run_migrations_wind_config()
@@ -181,15 +212,7 @@ def create_app():
         run_migrations_credito()
         run_migrations_eventos_v2_foundation()
         run_migrations_eventos_customer_portal()
-        run_data_fix_quebras_march2026()
-        run_data_fix_pesagem_april2026()
-        run_data_fix_march1_dedup()
-        run_data_fix_gelado_kpi_classification()
-        run_data_fix_normalise_sabor_names()
-        run_data_fix_cremino_stock_producao()
-        run_data_fix_stock_gelado_march2026_dedup()
         run_data_fix_stock_gelado_dedup_and_unique()
-        run_data_fix_pesagem_matosinhos_backfill()
         run_migrations_caixa_loja()
         run_migrations_preco_caixa_kg()
         run_migrations_centros_custo()
@@ -198,7 +221,6 @@ def create_app():
         run_migrations_colaboradores_smart()
         run_migrations_transferencias_motivo()
         run_migrations_transferencias_eventos()
-        run_backfill_transferencias_eventos()
         run_migrations_batch_id()
         run_migrations_stock_producao_lojas()
         run_migrations_tarefas()
@@ -213,9 +235,6 @@ def create_app():
         run_migrations_user_audit_log()
         run_migrations_cost_center_allocation()
         run_migrations_stock_gelado_carapinas()
-        _seed_all_tiles()
-        sync_produtos_vendas_config()
-        seed_artigos_administrativos()
         run_migrations_suppliers_nullable_nif()
         run_migrations_normalise_supplier_nifs()
         run_migrations_onedrive_retry()
@@ -224,8 +243,6 @@ def create_app():
         run_migrations_supplier_aliases()
         run_migrations_supplier_centro_custo()
         run_migrations_custos_recorrentes()
-        from db.custos_recorrentes import run_backfill_custos_recorrentes
-        run_backfill_custos_recorrentes()
         run_migrations_normalise_producao_sabores()
         run_migrations_quantidade_kg_to_numeric()
         run_migrations_loja_origem()
@@ -246,19 +263,37 @@ def create_app():
         run_migrations_supplier_categoria_custo()
         run_migrations_drop_supplier_category()
         run_migrations_acesso_compras()
+        # Legacy corrections swallow/log their own failures, so they must
+        # remain retryable on every boot rather than being marked complete.
+        run_data_fix_delete_auto_quebras()
+        run_data_fix_quebras_march2026()
+        run_data_fix_pesagem_april2026()
+        run_data_fix_march1_dedup()
+        run_data_fix_gelado_kpi_classification()
+        run_data_fix_normalise_sabor_names()
+        run_data_fix_cremino_stock_producao()
+        run_data_fix_stock_gelado_march2026_dedup()
+        run_data_fix_pesagem_matosinhos_backfill()
+        run_backfill_transferencias_eventos()
+        from db.custos_recorrentes import run_backfill_custos_recorrentes
+        run_backfill_custos_recorrentes()
         try:
             from db.faturas import backfill_supplier_ids as _backfill_suppliers
             _backfill_suppliers()
-        except Exception as _bk_exc:
-            logger.warning('backfill_supplier_ids startup failed: %s', _bk_exc)
+        except Exception as exc:
+            logger.warning('backfill_supplier_ids startup failed: %s', exc)
         try:
             run_backfill_invoice_categoria_custo()
-        except Exception as _bic_exc:
-            logger.warning('run_backfill_invoice_categoria_custo startup failed: %s', _bic_exc)
+        except Exception as exc:
+            logger.warning('run_backfill_invoice_categoria_custo startup failed: %s', exc)
+        # These are recurring reconciliations, not historical one-off fixes.
+        _seed_all_tiles()
+        sync_produtos_vendas_config()
+        seed_artigos_administrativos()
         try:
             _promote_overdue_faturas_clientes()
-        except Exception as _po_exc:
-            logger.warning('promote_overdue (faturas_clientes) startup failed: %s', _po_exc)
+        except Exception as exc:
+            logger.warning('promote_overdue (faturas_clientes) startup failed: %s', exc)
 
     from flask_app.routes.auth import auth_bp
     from flask_app.routes.home import home_bp

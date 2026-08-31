@@ -17,6 +17,13 @@ errorlog = "-"
 access_log_format = '%(h)s "%(r)s" %(s)s %(b)s %(D)sµs'
 
 
+def pre_fork(server, worker):
+    """Never let preloaded PostgreSQL sockets be inherited by workers."""
+    from db.connection import close_pool
+    close_pool()
+    server.log.info("Closed preloaded PostgreSQL pool before worker fork")
+
+
 def post_fork(server, worker):
     """Start background schedulers in the first worker only.
 

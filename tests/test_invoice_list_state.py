@@ -156,6 +156,75 @@ class TestDocumentListStickyReferences(unittest.TestCase):
             self.source,
         )
 
+    def test_financeiro_document_view_uses_shared_pagination(self):
+        self.assertIn(
+            "view == 'documento' and total_pages is defined and total_pages > 1",
+            self.source,
+        )
+
+
+class TestFinanceiroPagination(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from flask_app.routes.faturas import faturas_bp
+
+        cls.app = Flask(__name__)
+        cls.app.secret_key = 'test-secret-key'
+        cls.app.config['TESTING'] = True
+        _support_blueprints(cls.app)
+        cls.app.register_blueprint(faturas_bp, url_prefix='/financeiro/faturas')
+
+    def test_document_list_pages_in_sql_and_keeps_filters(self):
+        patches = [
+            patch('flask_app.routes.faturas.count_invoices', side_effect=[123, 20]),
+            patch('flask_app.routes.faturas.get_invoices', return_value=[]),
+            patch('flask_app.routes.faturas.get_confirming_contracts', return_value=[]),
+            patch('flask_app.routes.faturas.get_payment_methods_config', return_value=[]),
+            patch('flask_app.routes.faturas.get_cost_centers', return_value=[]),
+            patch('flask_app.routes.faturas.get_cost_categories_tree', return_value=[]),
+            patch('flask_app.routes.faturas.get_stores_list', return_value=[]),
+            patch('flask_app.routes.faturas.get_distinct_supplier_names', return_value=[]),
+            patch('flask_app.routes.faturas.get_distinct_invoice_categories', return_value=[]),
+            patch('flask_app.routes.faturas.get_duplicate_invoice_ids', return_value=set()),
+            patch('flask_app.routes.faturas.get_scheduled_invoice_total', return_value=0),
+            patch('flask_app.routes.faturas.get_vat_periods', return_value=[]),
+            patch('flask_app.routes.faturas.get_invoice_status_labels_map', return_value={}),
+            patch('db.faturas.count_onedrive_failed', return_value=0),
+            patch('db.faturas.get_invoices_type_totals', return_value={}),
+            patch('db.faturas.get_pending_installments', return_value=[]),
+            patch('db.centros_custo.get_cost_categories', return_value=[]),
+            patch('flask_app.routes.faturas.render_template', return_value='ok'),
+        ]
+        for patcher in patches:
+            patcher.start()
+        try:
+            client = self.app.test_client()
+            with client.session_transaction() as session:
+                session['user'] = _user()
+            response = client.get(
+                '/financeiro/faturas/?page=3&q=farinha&category=Secos'
+                '&sem_cc=1&order_by=amount_eur&order_dir=desc'
+            )
+            from flask_app.routes import faturas as route
+            invoice_kwargs = route.get_invoices.call_args.kwargs
+            template_kwargs = route.render_template.call_args.kwargs
+        finally:
+            for patcher in reversed(patches):
+                patcher.stop()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(invoice_kwargs['limit'], 50)
+        self.assertEqual(invoice_kwargs['offset'], 100)
+        self.assertEqual(invoice_kwargs['category'], 'Secos')
+        self.assertTrue(invoice_kwargs['sem_cc'])
+        self.assertEqual(invoice_kwargs['order_by'], 'amount_eur')
+        self.assertEqual(invoice_kwargs['order_dir'], 'desc')
+        self.assertEqual(template_kwargs['page'], 3)
+        self.assertEqual(template_kwargs['total_pages'], 3)
+        self.assertEqual(template_kwargs['total_count'], 123)
+        self.assertIn('q=farinha', template_kwargs['base_filter_qs'])
+        self.assertNotIn('page=', template_kwargs['base_filter_qs'])
+
 
 class _RecordingCursor:
     def __init__(self, fetchone_results, update_counts=()):

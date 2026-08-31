@@ -1771,7 +1771,8 @@ def _build_invoice_where(status: str = None, statuses: list = None,
                          document_type: str = None,
                          sem_evidencia: bool = None,
                          sem_cc: bool = None,
-                         exclude_gov: bool = False):
+                         exclude_gov: bool = False,
+                         category: str = None):
     where = []
     params = []
     # 'overdue' is a virtual status: scheduled invoices with due_date in the past
@@ -1843,6 +1844,9 @@ def _build_invoice_where(status: str = None, statuses: list = None,
         where.append("(i.pdf_data IS NULL OR octet_length(i.pdf_data) = 0)")
         # Alerts for missing evidence only apply to active invoices (never draft/cancelled)
         where.append("i.status NOT IN ('draft', 'cancelled')")
+    if category:
+        where.append("LOWER(COALESCE(i.category, '')) LIKE %s")
+        params.append(f"%{category.lower()}%")
     if sem_cc:
         where.append("""(
             i.centro_custo_id IS NULL
@@ -1881,7 +1885,8 @@ def get_invoices(status: str = None, statuses: list = None,
                  sem_evidencia: bool = None,
                  sem_cc: bool = None,
                  exclude_gov: bool = False,
-                 limit: int = None, offset: int = 0) -> list:
+                  limit: int = None, offset: int = 0,
+                  category: str = None) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
         where_clause, params = _build_invoice_where(
@@ -1892,6 +1897,7 @@ def get_invoices(status: str = None, statuses: list = None,
             supplier_id=supplier_id, date_from=date_from, date_to=date_to,
             date_field=date_field, document_type=document_type,
             sem_evidencia=sem_evidencia, sem_cc=sem_cc, exclude_gov=exclude_gov,
+            category=category,
         )
         order_col = _ORDER_COL_MAP.get(order_by, 'i.due_date')
         direction = 'DESC' if order_dir == 'desc' else 'ASC'
@@ -1972,7 +1978,8 @@ def count_invoices(status: str = None, statuses: list = None,
                    document_type: str = None,
                    sem_evidencia: bool = None,
                     sem_cc: bool = None,
-                   exclude_gov: bool = False) -> int:
+                    exclude_gov: bool = False,
+                    category: str = None) -> int:
     where_clause, params = _build_invoice_where(
         status=status, statuses=statuses, no_status_filter=no_status_filter,
         search=search,
@@ -1981,6 +1988,7 @@ def count_invoices(status: str = None, statuses: list = None,
         supplier_id=supplier_id, date_from=date_from, date_to=date_to,
         date_field=date_field, document_type=document_type,
         sem_evidencia=sem_evidencia, sem_cc=sem_cc, exclude_gov=exclude_gov,
+        category=category,
     )
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -1990,6 +1998,67 @@ def count_invoices(status: str = None, statuses: list = None,
             {where_clause}
         """, params)
         return int(cursor.fetchone()[0])
+
+
+@ttl_cache('invoice_distinct_categories', ttl=300)
+def get_distinct_invoice_categories() -> list:
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT category
+            FROM invoices
+            WHERE category IS NOT NULL AND BTRIM(category) <> ''
+            ORDER BY category
+        """)
+        return [row[0] for row in cursor.fetchall()]
+
+
+def get_scheduled_invoice_total() -> float:
+    """Return the scheduled amount without materialising every invoice."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COALESCE(SUM(amount_eur), 0)
+            FROM invoices
+            WHERE status = 'scheduled'
+        """)
+        return float(cursor.fetchone()[0] or 0)
+
+
+def get_duplicate_invoice_ids(**filters) -> set:
+    """Find duplicates across the complete filtered result, not one page."""
+    where_clause, params = _build_invoice_where(**filters)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            WITH filtered AS (
+                SELECT i.id, i.supplier_id,
+                       REGEXP_REPLACE(
+                           REGEXP_REPLACE(
+                               UPPER(BTRIM(i.invoice_number)),
+                               '^(FT|NC|FR|RB|VD|FS|FC|FA|RC)\\s+', ''
+                           ),
+                           '[^A-Z0-9]', '', 'g'
+                       ) AS normalized_number
+                FROM invoices i
+                {where_clause}
+                  {'AND' if where_clause else 'WHERE'} i.supplier_id IS NOT NULL
+                  AND i.invoice_number IS NOT NULL
+            ),
+            duplicate_keys AS (
+                SELECT supplier_id, normalized_number
+                FROM filtered
+                WHERE normalized_number <> ''
+                GROUP BY supplier_id, normalized_number
+                HAVING COUNT(*) > 1
+            )
+            SELECT f.id
+            FROM filtered f
+            JOIN duplicate_keys d
+              ON d.supplier_id = f.supplier_id
+             AND d.normalized_number = f.normalized_number
+        """, params)
+        return {row[0] for row in cursor.fetchall()}
 
 
 def count_invoices_sem_evidencia() -> int:

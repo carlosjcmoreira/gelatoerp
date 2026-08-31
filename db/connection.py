@@ -8,6 +8,7 @@ import os
 import bcrypt
 import threading
 import logging
+from performance_metrics import record_query
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,72 @@ _pool_lock = threading.Lock()
 # after deploys and DB-server restarts at the cost of ~1 ms per request.
 _conn_last_checked: dict = {}
 _check_lock = threading.Lock()
-_STALE_THRESHOLD = 0.0  # always check liveness on acquisition
+_STALE_THRESHOLD = float(os.environ.get('DB_LIVENESS_IDLE_SECONDS', '0'))
+_POOL_MIN_CONNECTIONS = int(os.environ.get('DB_POOL_MIN_CONNECTIONS', '1'))
+_POOL_MAX_CONNECTIONS = int(os.environ.get('DB_POOL_MAX_CONNECTIONS', '8'))
+
+
+class _MetricsCursor:
+    """Transparent cursor proxy that records timings but never SQL or params."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def _timed(self, method, *args, **kwargs):
+        started = time.perf_counter()
+        try:
+            return method(*args, **kwargs)
+        finally:
+            record_query(time.perf_counter() - started)
+
+    def execute(self, *args, **kwargs):
+        return self._timed(self._cursor.execute, *args, **kwargs)
+
+    def executemany(self, *args, **kwargs):
+        return self._timed(self._cursor.executemany, *args, **kwargs)
+
+    def callproc(self, *args, **kwargs):
+        return self._timed(self._cursor.callproc, *args, **kwargs)
+
+    def __iter__(self):
+        return iter(self._cursor)
+
+    def __enter__(self):
+        self._cursor.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        return self._cursor.__exit__(*args)
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _MetricsConnection:
+    """Transparent connection proxy used only after the liveness check."""
+
+    def __init__(self, connection):
+        object.__setattr__(self, '_connection', connection)
+
+    def cursor(self, *args, **kwargs):
+        return _MetricsCursor(self._connection.cursor(*args, **kwargs))
+
+    def __enter__(self):
+        self._connection.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        return self._connection.__exit__(*args)
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._connection, name, value)
+
+
+def _raw_connection(conn):
+    return getattr(conn, '_connection', conn)
 
 
 def get_pool():
@@ -32,8 +98,8 @@ def get_pool():
         with _pool_lock:
             if _connection_pool is None:
                 _connection_pool = pg_pool.ThreadedConnectionPool(
-                    minconn=2,
-                    maxconn=15,
+                    minconn=_POOL_MIN_CONNECTIONS,
+                    maxconn=_POOL_MAX_CONNECTIONS,
                     dsn=DATABASE_URL,
                     connect_timeout=5,
                     keepalives=1,
@@ -42,6 +108,18 @@ def get_pool():
                     keepalives_count=3,
                 )
     return _connection_pool
+
+
+def close_pool():
+    """Close and forget the pool, notably before a preloaded Gunicorn fork."""
+    global _connection_pool
+    with _pool_lock:
+        pool = _connection_pool
+        _connection_pool = None
+        with _check_lock:
+            _conn_last_checked.clear()
+        if pool is not None:
+            pool.closeall()
 
 
 def _should_check(conn) -> bool:
@@ -119,13 +197,14 @@ def get_connection():
         # Always record last-use time so _should_check() measures true idle time
         _mark_checked(conn)
         conn.autocommit = False
-        return conn
+        return _MetricsConnection(conn)
     raise psycopg2.OperationalError("Failed to obtain a healthy database connection after %d attempts" % max_attempts)
 
 
 def release_connection(conn):
     if conn is None:
         return
+    conn = _raw_connection(conn)
     try:
         if conn.closed:
             _clear_checked(conn)

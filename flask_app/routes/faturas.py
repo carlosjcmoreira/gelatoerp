@@ -47,7 +47,10 @@ from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair
                         get_saved_views, save_view, delete_saved_view,
                          patch_supplier,
                          get_supplier_invoice_classification_preview,
-                         apply_supplier_invoice_classifications)
+                          apply_supplier_invoice_classifications,
+                          count_invoices, get_distinct_invoice_categories,
+                          get_scheduled_invoice_total,
+                          get_duplicate_invoice_ids)
 from flask_app.utils.finance import (
     parse_date as _parse_date,
     parse_float as _parse_float,
@@ -390,6 +393,13 @@ def index():
             supplier_id_filter = None
 
     sem_cc_filter = request.args.get('sem_cc', '') == '1'
+    category_filter = request.args.get('category', '').strip()
+    sem_evidencia_filter = request.args.get('sem_evidencia', '') == '1'
+    try:
+        page = max(1, int(request.args.get('page', '1')))
+    except (TypeError, ValueError):
+        page = 1
+    page_size = 50
 
     # Date filters
     date_field = request.args.get('date_field', 'due_date').strip()
@@ -434,12 +444,10 @@ def index():
     else:
         effective_statuses = statuses_filter
 
-    invoices = get_invoices(
+    invoice_filter_kwargs = dict(
         statuses=effective_statuses,
         no_status_filter=show_all,
         search=search or None,
-        order_by=order_by,
-        order_dir=order_dir,
         centro_custo_id=centro_custo_filter,
         categoria_custo_id=categoria_custo_filter,
         document_type=document_type_filter or None,
@@ -449,25 +457,23 @@ def index():
         date_to=date_to,
         date_field=date_field,
         sem_cc=sem_cc_filter or None,
+        sem_evidencia=sem_evidencia_filter or None,
+        category=category_filter or None,
     )
-
-    # Category filter (in-memory — category is a free-text field on invoices)
-    category_filter = request.args.get('category', '').strip()
-    if category_filter:
-        invoices = [i for i in invoices if i.get('category') and category_filter.lower() in i['category'].lower()]
-
-    # Sem evidência filter (in-memory — has_pdf already computed by DB)
-    sem_evidencia_filter = request.args.get('sem_evidencia', '') == '1'
-    # Count before applying the filter; exclude draft/cancelled (same rule as dashboard alert)
-    sem_evidencia_count = sum(
-        1 for i in invoices
-        if not i.get('has_pdf') and i.get('status') not in ('draft', 'cancelled')
+    total_count = count_invoices(**invoice_filter_kwargs)
+    total_pages = max(1, (total_count + page_size - 1) // page_size)
+    page = min(page, total_pages)
+    invoices = get_invoices(
+        **invoice_filter_kwargs,
+        order_by=order_by,
+        order_dir=order_dir,
+        limit=page_size,
+        offset=(page - 1) * page_size,
     )
-    if sem_evidencia_filter:
-        invoices = [
-            i for i in invoices
-            if not i.get('has_pdf') and i.get('status') not in ('draft', 'cancelled')
-        ]
+    sem_evidencia_count = (
+        total_count if sem_evidencia_filter
+        else count_invoices(**{**invoice_filter_kwargs, 'sem_evidencia': True})
+    )
 
     _labels_map = get_invoice_status_labels_map()
     for inv in invoices:
@@ -478,12 +484,12 @@ def index():
             inv['display_status'] = inv['status']
 
     # Duplicate detection: flag invoices where same supplier has same normalised number
-    _dup_ids = _find_duplicate_invoice_ids(invoices)
+    _dup_ids = get_duplicate_invoice_ids(**invoice_filter_kwargs)
     for inv in invoices:
         inv['has_duplicate'] = inv['id'] in _dup_ids
 
     # Distinct categories for filter panel
-    all_categories = sorted({i['category'] for i in invoices if i.get('category')})
+    all_categories = get_distinct_invoice_categories()
 
     # Build filter_qs preserving multi-select status for sort links
     _filter_params = []
@@ -535,8 +541,8 @@ def index():
     all_supplier_names = get_distinct_supplier_names()
 
     # KPI dashboard — scheduled / next VAT
-    scheduled_docs = [dict(r) for r in get_invoices_with_payments(status='scheduled')]
-    total_scheduled = sum(float(i.get('amount_eur') or 0) for i in scheduled_docs)
+    scheduled_docs = []
+    total_scheduled = get_scheduled_invoice_total()
     vat_periods = list(get_vat_periods(limit=4))
     next_vat = next(
         (p for p in reversed(vat_periods) if p['status'] in ('estimated', 'declared')),
@@ -635,6 +641,9 @@ def index():
         sem_ev_on_url=sem_ev_on_url,
         sem_ev_off_url=sem_ev_off_url,
         saved_views=_get_user_saved_views(),
+        page=page,
+        total_count=total_count,
+        total_pages=total_pages,
     )
 
 

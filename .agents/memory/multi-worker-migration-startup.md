@@ -3,8 +3,8 @@ name: Multi-worker migration startup
 description: Why the Gunicorn application is preloaded before worker creation.
 ---
 
-Keep Gunicorn `preload_app` enabled while application startup runs database migrations and data corrections.
+Preload migrations through one Gunicorn owner, but never let forked workers inherit live PostgreSQL sockets.
 
-**Why:** Starting several workers at once ran overlapping `ALTER TABLE` migrations and caused PostgreSQL schema-lock deadlocks, preventing the app from booting.
+**Why:** Starting several workers at once ran overlapping `ALTER TABLE` migrations and caused PostgreSQL schema-lock deadlocks. Conversely, inheriting the pool created during preload made workers share PostgreSQL sockets, causing SSL/EOF corruption.
 
-**How to apply:** If startup migration behavior changes, preserve a single migration owner (preload or another cross-process lock) before scaling workers.
+**How to apply:** Preserve a single migration owner before scaling workers. Reset database connections at the fork boundary so each worker creates independent sockets.
