@@ -145,6 +145,7 @@ def create_draft_from_pdf(pdf_bytes: bytes, pdf_filename: str, username: str,
     from flask_app.services import ServiceError
     from flask_app.ocr_invoice import extract_invoice_fields
     from database import get_supplier_by_nif, create_invoice
+    from db.faturas import can_auto_match_supplier_nif
 
     try:
         ocr = extract_invoice_fields(pdf_bytes, pdf_filename)
@@ -152,7 +153,7 @@ def create_draft_from_pdf(pdf_bytes: bytes, pdf_filename: str, username: str,
         raise ServiceError(f'Erro ao processar PDF com OCR: {exc}') from exc
 
     supplier = None
-    if ocr.get('supplier_nif'):
+    if can_auto_match_supplier_nif(ocr.get('supplier_nif')):
         try:
             supplier = get_supplier_by_nif(ocr['supplier_nif'])
         except Exception:
@@ -180,6 +181,7 @@ def create_draft_from_image(image_bytes: bytes, filename: str, username: str,
     from flask_app.services import ServiceError
     from flask_app.ocr_invoice import extract_invoice_fields_from_image
     from database import get_supplier_by_nif, create_invoice
+    from db.faturas import can_auto_match_supplier_nif
 
     try:
         ocr = extract_invoice_fields_from_image(image_bytes, filename)
@@ -187,7 +189,7 @@ def create_draft_from_image(image_bytes: bytes, filename: str, username: str,
         raise ServiceError(f'Erro ao processar imagem com OCR: {exc}') from exc
 
     supplier = None
-    if ocr.get('supplier_nif'):
+    if can_auto_match_supplier_nif(ocr.get('supplier_nif')):
         try:
             supplier = get_supplier_by_nif(ocr['supplier_nif'])
         except Exception:
@@ -248,11 +250,6 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
     if not inv:
         raise ServiceError('Fatura não encontrada.')
 
-    # Capture the OCR-extracted supplier name before any updates so we can use it
-    # to bulk-link other invoices that share the same OCR text when an existing
-    # supplier is selected from the dropdown.
-    _ocr_supplier_name = (inv.get('supplier_name') or '').strip() or None
-
     supplier_name = form.get('supplier_name', '').strip()
     supplier_nif = ''.join(c for c in form.get('supplier_nif', '') if c.isdigit())
     invoice_number = form.get('invoice_number', '').strip()
@@ -279,6 +276,7 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
     supplier_iban = form.get('supplier_iban', '').strip() or None
     is_new_supplier = form.get('is_new_supplier', '') == '1'
     existing_supplier_id_str = form.get('existing_supplier_id', '').strip()
+    supplier_conflict_confirmed = form.get('supplier_conflict_confirmed', '')
 
     # For existing suppliers: extract OCR-detected IBAN from stored OCR payload
     # so it can be persisted to the supplier record (COALESCE ensures existing value is kept if OCR has none)
@@ -307,6 +305,38 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
     DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
 
     supplier_id = inv.get('supplier_id')
+    from db.faturas import (
+        _nifs_match,
+        _normalise_identity_name,
+        can_auto_match_supplier_nif,
+        is_valid_portuguese_nif,
+    )
+
+    # Reject conflicts before creating suppliers or uploading files. A linked
+    # OCR draft must never produce side effects until the user has confirmed
+    # which legal identity should be kept.
+    if supplier_id and not existing_supplier_id_str:
+        from database import get_supplier_by_id
+        linked_supplier = get_supplier_by_id(supplier_id)
+        linked_conflict = bool(
+            is_new_supplier
+            or not linked_supplier
+            or (
+                linked_supplier
+                and _normalise_identity_name(supplier_name)
+                != _normalise_identity_name(linked_supplier.get('name'))
+            )
+            or (
+                linked_supplier
+                and bool(supplier_nif or linked_supplier.get('nif'))
+                and not _nifs_match(supplier_nif, linked_supplier.get('nif'))
+            )
+        )
+        if linked_conflict and str(supplier_conflict_confirmed).strip() != '1':
+            raise ServiceError(
+                'Existe um conflito nos dados do fornecedor. Confirma explicitamente '
+                'qual fornecedor deve ficar registado antes de guardar.'
+            )
 
     # If an existing supplier was selected from the dropdown, use it directly
     if existing_supplier_id_str:
@@ -314,6 +344,38 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
             supplier_id = int(existing_supplier_id_str)
         except ValueError:
             raise ServiceError('ID de fornecedor inválido.')
+        from database import get_supplier_by_id
+        selected_supplier = get_supplier_by_id(supplier_id)
+        if not selected_supplier:
+            raise ServiceError('O fornecedor selecionado já não existe.')
+        supplier_name = selected_supplier['name']
+        supplier_nif = selected_supplier.get('nif') or ''
+
+        original_id = inv.get('supplier_id')
+        original_name_conflicts = (
+            bool(inv.get('supplier_name') or selected_supplier.get('name'))
+            and _normalise_identity_name(inv.get('supplier_name'))
+            != _normalise_identity_name(selected_supplier.get('name'))
+        )
+        original_nif_conflicts = (
+            bool(inv.get('supplier_nif') or selected_supplier.get('nif'))
+            and not _nifs_match(inv.get('supplier_nif'), selected_supplier.get('nif'))
+        )
+        invalid_portuguese_nif = (
+            bool(selected_supplier.get('nif'))
+            and not is_valid_portuguese_nif(selected_supplier.get('nif'))
+        )
+        selection_conflicts = (
+            (original_id and original_id != supplier_id)
+            or original_name_conflicts
+            or original_nif_conflicts
+            or invalid_portuguese_nif
+        )
+        if selection_conflicts and str(supplier_conflict_confirmed).strip() != '1':
+            raise ServiceError(
+                'Existe um conflito nos dados do fornecedor. Confirma explicitamente '
+                'qual fornecedor deve ficar registado antes de guardar.'
+            )
     elif document_type in DOCUMENT_TYPES_INVOICE and not supplier_id and not supplier_name:
         raise ServiceError('Seleciona ou cria um fornecedor antes de guardar este tipo de documento.')
 
@@ -352,10 +414,54 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
         except Exception:
             pass
 
+    # If no supplier_id yet but we have a name, try auto-lookup by name
+    if (not supplier_id and supplier_name
+            and (not supplier_nif or can_auto_match_supplier_nif(supplier_nif))):
+        try:
+            from database import get_supplier_by_name as _gsbn
+            matched = _gsbn(supplier_name)
+            if matched:
+                supplier_id = matched['id']
+                supplier_name = matched['name']
+                supplier_nif = matched.get('nif') or ''
+        except Exception:
+            pass
+
+    # Enforce: invoice-type documents must have a resolved supplier before leaving draft
+    DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
+    if document_type in DOCUMENT_TYPES_INVOICE and not supplier_id:
+        raise ServiceError(
+            'Seleciona ou cria um fornecedor antes de guardar este tipo de documento.'
+        )
+
+    _old_status = inv.get('status')
+    try:
+        update_invoice(invoice_id, {
+            'supplier_id': supplier_id,
+            'supplier_name': supplier_name or None,
+            'supplier_nif': supplier_nif or None,
+            'supplier_conflict_confirmed': supplier_conflict_confirmed,
+            'invoice_number': invoice_number or None,
+            'amount_eur': amount_eur,
+            'vat_amount_eur': vat_amount_eur,
+            'issue_date': issue_date,
+            'due_date': due_date,
+            'store_id': store_id,
+            'category': category or None,
+            'onedrive_subfolder': onedrive_subfolder or None,
+            'onedrive_path': inv.get('onedrive_path'),
+            'status': 'pending_review',
+            'notes': notes or None,
+            'document_type': document_type,
+            'centro_custo_id': centro_custo_id,
+            'categoria_custo_id': categoria_custo_id,
+        }, changed_by=changed_by)
+    except Exception as exc:
+        raise ServiceError(f'Erro ao actualizar fatura: {exc}') from exc
+
     onedrive_path = inv.get('onedrive_path')
     onedrive_web_url = inv.get('onedrive_web_url')
     onedrive_warning = None
-
     if onedrive_subfolder and not onedrive_path:
         try:
             pdf_data, pdf_filename = get_invoice_pdf(invoice_id)
@@ -373,47 +479,6 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
         except Exception as exc:
             logger.warning('OneDrive upload failed for invoice %s: %s', invoice_id, exc)
             onedrive_warning = str(exc)
-
-    # If no supplier_id yet but we have a name, try auto-lookup by name
-    if not supplier_id and supplier_name:
-        try:
-            from database import get_supplier_by_name as _gsbn
-            matched = _gsbn(supplier_name)
-            if matched:
-                supplier_id = matched['id']
-        except Exception:
-            pass
-
-    # Enforce: invoice-type documents must have a resolved supplier before leaving draft
-    DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
-    if document_type in DOCUMENT_TYPES_INVOICE and not supplier_id:
-        raise ServiceError(
-            'Seleciona ou cria um fornecedor antes de guardar este tipo de documento.'
-        )
-
-    _old_status = inv.get('status')
-    try:
-        update_invoice(invoice_id, {
-            'supplier_id': supplier_id,
-            'supplier_name': supplier_name or None,
-            'supplier_nif': supplier_nif or None,
-            'invoice_number': invoice_number or None,
-            'amount_eur': amount_eur,
-            'vat_amount_eur': vat_amount_eur,
-            'issue_date': issue_date,
-            'due_date': due_date,
-            'store_id': store_id,
-            'category': category or None,
-            'onedrive_subfolder': onedrive_subfolder or None,
-            'onedrive_path': onedrive_path,
-            'status': 'pending_review',
-            'notes': notes or None,
-            'document_type': document_type,
-            'centro_custo_id': centro_custo_id,
-            'categoria_custo_id': categoria_custo_id,
-        }, changed_by=changed_by)
-    except Exception as exc:
-        raise ServiceError(f'Erro ao actualizar fatura: {exc}') from exc
 
     # Insert a distinct audit marker so OCR reviews are visually distinguishable from generic edits
     if _old_status == 'draft':
@@ -437,24 +502,6 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
             _link(supplier_id)
         except Exception as exc:
             logger.warning('link_invoices_to_supplier_by_name failed after save for supplier %s: %s', supplier_id, exc)
-
-    # When the user selected an existing supplier from the dropdown, also bulk-link
-    # all invoices that share the original OCR-detected name text — these may differ
-    # from the registered supplier name (e.g. "Foo Bar Ltd" vs "Foo Bar, Lda.").
-    if existing_supplier_id_str and supplier_id and _ocr_supplier_name:
-        try:
-            from database import bulk_link_invoices_by_name as _bulk_link
-            linked = _bulk_link(_ocr_supplier_name, supplier_id)
-            if linked:
-                logger.info(
-                    'bulk_link_invoices_by_name: linked %d invoice(s) for name=%r supplier_id=%s',
-                    linked, _ocr_supplier_name, supplier_id,
-                )
-        except Exception as exc:
-            logger.warning(
-                'bulk_link_invoices_by_name failed for name=%r supplier_id=%s: %s',
-                _ocr_supplier_name, supplier_id, exc,
-            )
 
     if onedrive_web_url and onedrive_web_url != inv.get('onedrive_web_url'):
         try:

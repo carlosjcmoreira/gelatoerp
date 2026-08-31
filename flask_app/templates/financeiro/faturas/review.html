@@ -23,32 +23,46 @@
         <input type="hidden" name="invoice_id" value="{{ inv.id }}">
         <input type="hidden" name="is_new_supplier" value="{{ '0' if supplier else '1' }}">
         <input type="hidden" name="return_to" value="{{ return_to or '' }}">
+        <input type="hidden" name="supplier_conflict_confirmed" id="rev-supplier-conflict-confirmed" value="">
+        <input type="hidden" id="rev-original-supplier-id" value="{{ inv.supplier_id or '' }}">
 
         <!-- Fornecedor card -->
         <div class="card mb-3" id="review-supplier-card">
             <div class="card-body" id="review-supplier-card-body">
                 {% if supplier %}
-                {# Existing supplier — show locked fields #}
+                {# Existing supplier — allow replacing an OCR association explicitly #}
                 <h6 class="card-title d-flex align-items-center gap-2">
                     Fornecedor
-                    <span class="badge bg-success-subtle text-success-emphasis small">Existente</span>
+                    <span class="badge bg-info-subtle text-info-emphasis small">Sugestão OCR</span>
                     <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm ms-auto" data-no-loading>
                         Editar fornecedor
                     </a>
                 </h6>
                 <div class="alert alert-light border py-2 small mb-2">
-                    Os dados do fornecedor são geridos no tile de Fornecedores e não podem ser editados aqui.
+                    Confirma o fornecedor sugerido ou seleciona outro. Os dados canónicos do fornecedor escolhido serão guardados.
                 </div>
-                <input type="hidden" name="supplier_name" value="{{ supplier.name }}">
-                <input type="hidden" name="supplier_nif" value="{{ supplier.nif }}">
+                <input type="hidden" name="existing_supplier_id" id="rev-existing-supplier-id" value="{{ supplier.id }}">
+                <input type="hidden" name="supplier_name" id="rev-supplier-name-hidden" value="{{ supplier.name }}">
+                <input type="hidden" name="supplier_nif" id="rev-supplier-nif-hidden" value="{{ supplier.nif or '' }}">
                 <div class="row g-2">
+                    <div class="col-12">
+                        <label class="form-label small">Fornecedor a registar</label>
+                        <select id="rev-existing-select" class="form-select form-select-sm">
+                            {% for s in suppliers %}
+                            <option value="{{ s.id }}" data-name="{{ s.name }}" data-nif="{{ s.nif or '' }}"
+                                    {% if s.id == supplier.id %}selected{% endif %}>
+                                {{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     <div class="col-12 col-md-8">
                         <label class="form-label small">Nome do fornecedor</label>
-                        <input type="text" class="form-control form-control-sm bg-light" value="{{ supplier.name }}" disabled>
+                        <input type="text" id="rev-supplier-name-display" class="form-control form-control-sm bg-light" value="{{ supplier.name }}" disabled>
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label small">NIF</label>
-                        <input type="text" class="form-control form-control-sm bg-light" value="{{ supplier.nif }}" disabled>
+                        <input type="text" id="rev-supplier-nif-display" class="form-control form-control-sm bg-light" value="{{ supplier.nif or '' }}" disabled>
                     </div>
                     {% if supplier.payment_method or supplier.payment_terms %}
                     <div class="col-12 col-sm-6">
@@ -318,6 +332,10 @@
     var hidIban  = document.getElementById('rev-supplier-iban-hidden');
 
     var selExisting = document.getElementById('rev-existing-select');
+    var originalSupplierId = document.getElementById('rev-original-supplier-id');
+    var conflictConfirmed = document.getElementById('rev-supplier-conflict-confirmed');
+    var nameDisplay = document.getElementById('rev-supplier-name-display');
+    var nifDisplay = document.getElementById('rev-supplier-nif-display');
     var visName  = document.getElementById('rev-supplier-name-vis');
     var visNif   = document.getElementById('rev-supplier-nif-vis');
     var visPm    = document.getElementById('rev-supplier-pm-vis');
@@ -325,6 +343,15 @@
     var visIban  = document.getElementById('rev-supplier-iban-vis');
 
     function syncHidden() {
+        if (!modeExisting && selExisting) {
+            var linkedOpt = selExisting.options[selExisting.selectedIndex];
+            hidExistingId.value = selExisting.value || '';
+            hidName.value = linkedOpt ? (linkedOpt.dataset.name || '') : '';
+            hidNif.value = linkedOpt ? (linkedOpt.dataset.nif || '') : '';
+            if (nameDisplay) nameDisplay.value = hidName.value;
+            if (nifDisplay) nifDisplay.value = hidNif.value;
+            return;
+        }
         if (!modeExisting) return;
         if (modeExisting.checked) {
             // Existing mode: use selected supplier id; clear new-supplier fields
@@ -366,6 +393,30 @@
         // Sync once more on submit to capture last-second changes
         var reviewForm = document.querySelector('form[action]');
         if (reviewForm) reviewForm.addEventListener('submit', syncHidden);
+    } else if (selExisting) {
+        selExisting.addEventListener('change', syncHidden);
+        syncHidden();
+    }
+
+    var reviewForm = document.querySelector('form[action="{{ url_for('faturas.save') }}"]');
+    if (reviewForm) {
+        reviewForm.addEventListener('submit', function(event) {
+            syncHidden();
+            var originalId = originalSupplierId ? originalSupplierId.value : '';
+            var selectedId = hidExistingId ? hidExistingId.value : '';
+            var needsConfirmation = Boolean(selectedId && originalId !== selectedId);
+            {% if supplier_identity_conflict %}
+            needsConfirmation = true;
+            {% endif %}
+            if (needsConfirmation && (!conflictConfirmed || conflictConfirmed.value !== '1')) {
+                var selectedName = hidName ? hidName.value : 'o fornecedor selecionado';
+                if (!window.confirm('Existe um conflito nos dados do fornecedor. Confirmas que deve ficar registado: ' + selectedName + '?')) {
+                    event.preventDefault();
+                    return;
+                }
+                conflictConfirmed.value = '1';
+            }
+        });
     }
 
     // ── Show/hide VAT and new-supplier extra fields by document_type ───────────

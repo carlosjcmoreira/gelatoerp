@@ -147,6 +147,98 @@ def _nifs_match(left, right) -> bool:
     return bool(left_key and right_key and left_key == right_key)
 
 
+def is_valid_portuguese_nif(nif) -> bool:
+    """Validate the checksum of a Portuguese nine-digit NIF.
+
+    Values with a non-PT country prefix are not Portuguese NIFs and therefore
+    are left outside this validation rule.
+    """
+    normalized = _normalize_nif(nif)
+    if not normalized:
+        return False
+    if normalized.startswith('PT'):
+        normalized = normalized[2:]
+        if len(normalized) != 9 or not normalized.isdigit():
+            return False
+    elif not normalized.isdigit():
+        country_prefix = normalized[:2]
+        return (
+            len(normalized) > 2
+            and country_prefix.isalpha()
+            and country_prefix != 'PT'
+        )
+    if len(normalized) != 9 or not normalized.isdigit():
+        return False
+    total = sum(int(digit) * weight for digit, weight in zip(normalized[:8], range(9, 1, -1)))
+    check = 11 - (total % 11)
+    if check >= 10:
+        check = 0
+    return check == int(normalized[-1])
+
+
+def can_auto_match_supplier_nif(nif) -> bool:
+    """Return whether an OCR NIF is safe to use for automatic supplier matching."""
+    normalized = _normalize_nif(nif)
+    if not normalized or normalized in OWN_COMPANY_NIFS:
+        return False
+    return is_valid_portuguese_nif(normalized)
+
+
+class SupplierIdentityConflict(ValueError):
+    """Raised when submitted invoice supplier fields disagree with the linked supplier."""
+
+
+def _confirmation_is_explicit(value) -> bool:
+    return str(value or '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _normalise_identity_name(value) -> str:
+    return ' '.join(str(value or '').split()).casefold()
+
+
+def _canonicalize_invoice_supplier_data(
+        cursor, data: dict, effective_supplier_id, previous_supplier_id=None):
+    """Return a write-safe copy whose supplier fields represent one entity."""
+    prepared = dict(data)
+    prepared.pop('supplier_conflict_confirmed', None)
+    if not effective_supplier_id:
+        return prepared
+
+    cursor.execute(
+        "SELECT id, name, nif FROM suppliers WHERE id = %s",
+        (effective_supplier_id,),
+    )
+    supplier = cursor.fetchone()
+    if not supplier:
+        raise ValueError('O fornecedor selecionado já não existe.')
+
+    canonical_id, canonical_name, canonical_nif = supplier
+    conflicts = []
+    if (previous_supplier_id is not None
+            and canonical_id != previous_supplier_id):
+        conflicts.append('fornecedor associado')
+    if 'supplier_name' in data:
+        submitted_name = data.get('supplier_name')
+        if _normalise_identity_name(submitted_name) != _normalise_identity_name(canonical_name):
+            conflicts.append('nome')
+    if 'supplier_nif' in data:
+        submitted_nif = data.get('supplier_nif')
+        if submitted_nif or canonical_nif:
+            if not _nifs_match(submitted_nif, canonical_nif):
+                conflicts.append('NIF')
+
+    if conflicts and not _confirmation_is_explicit(data.get('supplier_conflict_confirmed')):
+        raise SupplierIdentityConflict(
+            'Os dados introduzidos não correspondem ao fornecedor selecionado '
+            f'({", ".join(conflicts)}). Confirma qual fornecedor deve ficar registado.'
+        )
+
+    prepared['supplier_id'] = canonical_id
+    prepared['supplier_name'] = canonical_name
+    prepared['supplier_nif'] = canonical_nif or None
+    return prepared
+
+
 def get_supplier_by_nif(nif: str) -> dict:
     nif = _normalize_nif(nif)
     if not nif:
@@ -270,7 +362,7 @@ def patch_supplier(supplier_id: int, **fields) -> bool:
 
 
 def get_supplier_name_mismatches() -> list:
-    """Return invoices where supplier_name differs from the canonical suppliers.name.
+    """Return invoices whose stored supplier identity differs from the linked supplier.
 
     Useful for diagnosing desynchronised denormalised data.
     """
@@ -280,15 +372,59 @@ def get_supplier_name_mismatches() -> list:
             SELECT i.id AS invoice_id,
                    i.supplier_id,
                    i.supplier_name AS stored_name,
-                   s.name         AS canonical_name
+                   s.name         AS canonical_name,
+                   i.supplier_nif AS stored_nif,
+                   s.nif          AS canonical_nif
             FROM invoices i
             JOIN suppliers s ON s.id = i.supplier_id
             WHERE i.supplier_id IS NOT NULL
-              AND i.supplier_name IS DISTINCT FROM s.name
+              AND (
+                    i.supplier_name IS DISTINCT FROM s.name
+                 OR regexp_replace(upper(COALESCE(i.supplier_nif, '')), '^PT', '')
+                    IS DISTINCT FROM
+                    regexp_replace(upper(COALESCE(s.nif, '')), '^PT', '')
+              )
             ORDER BY s.name, i.id
         """)
         cols = [d[0] for d in cursor.description]
         return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+
+def get_supplier_identity_conflicts() -> list:
+    """Return linked invoices needing human review, without changing any data."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT i.id, i.status, i.supplier_id, i.supplier_name, i.supplier_nif,
+                   s.name, s.nif
+            FROM invoices i
+            JOIN suppliers s ON s.id = i.supplier_id
+            WHERE i.supplier_id IS NOT NULL
+            ORDER BY i.id
+        """)
+        conflicts = []
+        for row in cursor.fetchall():
+            (invoice_id, status, supplier_id, stored_name, stored_nif,
+             canonical_name, canonical_nif) = row
+            reasons = []
+            if _normalise_identity_name(stored_name) != _normalise_identity_name(canonical_name):
+                reasons.append('nome_divergente')
+            if (stored_nif or canonical_nif) and not _nifs_match(stored_nif, canonical_nif):
+                reasons.append('nif_divergente')
+            if canonical_nif and not is_valid_portuguese_nif(canonical_nif):
+                reasons.append('nif_portugues_invalido')
+            if reasons:
+                conflicts.append({
+                    'invoice_id': invoice_id,
+                    'status': status,
+                    'supplier_id': supplier_id,
+                    'stored_name': stored_name,
+                    'stored_nif': stored_nif,
+                    'canonical_name': canonical_name,
+                    'canonical_nif': canonical_nif,
+                    'reasons': reasons,
+                })
+    return conflicts
 
 
 def upsert_supplier(name: str, nif: str = None,
@@ -380,10 +516,11 @@ def upsert_supplier(name: str, nif: str = None,
                 """, (name, store_id, notes,
                       payment_method, payment_terms, iban,
                       centro_custo_id or None, categoria_custo_id or None, supplier_id))
-                # Propagate canonical name to all already-linked invoices
+                # Keep the denormalized invoice identity canonical.
                 cursor.execute(
-                    "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
-                    (name, supplier_id)
+                    "UPDATE invoices SET supplier_name = %s, supplier_nif = NULL "
+                    "WHERE supplier_id = %s",
+                    (name, supplier_id),
                 )
             else:
                 try:
@@ -423,10 +560,11 @@ def upsert_supplier(name: str, nif: str = None,
                     """, (name, store_id, notes,
                           payment_method, payment_terms, iban,
                           centro_custo_id or None, categoria_custo_id or None, supplier_id))
-                    # Propagate canonical name to all already-linked invoices
+                    # Keep the denormalized invoice identity canonical.
                     cursor.execute(
-                        "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
-                        (name, supplier_id)
+                        "UPDATE invoices SET supplier_name = %s, supplier_nif = NULL "
+                        "WHERE supplier_id = %s",
+                        (name, supplier_id),
                     )
                     logger.info("upsert_supplier: resolved race condition for null-NIF supplier '%s' (id=%s)", name, supplier_id)
             conn.commit()
@@ -435,12 +573,15 @@ def upsert_supplier(name: str, nif: str = None,
             except Exception as _exc:
                 logger.warning('link_invoices_to_supplier_by_name failed (no-nif path) for supplier %s: %s', supplier_id, _exc)
             return supplier_id
-        cursor.execute("SELECT name FROM suppliers WHERE id = %s", (supplier_id,))
-        canonical_name = cursor.fetchone()[0]
-        # Propagate canonical name to all already-linked invoices (handles rename-via-upsert)
+        cursor.execute("SELECT name, nif FROM suppliers WHERE id = %s", (supplier_id,))
+        canonical_row = cursor.fetchone()
+        canonical_name = canonical_row[0]
+        canonical_nif = canonical_row[1] if len(canonical_row) > 1 else nif
+        # Keep all already-linked invoice identity fields canonical.
         cursor.execute(
-            "UPDATE invoices SET supplier_name = %s WHERE supplier_id = %s",
-            (canonical_name, supplier_id)
+            "UPDATE invoices SET supplier_name = %s, supplier_nif = %s "
+            "WHERE supplier_id = %s",
+            (canonical_name, canonical_nif, supplier_id),
         )
         conn.commit()
     # Auto-link invoices whose supplier_name matches this supplier
@@ -483,11 +624,11 @@ def merge_supplier(source_id: int, target_id: int) -> int:
             raise ValueError(f'Fornecedor de origem {source_id} não encontrado.')
         _, source_name, source_nif = src_row
 
-        cursor.execute("SELECT id, nif FROM suppliers WHERE id = %s", (target_id,))
+        cursor.execute("SELECT id, name, nif FROM suppliers WHERE id = %s", (target_id,))
         tgt_row = cursor.fetchone()
         if not tgt_row:
             raise ValueError(f'Fornecedor de destino {target_id} não encontrado.')
-        _, target_nif = tgt_row
+        _, target_name, target_nif = tgt_row
 
         # Migrate existing aliases from source → target
         try:
@@ -520,16 +661,14 @@ def merge_supplier(source_id: int, target_id: int) -> int:
         except Exception as _alias_exc:
             logger.warning('merge_supplier: alias/ignored update skipped (table may not exist): %s', _alias_exc)
 
-        cursor.execute(
-            "UPDATE invoices SET supplier_id = %s WHERE supplier_id = %s",
-            (target_id, source_id),
-        )
+        cursor.execute("""
+            UPDATE invoices
+            SET supplier_id = %s,
+                supplier_name = %s,
+                supplier_nif = %s
+            WHERE supplier_id = %s
+        """, (target_id, target_name, target_nif, source_id))
         count = cursor.rowcount
-        # Keep the denormalized supplier_name in sync with the canonical target name
-        cursor.execute(
-            "UPDATE invoices SET supplier_name = (SELECT name FROM suppliers WHERE id = %s) WHERE supplier_id = %s",
-            (target_id, target_id),
-        )
         cursor.execute("DELETE FROM suppliers WHERE id = %s", (source_id,))
         conn.commit()
     logger.info('merge_supplier: %d→%d, %d invoice(s) re-linked', source_id, target_id, count)
@@ -801,19 +940,25 @@ def link_invoices_to_supplier_by_name(supplier_id: int) -> int:
     """
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM suppliers WHERE id = %s", (supplier_id,))
+        cursor.execute("SELECT name, nif FROM suppliers WHERE id = %s", (supplier_id,))
         row = cursor.fetchone()
         if not row:
             return 0
-        name = row[0]
+        name, nif = row
+        nif_key = _nif_match_key(nif)
         cursor.execute("""
             UPDATE invoices
             SET supplier_id = %s,
-                supplier_name = %s
+                supplier_name = %s,
+                supplier_nif = %s
             WHERE LOWER(supplier_name) = LOWER(%s)
               AND status != 'draft'
               AND (supplier_id IS NULL OR supplier_id = %s)
-        """, (supplier_id, name, name, supplier_id))
+              AND (
+                    supplier_nif IS NULL
+                 OR regexp_replace(upper(COALESCE(supplier_nif, '')), '^PT', '') = %s
+              )
+        """, (supplier_id, name, nif, name, supplier_id, nif_key))
         count = cursor.rowcount
         conn.commit()
     return count
@@ -835,10 +980,18 @@ def bulk_link_invoices_by_name(supplier_name: str, supplier_id: int) -> int:
             UPDATE invoices
             SET supplier_id = %s,
                 supplier_name = %s,
-                supplier_nif = COALESCE(%s, supplier_nif)
+                supplier_nif = %s
             WHERE supplier_name = %s
               AND status != 'draft'
-        """, (supplier_id, canonical_name, nif, supplier_name))
+              AND (supplier_id IS NULL OR supplier_id = %s)
+              AND (
+                    supplier_nif IS NULL
+                 OR regexp_replace(upper(COALESCE(supplier_nif, '')), '^PT', '') = %s
+              )
+        """, (
+            supplier_id, canonical_name, nif, supplier_name, supplier_id,
+            _nif_match_key(nif),
+        ))
         count = cursor.rowcount
         conn.commit()
     return count
@@ -1185,6 +1338,7 @@ def backfill_supplier_ids() -> dict:
 
             if row:
                 supplier_id, canonical_name = row[0], row[1]
+                canonical_nif = row[2] if len(row) > 2 else (nif or None)
             elif nif:
                 # Create a separate record when no NIF-confirmed identity
                 # exists. It will be visible for human duplicate review.
@@ -1197,6 +1351,7 @@ def backfill_supplier_ids() -> dict:
                 """, (supplier_name, nif))
                 result = cursor.fetchone()
                 supplier_id, canonical_name = result[0], result[1]
+                canonical_nif = result[2] if len(result) > 2 else nif
                 suppliers_created += 1
             else:
                 # 3. Create without NIF
@@ -1207,17 +1362,19 @@ def backfill_supplier_ids() -> dict:
                 """, (supplier_name,))
                 result = cursor.fetchone()
                 supplier_id, canonical_name = result[0], result[1]
+                canonical_nif = result[2] if len(result) > 2 else None
                 suppliers_created += 1
 
             cursor.execute("""
                 UPDATE invoices
                 SET supplier_id = %s,
-                    supplier_name = %s
+                    supplier_name = %s,
+                    supplier_nif = %s
                 WHERE LOWER(supplier_name) = LOWER(%s)
                   AND COALESCE(supplier_nif, '') = %s
                   AND supplier_id IS NULL
                   AND status != 'draft'
-            """, (supplier_id, canonical_name, supplier_name, nif))
+            """, (supplier_id, canonical_name, canonical_nif, supplier_name, nif))
             invoices_linked += cursor.rowcount
 
         conn.commit()
@@ -1485,10 +1642,16 @@ def normalise_supplier_names() -> int:
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE invoices
-            SET supplier_name = s.name
+            SET supplier_name = s.name,
+                supplier_nif = s.nif
             FROM suppliers s
             WHERE invoices.supplier_id = s.id
-              AND invoices.supplier_name IS DISTINCT FROM s.name
+              AND (
+                    invoices.supplier_name IS DISTINCT FROM s.name
+                 OR regexp_replace(upper(COALESCE(invoices.supplier_nif, '')), '^PT', '')
+                    IS DISTINCT FROM
+                    regexp_replace(upper(COALESCE(s.nif, '')), '^PT', '')
+              )
         """)
         count = cursor.rowcount
         conn.commit()
@@ -1690,7 +1853,8 @@ def get_invoices(status: str = None, statuses: list = None,
                     ) AS centro_custo_name,
                      ccat.name AS categoria_custo_name,
                      s.name AS supplier_legal_name,
-                     COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
+                     COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name,
+                     s.nif AS supplier_legal_nif
             FROM invoices i
             LEFT JOIN suppliers s ON s.id = i.supplier_id
             LEFT JOIN cost_centers cc ON cc.id = i.centro_custo_id
@@ -1717,6 +1881,7 @@ def get_invoices(status: str = None, statuses: list = None,
         inv['has_pdf'] = bool(r[28]) if len(r) > 28 else False
         inv['supplier_legal_name'] = r[31] if len(r) > 31 else inv['supplier_name']
         inv['supplier_display_name'] = r[32] if len(r) > 32 else inv['supplier_name']
+        inv['supplier_legal_nif'] = r[33] if len(r) > 33 else inv['supplier_nif']
         result.append(inv)
     return result
 
@@ -1856,7 +2021,8 @@ def get_invoice(invoice_id: int) -> dict:
                    i.accounting_updated_by,
                     i.accounting_updated_at,
                     s.name AS supplier_legal_name,
-                    COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
+                     COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name,
+                     s.nif AS supplier_legal_nif
             FROM invoices i
             LEFT JOIN suppliers s ON s.id = i.supplier_id
             LEFT JOIN invoice_payments ip ON ip.invoice_id = i.id
@@ -1882,6 +2048,22 @@ def get_invoice(invoice_id: int) -> dict:
     inv['accounting_updated_at'] = row[37] if len(row) > 37 else None
     inv['supplier_legal_name'] = row[38] if len(row) > 38 else inv['supplier_name']
     inv['supplier_display_name'] = row[39] if len(row) > 39 else inv['supplier_name']
+    inv['supplier_legal_nif'] = row[40] if len(row) > 40 else inv['supplier_nif']
+    inv['supplier_identity_conflict'] = bool(
+        inv.get('supplier_id')
+        and (
+            _normalise_identity_name(inv.get('supplier_name'))
+            != _normalise_identity_name(inv.get('supplier_legal_name'))
+            or (
+                bool(inv.get('supplier_nif') or inv.get('supplier_legal_nif'))
+                and not _nifs_match(inv.get('supplier_nif'), inv.get('supplier_legal_nif'))
+            )
+            or (
+                bool(inv.get('supplier_legal_nif'))
+                and not is_valid_portuguese_nif(inv.get('supplier_legal_nif'))
+            )
+        )
+    )
     return inv
 
 
@@ -1970,6 +2152,10 @@ def create_invoice(data: dict) -> int:
         )
     with db_connection() as conn:
         cursor = conn.cursor()
+        if data.get('supplier_id'):
+            data = _canonicalize_invoice_supplier_data(
+                cursor, data, data.get('supplier_id')
+            )
         cursor.execute("""
             INSERT INTO invoices (
                 supplier_id, supplier_name, supplier_nif, invoice_number,
@@ -2046,23 +2232,12 @@ def get_invoice_audit_log(invoice_id: int) -> list:
 
 
 def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
-    fields = []
-    params = []
     allowed = [
         'supplier_name', 'supplier_nif', 'invoice_number', 'amount_eur', 'vat_amount_eur',
         'issue_date', 'due_date', 'category', 'onedrive_subfolder',
         'onedrive_path', 'status', 'cfo_confirmed_date', 'paid_date', 'notes', 'supplier_id',
         'document_type', 'centro_custo_id', 'categoria_custo_id', 'payment_method',
     ]
-    for key in allowed:
-        if key in data:
-            fields.append(f"{key} = %s")
-            params.append(data[key])
-    if not fields:
-        return
-    fields.append("updated_at = NOW()")
-    params.append(invoice_id)
-
     # Fields tracked in audit log (human-editable, meaningful to audit)
     _AUDIT_TRACKED = [
         'supplier_name', 'supplier_nif', 'supplier_id',
@@ -2071,10 +2246,39 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
         'notes', 'status', 'payment_method',
         'centro_custo_id', 'categoria_custo_id', 'paid_date', 'cfo_confirmed_date',
     ]
-    fields_to_audit = [f for f in _AUDIT_TRACKED if f in data]
-
     with db_connection() as conn:
         cursor = conn.cursor()
+        identity_fields = {'supplier_id', 'supplier_name', 'supplier_nif'}
+        if identity_fields.intersection(data):
+            cursor.execute(
+                "SELECT supplier_id FROM invoices WHERE id = %s",
+                (invoice_id,),
+            )
+            identity_row = cursor.fetchone()
+            existing_supplier_id = identity_row[0] if identity_row else None
+            effective_supplier_id = (
+                data.get('supplier_id')
+                if 'supplier_id' in data
+                else existing_supplier_id
+            )
+            data = _canonicalize_invoice_supplier_data(
+                cursor, data, effective_supplier_id,
+                previous_supplier_id=existing_supplier_id,
+            )
+
+        fields = []
+        params = []
+        for key in allowed:
+            if key in data:
+                fields.append(f"{key} = %s")
+                params.append(data[key])
+        if not fields:
+            return
+        fields.append("updated_at = NOW()")
+        params.append(invoice_id)
+
+        fields_to_audit = [f for f in _AUDIT_TRACKED if f in data]
+
         # Central guard: invoice-type documents cannot enter post-draft states without supplier_id
         new_status = data.get('status')
         if new_status in _STATUSES_REQUIRING_SUPPLIER:

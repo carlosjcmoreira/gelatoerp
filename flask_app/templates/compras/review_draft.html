@@ -37,7 +37,11 @@
     </div>
     {% endif %}
 
-    <form method="post" action="{{ url_for('compras.review_draft', invoice_id=inv.id) }}">
+    <form method="post" action="{{ url_for('compras.review_draft', invoice_id=inv.id) }}"
+          onsubmit="return rdConfirmSupplierConflict(this)">
+        <input type="hidden" name="supplier_conflict_confirmed" id="rdSupplierConflictConfirmed" value="">
+        <input type="hidden" id="rdOriginalSupplierId" value="{{ inv.supplier_id or '' }}">
+        <input type="hidden" id="rdHadSupplierConflict" value="{{ '1' if inv.supplier_identity_conflict else '0' }}">
 
         <div class="d-flex gap-2 mb-3">
             <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
@@ -47,6 +51,21 @@
         <div class="card mb-3">
             <div class="card-body">
                 <h6 class="card-title mb-3 text-muted small text-uppercase">Fornecedor</h6>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Selecionar fornecedor existente</label>
+                    <select class="form-select" id="rdSupplierSelect"
+                            onchange="rdSelectSupplier(this)">
+                        <option value="">— selecionar —</option>
+                        {% for s in suppliers %}
+                        <option value="{{ s.id }}" data-name="{{ s.name }}" data-nif="{{ s.nif or '' }}"
+                                {% if s.id == inv.supplier_id %}selected{% endif %}>
+                            {{ s.name }}{% if s.nif %} · {{ s.nif }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Ao trocar, serão registados o nome e NIF canónicos do fornecedor escolhido.</div>
+                </div>
 
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Fornecedor <span class="text-danger">*</span></label>
@@ -277,10 +296,44 @@ function rdAssociate(id, name, nif) {
     if (lbl) lbl.textContent = '✓ Vai associar a "' + name + '"';
 }
 
+function rdSelectSupplier(select) {
+    var opt = select.options[select.selectedIndex];
+    if (!opt || !opt.value) return;
+    rdAssociate(Number(opt.value), opt.getAttribute('data-name') || '', opt.getAttribute('data-nif') || null);
+}
+
 function rdCreate() {
     document.getElementById('rdSupplierAction').value = 'create';
     var lbl = document.getElementById('rdActionLabel');
     if (lbl) lbl.textContent = '✓ Vai criar fornecedor novo';
+}
+
+function rdConfirmSupplierConflict(form) {
+    var action = document.getElementById('rdSupplierAction');
+    var original = document.getElementById('rdOriginalSupplierId');
+    var hadConflict = document.getElementById('rdHadSupplierConflict');
+    var confirmed = document.getElementById('rdSupplierConflictConfirmed');
+    var selectedId = '';
+    if (action && action.value.indexOf('associate:') === 0) {
+        selectedId = action.value.substring('associate:'.length);
+    } else {
+        var select = document.getElementById('rdSupplierSelect');
+        selectedId = select ? select.value : '';
+    }
+    var originalId = original ? original.value : '';
+    var needsConfirmation = Boolean(
+        (selectedId && selectedId !== originalId)
+        || (action && action.value === 'create')
+        || (hadConflict && hadConflict.value === '1')
+    );
+    if (!needsConfirmation) return true;
+    var supplierName = document.querySelector('input[name="supplier_name"]');
+    var label = supplierName && supplierName.value ? supplierName.value : 'o fornecedor selecionado';
+    if (!window.confirm('Existe um conflito nos dados do fornecedor. Confirmas que deve ficar registado: ' + label + '?')) {
+        return false;
+    }
+    if (confirmed) confirmed.value = '1';
+    return true;
 }
 
 (function() {

@@ -1175,9 +1175,31 @@ def review(invoice_id):
     if inv.get('supplier_id'):
         supplier = get_supplier_by_id(inv['supplier_id'])
     if not supplier and inv.get('supplier_nif'):
-        supplier = get_supplier_by_nif(inv['supplier_nif'])
+        from db.faturas import can_auto_match_supplier_nif
+        if can_auto_match_supplier_nif(inv['supplier_nif']):
+            supplier = get_supplier_by_nif(inv['supplier_nif'])
     if not supplier and inv.get('supplier_name'):
         supplier = get_supplier_by_name(inv['supplier_name'])
+
+    supplier_identity_conflict = False
+    if supplier:
+        from db.faturas import (
+            _nifs_match,
+            _normalise_identity_name,
+            is_valid_portuguese_nif,
+        )
+        supplier_identity_conflict = (
+            _normalise_identity_name(inv.get('supplier_name'))
+            != _normalise_identity_name(supplier.get('name'))
+            or (
+                bool(inv.get('supplier_nif') or supplier.get('nif'))
+                and not _nifs_match(inv.get('supplier_nif'), supplier.get('nif'))
+            )
+            or (
+                bool(supplier.get('nif'))
+                and not is_valid_portuguese_nif(supplier.get('nif'))
+            )
+        )
 
     return_to = session.get('faturas_return_to', '')
 
@@ -1186,6 +1208,7 @@ def review(invoice_id):
         inv=inv,
         ocr=ocr,
         supplier=supplier,
+        supplier_identity_conflict=supplier_identity_conflict,
         pdf_filename=inv.get('pdf_filename', 'fatura.pdf'),
         stores=stores,
         subfolders=ONEDRIVE_SUBFOLDERS,
@@ -1236,6 +1259,7 @@ def save():
         'supplier_iban': request.form.get('supplier_iban', ''),
         'is_new_supplier': request.form.get('is_new_supplier', ''),
         'existing_supplier_id': request.form.get('existing_supplier_id', ''),
+        'supplier_conflict_confirmed': request.form.get('supplier_conflict_confirmed', ''),
         'centro_custo_id': request.form.get('centro_custo_id', ''),
         'categoria_custo_id': request.form.get('categoria_custo_id', ''),
     }
@@ -1653,23 +1677,28 @@ def edit(invoice_id: int):
         return _panel_redirect(invoice_id)
 
     _edit_user = session.get('user', {}).get('username', 'sistema')
-    update_invoice(invoice_id, {
-        'supplier_id': supplier_id,
-        'supplier_name': supplier_name or None,
-        'supplier_nif': supplier_nif or None,
-        'invoice_number': invoice_number or None,
-        'amount_eur': amount_eur,
-        'vat_amount_eur': vat_amount_eur,
-        'issue_date': issue_date,
-        'due_date': due_date,
-        'category': category or None,
-        'onedrive_subfolder': onedrive_subfolder or None,
-        'status': status,
-        'notes': notes or None,
-        'document_type': document_type,
-        'centro_custo_id': centro_custo_id,
-        'categoria_custo_id': categoria_custo_id,
-    }, changed_by=_edit_user)
+    try:
+        update_invoice(invoice_id, {
+            'supplier_id': supplier_id,
+            'supplier_name': supplier_name or None,
+            'supplier_nif': supplier_nif or None,
+            'supplier_conflict_confirmed': request.form.get('supplier_conflict_confirmed', ''),
+            'invoice_number': invoice_number or None,
+            'amount_eur': amount_eur,
+            'vat_amount_eur': vat_amount_eur,
+            'issue_date': issue_date,
+            'due_date': due_date,
+            'category': category or None,
+            'onedrive_subfolder': onedrive_subfolder or None,
+            'status': status,
+            'notes': notes or None,
+            'document_type': document_type,
+            'centro_custo_id': centro_custo_id,
+            'categoria_custo_id': categoria_custo_id,
+        }, changed_by=_edit_user)
+    except ValueError as exc:
+        flash(str(exc), 'warning')
+        return _panel_redirect(invoice_id)
 
     flash('Documento actualizado.', 'success')
     return _panel_redirect(invoice_id)

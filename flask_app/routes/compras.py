@@ -681,8 +681,34 @@ def review_draft(invoice_id):
         supplier_id = inv.get('supplier_id')
         _supplier_created = False
         # Never use the company's own NIF to resolve a supplier
-        from db.faturas import OWN_COMPANY_NIFS, _normalize_nif as _nif_norm
-        _nif_for_lookup = supplier_nif_clean if _nif_norm(supplier_nif_clean) not in OWN_COMPANY_NIFS else None
+        from db.faturas import (
+            OWN_COMPANY_NIFS,
+            _normalize_nif as _nif_norm,
+            can_auto_match_supplier_nif,
+        )
+        _nif_for_lookup = (
+            supplier_nif_clean
+            if (_nif_norm(supplier_nif_clean) not in OWN_COMPANY_NIFS
+                and can_auto_match_supplier_nif(supplier_nif_clean))
+            else None
+        )
+        _has_unusable_ocr_nif = bool(supplier_nif_clean and not _nif_for_lookup)
+        if supplier_action.startswith('associate:'):
+            if (_has_unusable_ocr_nif
+                    and request.form.get('supplier_conflict_confirmed', '') != '1'):
+                flash(
+                    'O NIF extraído é inválido. Confirma explicitamente o fornecedor '
+                    'que deve ficar associado antes de guardar.',
+                    'warning',
+                )
+                return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
+            _assoc_id = supplier_action[len('associate:'):]
+            if _assoc_id.isdigit():
+                selected_supplier = get_supplier_by_id(int(_assoc_id))
+                if selected_supplier:
+                    supplier_id = selected_supplier['id']
+                    supplier_name = selected_supplier['name']
+                    supplier_nif_clean = selected_supplier.get('nif') or None
         if doc_type in {'fatura', 'nota_credito', 'nota_debito'} and not supplier_id:
             # 1. Try exact match (by NIF, alias, or name)
             _exact = None
@@ -690,7 +716,7 @@ def review_draft(invoice_id):
                 _exact = get_supplier_by_nif(_nif_for_lookup)
                 if not _exact:
                     _exact = get_supplier_by_alias(supplier_name or '', supplier_nif_clean)
-            if not _exact and supplier_name:
+            if not _exact and supplier_name and not _has_unusable_ocr_nif:
                 _by_name = get_supplier_by_name(supplier_name)
                 if _by_name and (
                     not _nif_for_lookup
@@ -707,13 +733,16 @@ def review_draft(invoice_id):
                 # not reintroduce the OCR/display-name variant.
                 supplier_name = _exact['name']
                 supplier_nif_clean = _exact.get('nif') or supplier_nif_clean
-            elif supplier_action.startswith('associate:'):
-                # User explicitly chose an existing supplier
-                _assoc_id = supplier_action[len('associate:'):]
-                if _assoc_id.isdigit():
-                    supplier_id = int(_assoc_id)
             elif supplier_action == 'create':
                 # User explicitly chose to create a new supplier
+                if (_has_unusable_ocr_nif
+                        and request.form.get('supplier_conflict_confirmed', '') != '1'):
+                    flash(
+                        'O NIF extraído é inválido. Confirma explicitamente os dados '
+                        'antes de criar o fornecedor.',
+                        'warning',
+                    )
+                    return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
                 supplier_id = upsert_supplier(name=supplier_name, nif=_nif_for_lookup)
                 _supplier_created = True
             else:
@@ -742,23 +771,28 @@ def review_draft(invoice_id):
             if _sup_data and _sup_data.get('categoria_custo_id'):
                 categoria_custo_id = _sup_data['categoria_custo_id']
 
-        update_invoice(invoice_id, {
-            'supplier_id': supplier_id,
-            'supplier_name': supplier_name,
-            'supplier_nif': supplier_nif_clean,
-            'invoice_number': request.form.get('invoice_number', '').strip() or None,
-            'amount_eur': amount_eur,
-            'vat_amount_eur': vat_amount_eur,
-            'issue_date': issue_date.isoformat() if issue_date else None,
-            'due_date': due_date.isoformat() if due_date else None,
-            'document_type': doc_type,
-            'status': new_status,
-            'paid_date': paid_date.isoformat() if paid_date else None,
-            'payment_method': payment_method if ja_paga else None,
-            'centro_custo_id': centro_custo_id,
-            'categoria_custo_id': categoria_custo_id,
-            'notes': notes,
-        }, changed_by=_compras_actor)
+        try:
+            update_invoice(invoice_id, {
+                'supplier_id': supplier_id,
+                'supplier_name': supplier_name,
+                'supplier_nif': supplier_nif_clean,
+                'supplier_conflict_confirmed': request.form.get('supplier_conflict_confirmed', ''),
+                'invoice_number': request.form.get('invoice_number', '').strip() or None,
+                'amount_eur': amount_eur,
+                'vat_amount_eur': vat_amount_eur,
+                'issue_date': issue_date.isoformat() if issue_date else None,
+                'due_date': due_date.isoformat() if due_date else None,
+                'document_type': doc_type,
+                'status': new_status,
+                'paid_date': paid_date.isoformat() if paid_date else None,
+                'payment_method': payment_method if ja_paga else None,
+                'centro_custo_id': centro_custo_id,
+                'categoria_custo_id': categoria_custo_id,
+                'notes': notes,
+            }, changed_by=_compras_actor)
+        except ValueError as exc:
+            flash(str(exc), 'warning')
+            return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
         if _supplier_created:
             flash(f"Fornecedor '{supplier_name}' criado automaticamente. Verifica em Fornecedores se é duplicado.", 'warning')
         if ja_paga:
@@ -810,6 +844,7 @@ def review_draft(invoice_id):
 
     return render_template('compras/review_draft.html',
                            inv=inv,
+                           suppliers=get_suppliers(),
                            document_type_labels=DOCUMENT_TYPE_LABELS,
                            payment_methods=payment_methods,
                            cost_centers=cost_centers,

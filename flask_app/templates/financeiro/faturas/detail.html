@@ -205,7 +205,11 @@
         </div>
         <div class="collapse" id="editForm">
             <div class="card-body">
-                <form method="post" action="{{ url_for('faturas.edit', invoice_id=inv.id) }}">
+                <form method="post" action="{{ url_for('faturas.edit', invoice_id=inv.id) }}"
+                      onsubmit="return detailConfirmSupplierConflict('{{ inv.id }}', this)">
+                    <input type="hidden" name="supplier_conflict_confirmed" id="detailSupplierConflict{{ inv.id }}" value="">
+                    <input type="hidden" id="detailOriginalSupplier{{ inv.id }}" value="{{ inv.supplier_id or '' }}">
+                    <input type="hidden" id="detailHadSupplierConflict{{ inv.id }}" value="{{ '1' if inv.supplier_identity_conflict else '0' }}">
                     <div class="row g-2">
                         <div class="col-12">
                             <label class="form-label small">Tipo de documento</label>
@@ -1137,6 +1141,24 @@ function detailOnSupplierChange(invId, sel) {
     var nifEl  = document.getElementById('detailSupplierNif'  + invId);
     if (nameEl) nameEl.value = name;
     if (nifEl)  nifEl.value  = nif;
+}
+
+function detailConfirmSupplierConflict(invId, form) {
+    var supplierSelect = document.getElementById('detailSupplierSelect' + invId);
+    var original = document.getElementById('detailOriginalSupplier' + invId);
+    var hadConflict = document.getElementById('detailHadSupplierConflict' + invId);
+    var confirmed = document.getElementById('detailSupplierConflict' + invId);
+    var selectedId = supplierSelect ? supplierSelect.value : '';
+    var originalId = original ? original.value : '';
+    var needsConfirmation = (selectedId !== originalId) || (hadConflict && hadConflict.value === '1');
+    if (!needsConfirmation) return true;
+    var opt = supplierSelect ? supplierSelect.options[supplierSelect.selectedIndex] : null;
+    var selectedName = opt ? (opt.getAttribute('data-name') || 'o fornecedor selecionado') : 'sem fornecedor';
+    if (!window.confirm('Existe um conflito nos dados do fornecedor. Confirmas que deve ficar registado: ' + selectedName + '?')) {
+        return false;
+    }
+    if (confirmed) confirmed.value = '1';
+    return true;
 }
 
 function preencherDescricaoMaterial(sel, descId, unidadeId) {
