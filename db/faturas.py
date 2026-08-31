@@ -1476,8 +1476,9 @@ _STATUS_COLORS_FALLBACK = {
 }
 
 
+@ttl_cache('invoice_status_configs', ttl=120)
 def get_invoice_status_configs():
-    """Return all rows from invoice_status_config ordered by sort_order (no cache)."""
+    """Return all rows from invoice_status_config ordered by sort_order."""
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
@@ -1512,6 +1513,16 @@ def get_invoice_status_colors_map() -> dict:
 
 
 _NON_BULK_STATUS_KEYS = frozenset({'draft', 'overdue'})
+_INVOICE_STATUS_CACHE_KEYS = (
+    'invoice_status_configs',
+    'invoice_status_colors_map',
+    'invoice_status_labels_map',
+    'invoice_status_bulk_allowed',
+)
+
+
+def _invalidate_invoice_status_cache() -> None:
+    _cache_invalidate(*_INVOICE_STATUS_CACHE_KEYS)
 
 
 @ttl_cache('invoice_status_bulk_allowed', ttl=120)
@@ -1544,8 +1555,7 @@ def upsert_invoice_status_config(key: str, label: str, bg_class: str,
             (key, label, bg_class, sort_order, active),
         )
         conn.commit()
-    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map',
-                      'invoice_status_bulk_allowed')
+    _invalidate_invoice_status_cache()
 
 
 def bulk_update_invoice_status_sort_order(ordered_keys: list) -> None:
@@ -1560,8 +1570,7 @@ def bulk_update_invoice_status_sort_order(ordered_keys: list) -> None:
                 (position, key),
             )
         conn.commit()
-    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map',
-                      'invoice_status_bulk_allowed')
+    _invalidate_invoice_status_cache()
 
 
 def delete_invoice_status_config(key: str) -> None:
@@ -1576,8 +1585,7 @@ def delete_invoice_status_config(key: str) -> None:
             )
         cursor.execute("DELETE FROM invoice_status_config WHERE key = %s", (key,))
         conn.commit()
-    _cache_invalidate('invoice_status_colors_map', 'invoice_status_labels_map',
-                      'invoice_status_bulk_allowed')
+    _invalidate_invoice_status_cache()
 
 
 ONEDRIVE_SUBFOLDERS = [

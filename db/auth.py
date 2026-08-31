@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger
 from db.connection import hash_password, verify_password
-from db.cache import ttl_cache, ttl_cache_args, invalidate_prefix
+from db.cache import ttl_cache
 import secrets
 import json
 
@@ -30,21 +30,31 @@ def _fetch_vendas_store_ids(cursor, user_id: int) -> list:
     return [r[0] for r in cursor.fetchall()]
 
 
-@ttl_cache_args('session_user', ttl=20)
 def get_session_user(token: str):
     if not token:
         return None
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT u.id, u.username, u.role, u.nome, u.acesso_eurokg, u.acesso_producao, u.acesso_vendas, u.acesso_pastelaria, u.acesso_confeitaria, u.acesso_gestor, u.acesso_administrativo, u.loja_id, u.acesso_financeiro, u.acesso_eventos, u.acesso_tarefas, COALESCE(u.acesso_contabilidade, FALSE), COALESCE(u.acesso_compras, FALSE)
-            FROM sessions s JOIN users u ON s.user_id = u.id
+            SELECT u.id, u.username, u.role, u.nome, u.acesso_eurokg, u.acesso_producao, u.acesso_vendas, u.acesso_pastelaria, u.acesso_confeitaria, u.acesso_gestor, u.acesso_administrativo, u.loja_id, u.acesso_financeiro, u.acesso_eventos, u.acesso_tarefas, COALESCE(u.acesso_contabilidade, FALSE), COALESCE(u.acesso_compras, FALSE),
+                   COALESCE(
+                       array_agg(usv.store_id ORDER BY usv.store_id)
+                       FILTER (WHERE usv.store_id IS NOT NULL),
+                       '{}'
+                   )
+            FROM sessions s
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN user_store_vendas usv ON usv.user_id = u.id
             WHERE s.token = %s AND s.expires_at > NOW() AND u.ativo = TRUE
+            GROUP BY u.id, u.username, u.role, u.nome, u.acesso_eurokg,
+                     u.acesso_producao, u.acesso_vendas, u.acesso_pastelaria,
+                     u.acesso_confeitaria, u.acesso_gestor, u.acesso_administrativo,
+                     u.loja_id, u.acesso_financeiro, u.acesso_eventos,
+                     u.acesso_tarefas, u.acesso_contabilidade, u.acesso_compras
         """, (token,))
         row = cursor.fetchone()
         if row:
             user_id = row[0]
-            vendas_store_ids = _fetch_vendas_store_ids(cursor, user_id)
             return {
                 'id': user_id, 'username': row[1], 'role': row[2], 'nome': row[3],
                 'acesso_eurokg': row[4], 'acesso_producao': row[5], 'acesso_vendas': row[6],
@@ -54,7 +64,7 @@ def get_session_user(token: str):
                 'acesso_tarefas': row[14],
                 'acesso_contabilidade': row[15],
                 'acesso_compras': row[16],
-                'vendas_store_ids': vendas_store_ids,
+                'vendas_store_ids': list(row[17] or []),
             }
         return None
 
@@ -190,9 +200,6 @@ def update_user_permissoes_batch(updates: list):
                     (u['id'], sid)
                 )
         conn.commit()
-    # Flush all cached session-user lookups so updated permissions take effect
-    # on the very next request (within this process) rather than after the TTL.
-    invalidate_prefix('session_user:')
 
 
 @ttl_cache('active_venda_stores', ttl=600)

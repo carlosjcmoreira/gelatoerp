@@ -4,7 +4,7 @@ Shared between the Jinja2 context processor (injected globally into all
 templates) and the home route (used to compute the redirect target).
 """
 import logging
-from flask import url_for
+from flask import g, url_for
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,14 @@ def compute_nav_pages(user: dict) -> list:
 
     Must be called inside a Flask request/application context (url_for).
     """
+    # The home route also calls this function before rendering the template.
+    # Keep the result request-local: a process-wide cache would risk serving
+    # one user's permissions to another, while recalculating it doubles the
+    # navigation/configuration lookups on the dashboard.
+    cached = g.get('_nav_pages')
+    if cached is not None:
+        return cached
+
     try:
         from db.tiles import get_module_labels, get_module_icons
         module_labels = get_module_labels()
@@ -110,4 +118,5 @@ def compute_nav_pages(user: dict) -> list:
             'prefix': '/eventos',
         })
 
+    g._nav_pages = pages
     return pages

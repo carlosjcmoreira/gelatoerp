@@ -5,10 +5,20 @@ All tiles default to visible=True when first encountered.
 """
 import logging
 from db.connection import db_connection, db_retry
+from db.cache import ttl_cache, ttl_cache_args, invalidate, invalidate_prefix
 
 logger = logging.getLogger(__name__)
 
 _LOCK_TILE_CONFIG = 202613
+
+
+def _invalidate_tile_config_cache() -> None:
+    """Invalidate every cached view of tile configuration after a write."""
+    invalidate(
+        'module_overrides',
+        'all_tile_config',
+    )
+    invalidate_prefix('tile_config:')
 
 
 def run_migrations_tile_config():
@@ -68,23 +78,37 @@ def run_migrations_tile_config():
         """)
 
         conn.commit()
+        _invalidate_tile_config_cache()
         logger.info("run_migrations_tile_config: tile_config ready")
 
 
 @db_retry
+@ttl_cache_args('tile_config', ttl=300)
+def _get_tile_config(module: str) -> dict:
+    """Load all configuration fields for one module in a single query."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT tile_id, label, visible, icon FROM tile_config WHERE module = %s",
+            (module,)
+        )
+        rows = cursor.fetchall()
+    return {
+        row[0]: {
+            'label': row[1] or '',
+            'visible': bool(row[2]),
+            'icon': row[3] or '',
+        }
+        for row in rows
+    }
+
+
 def get_tile_visibility(module: str) -> dict:
     """Return {tile_id: visible} dict for a given module.
 
     Tiles not in the DB are considered visible (default True).
     """
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT tile_id, visible FROM tile_config WHERE module = %s",
-            (module,)
-        )
-        rows = cursor.fetchall()
-    return {row[0]: bool(row[1]) for row in rows}
+    return {tile_id: row['visible'] for tile_id, row in _get_tile_config(module).items()}
 
 
 def set_tile_visibility(module: str, tile_id: str, visible: bool, label: str = '') -> None:
@@ -101,6 +125,7 @@ def set_tile_visibility(module: str, tile_id: str, visible: bool, label: str = '
                                  ELSE tile_config.label END
         """, (module, tile_id, label, visible))
         conn.commit()
+    _invalidate_tile_config_cache()
 
 
 def seed_tile_config(module: str, tiles: list) -> None:
@@ -122,18 +147,16 @@ def seed_tile_config(module: str, tiles: list) -> None:
                                      ELSE tile_config.label END
             """, (module, t['id'], t.get('label', '')))
         conn.commit()
+    _invalidate_tile_config_cache()
 
 
 def get_tile_labels(module: str) -> dict:
     """Return {tile_id: label} for tiles that have a non-empty custom label in the given module."""
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT tile_id, label FROM tile_config WHERE module = %s AND label != ''",
-            (module,)
-        )
-        rows = cursor.fetchall()
-    return {row[0]: row[1] for row in rows}
+    return {
+        tile_id: row['label']
+        for tile_id, row in _get_tile_config(module).items()
+        if row['label']
+    }
 
 
 def set_tile_label(module: str, tile_id: str, label: str) -> None:
@@ -148,6 +171,29 @@ def set_tile_label(module: str, tile_id: str, label: str) -> None:
                     updated_at = NOW()
         """, (module, tile_id, label.strip()))
         conn.commit()
+    _invalidate_tile_config_cache()
+
+
+@ttl_cache('module_overrides', ttl=300)
+def _get_module_overrides() -> dict:
+    """Load module labels and icons together; both live in tile_config."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """SELECT module, tile_id, label, icon
+               FROM tile_config
+               WHERE tile_id IN ('_module_label', '_module_icon')
+                 AND (label != '' OR icon != '')"""
+        )
+        rows = cursor.fetchall()
+    labels = {}
+    icons = {}
+    for module, tile_id, label, icon in rows:
+        if tile_id == '_module_label' and label:
+            labels[module] = label
+        elif tile_id == '_module_icon' and icon:
+            icons[module] = icon
+    return {'labels': labels, 'icons': icons}
 
 
 def get_module_labels() -> dict:
@@ -157,16 +203,10 @@ def get_module_labels() -> dict:
     existing tile_config table without a schema change.  Modules not in the
     result have no custom label and should fall back to their built-in default.
     """
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT module, label FROM tile_config"
-            " WHERE tile_id = '_module_label' AND label != ''",
-        )
-        rows = cursor.fetchall()
-    return {row[0]: row[1] for row in rows}
+    return dict(_get_module_overrides()['labels'])
 
 
+@ttl_cache('all_tile_config', ttl=300)
 def get_all_tile_config() -> list:
     """Return all tile_config rows ordered by module, tile_id.
 
@@ -192,14 +232,7 @@ def get_module_icons() -> dict:
     Module icons are stored with tile_id='_module_icon' in the icon column.
     Modules not in the result should fall back to their built-in default.
     """
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT module, icon FROM tile_config"
-            " WHERE tile_id = '_module_icon' AND icon != ''",
-        )
-        rows = cursor.fetchall()
-    return {row[0]: row[1] for row in rows}
+    return dict(_get_module_overrides()['icons'])
 
 
 def get_tile_icons(module: str) -> dict:
@@ -208,15 +241,11 @@ def get_tile_icons(module: str) -> dict:
     Tiles without a custom icon are omitted — caller falls back to the hardcoded default.
     Excludes the special '_module_icon' pseudo-tile (module-level icon override).
     """
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT tile_id, icon FROM tile_config"
-            " WHERE module = %s AND icon != '' AND tile_id != '_module_icon'",
-            (module,)
-        )
-        rows = cursor.fetchall()
-    return {row[0]: row[1] for row in rows}
+    return {
+        tile_id: row['icon']
+        for tile_id, row in _get_tile_config(module).items()
+        if row['icon'] and tile_id != '_module_icon'
+    }
 
 
 def get_all_tile_icons() -> dict:
@@ -250,3 +279,4 @@ def set_tile_icon(module: str, tile_id: str, icon: str) -> None:
                     updated_at = NOW()
         """, (module, tile_id, icon.strip()))
         conn.commit()
+    _invalidate_tile_config_cache()
