@@ -38,7 +38,8 @@
             <h6 class="card-title">🏢 Upload de Faturas B2B / Eventos</h6>
             <p class="text-muted small">
                 Importa a listagem de documentos exportada do PHC/Primavera em formato <strong>.xlsx</strong>.<br>
-                Colunas esperadas: <em>Número, Data, Nome, NIF, Total</em> (entre outras). Faturas anuladas são ignoradas automaticamente.
+                Colunas esperadas: <em>Documento, Número, Data, Nome, NIF, Total</em> (entre outras).
+                Notas de crédito são abatidas às vendas e documentos anulados são ignorados automaticamente.
             </p>
             <form method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="upload_b2b">

@@ -8,8 +8,24 @@ logger = logging.getLogger(__name__)
 VALID_STATUSES = ('pendente', 'pago', 'vencido')
 
 
+DOCUMENT_TYPE_LABELS = {
+    'fatura': 'Fatura',
+    'nota_credito': 'Nota de Crédito',
+    'nota_debito': 'Nota de Débito',
+}
+
+
+def signed_total_sql(column='fc.total', document_type_column='fc.document_type'):
+    """Return the SQL expression used for B2B net sales/receivables totals."""
+    return (
+        f"CASE WHEN {document_type_column} = 'nota_credito' "
+        f"THEN -({column}) ELSE {column} END"
+    )
+
+
 def upsert_fatura(cliente_id: int, numero: str, data_fatura: date,
                   data_vencimento: date = None, documento: str = None,
+                  document_type: str = 'fatura',
                   armazem: str = None, total_bruto: float = 0.0,
                   total_liquido: float = 0.0, desconto_global: float = 0.0,
                   total_imposto: float = 0.0, total: float = 0.0,
@@ -19,15 +35,17 @@ def upsert_fatura(cliente_id: int, numero: str, data_fatura: date,
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO faturas_clientes
-                (cliente_id, numero, data, data_vencimento, documento, armazem,
+                (cliente_id, numero, data, data_vencimento, documento,
+                 document_type, armazem,
                  total_bruto, total_liquido, desconto_global, total_imposto,
                  total, observacoes, anulado)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (numero) DO UPDATE
                 SET cliente_id      = EXCLUDED.cliente_id,
                     data            = EXCLUDED.data,
                     data_vencimento = EXCLUDED.data_vencimento,
                     documento       = EXCLUDED.documento,
+                    document_type   = EXCLUDED.document_type,
                     armazem         = EXCLUDED.armazem,
                     total_bruto     = EXCLUDED.total_bruto,
                     total_liquido   = EXCLUDED.total_liquido,
@@ -40,7 +58,7 @@ def upsert_fatura(cliente_id: int, numero: str, data_fatura: date,
             RETURNING id, (xmax = 0) AS is_new
         """, (
             cliente_id, numero.strip(), data_fatura, data_vencimento,
-            documento, armazem,
+            documento, document_type if document_type in DOCUMENT_TYPE_LABELS else 'fatura', armazem,
             total_bruto or 0.0, total_liquido or 0.0,
             desconto_global or 0.0, total_imposto or 0.0,
             total or 0.0, observacoes, anulado,
@@ -128,9 +146,9 @@ def get_summary_totals(cliente_id: int = None, data_inicio: date = None,
         cur = conn.cursor()
         cur.execute(f"""
             SELECT
-                SUM(CASE WHEN fc.status = 'pago' THEN fc.total ELSE 0 END)       AS total_pago,
-                SUM(CASE WHEN fc.status IN ('pendente','vencido') THEN fc.total ELSE 0 END) AS total_pendente,
-                SUM(CASE WHEN fc.status = 'vencido' THEN fc.total ELSE 0 END)    AS total_vencido,
+                SUM(CASE WHEN fc.status = 'pago' THEN {signed_total_sql()} ELSE 0 END)       AS total_pago,
+                SUM(CASE WHEN fc.status IN ('pendente','vencido') THEN {signed_total_sql()} ELSE 0 END) AS total_pendente,
+                SUM(CASE WHEN fc.status = 'vencido' THEN {signed_total_sql()} ELSE 0 END)    AS total_vencido,
                 COUNT(*) FILTER (WHERE fc.status = 'pago')                        AS count_pago,
                 COUNT(*) FILTER (WHERE fc.status IN ('pendente','vencido'))       AS count_pendente,
                 COUNT(*) FILTER (WHERE fc.status = 'vencido')                     AS count_vencido
@@ -175,6 +193,7 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
                    fc.numero, fc.data, fc.data_vencimento, fc.documento, fc.armazem,
                    fc.total_bruto, fc.total_liquido, fc.desconto_global,
                    fc.total_imposto, fc.total, fc.observacoes, fc.anulado,
+                   fc.document_type,
                    fc.status, fc.data_pagamento,
                    fc.criado_em, fc.updated_at
             FROM faturas_clientes fc
@@ -187,7 +206,7 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
             'id', 'cliente_id', 'cliente_nome', 'cliente_nif', 'cliente_tipo',
             'numero', 'data', 'data_vencimento', 'documento', 'armazem',
             'total_bruto', 'total_liquido', 'desconto_global',
-            'total_imposto', 'total', 'observacoes', 'anulado',
+            'total_imposto', 'total', 'observacoes', 'anulado', 'document_type',
             'status', 'data_pagamento',
             'criado_em', 'updated_at',
         ]
@@ -200,6 +219,14 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
                 and row['data_vencimento'] < today
                 and not row['anulado']):
             row['status'] = 'vencido'
+        row['document_type_label'] = DOCUMENT_TYPE_LABELS.get(
+            row['document_type'], row['document_type'] or 'Fatura'
+        )
+        row['total_assinado'] = (
+            -float(row['total'] or 0)
+            if row['document_type'] == 'nota_credito'
+            else float(row['total'] or 0)
+        )
     return rows
 
 
@@ -252,7 +279,7 @@ def get_totais_por_mes(ano: int = None, incluir_mapas_only: bool = True) -> list
                 c.tipo,
                 c.id AS cliente_id,
                 c.nome AS cliente_nome,
-                SUM(fc.total) AS total_eur
+                SUM({signed_total_sql()}) AS total_eur
             FROM faturas_clientes fc
             JOIN clientes_b2b c ON c.id = fc.cliente_id
             {where}

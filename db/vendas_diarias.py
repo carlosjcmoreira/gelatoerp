@@ -1473,7 +1473,8 @@ def get_dashboard_b2b(ano: int = None) -> dict:
                     c.tipo,
                     EXTRACT(YEAR  FROM fc.data)::int AS ano,
                     EXTRACT(MONTH FROM fc.data)::int AS mes,
-                    SUM(fc.total) AS total
+                    SUM(CASE WHEN fc.document_type = 'nota_credito'
+                             THEN -fc.total ELSE fc.total END) AS total
                 FROM faturas_clientes fc
                 JOIN clientes_b2b c ON c.id = fc.cliente_id
                 WHERE fc.anulado = FALSE
@@ -1493,10 +1494,12 @@ def get_dashboard_b2b(ano: int = None) -> dict:
                 SELECT
                     c.tipo,
                     c.id, c.nome,
-                    SUM(fc.total) FILTER (
+                        SUM(CASE WHEN fc.document_type = 'nota_credito'
+                                 THEN -fc.total ELSE fc.total END) FILTER (
                         WHERE EXTRACT(YEAR FROM fc.data) = %s
                     ) AS y2026,
-                    SUM(fc.total) FILTER (
+                        SUM(CASE WHEN fc.document_type = 'nota_credito'
+                                 THEN -fc.total ELSE fc.total END) FILTER (
                         WHERE EXTRACT(YEAR FROM fc.data) = %s
                           AND EXTRACT(MONTH FROM fc.data)::int * 100
                             + EXTRACT(DAY FROM fc.data)::int <= %s

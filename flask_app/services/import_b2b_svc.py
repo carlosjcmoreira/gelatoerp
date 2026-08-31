@@ -7,6 +7,7 @@ Expected Excel columns (listagemDocumentos format):
 """
 import logging
 from datetime import date
+import unicodedata
 import openpyxl
 
 from db.clientes_b2b import upsert_cliente
@@ -15,6 +16,27 @@ from db.faturas_clientes import upsert_fatura
 logger = logging.getLogger(__name__)
 
 _REQUIRED_COLS = {'Número', 'Data', 'Nome', 'NIF', 'Total'}
+
+
+def normalize_document_type(value, numero: str = '') -> str:
+    """Map the source document label to the stable B2B document type."""
+    label = str(value or '').strip().casefold()
+    number = str(numero or '').strip().casefold()
+    compact = label.replace('-', ' ').replace('_', ' ')
+    compact = ' '.join(compact.split())
+    normalized = ''.join(
+        char for char in unicodedata.normalize('NFKD', compact)
+        if not unicodedata.combining(char)
+    )
+    if 'nota' in normalized and 'credito' in normalized:
+        return 'nota_credito'
+    if 'nota' in normalized and 'debito' in normalized:
+        return 'nota_debito'
+    if number.startswith('nc ') or number.startswith('nc/'):
+        return 'nota_credito'
+    if number.startswith('nd ') or number.startswith('nd/'):
+        return 'nota_debito'
+    return 'fatura'
 
 
 def _to_date(val) -> date:
@@ -92,11 +114,21 @@ def import_b2b_from_excel(file_obj) -> dict:
     for row_num, row in enumerate(ws.iter_rows(min_row=2), start=2):
         if all(c.value is None for c in row):
             continue
+        # PHC/Primavera exports append a human-readable summary block after
+        # the documents. It has shifted headings in the normal columns and
+        # must not be reported as a malformed customer document.
+        if (
+            not col(row, 'Nome')
+            and not col(row, 'NIF')
+            and not _to_date(col(row, 'Data'))
+        ):
+            continue
 
         numero = col(row, 'Número')
         if not numero:
             continue
         numero = str(numero).strip()
+        document_type = normalize_document_type(col(row, 'Documento'), numero)
 
         anulado_raw = str(col(row, 'Anulado') or '').strip().upper()
         if anulado_raw == 'S':
@@ -141,6 +173,7 @@ def import_b2b_from_excel(file_obj) -> dict:
                 data_fatura=data_fatura,
                 data_vencimento=data_venc,
                 documento=str(col(row, 'Documento') or '').strip() or None,
+                document_type=document_type,
                 armazem=str(col(row, 'Armazém') or '').strip() or None,
                 total_bruto=_to_float(col(row, 'Total Bruto')),
                 total_liquido=_to_float(col(row, 'Total Líquido')),

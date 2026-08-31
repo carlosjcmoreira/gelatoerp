@@ -50,7 +50,10 @@ from db.schema import run_migrations_loja_origem, run_migrations_transferencias_
 from db.schema import run_migrations_invoice_status_config, run_migrations_produto_aliases
 from db.schema import run_migrations_pdf_filename_backfill
 from db.schema import run_migrations_b2b, run_migrations_faturas_clientes_status
-from db.schema import run_migrations_faturas_clientes_data_pagamento
+from db.schema import (
+    run_migrations_faturas_clientes_data_pagamento,
+    run_migrations_faturas_clientes_document_type,
+)
 from db.schema import run_migrations_contabilidade, run_migrations_invoice_payment_audit
 from db.schema import (run_migrations_supplier_entidade_governamental,
                        run_migrations_cost_category_is_cmvmc,
@@ -253,6 +256,7 @@ def create_app():
         run_migrations_b2b()
         run_migrations_faturas_clientes_status()
         run_migrations_faturas_clientes_data_pagamento()
+        run_migrations_faturas_clientes_document_type()
         run_migrations_contabilidade()
         run_migrations_invoice_payment_audit()
         run_migrations_saved_invoice_views()

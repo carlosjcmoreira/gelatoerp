@@ -657,15 +657,15 @@ def _handle_upload_b2b():
         result = import_b2b_from_excel(f.stream)
         msgs = []
         if result['faturas_importadas']:
-            msgs.append(f"{result['faturas_importadas']} faturas novas importadas")
+            msgs.append(f"{result['faturas_importadas']} documentos novos importados")
         if result['faturas_duplicadas']:
-            msgs.append(f"{result['faturas_duplicadas']} duplicadas atualizadas")
+            msgs.append(f"{result['faturas_duplicadas']} documentos existentes atualizados")
         if result['faturas_anuladas_ignoradas']:
             msgs.append(f"{result['faturas_anuladas_ignoradas']} anuladas ignoradas")
         if msgs:
             flash(' | '.join(msgs) + '.', 'success')
         else:
-            flash('Nenhuma fatura nova encontrada.', 'info')
+            flash('Nenhum documento novo encontrado.', 'info')
         for err in result['erros'][:5]:
             flash(err, 'warning')
     except Exception as exc:

@@ -92,7 +92,8 @@
                     <th>Data</th>
                     <th>Vencimento</th>
                     <th>Cliente</th>
-                    <th>Tipo</th>
+                    <th>Canal</th>
+                    <th>Documento</th>
                     <th>Armazém</th>
                     <th class="text-end">Bruto</th>
                     <th class="text-end">Desconto</th>
@@ -121,11 +122,22 @@
                         {{ 'Ev.' if f.cliente_tipo == 'eventos' else 'B2B' }}
                     </span>
                 </td>
+                <td>
+                    {% if f.document_type == 'nota_credito' %}
+                    <span class="badge bg-success-subtle text-success-emphasis small">Nota de Crédito</span>
+                    {% elif f.document_type == 'nota_debito' %}
+                    <span class="badge bg-warning-subtle text-warning-emphasis small">Nota de Débito</span>
+                    {% else %}
+                    <span class="badge bg-light text-dark border small">Fatura</span>
+                    {% endif %}
+                </td>
                 <td class="text-muted small">{{ f.armazem or '—' }}</td>
                 <td class="text-end small">{{ "%.2f"|format(f.total_bruto or 0) }}</td>
                 <td class="text-end small text-danger">{{ "%.2f"|format(f.desconto_global or 0) }}</td>
                 <td class="text-end small">{{ "%.2f"|format(f.total_imposto or 0) }}</td>
-                <td class="text-end fw-semibold">{{ "%.2f"|format(f.total or 0) }} €</td>
+                <td class="text-end fw-semibold {% if f.document_type == 'nota_credito' %}text-success{% endif %}">
+                    {% if f.document_type == 'nota_credito' %}−{% endif %}{{ "%.2f"|format(f.total or 0) }} €
+                </td>
                 <td class="text-center">
                     {% if f.anulado %}
                     <span class="badge bg-secondary small">Anulado</span>
@@ -173,8 +185,8 @@
             </tbody>
             <tfoot class="table-light">
                 <tr>
-                    <td colspan="9" class="text-end fw-semibold">Total página:</td>
-                    <td class="text-end fw-bold">{{ "%.2f"|format(faturas|sum(attribute='total')) }} €</td>
+                    <td colspan="10" class="text-end fw-semibold">Total página líquido:</td>
+                    <td class="text-end fw-bold">{{ "%.2f"|format(faturas|sum(attribute='total_assinado')) }} €</td>
                     <td colspan="3"></td>
                 </tr>
             </tfoot>

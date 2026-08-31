@@ -4557,6 +4557,8 @@ def run_migrations_b2b():
                     data            DATE NOT NULL,
                     data_vencimento DATE,
                     documento       VARCHAR(100),
+                    document_type   VARCHAR(30) NOT NULL DEFAULT 'fatura'
+                        CHECK (document_type IN ('fatura', 'nota_credito', 'nota_debito')),
                     armazem         VARCHAR(100),
                     total_bruto     NUMERIC(12,2) NOT NULL DEFAULT 0,
                     total_liquido   NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -4643,6 +4645,89 @@ def run_migrations_faturas_clientes_data_pagamento():
             logger.info("run_migrations_faturas_clientes_data_pagamento: complete")
         except Exception as exc:
             logger.error("run_migrations_faturas_clientes_data_pagamento failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
+_LOCK_FATURAS_CLIENTES_DOCUMENT_TYPE = 202674
+
+
+def run_migrations_faturas_clientes_document_type():
+    """Store the source document type and repair types from earlier imports."""
+    with db_connection() as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s)",
+                (_LOCK_FATURAS_CLIENTES_DOCUMENT_TYPE,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_faturas_clientes_document_type: lock held by another worker, skipping"
+                )
+                return
+            cursor.execute("""
+                ALTER TABLE faturas_clientes
+                ADD COLUMN IF NOT EXISTS document_type VARCHAR(30)
+                    NOT NULL DEFAULT 'fatura'
+            """)
+            cursor.execute("""
+                UPDATE faturas_clientes
+                   SET armazem = document_type,
+                       document_type = armazem
+                 WHERE document_type NOT IN ('fatura', 'nota_credito', 'nota_debito')
+                   AND armazem IN ('fatura', 'nota_credito', 'nota_debito')
+            """)
+            repaired_swapped_rows = cursor.rowcount
+            cursor.execute("""
+                UPDATE faturas_clientes
+                   SET document_type = CASE
+                       WHEN LOWER(COALESCE(documento, '')) LIKE '%nota%cr%'
+                            OR LOWER(numero) LIKE 'nc %'
+                            OR LOWER(numero) LIKE 'nc/%'
+                         THEN 'nota_credito'
+                       WHEN LOWER(COALESCE(documento, '')) LIKE '%nota%d%b%'
+                            OR LOWER(numero) LIKE 'nd %'
+                            OR LOWER(numero) LIKE 'nd/%'
+                         THEN 'nota_debito'
+                       ELSE 'fatura'
+                   END
+                 WHERE (
+                       document_type = 'fatura'
+                       AND (
+                           LOWER(COALESCE(documento, '')) LIKE '%nota%cr%'
+                           OR LOWER(COALESCE(documento, '')) LIKE '%nota%d%b%'
+                           OR LOWER(numero) LIKE 'nc %'
+                           OR LOWER(numero) LIKE 'nc/%'
+                           OR LOWER(numero) LIKE 'nd %'
+                           OR LOWER(numero) LIKE 'nd/%'
+                       )
+                 )
+            """)
+            classified_legacy_rows = cursor.rowcount
+            cursor.execute("""
+                SELECT 1
+                  FROM pg_constraint
+                 WHERE conrelid = 'faturas_clientes'::regclass
+                   AND conname = 'faturas_clientes_document_type_check'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("""
+                    ALTER TABLE faturas_clientes
+                    ADD CONSTRAINT faturas_clientes_document_type_check
+                    CHECK (document_type IN ('fatura', 'nota_credito', 'nota_debito'))
+                """)
+            conn.commit()
+            logger.info(
+                "run_migrations_faturas_clientes_document_type: complete "
+                "(legacy classified=%d, swapped rows repaired=%d)",
+                classified_legacy_rows,
+                repaired_swapped_rows,
+            )
+        except Exception as exc:
+            logger.error("run_migrations_faturas_clientes_document_type failed: %s", exc)
             try:
                 conn.rollback()
             except Exception:
