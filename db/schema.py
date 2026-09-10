@@ -616,6 +616,8 @@ def run_migrations_eventos_customer_portal():
                     store_id INTEGER NOT NULL UNIQUE REFERENCES stores(id) ON DELETE RESTRICT,
                     brand_name VARCHAR(120) NOT NULL DEFAULT 'Scoopy',
                     logo_filename VARCHAR(255),
+                    logo_data BYTEA,
+                    logo_content_type VARCHAR(100),
                     primary_color VARCHAR(7) NOT NULL DEFAULT '#167C70',
                     accent_color VARCHAR(7) NOT NULL DEFAULT '#35A394',
                     background_color VARCHAR(7) NOT NULL DEFAULT '#FFF8F2',
@@ -655,6 +657,8 @@ def run_migrations_eventos_customer_portal():
             cursor.execute("ALTER TABLE event_portal_requests ADD COLUMN IF NOT EXISTS short_notice_warning TEXT")
             cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS min_advance_days INTEGER NOT NULL DEFAULT 0")
             cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS short_notice_warning TEXT NOT NULL DEFAULT 'Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.'")
+            cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS logo_data BYTEA")
+            cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS logo_content_type VARCHAR(100)")
             cursor.execute("""
                 ALTER TABLE event_portal_requests
                 ADD COLUMN IF NOT EXISTS sent_quote_version_id BIGINT
@@ -662,6 +666,8 @@ def run_migrations_eventos_customer_portal():
             # Public catalogue metadata is additive; historical requests retain
             # their original snapshots.
             cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS image_url TEXT")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS image_data BYTEA")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS image_content_type VARCHAR(100)")
             cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS public_description TEXT")
             cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS public_capacity_flavors INTEGER")
             cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS width_cm NUMERIC(10,2)")

@@ -1,6 +1,7 @@
 """Focused contracts for the unified Events portal and persisted proposals."""
 
 import os
+import time
 import unittest
 from datetime import date, timedelta
 from decimal import Decimal
@@ -387,6 +388,131 @@ class UnifiedTemplateContracts(unittest.TestCase):
         self.assertIn('name="nif"', portal)
         self.assertIn("Requisitos para o cliente", config)
         self.assertIn("data-requirements", portal)
+        self.assertIn('event.persisted', portal)
+        self.assertIn("button.disabled=false", portal)
+
+
+class PortalSubmissionRecoveryContracts(unittest.TestCase):
+    def setUp(self):
+        self.app = Flask(
+            __name__, template_folder=os.path.join(ROOT, "flask_app", "templates")
+        )
+        self.app.secret_key = "submission-recovery"
+        self.app.register_blueprint(eventos_bp, url_prefix="/eventos")
+
+    def _brand(self):
+        return {
+            "store_id": 9, "brand_name": "Scoopy", "logo_filename": None,
+            "primary_color": "#167C70", "accent_color": "#35A394",
+            "background_color": "#FFF8F2", "text_color": "#173B38",
+            "button_color": "#167C70", "button_text_color": "#FFFFFF",
+            "form_title": "Eventos", "form_intro": "Intro",
+            "confirmation_message": "Recebido", "contact_text": "Contacto",
+            "min_advance_days": 0, "short_notice_warning": "Aviso",
+            "field_labels": {}, "visible_fields": {},
+        }
+
+    def _post_data(self, token, started_at=None):
+        data = {
+            "csrf_token": token, "event_type": "Aniversário",
+            "customer_type": "particular", "estimated_guests": "20",
+            "servings_per_guest": "1", "flavours[]": "12",
+            "occurrence_date[]": "2027-01-01", "occurrence_start[]": "14:00",
+            "occurrence_venue[]": "Jardim",
+            "occurrence_address[]": "Rua da Praia 1",
+            "client_name": "Cliente", "client_email": "cliente@example.com",
+            "client_phone": "+351 912345678", "privacy_accepted": "1",
+        }
+        if started_at is not None:
+            data["started_at"] = str(started_at)
+        return data
+
+    def test_missing_and_old_timestamps_are_accepted(self):
+        for started_at in (None, int(time.time() * 1000) - 48 * 60 * 60 * 1000):
+            with self.subTest(started_at=started_at), self.app.test_client() as client, \
+                 patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=self._brand()), \
+                 patch("flask_app.routes.eventos.db.get_event_resources", return_value=[]), \
+                 patch("flask_app.routes.eventos.db.get_portal_flavours", return_value=[]), \
+                 patch("flask_app.routes.eventos.resolve_event_address", return_value={}), \
+                 patch("flask_app.routes.eventos.db.consume_portal_rate_limit", return_value=True), \
+                 patch("flask_app.routes.eventos.db.create_portal_event_request",
+                       return_value={"event_id": 4, "access_code": "code"}):
+                client.get("/eventos/pedido-evento")
+                with client.session_transaction() as session:
+                    token = session["event_portal_csrf"]
+                response = client.post(
+                    "/eventos/pedido-evento",
+                    data=self._post_data(token, started_at),
+                )
+            self.assertEqual(response.status_code, 302)
+
+    def test_auxiliary_failures_after_creation_still_redirect_to_created_request(self):
+        with self.app.test_client() as client, \
+             patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=self._brand()), \
+             patch("flask_app.routes.eventos.db.get_event_resources", side_effect=[[], RuntimeError("resources")]), \
+             patch("flask_app.routes.eventos.db.get_portal_flavours", return_value=[]), \
+             patch("flask_app.routes.eventos.resolve_event_address", return_value={}), \
+             patch("flask_app.routes.eventos.db.consume_portal_rate_limit", return_value=True), \
+             patch("flask_app.routes.eventos.db.create_portal_event_request",
+                   return_value={"event_id": 4, "access_code": "code"}), \
+             patch("flask_app.routes.eventos.db.record_portal_access",
+                   side_effect=RuntimeError("audit")):
+            client.get("/eventos/pedido-evento")
+            with client.session_transaction() as session:
+                token = session["event_portal_csrf"]
+            response = client.post(
+                "/eventos/pedido-evento",
+                data=self._post_data(token, int(time.time() * 1000) - 2000),
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.location.endswith("/eventos/portal-eventos/pedido/4"))
+
+    def test_validation_error_restores_repeated_and_selectable_form_data(self):
+        data = self._post_data(None, None)
+        data.update({
+            "customer_type": "empresa", "company_name": "Empresa Teste",
+            "nif": "invalid", "duration_minutes": "240",
+            "servings_per_guest": "2", "service_mode": "client_serves",
+            "referral_source": "Recomendação", "resource_preferences[]": "cart",
+            "flavours[]": "12", "privacy_accepted": "1",
+        })
+        data["occurrence_date[]"] = ["2027-01-01", "2027-01-02"]
+        data["occurrence_start[]"] = ["14:00", "16:00"]
+        data["occurrence_venue[]"] = ["Jardim", "Salão"]
+        data["occurrence_address[]"] = ["Rua Um", "Rua Dois"]
+        brand = self._brand()
+        brand["visible_fields"] = {
+            "event_name": True, "duration": True, "service_mode": True,
+            "resource_preferences": True, "referral_source": True,
+        }
+        with self.app.test_client() as client, \
+             patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=brand), \
+             patch("flask_app.routes.eventos.db.get_event_resources", return_value=[{
+                 "id": 5, "code": "cart", "name": "Carrinho",
+                 "capacity_flavors": 4, "public_capacity_flavors": 4,
+                 "image_url": None, "public_description": None,
+                 "public_customer_requirements": None,
+             }]), \
+             patch("flask_app.routes.eventos.db.get_portal_flavours",
+                   return_value=[{"id": 12, "nome_corrente": "Baunilha"}]), \
+             patch("flask_app.routes.eventos.resolve_event_address", return_value={}), \
+             patch("flask_app.routes.eventos.db.consume_portal_rate_limit", return_value=True):
+            client.get("/eventos/pedido-evento")
+            with client.session_transaction() as session:
+                data["csrf_token"] = session["event_portal_csrf"]
+            response = client.post("/eventos/pedido-evento", data=data)
+        page = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('value="2027-01-01"', page)
+        self.assertIn('value="2027-01-02"', page)
+        self.assertIn('value="Salão"', page)
+        self.assertIn('value="Rua Dois"', page)
+        self.assertIn('value="cart" checked', page)
+        self.assertIn('value="12" checked', page)
+        self.assertIn('value="240" selected', page)
+        self.assertIn('value="client_serves" selected', page)
+        self.assertIn('value="Recomendação"', page)
+        self.assertIn('id="privacy" checked', page)
 
 
 if __name__ == "__main__":

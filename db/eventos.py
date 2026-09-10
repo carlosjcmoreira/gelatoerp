@@ -509,8 +509,26 @@ def get_event_resources(active_only=True):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         where = " WHERE active = TRUE" if active_only else ""
-        cursor.execute(f"SELECT * FROM event_resources{where} ORDER BY name")
+        cursor.execute(
+            "SELECT id, code, name, resource_type, capacity_carapinas, "
+            "capacity_flavors, active, notes, created_at, updated_at, image_url, "
+            "public_description, public_capacity_flavors, width_cm, height_cm, "
+            "length_cm, weight_kg, public_customer_requirements "
+            f"FROM event_resources{where} ORDER BY name"
+        )
         return cursor.fetchall()
+
+
+def get_public_event_resource_image(resource_id):
+    """Return one public resource image without exposing unrelated resource data."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            """SELECT image_data, image_content_type, image_url
+               FROM event_resources WHERE id=%s AND active=TRUE""",
+            (resource_id,),
+        )
+        return cursor.fetchone()
 
 
 def get_portal_flavours():
@@ -2389,7 +2407,8 @@ def get_portal_brand_config(store_id):
             SELECT id, store_id, brand_name, logo_filename, primary_color, accent_color,
                    background_color, text_color, button_color, button_text_color,
                    form_title, form_intro, confirmation_message, contact_text,
-                   field_labels, visible_fields, min_advance_days, short_notice_warning, is_default
+                   field_labels, visible_fields, min_advance_days, short_notice_warning,
+                   is_default, (logo_data IS NOT NULL) AS logo_is_durable
             FROM event_portal_brand_configs
             WHERE store_id = %s
         """, (store_id,))
@@ -2403,7 +2422,8 @@ def get_portal_brand_configs():
             SELECT id, store_id, brand_name, logo_filename, primary_color, accent_color,
                    background_color, text_color, button_color, button_text_color,
                    form_title, form_intro, confirmation_message, contact_text,
-                   field_labels, visible_fields, min_advance_days, short_notice_warning, is_default
+                   field_labels, visible_fields, min_advance_days, short_notice_warning,
+                   is_default, (logo_data IS NOT NULL) AS logo_is_durable
             FROM event_portal_brand_configs
             ORDER BY store_id
         """)
@@ -2418,7 +2438,9 @@ def get_default_portal_brand():
                    c.accent_color, c.background_color, c.text_color, c.button_color,
                    c.button_text_color, c.form_title, c.form_intro,
                    c.confirmation_message, c.contact_text, c.field_labels,
-                    c.visible_fields, c.min_advance_days, c.short_notice_warning, c.is_default
+                     c.visible_fields, c.min_advance_days, c.short_notice_warning,
+                     c.is_default, c.updated_at,
+                     (c.logo_data IS NOT NULL) AS logo_is_durable
             FROM event_portal_brand_configs c
             JOIN stores s ON s.id = c.store_id
             WHERE s.is_active = TRUE
@@ -2426,6 +2448,20 @@ def get_default_portal_brand():
             LIMIT 1
         """)
         return _portal_brand_from_row(cursor.fetchone())
+
+
+def get_public_portal_brand_logo(store_id):
+    """Return the durable public logo payload for an active brand."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            """SELECT c.logo_data, c.logo_content_type, c.logo_filename
+               FROM event_portal_brand_configs c
+               JOIN stores s ON s.id=c.store_id
+               WHERE c.store_id=%s AND s.is_active=TRUE""",
+            (store_id,),
+        )
+        return cursor.fetchone()
 
 
 def save_public_portal_brand_config(values, logo_filename=None):
@@ -2489,7 +2525,8 @@ def save_public_portal_brand_config(values, logo_filename=None):
             raise
 
 
-def save_event_configuration(values, logo_filename, resources, pricing, flavour_ids, actor=None):
+def save_event_configuration(values, logo_filename, resources, pricing, flavour_ids,
+                             actor=None, logo_asset=None):
     """Persist the complete Events settings payload in one database transaction."""
     # Reject malformed payloads before opening a transaction or issuing DDL/DML.
     codes = set()
@@ -2557,12 +2594,21 @@ def save_event_configuration(values, logo_filename, resources, pricing, flavour_
             store_id = row[0]
             cursor.execute("UPDATE event_portal_brand_configs SET is_default=FALSE, updated_at=NOW() WHERE is_default=TRUE")
             cursor.execute("""INSERT INTO event_portal_brand_configs
-                (store_id,brand_name,logo_filename,primary_color,accent_color,background_color,
+                (store_id,brand_name,logo_filename,logo_data,logo_content_type,
+                 primary_color,accent_color,background_color,
                  text_color,button_color,button_text_color,form_title,form_intro,
                  confirmation_message,contact_text,field_labels,visible_fields,min_advance_days,short_notice_warning,is_default)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
                 ON CONFLICT (store_id) DO UPDATE SET brand_name=EXCLUDED.brand_name,
                  logo_filename=EXCLUDED.logo_filename,primary_color=EXCLUDED.primary_color,
+                 logo_data=CASE
+                    WHEN EXCLUDED.logo_filename IS NULL THEN NULL
+                    WHEN EXCLUDED.logo_data IS NOT NULL THEN EXCLUDED.logo_data
+                    ELSE event_portal_brand_configs.logo_data END,
+                 logo_content_type=CASE
+                    WHEN EXCLUDED.logo_filename IS NULL THEN NULL
+                    WHEN EXCLUDED.logo_content_type IS NOT NULL THEN EXCLUDED.logo_content_type
+                    ELSE event_portal_brand_configs.logo_content_type END,
                  accent_color=EXCLUDED.accent_color,background_color=EXCLUDED.background_color,
                  text_color=EXCLUDED.text_color,button_color=EXCLUDED.button_color,
                  button_text_color=EXCLUDED.button_text_color,form_title=EXCLUDED.form_title,
@@ -2570,7 +2616,10 @@ def save_event_configuration(values, logo_filename, resources, pricing, flavour_
                  contact_text=EXCLUDED.contact_text,field_labels=EXCLUDED.field_labels,
                  visible_fields=EXCLUDED.visible_fields,min_advance_days=EXCLUDED.min_advance_days,
                  short_notice_warning=EXCLUDED.short_notice_warning,is_default=TRUE,updated_at=NOW()""",
-                (store_id, values['brand_name'], logo_filename, values['primary_color'],
+                (store_id, values['brand_name'], logo_filename,
+                 logo_asset.get('payload') if logo_asset else None,
+                 logo_asset.get('content_type') if logo_asset else None,
+                 values['primary_color'],
                  values['accent_color'], values['background_color'], values['text_color'],
                  values['button_color'], values['button_text_color'], values['form_title'],
                  values['form_intro'], values['confirmation_message'], values['contact_text'],
@@ -2580,19 +2629,25 @@ def save_event_configuration(values, logo_filename, resources, pricing, flavour_
             for item in resources:
                 cursor.execute("""INSERT INTO event_resources
                     (code,name,resource_type,capacity_carapinas,capacity_flavors,active,notes,
-                     image_url,public_description,public_capacity_flavors,width_cm,height_cm,
+                     image_url,image_data,image_content_type,public_description,
+                     public_capacity_flavors,width_cm,height_cm,
                      length_cm,weight_kg,public_customer_requirements)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name,resource_type=EXCLUDED.resource_type,
                      capacity_carapinas=EXCLUDED.capacity_carapinas,capacity_flavors=EXCLUDED.capacity_flavors,
                      active=EXCLUDED.active,notes=EXCLUDED.notes,image_url=EXCLUDED.image_url,
+                     image_data=COALESCE(EXCLUDED.image_data,event_resources.image_data),
+                     image_content_type=COALESCE(EXCLUDED.image_content_type,event_resources.image_content_type),
                      public_description=EXCLUDED.public_description,public_capacity_flavors=EXCLUDED.public_capacity_flavors,
                      width_cm=EXCLUDED.width_cm,height_cm=EXCLUDED.height_cm,length_cm=EXCLUDED.length_cm,
                      weight_kg=EXCLUDED.weight_kg,public_customer_requirements=EXCLUDED.public_customer_requirements,
                      updated_at=NOW()""",
                     (item['code'],item['name'],item.get('resource_type','equipment'),
                      item.get('capacity_carapinas'),item.get('capacity_flavors'),item.get('active',True),
-                     item.get('notes'),item.get('image_url'),item.get('public_description'),
+                      item.get('notes'),item.get('image_url'),
+                      (item.get('image_asset') or {}).get('payload'),
+                      (item.get('image_asset') or {}).get('content_type'),
+                      item.get('public_description'),
                      item.get('public_capacity_flavors'),item.get('width_cm'),item.get('height_cm'),
                      item.get('length_cm'),item.get('weight_kg'),item.get('public_customer_requirements')))
             for item in pricing:

@@ -146,6 +146,8 @@ class BrandPersistenceTests(unittest.TestCase):
         self.assertIn("ADD COLUMN IF NOT EXISTS brand_store_id", statements)
         self.assertIn("ADD COLUMN IF NOT EXISTS min_advance_days", statements)
         self.assertIn("ADD COLUMN IF NOT EXISTS short_notice_warning", statements)
+        self.assertIn("ADD COLUMN IF NOT EXISTS logo_data BYTEA", statements)
+        self.assertIn("ADD COLUMN IF NOT EXISTS image_data BYTEA", statements)
 
     def test_fallback_and_saved_brand_remain_isolated_by_store(self):
         fallback = eventos._portal_brand_from_row(None)
@@ -188,6 +190,32 @@ class BrandPersistenceTests(unittest.TestCase):
         insert_params = cursor.queries[-1][1]
         self.assertEqual(insert_params[0], 7)
         self.assertEqual(insert_params[1], "Gelato Norte")
+
+    def test_unified_save_persists_logo_bytes_inside_its_transaction(self):
+        from unittest.mock import MagicMock
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (7,)
+        cursor.fetchall.return_value = []
+        connection = _Connection(cursor)
+        logo = {
+            "payload": b"durable-logo",
+            "content_type": "image/png",
+            "extension": "png",
+        }
+        with patch("db.eventos.db_connection", return_value=connection):
+            eventos.save_event_configuration(
+                validate_brand_form({"brand_name": "Gelato Norte"}),
+                "asset.png", [], [], [], "team", logo_asset=logo,
+            )
+
+        insert = next(
+            call for call in cursor.execute.call_args_list
+            if "INSERT INTO event_portal_brand_configs" in call.args[0]
+        )
+        self.assertIn("logo_data", insert.args[0])
+        self.assertEqual(insert.args[1][3], b"durable-logo")
+        self.assertEqual(insert.args[1][4], "image/png")
 
     def test_brand_save_checks_fresh_store_status_inside_transaction(self):
         cursor = _Cursor([(False,)])
@@ -363,6 +391,60 @@ class BrandRouteTests(unittest.TestCase):
         submitted = create_request.call_args.args[0]
         self.assertEqual(submitted["brand_store_id"], 9)
         self.assertEqual(submitted["confirmation_message"], brand["confirmation_message"])
+
+    def test_durable_logo_route_serves_database_bytes_and_hides_missing_legacy_logo(self):
+        payload = b"\x89PNG\r\n\x1a\nimage"
+        with self.app.test_client() as client, patch(
+            "flask_app.routes.eventos.db.get_public_portal_brand_logo",
+            return_value={
+                "logo_data": payload,
+                "logo_content_type": "image/png",
+                "logo_filename": "old.png",
+            },
+        ):
+            response = client.get("/eventos/pedido-evento/marca/9/logo")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, payload)
+        self.assertEqual(response.content_type, "image/png")
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+
+        with self.app.test_client() as client, patch(
+            "flask_app.routes.eventos.db.get_public_portal_brand_logo",
+            return_value={
+                "logo_data": None,
+                "logo_content_type": None,
+                "logo_filename": "missing.png",
+            },
+        ):
+            response = client.get("/eventos/pedido-evento/marca/9/logo")
+        self.assertEqual(response.status_code, 404)
+
+    def test_public_form_uses_white_fields_and_database_image_routes(self):
+        brand = default_portal_brand()
+        brand.update({"store_id": 9, "logo_filename": "logo.png"})
+        resource = {
+            "id": 4, "code": "cart", "name": "Carrinho",
+            "capacity_flavors": 4, "public_capacity_flavors": 4,
+            "image_url": "database:asset", "public_description": None,
+            "public_customer_requirements": None,
+        }
+        with self.app.test_client() as client, \
+             patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=brand), \
+             patch("flask_app.routes.eventos.db.get_event_resources", return_value=[resource]), \
+             patch("flask_app.routes.eventos.db.get_portal_flavours", return_value=[]):
+            response = client.get("/eventos/pedido-evento")
+        page = response.get_data(as_text=True)
+        self.assertIn("--p-field:#fff", page)
+        self.assertIn("/eventos/pedido-evento/marca/9/logo", page)
+        self.assertIn("/eventos/pedido-evento/meios/4/imagem", page)
+
+    def test_editor_warns_when_legacy_logo_needs_to_be_uploaded_again(self):
+        template = (
+            Path(__file__).parent.parent / "flask_app" / "templates" /
+            "eventos" / "configuracao.html"
+        ).read_text()
+        self.assertIn("not brand.logo_is_durable", template)
+        self.assertIn("Carregue novamente o logótipo", template)
 
 
 if __name__ == "__main__":

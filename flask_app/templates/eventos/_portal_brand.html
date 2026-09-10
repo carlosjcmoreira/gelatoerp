@@ -7,7 +7,7 @@
 
 {% macro identity(brand, light=false) -%}
 <div class="d-flex align-items-center gap-2">
-  {% if brand.logo_filename %}<img class="portal-logo" src="{{ url_for('static', filename='uploads/event_portal_brands/' ~ brand.logo_filename) }}" alt="{{ brand.brand_name }}">{% endif %}
+  {% if brand.logo_filename and brand.store_id %}<img class="portal-logo" src="{{ url_for('eventos.portal_brand_logo', store_id=brand.store_id) }}" alt="{{ brand.brand_name }}" onerror="this.hidden=true">{% endif %}
   <span class="small text-uppercase {% if light %}opacity-75{% else %}text-muted{% endif %}">{{ brand.brand_name }}</span>
 </div>
 {%- endmacro %}

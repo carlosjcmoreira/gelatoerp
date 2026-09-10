@@ -1,3 +1,4 @@
+import io
 import os
 import sys
 import hashlib
@@ -6,7 +7,7 @@ import time
 import re
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, date, timedelta
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, current_app, send_file, abort
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from flask_app.auth import login_required, perm_required
 from flask_app.analytics import queue_analytics_event
@@ -16,8 +17,7 @@ from flask_app.services.event_portal import (
     validate_portal_proof, suggest_event_addresses,
 )
 from flask_app.services.event_portal_brand import (
-    default_portal_brand, save_public_event_resource_image, save_public_portal_logo,
-    validate_brand_form,
+    default_portal_brand, validate_brand_form,
     validate_portal_logo,
 )
 from flask_app.services.event_quote_pdf import render_quote_pdf
@@ -31,6 +31,56 @@ from database import (
 from db.pagamentos import VAT_RATES
 
 eventos_bp = Blueprint('eventos', __name__)
+
+
+def _public_image_response(asset, legacy_subdirectory):
+    """Serve durable image bytes, with a safe bridge for pre-migration files."""
+    if not asset:
+        abort(404)
+    payload = asset.get('logo_data') if 'logo_data' in asset else asset.get('image_data')
+    content_type = (
+        asset.get('logo_content_type')
+        if 'logo_content_type' in asset else asset.get('image_content_type')
+    )
+    if payload:
+        raw = bytes(payload)
+        response = send_file(
+            io.BytesIO(raw),
+            mimetype=content_type or 'application/octet-stream',
+            conditional=True,
+            etag=hashlib.sha256(raw).hexdigest(),
+            max_age=0,
+        )
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+    legacy_name = asset.get('logo_filename') or asset.get('image_url')
+    if legacy_name:
+        filename = os.path.basename(str(legacy_name))
+        legacy_root = os.path.abspath(os.path.join(
+            current_app.static_folder, 'uploads', legacy_subdirectory,
+        ))
+        path = os.path.abspath(os.path.join(legacy_root, filename))
+        if path.startswith(legacy_root + os.sep) and os.path.isfile(path):
+            response = send_file(path, conditional=True, max_age=0)
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            return response
+    abort(404)
+
+
+@eventos_bp.get('/pedido-evento/marca/<int:store_id>/logo')
+def portal_brand_logo(store_id):
+    return _public_image_response(
+        db.get_public_portal_brand_logo(store_id), 'event_portal_brands',
+    )
+
+
+@eventos_bp.get('/pedido-evento/meios/<int:resource_id>/imagem')
+def portal_resource_image(resource_id):
+    return _public_image_response(
+        db.get_public_event_resource_image(resource_id), 'event_resources',
+    )
+
+
 def _parse_taxa_iva(raw, artigo_codigo=None):
     """Parse a per-line IVA rate submitted as a percentage (e.g. '13'). Defaults to
     the editable event pricing configuration when missing or invalid."""
@@ -108,6 +158,43 @@ def _parse_event_type(form):
     if radio == 'Outro':
         return form.get('event_type_other', '').strip()
     return radio
+
+
+def _portal_submitted_occurrences(form):
+    """Rebuild repeated public form rows after a recoverable validation error."""
+    keys = (
+        'occurrence_date[]', 'occurrence_start[]', 'occurrence_venue[]',
+        'occurrence_address[]', 'occurrence_address_normalized[]',
+        'occurrence_address_token[]',
+    )
+    values = {key: form.getlist(key) for key in keys}
+    count = max([len(items) for items in values.values()] + [1])
+    return [
+        {
+            'date': values['occurrence_date[]'][index]
+            if index < len(values['occurrence_date[]']) else '',
+            'start': values['occurrence_start[]'][index]
+            if index < len(values['occurrence_start[]']) else '',
+            'venue': values['occurrence_venue[]'][index]
+            if index < len(values['occurrence_venue[]']) else '',
+            'address': values['occurrence_address[]'][index]
+            if index < len(values['occurrence_address[]']) else '',
+            'normalized_address': values['occurrence_address_normalized[]'][index]
+            if index < len(values['occurrence_address_normalized[]']) else '',
+            'address_token': values['occurrence_address_token[]'][index]
+            if index < len(values['occurrence_address_token[]']) else '',
+        }
+        for index in range(count)
+    ]
+
+
+def _portal_submitted_phone(form):
+    value = str(form.get('client_phone') or '').strip()
+    match = re.match(r'^(\+\d{1,4})\s*(.*)$', value)
+    return (
+        (match.group(1), match.group(2))
+        if match else ('+351', value)
+    )
 
 
 def _current_actor():
@@ -277,9 +364,12 @@ def portal_request():
                 started_at = int(request.form.get('started_at', '0'))
             except (TypeError, ValueError):
                 started_at = 0
-            elapsed_ms = int(time.time() * 1000) - started_at
-            if started_at <= 0 or elapsed_ms < 1200 or elapsed_ms > 24 * 60 * 60 * 1000:
-                raise ValueError('Atualize a página e tente novamente.')
+            # This is only a lightweight bot signal.  Missing/old timestamps are
+            # legitimate when JavaScript is blocked or a browser restores a form.
+            if started_at > 0:
+                elapsed_ms = int(time.time() * 1000) - started_at
+                if elapsed_ms < 1200:
+                    raise ValueError('Aguarde um momento antes de enviar o pedido.')
             _portal_rate_limit('submission', 5)
             dates = request.form.getlist('occurrence_date[]')
             start_times = request.form.getlist('occurrence_start[]')
@@ -375,25 +465,47 @@ def portal_request():
                 session['event_portal_access_until'] = time.time() + 30 * 60
                 session['event_portal_event_id'] = result['event_id']
                 session['event_portal_access_code_once'] = access_code
-            db.record_portal_access(email, 'request_submitted', result['event_id'], _portal_ip_fingerprint())
-            queue_analytics_event(
-                'event_request_submitted',
-                occurrence_count=len(occurrences),
-                catering_requested=request.form.get('service_mode') == 'catering',
-            )
-            preferences = request.form.getlist('resource_preferences[]')
-            resource_ids = {
-                resource['code']: resource['id']
-                for resource in db.get_event_resources()
-            }
-            has_resource_risk = any(
-                db.get_resource_conflicts(
-                    resource_ids[preference], occurrence['event_date'],
-                    occurrence['service_start_time'], occurrence['service_end_time'],
+            try:
+                db.record_portal_access(
+                    email, 'request_submitted', result['event_id'],
+                    _portal_ip_fingerprint(),
                 )
-                for preference in preferences if preference in resource_ids
-                for occurrence in occurrences
-            )
+            except Exception:
+                current_app.logger.exception(
+                    'Pedido de evento %s criado, mas o registo de acesso falhou.',
+                    result['event_id'],
+                )
+            try:
+                queue_analytics_event(
+                    'event_request_submitted',
+                    occurrence_count=len(occurrences),
+                    catering_requested=request.form.get('service_mode') == 'catering',
+                )
+            except Exception:
+                current_app.logger.exception(
+                    'Pedido de evento %s criado, mas o evento de analytics falhou.',
+                    result['event_id'],
+                )
+            has_resource_risk = False
+            try:
+                preferences = request.form.getlist('resource_preferences[]')
+                resource_ids = {
+                    resource['code']: resource['id']
+                    for resource in db.get_event_resources()
+                }
+                has_resource_risk = any(
+                    db.get_resource_conflicts(
+                        resource_ids[preference], occurrence['event_date'],
+                        occurrence['service_start_time'], occurrence['service_end_time'],
+                    )
+                    for preference in preferences if preference in resource_ids
+                    for occurrence in occurrences
+                )
+            except Exception:
+                current_app.logger.exception(
+                    'Pedido de evento %s criado, mas a verificação de conflitos falhou.',
+                    result['event_id'],
+                )
             if has_resource_risk:
                 flash(
                     'A preferência de carrinho/arca tem disponibilidade limitada nessa data. '
@@ -413,9 +525,12 @@ def portal_request():
     # Never disclose the complete unavailable-date set to an unauthenticated
     # browser.  The single-date endpoint above returns only a coarse status.
     calendar_dates = []
+    phone_code, phone_national = _portal_submitted_phone(request.form)
     return render_template(
         'eventos/portal_request.html', calendar_dates=calendar_dates,
         csrf_token=_portal_csrf_token(), form=request.form, brand=brand,
+        submitted_occurrences=_portal_submitted_occurrences(request.form),
+        phone_code=phone_code, phone_national=phone_national,
         resources=db.get_event_resources(),
         event_flavours=[
             {'id': flavour['id'], 'name': flavour['nome_corrente']}
@@ -1105,7 +1220,6 @@ def configuracao():
     can_edit_config = bool((session.get('user') or {}).get('acesso_administrativo'))
     if request.method == 'POST' and not can_edit_config:
         return ('Acesso administrativo necessário para alterar a configuração.', 403)
-    created_files = []
     if request.method == 'POST':
         try:
             _require_admin_portal_brand_csrf()
@@ -1135,15 +1249,17 @@ def configuracao():
                 raise ValueError('A lista de imagens dos meios está incompleta.')
             for i, code in enumerate(codes):
                 image = existing_images[i] or None
+                image_asset = None
                 if i < len(uploads) and uploads[i].filename:
-                    image = save_public_event_resource_image(validate_portal_logo(uploads[i]), os.path.join(os.path.dirname(__file__), '..', 'static'))
-                    created_files.append(os.path.join(os.path.dirname(__file__), '..', 'static', image))
+                    image_asset = validate_portal_logo(uploads[i])
+                    image = 'database:' + secrets.token_hex(16)
                 get = lambda key: request.form.getlist('resource_' + key + '[]')[i]
                 resources.append({'code': code.strip(), 'name': names[i].strip(), 'resource_type': types[i],
                     'capacity_carapinas': _configuration_number(get('capacity_carapinas'), 'A capacidade'),
                     'capacity_flavors': _configuration_number(get('capacity_flavors'), 'A capacidade de sabores', 6),
                     'notes': get('notes') or None, 'active': get('active') == '1',
-                    'image_url': image, 'public_description': get('public_description') or None,
+                    'image_url': image, 'image_asset': image_asset,
+                    'public_description': get('public_description') or None,
                     'public_capacity_flavors': _configuration_number(get('public_capacity_flavors'), 'A capacidade pública', 6),
                     'width_cm': _configuration_number(get('width_cm'), 'A largura'),
                     'height_cm': _configuration_number(get('height_cm'), 'A altura'),
@@ -1190,28 +1306,17 @@ def configuracao():
             logo = current.get('logo_filename')
             if request.form.get('remove_logo') == '1': logo = None
             if logo_upload:
-                logo = save_public_portal_logo(logo_upload, os.path.join(os.path.dirname(__file__), '..', 'static'))
-                created_files.append(os.path.join(
-                    os.path.dirname(__file__), '..', 'static', 'uploads',
-                    'event_portal_brands', logo,
-                ))
-            db.save_event_configuration(values, logo, resources, pricing, request.form.getlist('flavour_ids[]'), _current_actor())
+                logo = secrets.token_hex(16) + '.' + logo_upload['extension']
+            db.save_event_configuration(
+                values, logo, resources, pricing,
+                request.form.getlist('flavour_ids[]'), _current_actor(),
+                logo_asset=logo_upload,
+            )
             flash('Configuração guardada.', 'success')
         except ValueError as exc:
-            for path in created_files:
-                try:
-                    if os.path.isfile(path):
-                        os.remove(path)
-                except OSError:
-                    pass
             flash(str(exc), 'error')
         except Exception:
-            for path in created_files:
-                try:
-                    if os.path.isfile(path):
-                        os.remove(path)
-                except OSError:
-                    pass
+            current_app.logger.exception('Falha ao guardar configuração de Eventos.')
             flash('Não foi possível guardar a configuração. Verifique os dados e tente novamente.', 'error')
         return redirect(url_for('eventos.configuracao'))
     return render_template(
