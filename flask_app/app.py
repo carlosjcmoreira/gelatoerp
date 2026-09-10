@@ -411,6 +411,7 @@ def create_app():
 
     @app.context_processor
     def inject_globals():
+        from flask_app.analytics import consume_analytics_events
         time_slots = ['%02d:%02d' % (h, m) for h in range(6, 24) for m in [0, 15, 30, 45]]
         event_type_options = [
             ('Corporativo', 'Corporativo/ Corporate'),
@@ -442,7 +443,8 @@ def create_app():
         return dict(user=user, time_slots=time_slots, event_type_options=event_type_options,
                     nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count,
                     status_colors=status_colors, status_labels=status_labels,
-                    status_bulk_allowed=status_bulk_allowed)
+                    status_bulk_allowed=status_bulk_allowed,
+                    pop_analytics_events=consume_analytics_events)
 
     import psycopg2
 

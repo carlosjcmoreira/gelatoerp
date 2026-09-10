@@ -11,6 +11,7 @@ import psycopg2
 from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, session, send_file, jsonify)
 from flask_app.auth import perm_required, any_perm_required
+from flask_app.analytics import queue_analytics_event
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
@@ -1940,6 +1941,10 @@ def confirmar(invoice_id: int):
         except Exception as e:
             logger.warning('create_confirming_parcela invoice=%s: %s', invoice_id, e)
     flash('Data confirmada. Fatura agendada.', 'success')
+    queue_analytics_event(
+        'invoice_payment_scheduled',
+        payment_method_selected=bool(payment_method),
+    )
     return _panel_redirect(invoice_id)
 
 
@@ -1977,6 +1982,10 @@ def pagar(invoice_id: int):
         try:
             from db.faturas import create_invoice_installments
             create_invoice_installments(invoice_id, installments, current_user)
+            queue_analytics_event(
+                'invoice_installment_plan_created',
+                installment_count=len(installments),
+            )
             flash(f'Plano parcelado criado: {len(installments)} parcelas (1ª já marcada como paga).', 'success')
         except Exception as e:
             logger.error('create_invoice_installments invoice=%s: %s', invoice_id, e)
@@ -2028,6 +2037,11 @@ def pagar(invoice_id: int):
             except Exception as e:
                 logger.warning('create_confirming_parcela pagar invoice=%s: %s', invoice_id, e)
     flash('Fatura marcada como paga.', 'success')
+    queue_analytics_event(
+        'invoice_marked_paid',
+        payment_method_selected=bool(payment_method),
+        installment=False,
+    )
     return _panel_redirect(invoice_id)
 
 
@@ -2041,7 +2055,13 @@ def installment_pagar(invoice_id: int, installment_id: int):
     current_user = session.get('user', {}).get('username', 'system')
     try:
         from db.faturas import mark_installment_paid
-        all_paid = mark_installment_paid(installment_id, invoice_id, paid_date, current_user)
+        updated, all_paid = mark_installment_paid(
+            installment_id, invoice_id, paid_date, current_user
+        )
+        if not updated:
+            flash('A parcela já estava paga ou não foi encontrada.', 'warning')
+            return _panel_redirect(invoice_id)
+        queue_analytics_event('invoice_installment_paid', invoice_completed=all_paid)
         if all_paid:
             flash('Todas as parcelas pagas — fatura marcada como paga.', 'success')
         else:

@@ -76,6 +76,53 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+    (function () {
+        window.trackEvent = function (name, data) {
+            try {
+                if (window.umami && typeof window.umami.track === 'function') {
+                    window.umami.track(name, data || {});
+                    return true;
+                }
+            } catch (err) {
+                // Analytics must never interrupt an operational workflow.
+            }
+            return false;
+        };
+
+        var storageKey = 'scoopy_analytics_queue';
+        var serverEvents = {% if pop_analytics_events is defined %}{{ pop_analytics_events()|tojson }}{% else %}[]{% endif %};
+        var events = [];
+        try {
+            events = JSON.parse(window.sessionStorage.getItem(storageKey) || '[]');
+            if (!Array.isArray(events)) events = [];
+        } catch (err) {
+            events = [];
+        }
+        events = events.concat(serverEvents).slice(-100);
+
+        function saveQueue() {
+            try {
+                window.sessionStorage.setItem(storageKey, JSON.stringify(events));
+            } catch (err) {}
+        }
+        var attempts = 0;
+        function sendNext() {
+            if (!events.length) return;
+            attempts += 1;
+            if (window.trackEvent(events[0].name, events[0].data)) {
+                events.shift();
+                attempts = 0;
+                saveQueue();
+                window.setTimeout(sendNext, 0);
+            } else if (attempts < 10) {
+                window.setTimeout(sendNext, 500);
+            }
+        }
+        saveQueue();
+        sendNext();
+    })();
+    </script>
+    <script>
     (function(){
         var overlay     = document.getElementById('loading-overlay');
         var loadingText = document.getElementById('loading-text');

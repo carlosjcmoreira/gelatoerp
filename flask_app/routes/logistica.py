@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template, url_for, request, redirect, flash, session
 from flask_app.auth import perm_required
+from flask_app.analytics import queue_analytics_event
 from datetime import date, datetime
 from collections import defaultdict
 import sys, os
@@ -318,6 +319,11 @@ def stock_materiais_post():
             )
             registados += 1
         if registados:
+            queue_analytics_event(
+                'stock_count_recorded',
+                location=local,
+                line_count=registados,
+            )
             flash(f'Contagem registada para {registados} material(is) em {local}.', 'success')
         else:
             flash('Nenhum valor introduzido na contagem.', 'warning')

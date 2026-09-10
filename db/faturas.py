@@ -2828,12 +2828,13 @@ def create_invoice_installments(invoice_id: int, installments: list, created_by:
     return ids
 
 
-def mark_installment_paid(installment_id: int, invoice_id: int, paid_date, confirmed_by: str) -> bool:
+def mark_installment_paid(installment_id: int, invoice_id: int, paid_date, confirmed_by: str) -> tuple:
     """Marks one installment as paid.
 
     invoice_id is required and must match the installment's invoice_id (ownership check).
     If all installments for the parent invoice are now paid, also marks the parent
-    invoice as paid and returns True; otherwise returns False.
+    invoice as paid. Returns ``(updated, invoice_completed)`` so callers can
+    distinguish an open invoice from an already-paid or missing installment.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -2846,7 +2847,7 @@ def mark_installment_paid(installment_id: int, invoice_id: int, paid_date, confi
         row = cursor.fetchone()
         if not row:
             conn.rollback()
-            return False
+            return False, False
         invoice_id = row[0]
 
         cursor.execute("""
@@ -2879,7 +2880,7 @@ def mark_installment_paid(installment_id: int, invoice_id: int, paid_date, confi
             parent_paid = True
 
         conn.commit()
-        return parent_paid
+        return True, parent_paid
 
 
 def get_paid_counts_by_supplier(supplier_ids: list,

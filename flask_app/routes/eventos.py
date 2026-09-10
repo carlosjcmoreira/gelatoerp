@@ -6,6 +6,7 @@ import time
 from datetime import datetime, date, timedelta
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_app.auth import login_required, perm_required
+from flask_app.analytics import queue_analytics_event
 from flask_app.services.event_portal import (
     cleanup_expired_portal_proofs, resolve_event_address, save_private_portal_proof,
     validate_portal_proof,
@@ -259,6 +260,11 @@ def portal_request():
                 session['event_portal_event_id'] = result['event_id']
                 session['event_portal_access_code_once'] = access_code
             db.record_portal_access(email, 'request_submitted', result['event_id'], _portal_ip_fingerprint())
+            queue_analytics_event(
+                'event_request_submitted',
+                occurrence_count=len(occurrences),
+                catering_requested=request.form.get('service_mode') == 'catering',
+            )
             preferences = request.form.getlist('resource_preferences[]')
             resource_ids = {
                 resource['code']: resource['id']
@@ -392,6 +398,8 @@ def portal_accept_quote(event_id):
         _require_portal_csrf()
         accepted = db.accept_portal_quote(event_id, email, request.form.get('quote_revision', ''))
         db.record_portal_access(email, 'quote_accepted' if accepted else 'quote_accept_replayed', event_id, _portal_ip_fingerprint())
+        if accepted:
+            queue_analytics_event('event_quote_accepted')
         flash('Orçamento aceite. Aguarde as instruções para o sinal.', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
@@ -421,6 +429,10 @@ def portal_upload_proof(event_id):
                 pass
             raise
         db.record_portal_access(email, 'deposit_proof_uploaded', event_id, _portal_ip_fingerprint())
+        queue_analytics_event(
+            'event_deposit_proof_uploaded',
+            file_type='pdf' if metadata.get('content_type') == 'application/pdf' else 'image',
+        )
         flash('Comprovativo recebido. A equipa irá validá-lo.', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
@@ -919,6 +931,7 @@ def quote_action(event_id):
             version = db.create_quote_version(
                 event_id, request.form.get('version_reason', '').strip(), actor=_current_actor()
             )
+            queue_analytics_event('event_quote_version_saved')
             flash(f'Versão {version} do orçamento guardada.', 'success')
         except ValueError as exc:
             flash(str(exc), 'error')

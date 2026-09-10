@@ -1,6 +1,7 @@
 import logging
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_app.auth import perm_required
+from flask_app.analytics import queue_analytics_event
 import sys, os
 
 logger = logging.getLogger(__name__)
@@ -1106,6 +1107,11 @@ def transferir():
             flash("Não foi possível registar a transferência — erro inesperado. Tente novamente.", "danger")
             return redirect(url_for('producao.transferir'))
         if ordens_count > 0:
+            queue_analytics_event(
+                'production_transfer_created',
+                destination_type=destino_tipo,
+                order_count=ordens_count,
+            )
             flash(f"{ordens_count} ordem(ns) de transferência criada(s)!", "success")
         else:
             flash("Nenhuma transferência registada. Verifique as quantidades.", "info")
