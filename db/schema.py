@@ -530,6 +530,40 @@ def run_migrations_eventos_customer_portal():
                 ALTER TABLE event_portal_requests
                 ADD COLUMN IF NOT EXISTS sent_quote_version_id BIGINT
             """)
+            # Public catalogue metadata is additive; historical requests retain
+            # their original snapshots.
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS image_url TEXT")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS public_description TEXT")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS public_capacity_flavors INTEGER")
+            cursor.execute("""
+                DO $$ BEGIN
+                    ALTER TABLE event_resources
+                    ADD CONSTRAINT event_resources_public_capacity_flavors_check
+                    CHECK (public_capacity_flavors IS NULL OR
+                           public_capacity_flavors BETWEEN 1 AND 6);
+                EXCEPTION WHEN duplicate_object THEN NULL;
+                END $$;
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_portal_flavours (
+                    id BIGSERIAL PRIMARY KEY,
+                    receita_id INTEGER NOT NULL REFERENCES receitas_gelado(id) ON DELETE RESTRICT,
+                    active BOOLEAN NOT NULL DEFAULT TRUE,
+                    UNIQUE(receita_id)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_portal_rate_limits (
+                    id BIGSERIAL PRIMARY KEY,
+                    ip_fingerprint VARCHAR(128) NOT NULL,
+                    action VARCHAR(40) NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_event_portal_rate_limits_lookup
+                ON event_portal_rate_limits (ip_fingerprint, action, created_at DESC)
+            """)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS event_portal_access_log (
                     id BIGSERIAL PRIMARY KEY,

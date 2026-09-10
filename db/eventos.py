@@ -6,6 +6,7 @@ from db.connection import db_connection, get_connection, release_connection, log
 import json
 import hashlib
 import secrets
+import re
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
@@ -481,16 +482,143 @@ def get_event_resources(active_only=True):
         return cursor.fetchall()
 
 
+def get_portal_flavours():
+    """Return only active recipes with a deliberate public common name."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT r.id, r.nome_corrente
+            FROM receitas_gelado r
+            WHERE r.ativo = TRUE AND NULLIF(BTRIM(r.nome_corrente), '') IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM event_portal_flavours f
+                  WHERE f.receita_id = r.id AND f.active = FALSE
+              )
+            ORDER BY r.nome_corrente
+        """)
+        return cursor.fetchall()
+
+
+def get_event_portal_flavour_configuration():
+    """Return globally active, named recipes and their Events visibility."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT r.id, r.nome_corrente,
+                   COALESCE(f.active, TRUE) AS event_active
+            FROM receitas_gelado r
+            LEFT JOIN event_portal_flavours f ON f.receita_id = r.id
+            WHERE r.ativo = TRUE
+              AND NULLIF(BTRIM(r.nome_corrente), '') IS NOT NULL
+            ORDER BY r.nome_corrente
+        """)
+        return cursor.fetchall()
+
+
+def set_event_portal_flavours(active_ids):
+    """Replace the Events visibility selection without changing recipe settings."""
+    try:
+        active_ids = {int(value) for value in (active_ids or [])}
+    except (TypeError, ValueError):
+        raise ValueError('Seleção de sabores inválida.')
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id FROM receitas_gelado
+            WHERE ativo=TRUE AND NULLIF(BTRIM(nome_corrente), '') IS NOT NULL
+        """)
+        eligible_ids = {row[0] for row in cursor.fetchall()}
+        if not active_ids.issubset(eligible_ids):
+            raise ValueError('Um dos sabores selecionados já não está disponível.')
+        for receita_id in eligible_ids:
+            cursor.execute("""
+                INSERT INTO event_portal_flavours (receita_id, active)
+                VALUES (%s, %s)
+                ON CONFLICT (receita_id) DO UPDATE SET active=EXCLUDED.active
+            """, (receita_id, receita_id in active_ids))
+        conn.commit()
+
+
+def validate_portal_flavours(values):
+    """Validate submitted recipe ids and return persisted common names."""
+    try:
+        ids = list(dict.fromkeys(int(value) for value in (values or [])))
+    except (TypeError, ValueError):
+        raise ValueError('Seleção de sabores inválida.')
+    if not ids:
+        raise ValueError('Escolha entre um e seis sabores.')
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT r.id, r.nome_corrente
+            FROM receitas_gelado r
+            WHERE r.id = ANY(%s) AND r.ativo = TRUE
+              AND NULLIF(BTRIM(r.nome_corrente), '') IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM event_portal_flavours f
+                  WHERE f.receita_id = r.id AND f.active = FALSE
+              )
+        """, (ids,))
+        rows = cursor.fetchall()
+    if len(rows) != len(ids):
+        raise ValueError('Um dos sabores selecionados já não está disponível.')
+    by_id = {row['id']: row['nome_corrente'] for row in rows}
+    return [by_id[item] for item in ids]
+
+
+def consume_portal_rate_limit(ip_fingerprint, action, limit, window_seconds):
+    """Atomically consume a shared public-portal rate-limit slot."""
+    if not ip_fingerprint:
+        return False
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            (f'event-portal:{ip_fingerprint}:{action}',),
+        )
+        cursor.execute("""
+            DELETE FROM event_portal_rate_limits
+            WHERE created_at < NOW() - INTERVAL '2 days'
+        """)
+        cursor.execute("""
+            SELECT COUNT(*) FROM event_portal_rate_limits
+            WHERE ip_fingerprint=%s AND action=%s
+              AND created_at >= NOW() - (%s * INTERVAL '1 second')
+        """, (ip_fingerprint, action, int(window_seconds)))
+        if int(cursor.fetchone()[0]) >= int(limit):
+            conn.commit()
+            return False
+        cursor.execute("""
+            INSERT INTO event_portal_rate_limits (ip_fingerprint, action)
+            VALUES (%s, %s)
+        """, (ip_fingerprint, action))
+        conn.commit()
+        return True
+
+
 def upsert_event_resource(code, name, resource_type='equipment',
                           capacity_carapinas=None, capacity_flavors=None,
-                          active=True, notes=None):
+                          active=True, notes=None, image_url=None,
+                          public_description=None, public_capacity_flavors=None):
+    code = (code or '').strip()
+    name = (name or '').strip()
+    if not code or not name:
+        raise ValueError('O meio precisa de código e nome.')
+    if public_capacity_flavors is not None and not 1 <= int(public_capacity_flavors) <= 6:
+        raise ValueError('A capacidade pública deve estar entre 1 e 6 sabores.')
+    if image_url and not re.fullmatch(
+        r'uploads/event_resources/[0-9a-f]{32}\.(?:png|jpg|webp)',
+        str(image_url),
+    ):
+        raise ValueError('A imagem pública deve ser carregada na aplicação.')
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             INSERT INTO event_resources
-                (code, name, resource_type, capacity_carapinas, capacity_flavors, active, notes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (code, name, resource_type, capacity_carapinas, capacity_flavors, active, notes,
+                 image_url, public_description, public_capacity_flavors)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (code) DO UPDATE SET
                 name = EXCLUDED.name,
                 resource_type = EXCLUDED.resource_type,
@@ -498,9 +626,13 @@ def upsert_event_resource(code, name, resource_type='equipment',
                 capacity_flavors = EXCLUDED.capacity_flavors,
                 active = EXCLUDED.active,
                 notes = EXCLUDED.notes,
+                image_url = EXCLUDED.image_url,
+                public_description = EXCLUDED.public_description,
+                public_capacity_flavors = EXCLUDED.public_capacity_flavors,
                 updated_at = NOW()
             """,
-            (code, name, resource_type, capacity_carapinas, capacity_flavors, active, notes),
+            (code, name, resource_type, capacity_carapinas, capacity_flavors, active, notes,
+             image_url, public_description, public_capacity_flavors),
         )
         conn.commit()
 
@@ -1819,7 +1951,9 @@ def normalize_portal_email(value):
     if not email or len(email) > 255 or email.count('@') != 1:
         raise ValueError('Indique um email válido.')
     local, domain = email.rsplit('@', 1)
-    if not local or '.' not in domain or ' ' in email:
+    if (not local or '.' not in domain or ' ' in email or len(local) > 64
+            or not re.fullmatch(r"[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+", local, re.I)
+            or not re.fullmatch(r"[A-Z0-9](?:[A-Z0-9.-]*[A-Z0-9])?", domain, re.I)):
         raise ValueError('Indique um email válido.')
     return email
 
@@ -1881,6 +2015,28 @@ def get_portal_unavailable_dates():
             ORDER BY event_date
         """)
         return cursor.fetchall()
+
+
+def get_portal_date_status(event_date):
+    """Return a deliberately coarse availability signal; never disclose dates."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT 1 FROM event_occurrences eo
+                JOIN events e ON e.id = eo.event_id
+                WHERE eo.event_date=%s
+                  AND e.status IN ('adjudicado','sinalizado','realizado','faturado','recebido')
+            ), EXISTS (
+                SELECT 1 FROM event_occurrences eo
+                JOIN event_resource_reservations rr ON rr.occurrence_id=eo.id
+                JOIN events e ON e.id=eo.event_id
+                WHERE eo.event_date=%s AND rr.status IN ('requested','reserved')
+                  AND e.status NOT IN ('rejeitado','cancelado')
+            )
+        """, (event_date, event_date))
+        confirmed, limited = cursor.fetchone()
+    return 'limited' if confirmed or limited else 'available'
 
 
 def _portal_brand_from_row(row):
@@ -2086,8 +2242,9 @@ def create_portal_event_request(data):
         raise ValueError('Adicione pelo menos uma data para o evento.')
     if not data.get('privacy_accepted'):
         raise ValueError('É necessário aceitar a informação de privacidade.')
+    flavours = validate_portal_flavours(data.get('flavours') or [])
     flavour_plan = calculate_portal_flavours(
-        data.get('estimated_guests'), data.get('servings_per_guest'), data.get('flavours'),
+        data.get('estimated_guests'), data.get('servings_per_guest'), flavours,
     )
     catering = bool(data.get('catering_requested'))
     estimate_eligible = (
@@ -2096,6 +2253,22 @@ def create_portal_event_request(data):
 
     with db_connection() as conn:
         cursor = conn.cursor()
+        resource_codes = list(dict.fromkeys(data.get('resource_preferences') or []))
+        if resource_codes:
+            cursor.execute(
+                """SELECT code, COALESCE(public_capacity_flavors, capacity_flavors, 6)
+                   FROM event_resources WHERE code = ANY(%s) AND active=TRUE""",
+                (resource_codes,),
+            )
+            resource_rows = cursor.fetchall()
+            active_codes = {row[0] for row in resource_rows}
+            if active_codes != set(resource_codes):
+                raise ValueError('Um dos meios selecionados deixou de estar disponível.')
+            flavour_limit = min(int(row[1]) for row in resource_rows)
+            if len(flavour_plan['flavours']) > flavour_limit:
+                raise ValueError(
+                    f'O equipamento selecionado permite no máximo {flavour_limit} sabores.'
+                )
         access_code = secrets.token_urlsafe(9)
         access_code_hash = hashlib.sha256(access_code.encode('utf-8')).hexdigest()
         first = occurrences[0]
@@ -2165,7 +2338,7 @@ def create_portal_event_request(data):
         """, (
             event_id, email, access_code_hash, bool(data.get('marketing_consent')), data.get('referral_source'),
             flavour_plan['scoops'], json.dumps(flavour_plan['flavours'], ensure_ascii=False),
-            json.dumps(data.get('resource_preferences') or [], ensure_ascii=False),
+            json.dumps(resource_codes, ensure_ascii=False),
             catering, estimate_eligible, estimate_base, estimate_vat, estimate_total,
             data.get('confirmation_message') or (
                 'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.'

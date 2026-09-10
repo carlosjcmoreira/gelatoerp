@@ -9,3 +9,4 @@
 - [B2B transfer destinations](b2b-transfer-destinations.md) — external recipients are typed destinations, never stores; they must not create internal receipt stock.
 - [Pastelaria manual dispatch](pastelaria-manual-dispatch.md) — weekly pastry transfers are operator decisions, not digital-production-stock withdrawals; cake identity stays date-plan-bound.
 - [Multi-worker cache invalidation](multi-worker-cache-invalidation.md) — mutable DB config caches must publish a shared generation so every Gunicorn worker rejects stale local entries.
+- [Photon language parameter](photon-language-parameter.md) — Photon rejects `lang=pt`; omit the language parameter for Portuguese address suggestions.

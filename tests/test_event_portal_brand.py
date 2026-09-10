@@ -2,6 +2,7 @@
 
 import io
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -273,6 +274,31 @@ class BrandRouteTests(unittest.TestCase):
         self.assertIn('data-ios-submit-scroll="false"', template)
         self.assertIn("scope.dataset.iosSubmitScroll === 'false'", base_template)
 
+    def test_deprecated_marketing_controls_are_absent_from_brand_editor(self):
+        root = Path(__file__).parent.parent
+        template = (
+            root / "flask_app" / "templates" / "eventos" /
+            "configuracao_portal_marca.html"
+        ).read_text()
+        self.assertNotIn("marketing_consent", template)
+
+    def test_public_form_honours_hidden_resource_preferences(self):
+        brand = default_portal_brand()
+        brand["visible_fields"]["resource_preferences"] = False
+        with self.app.test_client() as client, \
+             patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=brand), \
+             patch("flask_app.routes.eventos.db.get_event_resources", return_value=[{
+                 "code": "cart", "name": "Carrinho", "capacity_flavors": 4,
+                 "public_capacity_flavors": 4, "image_url": None,
+                 "public_description": None,
+             }]), \
+             patch("flask_app.routes.eventos.db.get_portal_flavours", return_value=[]):
+            response = client.get("/eventos/pedido-evento")
+        page = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("03 · Estrutura", page)
+        self.assertNotIn('value="cart"', page)
+
     def test_public_request_uses_default_brand_and_server_sets_its_store(self):
         brand = default_portal_brand()
         brand.update({"store_id": 9, "brand_name": "Gelato da Praia", "primary_color": "#123456"})
@@ -287,14 +313,16 @@ class BrandRouteTests(unittest.TestCase):
             with patch("flask_app.routes.eventos.resolve_event_address", return_value={}), \
                  patch("flask_app.routes.eventos.db.create_portal_event_request", return_value={"event_id": 4, "access_code": "code"} ) as create_request, \
                  patch("flask_app.routes.eventos.db.get_event_resources", return_value=[]), \
+                  patch("flask_app.routes.eventos.db.consume_portal_rate_limit", return_value=True), \
                  patch("flask_app.routes.eventos.db.record_portal_access"):
                 response = client.post("/eventos/pedido-evento", data={
                     "csrf_token": token, "event_type": "Aniversário", "estimated_guests": "20",
-                    "servings_per_guest": "1", "flavours[]": "Morango",
-                    "occurrence_date[]": "2099-01-01", "occurrence_start[]": "14:00",
+                    "started_at": str(int(time.time() * 1000) - 2000),
+                    "servings_per_guest": "1", "flavours[]": "12",
+                    "occurrence_date[]": "2027-01-01", "occurrence_start[]": "14:00",
                     "occurrence_venue[]": "Jardim", "occurrence_address[]": "Rua da Praia 1",
                     "client_name": "Cliente", "client_email": "cliente@example.com",
-                    "client_phone": "912345678", "privacy_accepted": "1",
+                    "client_phone": "+351 912345678", "privacy_accepted": "1",
                     "brand_store_id": "999",
                 })
 

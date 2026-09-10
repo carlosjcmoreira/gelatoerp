@@ -11,6 +11,7 @@ from werkzeug.datastructures import FileStorage
 
 from db import eventos
 from flask_app.routes.eventos import eventos_bp
+from flask_app.routes.eventos import _valid_phone
 from flask_app.services import event_portal
 
 
@@ -50,6 +51,10 @@ class PortalCalculationTests(unittest.TestCase):
         second, _ = eventos._quote_revision(_RevisionCursor(changed), 1)
 
         self.assertNotEqual(first, second)
+
+    def test_mixed_ids_and_free_text_cannot_bypass_public_flavour_validation(self):
+        with self.assertRaisesRegex(ValueError, 'Seleção de sabores inválida'):
+            eventos.validate_portal_flavours(['12', 'Chocolate'])
 
 
 class PortalUploadTests(unittest.TestCase):
@@ -105,6 +110,38 @@ class PortalGeocodingTests(unittest.TestCase):
         self.assertTrue(result['failed'])
         self.assertTrue(result['manual_review'])
         save_cache.assert_called_once()
+
+    def test_address_suggestions_return_only_minimal_normalized_fields(self):
+        response = unittest.mock.Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            'features': [{
+                'geometry': {'coordinates': [-8.69, 41.18]},
+                'properties': {
+                    'name': 'Mercado', 'street': 'Rua Brito Capelo',
+                    'housenumber': '1', 'postcode': '4450-073', 'city': 'Matosinhos',
+                },
+            }],
+        }
+        with patch('flask_app.services.event_portal.requests.get', return_value=response):
+            suggestions = event_portal.suggest_event_addresses('Mercado Matosinhos')
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(set(suggestions[0]), {'label', 'latitude', 'longitude'})
+        self.assertNotIn('properties', suggestions[0])
+
+
+class PortalContactValidationTests(unittest.TestCase):
+    def test_portuguese_phone_is_normalized_to_e164(self):
+        self.assertEqual(_valid_phone('+351 912 345 678'), '+351912345678')
+
+    def test_phone_without_international_prefix_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'indicativo internacional'):
+            _valid_phone('912 345 678')
+
+    def test_invalid_portuguese_phone_length_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'português válido'):
+            _valid_phone('+351 12345')
 
 
 class PortalAccessRouteTests(unittest.TestCase):
@@ -199,6 +236,19 @@ class PortalAccessRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         record_access.assert_not_called()
+
+    def test_availability_endpoint_returns_only_coarse_status_for_one_date(self):
+        with self.app.test_client() as client, \
+             patch('flask_app.routes.eventos.db.consume_portal_rate_limit', return_value=True), \
+             patch('flask_app.routes.eventos.db.get_portal_date_status', return_value='limited'):
+            client.get('/eventos/portal-eventos')
+            response = client.get(
+                '/eventos/pedido-evento/disponibilidade?date=2027-09-12',
+                headers={'X-CSRF-Token': self._csrf(client)},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json(), {'status': 'limited'})
 
 
 if __name__ == '__main__':

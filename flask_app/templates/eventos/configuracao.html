@@ -1,9 +1,71 @@
 {% extends "base.html" %}
 {% set back_url = url_for("eventos.index") %}
 {% block content %}
-<div class="container-fluid px-3 pt-3 pb-5"><div class="d-flex justify-content-between align-items-start gap-3 mb-3"><h5 class="fw-bold mb-0">⚙️ Configuração de eventos</h5></div>
-<div class="row g-3"><div class="col-12 col-lg-6"><div class="card shadow-sm"><div class="card-header fw-semibold">Meios e capacidades</div><div class="card-body">
-{% for r in resources %}<form method="post" class="border-bottom pb-2 mb-2 row g-1 align-items-end"><input type="hidden" name="action" value="resource"><div class="col-3"><input name="code" value="{{ r.code }}" class="form-control form-control-sm" required></div><div class="col-4"><input name="name" value="{{ r.name }}" class="form-control form-control-sm" required></div><div class="col-2"><input type="number" name="capacity_carapinas" value="{{ r.capacity_carapinas or '' }}" placeholder="carap." class="form-control form-control-sm"></div><div class="col-2"><select name="active" class="form-select form-select-sm"><option value="1" {{ 'selected' if r.active }}>Ativo</option><option value="0" {{ 'selected' if not r.active }}>Inativo</option></select></div><div class="col-1"><button class="btn btn-sm btn-primary">✓</button></div><input type="hidden" name="resource_type" value="{{ r.resource_type }}"><input type="hidden" name="capacity_flavors" value="{{ r.capacity_flavors or '' }}"></form>{% endfor %}
-<form method="post" class="row g-1"><input type="hidden" name="action" value="resource"><input type="hidden" name="resource_type" value="equipment"><input type="hidden" name="active" value="1"><div class="col-3"><input name="code" class="form-control form-control-sm" placeholder="código" required></div><div class="col-7"><input name="name" class="form-control form-control-sm" placeholder="Novo meio" required></div><div class="col-2"><button class="btn btn-sm btn-outline-primary">+</button></div></form>
-</div></div></div><div class="col-12 col-lg-6"><div class="card shadow-sm"><div class="card-header fw-semibold">Preços, IVA e sinal</div><div class="card-body">{% for p in pricing %}<form method="post" class="border-bottom pb-2 mb-2 row g-1 align-items-end"><input type="hidden" name="action" value="pricing"><input type="hidden" name="key" value="{{ p.key }}"><input type="hidden" name="label" value="{{ p.label }}"><input type="hidden" name="setting_type" value="{{ p.setting_type }}"><div class="col-5"><label class="small">{{ p.label }}</label></div><div class="col-3"><input name="value_gross" type="number" step="0.01" min="0" value="{{ p.value_gross }}" class="form-control form-control-sm"></div><div class="col-2"><input name="taxa_iva" type="number" step="1" min="0" max="100" value="{{ (p.taxa_iva*100)|round(0)|int if p.taxa_iva is not none else '' }}" placeholder="IVA" class="form-control form-control-sm"></div><div class="col-2"><input type="hidden" name="requires_tax_review" value="{{ '1' if p.requires_tax_review else '0' }}"><input type="hidden" name="active" value="{{ '1' if p.active else '0' }}"><button class="btn btn-sm btn-primary w-100">Guardar</button></div></form>{% endfor %}</div></div></div></div></div>
+<div class="container-fluid px-3 pt-3 pb-5">
+  <h5 class="fw-bold mb-3">⚙️ Configuração de eventos</h5>
+  <div class="row g-3">
+    <div class="col-12 col-xl-7">
+      <div class="card shadow-sm">
+        <div class="card-header fw-semibold">Meios e apresentação pública</div>
+        <div class="card-body">
+          {% for r in resources %}
+          <form method="post" enctype="multipart/form-data" class="border-bottom pb-3 mb-3 row g-2 align-items-end">
+            <input type="hidden" name="action" value="resource">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="existing_image_path" value="{{ r.image_url or '' }}">
+            <input type="hidden" name="resource_type" value="{{ r.resource_type }}">
+            <input type="hidden" name="capacity_flavors" value="{{ r.capacity_flavors or '' }}">
+            <div class="col-md-3"><label class="form-label small">Código</label><input name="code" value="{{ r.code }}" class="form-control form-control-sm" required></div>
+            <div class="col-md-5"><label class="form-label small">Nome público</label><input name="name" value="{{ r.name }}" class="form-control form-control-sm" required></div>
+            <div class="col-6 col-md-2"><label class="form-label small">Carapinas</label><input type="number" min="0" name="capacity_carapinas" value="{{ r.capacity_carapinas or '' }}" class="form-control form-control-sm"></div>
+            <div class="col-6 col-md-2"><label class="form-label small">Estado</label><select name="active" class="form-select form-select-sm"><option value="1" {{ 'selected' if r.active }}>Ativo</option><option value="0" {{ 'selected' if not r.active }}>Inativo</option></select></div>
+            <div class="col-md-8"><label class="form-label small">Imagem pública (PNG, JPG ou WebP)</label><input type="file" name="resource_image" accept=".png,.jpg,.jpeg,.webp" class="form-control form-control-sm">{% if r.image_url %}<div class="form-text">Já existe uma imagem carregada.</div>{% endif %}</div>
+            <div class="col-md-4"><label class="form-label small">Máximo de sabores</label><input type="number" min="1" max="6" name="public_capacity_flavors" value="{{ r.public_capacity_flavors or r.capacity_flavors or '' }}" class="form-control form-control-sm"></div>
+            <div class="col-md-10"><label class="form-label small">Descrição pública</label><input name="public_description" value="{{ r.public_description or '' }}" maxlength="500" class="form-control form-control-sm" placeholder="Informação mostrada ao cliente"></div>
+            <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Guardar</button></div>
+          </form>
+          {% endfor %}
+          <form method="post" class="row g-2 align-items-end">
+            <input type="hidden" name="action" value="resource"><input type="hidden" name="resource_type" value="equipment"><input type="hidden" name="active" value="1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="col-4"><input name="code" class="form-control form-control-sm" placeholder="código" required></div>
+            <div class="col-6"><input name="name" class="form-control form-control-sm" placeholder="Novo meio" required></div>
+            <div class="col-2"><button class="btn btn-sm btn-outline-primary w-100">Adicionar</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-5">
+      <div class="card shadow-sm mb-3">
+        <div class="card-header fw-semibold">Sabores disponíveis para eventos</div>
+        <form method="post" class="card-body">
+          <input type="hidden" name="action" value="portal_flavours">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <p class="small text-muted">Só são apresentados sabores ativos com Nome Corrente definido.</p>
+          <div class="row g-2">
+            {% for flavour in portal_flavours %}
+            <div class="col-sm-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="flavour_ids[]" value="{{ flavour.id }}" {% if flavour.event_active %}checked{% endif %}><span class="form-check-label">{{ flavour.nome_corrente }}</span></label></div>
+            {% else %}<p class="text-muted small">Não existem sabores elegíveis.</p>{% endfor %}
+          </div>
+          <button class="btn btn-primary btn-sm mt-3">Guardar sabores</button>
+        </form>
+      </div>
+      <div class="card shadow-sm">
+        <div class="card-header fw-semibold">Preços, IVA e sinal</div>
+        <div class="card-body">
+          {% for p in pricing %}
+          <form method="post" class="border-bottom pb-2 mb-2 row g-1 align-items-end">
+            <input type="hidden" name="action" value="pricing"><input type="hidden" name="key" value="{{ p.key }}"><input type="hidden" name="label" value="{{ p.label }}"><input type="hidden" name="setting_type" value="{{ p.setting_type }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="col-5"><label class="small">{{ p.label }}</label></div>
+            <div class="col-3"><input name="value_gross" type="number" step="0.01" min="0" value="{{ p.value_gross }}" class="form-control form-control-sm"></div>
+            <div class="col-2"><input name="taxa_iva" type="number" step="1" min="0" max="100" value="{{ (p.taxa_iva*100)|round(0)|int if p.taxa_iva is not none else '' }}" placeholder="IVA" class="form-control form-control-sm"></div>
+            <div class="col-2"><input type="hidden" name="requires_tax_review" value="{{ '1' if p.requires_tax_review else '0' }}"><input type="hidden" name="active" value="{{ '1' if p.active else '0' }}"><button class="btn btn-sm btn-primary w-100">Guardar</button></div>
+          </form>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

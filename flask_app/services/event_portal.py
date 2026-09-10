@@ -17,6 +17,7 @@ from db import eventos as event_db
 _MATOSINHOS_LAT = 41.1826
 _MATOSINHOS_LON = -8.6890
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+_PHOTON_URL = "https://photon.komoot.io/api/"
 _OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
 _ALLOWED_UPLOADS = {
     "pdf": ("application/pdf", b"%PDF-"),
@@ -87,6 +88,69 @@ def resolve_event_address(address: str) -> dict:
         pass
     event_db.save_portal_geocode_cache(key, result)
     return result
+
+
+def resolve_event_coordinates(address: str, latitude, longitude) -> dict:
+    """Calculate authoritative road distance for a signed autocomplete result."""
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            raise ValueError
+        route = requests.get(
+            f"{_OSRM_URL}/{_MATOSINHOS_LON},{_MATOSINHOS_LAT};{longitude},{latitude}",
+            params={"overview": "false"},
+            timeout=(2, 5),
+        )
+        route.raise_for_status()
+        routes = route.json().get("routes") or []
+        if not routes or not routes[0].get("distance"):
+            raise ValueError
+        return {
+            "latitude": latitude,
+            "longitude": longitude,
+            "round_trip_km": round(float(routes[0]["distance"]) * 2 / 1000, 2),
+            "provider": "photon+osrm",
+            "failed": False,
+            "manual_review": False,
+        }
+    except (requests.RequestException, ValueError, TypeError, KeyError):
+        return resolve_event_address(address)
+
+
+def suggest_event_addresses(query: str) -> list[dict]:
+    """Return minimal, Portugal-biased autocomplete results.
+
+    Photon is used for interactive suggestions; failures intentionally look
+    like an empty result so the form can offer manual entry.
+    """
+    query = " ".join((query or "").split())
+    if len(query) < 3 or len(query) > 160:
+        return []
+    try:
+        response = requests.get(
+            _PHOTON_URL,
+            params={"q": query, "limit": 5, "lat": _MATOSINHOS_LAT,
+                    "lon": _MATOSINHOS_LON, "bbox": "-9.6,36.8,-6.0,42.2"},
+            headers={"User-Agent": os.environ.get("OSM_USER_AGENT", "ScoopyEventsPortal/1.0")},
+            timeout=(2, 4),
+        )
+        response.raise_for_status()
+        output = []
+        for feature in (response.json().get("features") or []):
+            coords = (feature.get("geometry") or {}).get("coordinates") or []
+            if len(coords) != 2:
+                continue
+            props = feature.get("properties") or {}
+            parts = [props.get(key) for key in ("name", "street", "housenumber",
+                                                "postcode", "city", "district")]
+            label = ", ".join(dict.fromkeys(str(part).strip() for part in parts if part))
+            if label and -180 <= float(coords[0]) <= 180 and -90 <= float(coords[1]) <= 90:
+                output.append({"label": label[:255], "latitude": float(coords[1]),
+                               "longitude": float(coords[0])})
+        return output
+    except (requests.RequestException, ValueError, TypeError, KeyError):
+        return []
 
 
 def validate_portal_proof(upload, max_bytes=4 * 1024 * 1024):

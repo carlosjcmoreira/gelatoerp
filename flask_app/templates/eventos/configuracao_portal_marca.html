@@ -39,13 +39,13 @@
           <hr class="my-4"><h6 class="fw-bold">Campos e secções opcionais</h6>
           <p class="small text-muted">Os campos indispensáveis e o consentimento de privacidade permanecem sempre protegidos.</p>
           <div class="row g-2">
-          {% for key,label in [('event_name','Nome do evento'),('duration','Duração'),('service_mode','Tipo de serviço'),('resource_preferences','Equipamento preferido'),('referral_source','Origem do contacto'),('marketing_consent','Consentimento de marketing')] %}
+          {% for key,label in [('event_name','Nome do evento'),('duration','Duração'),('service_mode','Tipo de serviço'),('resource_preferences','Equipamento preferido'),('referral_source','Origem do contacto')] %}
             <div class="col-md-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="visible_{{ key }}" value="1" {% if brand.visible_fields.get(key, true) %}checked{% endif %} data-preview-section="{{ key }}"><span class="form-check-label">Mostrar {{ label|lower }}</span></label></div>
           {% endfor %}
           </div>
           <hr class="my-4"><h6 class="fw-bold">Rótulos</h6>
           <div class="row g-2">
-          {% for key,label in [('event_name','Nome do evento'),('event_type','Tipo de evento'),('estimated_guests','Participantes'),('servings_per_guest','Bolas por pessoa'),('duration','Duração'),('occurrences','Datas e local'),('flavours','Sabores'),('service_mode','Tipo de serviço'),('resource_preferences','Equipamento preferido'),('contact','Contacto'),('client_name','Nome'),('client_email','Email'),('client_phone','Telefone'),('referral_source','Origem do contacto'),('marketing_consent','Consentimento de marketing'),('submit','Botão de envio')] %}
+          {% for key,label in [('event_name','Nome do evento'),('event_type','Tipo de evento'),('estimated_guests','Participantes'),('servings_per_guest','Bolas por pessoa'),('duration','Duração'),('occurrences','Datas e local'),('flavours','Sabores'),('service_mode','Tipo de serviço'),('resource_preferences','Equipamento preferido'),('contact','Contacto'),('client_name','Nome'),('client_email','Email'),('client_phone','Telefone'),('referral_source','Origem do contacto'),('submit','Botão de envio')] %}
             <div class="col-md-6"><label class="form-label small">{{ label }}</label><input class="form-control form-control-sm" name="label_{{ key }}" value="{{ brand.field_labels.get(key, label) }}" {% if key == 'submit' %}data-preview="submit-label"{% endif %}></div>
           {% endfor %}
           </div>

@@ -49,7 +49,6 @@ DEFAULT_PORTAL_BRAND = {
         "service_mode": True,
         "resource_preferences": True,
         "referral_source": True,
-        "marketing_consent": True,
     },
     "is_default": False,
 }
@@ -107,7 +106,6 @@ def validate_brand_form(form):
         "client_email": "Email",
         "client_phone": "Telefone",
         "referral_source": "Como chegou até nós?",
-        "marketing_consent": "Aceito receber novidades e campanhas.",
         "privacy": (
             "Li e aceito que os meus dados sejam usados para responder e gerir este pedido."
         ),
@@ -170,3 +168,12 @@ def save_public_portal_logo(validated, static_root):
     storage_name = f"{uuid.uuid4().hex}.{validated['extension']}"
     (root / storage_name).write_bytes(validated["payload"])
     return storage_name
+
+
+def save_public_event_resource_image(validated, static_root):
+    """Store a validated equipment image on the application's own origin."""
+    root = Path(static_root) / "uploads" / "event_resources"
+    root.mkdir(parents=True, exist_ok=True)
+    storage_name = f"{uuid.uuid4().hex}.{validated['extension']}"
+    (root / storage_name).write_bytes(validated["payload"])
+    return f"uploads/event_resources/{storage_name}"

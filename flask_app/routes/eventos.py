@@ -3,16 +3,20 @@ import sys
 import hashlib
 import secrets
 import time
+import re
 from datetime import datetime, date, timedelta
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, current_app
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from flask_app.auth import login_required, perm_required
 from flask_app.analytics import queue_analytics_event
 from flask_app.services.event_portal import (
-    cleanup_expired_portal_proofs, resolve_event_address, save_private_portal_proof,
-    validate_portal_proof,
+    cleanup_expired_portal_proofs, resolve_event_address, resolve_event_coordinates,
+    save_private_portal_proof,
+    validate_portal_proof, suggest_event_addresses,
 )
 from flask_app.services.event_portal_brand import (
-    default_portal_brand, save_public_portal_logo, validate_brand_form,
+    default_portal_brand, save_public_event_resource_image, save_public_portal_logo,
+    validate_brand_form,
     validate_portal_logo,
 )
 
@@ -25,8 +29,6 @@ from database import (
 from db.pagamentos import VAT_RATES
 
 eventos_bp = Blueprint('eventos', __name__)
-
-
 def _parse_taxa_iva(raw, artigo_codigo=None):
     """Parse a per-line IVA rate submitted as a percentage (e.g. '13'). Defaults to
     the editable event pricing configuration when missing or invalid."""
@@ -122,7 +124,7 @@ def _portal_csrf_token():
 
 
 def _require_portal_csrf():
-    supplied = request.form.get('csrf_token', '')
+    supplied = request.form.get('csrf_token', '') or request.headers.get('X-CSRF-Token', '')
     expected = session.get('event_portal_csrf', '')
     if not expected or not secrets.compare_digest(supplied, expected):
         raise ValueError('A página expirou. Atualize e tente novamente.')
@@ -162,8 +164,21 @@ def _portal_event_id():
 
 
 def _portal_ip_fingerprint():
-    remote = request.headers.get('X-Forwarded-For', request.remote_addr or '').split(',')[0].strip()
+    remote = (request.remote_addr or '').strip()
     return hashlib.sha256(remote.encode('utf-8')).hexdigest() if remote else None
+
+
+def _portal_rate_limit(action, limit, window_seconds=3600):
+    if not db.consume_portal_rate_limit(
+        _portal_ip_fingerprint(), action, limit, window_seconds
+    ):
+        raise ValueError('Foram recebidos demasiados pedidos. Tente novamente mais tarde.')
+
+
+def _address_serializer():
+    return URLSafeTimedSerializer(
+        current_app.secret_key, salt='event-portal-address-v1'
+    )
 
 
 def _portal_end_time(start, duration_minutes):
@@ -184,6 +199,55 @@ def _portal_login_required():
     return None
 
 
+def _valid_phone(value):
+    value = (value or '').strip()
+    if not re.fullmatch(r'\+[1-9][0-9 .()/-]*', value):
+        raise ValueError('Indique um telefone válido, incluindo o indicativo internacional.')
+    digits = ''.join(ch for ch in value if ch.isdigit())
+    if len(digits) < 7 or len(digits) > 15:
+        raise ValueError('Indique um telefone válido, incluindo o indicativo internacional.')
+    if digits.startswith('351'):
+        national = digits[3:]
+        if len(national) != 9 or national[0] not in ('2', '9'):
+            raise ValueError('Indique um número português válido.')
+    return '+' + digits
+
+
+@eventos_bp.route('/pedido-evento/disponibilidade', methods=['GET'])
+def portal_date_availability():
+    """CSRF-protected coarse status for one requested future date."""
+    try:
+        _require_portal_csrf()
+        requested = datetime.strptime(request.args.get('date', ''), '%Y-%m-%d').date()
+        if requested < date.today() or requested > date.today() + timedelta(days=730):
+            raise ValueError
+        _portal_rate_limit('availability', 60)
+        return jsonify({'status': db.get_portal_date_status(requested)})
+    except ValueError:
+        return jsonify({'error': 'Data inválida.'}), 400
+
+
+@eventos_bp.route('/pedido-evento/moradas', methods=['GET'])
+def portal_address_suggestions():
+    """Public-safe address autocomplete; response contains no provider metadata."""
+    try:
+        _require_portal_csrf()
+    except ValueError:
+        return jsonify({'error': 'Página expirada.'}), 403
+    try:
+        _portal_rate_limit('address', 120)
+        suggestions = suggest_event_addresses(request.args.get('q', ''))
+        for suggestion in suggestions:
+            suggestion['token'] = _address_serializer().dumps({
+                'label': suggestion['label'],
+                'latitude': suggestion['latitude'],
+                'longitude': suggestion['longitude'],
+            })
+        return jsonify({'suggestions': suggestions})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 429
+
+
 # ── Public customer event portal ───────────────────────────────────────────────
 
 @eventos_bp.route('/pedido-evento', methods=['GET', 'POST'])
@@ -192,10 +256,22 @@ def portal_request():
     if request.method == 'POST':
         try:
             _require_portal_csrf()
+            if request.form.get('website', '').strip():
+                raise ValueError('Não foi possível submeter o pedido.')
+            try:
+                started_at = int(request.form.get('started_at', '0'))
+            except (TypeError, ValueError):
+                started_at = 0
+            elapsed_ms = int(time.time() * 1000) - started_at
+            if started_at <= 0 or elapsed_ms < 1200 or elapsed_ms > 24 * 60 * 60 * 1000:
+                raise ValueError('Atualize a página e tente novamente.')
+            _portal_rate_limit('submission', 5)
             dates = request.form.getlist('occurrence_date[]')
             start_times = request.form.getlist('occurrence_start[]')
             venues = request.form.getlist('occurrence_venue[]')
             addresses = request.form.getlist('occurrence_address[]')
+            normalized_addresses = request.form.getlist('occurrence_address_normalized[]')
+            address_tokens = request.form.getlist('occurrence_address_token[]')
             occurrences = []
             for index, raw_date in enumerate(dates):
                 if not raw_date:
@@ -207,10 +283,28 @@ def portal_request():
                 if event_date < date.today():
                     raise ValueError('Escolha uma data futura.')
                 venue = (venues[index] if index < len(venues) else '').strip()
-                address = (addresses[index] if index < len(addresses) else '').strip()
+                typed_address = (addresses[index] if index < len(addresses) else '').strip()
+                normalized_address = (
+                    normalized_addresses[index]
+                    if index < len(normalized_addresses) else ''
+                ).strip()
+                address = normalized_address or typed_address
                 if not address:
                     raise ValueError('Indique a morada de cada ocorrência.')
-                location = resolve_event_address(address)
+                address_token = (
+                    address_tokens[index] if index < len(address_tokens) else ''
+                ).strip()
+                if address_token:
+                    try:
+                        selected = _address_serializer().loads(address_token, max_age=3600)
+                    except (BadSignature, SignatureExpired):
+                        raise ValueError('Selecione novamente a morada sugerida.')
+                    address = str(selected.get('label') or '').strip()
+                    location = resolve_event_coordinates(
+                        address, selected.get('latitude'), selected.get('longitude')
+                    )
+                else:
+                    location = resolve_event_address(address)
                 duration = request.form.get('duration_minutes', '180')
                 occurrences.append({
                     'event_date': event_date,
@@ -242,8 +336,7 @@ def portal_request():
                 'occurrences': occurrences,
                 'client_name': request.form.get('client_name', '').strip(),
                 'client_email': request.form.get('client_email', '').strip(),
-                'client_phone': request.form.get('client_phone', '').strip(),
-                'marketing_consent': request.form.get('marketing_consent') == '1',
+                'client_phone': _valid_phone(request.form.get('client_phone', '')),
                 'privacy_accepted': request.form.get('privacy_accepted') == '1',
                 'referral_source': request.form.get('referral_source', '').strip(),
                 'resource_preferences': request.form.getlist('resource_preferences[]'),
@@ -292,13 +385,19 @@ def portal_request():
         except ValueError as exc:
             flash(str(exc), 'error')
 
-    calendar_dates = [
-        {'date': row['event_date'].isoformat(), 'risk': row['risk']}
-        for row in db.get_portal_unavailable_dates()
-    ]
+    # Never disclose the complete unavailable-date set to an unauthenticated
+    # browser.  The single-date endpoint above returns only a coarse status.
+    calendar_dates = []
     return render_template(
         'eventos/portal_request.html', calendar_dates=calendar_dates,
         csrf_token=_portal_csrf_token(), form=request.form, brand=brand,
+        resources=db.get_event_resources(),
+        event_flavours=[
+            {'id': flavour['id'], 'name': flavour['nome_corrente']}
+            for flavour in db.get_portal_flavours()
+        ],
+        availability_url=url_for('eventos.portal_date_availability'),
+        address_suggestions_url=url_for('eventos.portal_address_suggestions'),
     )
 
 
@@ -958,9 +1057,21 @@ def quote_action(event_id):
 @perm_required('acesso_eventos')
 def configuracao():
     if request.method == 'POST':
+        try:
+            _require_admin_portal_brand_csrf()
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('eventos.configuracao'))
         action = request.form.get('action')
         try:
             if action == 'resource':
+                image_path = request.form.get('existing_image_path', '').strip() or None
+                if request.files.get('resource_image') and request.files['resource_image'].filename:
+                    validated_image = validate_portal_logo(request.files['resource_image'])
+                    image_path = save_public_event_resource_image(
+                        validated_image,
+                        os.path.join(os.path.dirname(__file__), '..', 'static'),
+                    )
                 db.upsert_event_resource(
                     request.form.get('code', '').strip(),
                     request.form.get('name', '').strip(),
@@ -969,6 +1080,9 @@ def configuracao():
                     request.form.get('capacity_flavors', type=int),
                     request.form.get('active') == '1',
                     request.form.get('notes', '').strip() or None,
+                    image_path,
+                    request.form.get('public_description', '').strip() or None,
+                    request.form.get('public_capacity_flavors', type=int),
                 )
                 flash('Meio guardado.', 'success')
             elif action == 'pricing':
@@ -982,12 +1096,17 @@ def configuracao():
                     active=request.form.get('active') == '1',
                 )
                 flash('Preço/configuração guardado.', 'success')
+            elif action == 'portal_flavours':
+                db.set_event_portal_flavours(request.form.getlist('flavour_ids[]'))
+                flash('Sabores disponíveis para eventos atualizados.', 'success')
         except ValueError as exc:
             flash(str(exc), 'error')
         return redirect(url_for('eventos.configuracao'))
     return render_template(
         'eventos/configuracao.html', resources=db.get_event_resources(active_only=False),
         pricing=db.get_event_pricing_settings(), tabs=_get_tabs(), active_tab='configuracao',
+        portal_flavours=db.get_event_portal_flavour_configuration(),
+        csrf_token=_admin_portal_brand_csrf_token(),
     )
 
 
