@@ -188,6 +188,9 @@ def _map_row_to_lead(row_index, row):
         "event_time": _safe_col(row, 6),
         "event_end_time": None,
         "event_type": _safe_col(row, 7),
+        "customer_type": None,
+        "company_name": None,
+        "nif": None,
         "venue": _safe_col(row, 8),
         "venue_address": _safe_col(row, 9),
         "referral_source": _safe_col(row, 10),
@@ -244,6 +247,13 @@ def _map_row_with_headers(headers, row, row_index):
         ]),
         "event_end_time": col(["hora fim", "hora de fim", "event_end_time", "end_time"]) or None,
         "event_type": col(["tipo de evento", "tipo evento", "event_type", "type"]),
+        "customer_type": (
+            {"particular": "particular", "empresa": "empresa"}.get(
+                col(["tipo de cliente", "customer type", "customer_type"]).strip().casefold()
+            )
+        ),
+        "company_name": col(["empresa", "company", "company_name"]) or None,
+        "nif": col(["nif", "nif/vat", "vat", "nif vat"]) or None,
         "venue": col(["localização", "localizacao", "local", "venue", "local do evento"]),
         "venue_address": col(["morada", "address", "venue_address"]),
         "referral_source": col([
@@ -421,6 +431,9 @@ def sync_leads_from_sheet(progress_callback=None):
                 "client_name": lead_data.get("client_name") or "",
                 "client_email": lead_data.get("client_email") or "",
                 "client_phone": lead_data.get("client_phone") or "",
+                "customer_type": lead_data.get("customer_type"),
+                "company_name": lead_data.get("company_name"),
+                "nif": lead_data.get("nif"),
                 "orcamento": orcamento,
             }
             db_mod.upsert_event_from_sheet(row_id, event_data, pipeline_status)

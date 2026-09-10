@@ -4,6 +4,7 @@ import io
 import tempfile
 import time
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -78,6 +79,28 @@ class _Connection:
 
 
 class BrandValidationTests(unittest.TestCase):
+    def test_lead_time_defaults_and_validation_boundaries(self):
+        defaults = default_portal_brand()
+        self.assertEqual(defaults["min_advance_days"], 0)
+        self.assertTrue(defaults["short_notice_warning"])
+        self.assertEqual(
+            validate_brand_form({"min_advance_days": "0", "short_notice_warning": "Aviso"})[
+                "min_advance_days"
+            ],
+            0,
+        )
+        self.assertEqual(
+            validate_brand_form({"min_advance_days": "3650", "short_notice_warning": "Aviso"})[
+                "min_advance_days"
+            ],
+            3650,
+        )
+        for value in ("-1", "3651", "1.5", "abc"):
+            with self.assertRaises(ValueError):
+                validate_brand_form({"min_advance_days": value, "short_notice_warning": "Aviso"})
+        with self.assertRaises(ValueError):
+            validate_brand_form({"min_advance_days": "1", "short_notice_warning": ""})
+
     def test_invalid_colour_is_rejected_and_privacy_is_not_configurable(self):
         with self.assertRaisesRegex(ValueError, "hexadecimal"):
             validate_brand_form({"brand_name": "Gelataria", "primary_color": "green"})
@@ -121,6 +144,8 @@ class BrandPersistenceTests(unittest.TestCase):
         statements = "\n".join(sql for sql, _ in cursor.queries)
         self.assertIn("CREATE TABLE IF NOT EXISTS event_portal_brand_configs", statements)
         self.assertIn("ADD COLUMN IF NOT EXISTS brand_store_id", statements)
+        self.assertIn("ADD COLUMN IF NOT EXISTS min_advance_days", statements)
+        self.assertIn("ADD COLUMN IF NOT EXISTS short_notice_warning", statements)
 
     def test_fallback_and_saved_brand_remain_isolated_by_store(self):
         fallback = eventos._portal_brand_from_row(None)
@@ -211,7 +236,13 @@ class BrandRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.location, "/")
 
-    def test_admin_can_open_single_form_editor_with_preview_and_public_link(self):
+    def test_legacy_brand_url_is_admin_only_and_redirects_to_unified_editor(self):
+        with self.app.test_client() as client:
+            self._user(client)
+            response = client.get("/eventos/configuracao/portal-marca")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/")
+
         brand = default_portal_brand()
         brand["store_id"] = 1
         with self.app.test_client() as client, \
@@ -222,49 +253,51 @@ class BrandRouteTests(unittest.TestCase):
             self._user(client, acesso_administrativo=True)
             response = client.get("/eventos/configuracao/portal-marca?store_id=999")
 
-        self.assertEqual(response.status_code, 200)
-        page = response.get_data(as_text=True)
-        self.assertIn("Formulário público de Eventos", page)
-        self.assertIn("Pré-visualização", page)
-        self.assertIn('href="/eventos/pedido-evento"', page)
-        self.assertIn('target="_blank"', page)
-        self.assertNotIn("store-picker", page)
-        self.assertNotIn('name="store_id"', page)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, "/eventos/configuracao")
 
-    def test_brand_editor_post_requires_csrf_before_any_write(self):
+    def test_unified_editor_post_requires_csrf_before_any_write(self):
         with self.app.test_client() as client, \
               patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=default_portal_brand()), \
-              patch("flask_app.routes.eventos.db.save_public_portal_brand_config") as save_brand:
+               patch("flask_app.routes.eventos.db.save_event_configuration") as save_config:
             self._user(client, acesso_administrativo=True)
-            response = client.post("/eventos/configuracao/portal-marca", data={
+            response = client.post("/eventos/configuracao", data={
                 "brand_name": "Marca alterada",
             })
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("página expirou", response.get_data(as_text=True))
-        save_brand.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        save_config.assert_not_called()
 
-    def test_saved_editor_values_update_the_single_public_configuration(self):
+    def test_unified_editor_valid_post_saves_once(self):
         brand = default_portal_brand()
         with self.app.test_client() as client, \
               patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=brand), \
-              patch("flask_app.routes.eventos.db.save_public_portal_brand_config") as save_brand, \
+             patch("flask_app.routes.eventos.db.save_event_configuration") as save_config, \
              patch("db.tiles.get_tile_visibility", return_value={}), \
              patch("db.tiles.get_tile_labels", return_value={}), \
              patch("db.tiles.get_tile_icons", return_value={}):
             self._user(client, acesso_administrativo=True)
-            client.get("/eventos/configuracao/portal-marca")
+            client.get("/eventos/configuracao")
             with client.session_transaction() as session:
                 token = session["event_portal_brand_csrf"]
-            response = client.post("/eventos/configuracao/portal-marca", data={
+            response = client.post("/eventos/configuracao", data={
                 "csrf_token": token, "brand_name": "Gelato da Praia",
+                "min_advance_days": "3650", "short_notice_warning": "Aviso configurado.",
             })
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.location, "/eventos/configuracao/portal-marca")
-        values = save_brand.call_args.args[0]
+        self.assertEqual(response.location, "/eventos/configuracao")
+        save_config.assert_called_once()
+        values = save_config.call_args.args[0]
         self.assertEqual(values["brand_name"], "Gelato da Praia")
-        self.assertIsNone(values["store_id"])
+        self.assertEqual(values["min_advance_days"], 3650)
+        self.assertEqual(values["short_notice_warning"], "Aviso configurado.")
+
+    def test_unified_editor_post_is_forbidden_for_non_admin(self):
+        with self.app.test_client() as client:
+            self._user(client, acesso_administrativo=False)
+            response = client.post("/eventos/configuracao", data={"brand_name": "Nope"})
+        self.assertEqual(response.status_code, 403)
 
     def test_editor_disables_only_its_blur_submit_scroll(self):
         root = Path(__file__).parent.parent

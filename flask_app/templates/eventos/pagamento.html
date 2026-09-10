@@ -15,7 +15,7 @@
 
 <form method="post">
     <div class="d-flex gap-2 mb-3">
-        <a href="{{ url_for('eventos.recebimentos') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
+        <a href="{{ url_for('eventos.detalhe_evento', evento_id=evento.id) }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
         <button type="submit" class="btn btn-success flex-fill">Guardar</button>
     </div>
     <div class="mb-3">

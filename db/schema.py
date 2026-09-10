@@ -196,6 +196,9 @@ def run_migrations_eventos_v2_foundation():
                 "ALTER TABLE event_quote_versions ADD COLUMN IF NOT EXISTS quote_revision VARCHAR(128)"
             )
             cursor.execute(
+                "ALTER TABLE event_quote_versions ADD COLUMN IF NOT EXISTS proposal_snapshot JSONB"
+            )
+            cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_date "
                 "ON event_occurrences(event_date)"
             )
@@ -393,6 +396,70 @@ def run_migrations_eventos_v2_foundation():
                     (code, name),
                 )
 
+            # The Pipeline is canonical, so every historical lead must have an
+            # event row before the legacy lead screens redirect into it.
+            cursor.execute(
+                "ALTER TABLE events ADD COLUMN IF NOT EXISTS lead_id "
+                "INTEGER REFERENCES lead_requests(id) ON DELETE SET NULL"
+            )
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS google_sheet_row_id VARCHAR(100)")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'manual'")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20)")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20)")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS nif VARCHAR(9)")
+            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20)")
+            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20)")
+            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)")
+            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS nif VARCHAR(9)")
+            cursor.execute("""
+                UPDATE events e
+                   SET lead_id = l.id
+                  FROM lead_requests l
+                 WHERE e.lead_id IS NULL
+                   AND e.google_sheet_row_id IS NOT NULL
+                   AND l.google_sheet_row_id = e.google_sheet_row_id
+            """)
+            cursor.execute("""
+                INSERT INTO events (
+                    lead_id, event_name, event_type, event_date, event_time,
+                    event_end_time, estimated_guests, venue, venue_address,
+                    client_name, client_email, client_phone, customer_type,
+                    company_name, nif, status, internal_notes, google_sheet_row_id,
+                    source, created_at, updated_at
+                )
+                SELECT l.id, COALESCE(l.event_type, l.client_name), l.event_type,
+                       l.event_date, l.event_time, l.event_end_time,
+                       l.estimated_guests, l.venue, l.venue_address, l.client_name,
+                       l.client_email, l.client_phone, l.customer_type, l.company_name,
+                       l.nif,
+                       CASE l.status
+                           WHEN 'proposal' THEN 'orcamentado'
+                           WHEN 'proposal_sent' THEN 'enviado'
+                           WHEN 'won' THEN 'adjudicado'
+                           WHEN 'lost' THEN 'rejeitado'
+                           WHEN 'cancelled' THEN 'cancelado'
+                           ELSE 'novos'
+                       END,
+                       COALESCE(l.internal_notes, l.notes),
+                       CASE WHEN l.google_sheet_row_id IS NOT NULL
+                                  AND NOT EXISTS (
+                                      SELECT 1 FROM events existing
+                                      WHERE existing.google_sheet_row_id = l.google_sheet_row_id
+                                  )
+                            THEN l.google_sheet_row_id END,
+                       l.source, COALESCE(l.created_at, CURRENT_TIMESTAMP),
+                       COALESCE(l.updated_at, CURRENT_TIMESTAMP)
+                  FROM lead_requests l
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM events e WHERE e.lead_id = l.id
+                 )
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS events_google_sheet_row_id_idx
+                ON events(google_sheet_row_id) WHERE google_sheet_row_id IS NOT NULL
+            """)
+
             # Move the active CRM table to the agreed pipeline.  The legacy
             # production table named ``eventos`` remains untouched by design.
             cursor.execute(
@@ -439,6 +506,7 @@ def run_migrations_eventos_v2_foundation():
                     SELECT 1 FROM event_occurrences eo
                     WHERE eo.event_id = e.id
                 )
+                ON CONFLICT (event_id, occurrence_number) DO NOTHING
                 """
             )
 
@@ -510,6 +578,9 @@ def run_migrations_eventos_customer_portal():
                 logger.info("run_migrations_eventos_customer_portal: lock held, skipping")
                 return
             cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS source VARCHAR(50)")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20)")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)")
+            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS nif VARCHAR(9)")
             cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20)")
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS event_portal_requests (
@@ -530,6 +601,7 @@ def run_migrations_eventos_customer_portal():
                     estimated_vat_eur NUMERIC(12,2),
                     estimated_total_eur NUMERIC(12,2),
                     public_message TEXT,
+                     short_notice_warning TEXT,
                     logistics_message TEXT,
                     sent_quote_version_id BIGINT REFERENCES event_quote_versions(id) ON DELETE RESTRICT,
                     accepted_quote_revision VARCHAR(128),
@@ -554,6 +626,8 @@ def run_migrations_eventos_customer_portal():
                     form_intro TEXT NOT NULL DEFAULT '',
                     confirmation_message TEXT NOT NULL DEFAULT '',
                     contact_text TEXT NOT NULL DEFAULT '',
+                     min_advance_days INTEGER NOT NULL DEFAULT 0,
+                     short_notice_warning TEXT NOT NULL DEFAULT 'Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.',
                     field_labels JSONB NOT NULL DEFAULT '{}'::jsonb,
                     visible_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
                     is_default BOOLEAN NOT NULL DEFAULT FALSE,
@@ -571,10 +645,16 @@ def run_migrations_eventos_customer_portal():
                 ADD COLUMN IF NOT EXISTS brand_store_id INTEGER
                 REFERENCES stores(id) ON DELETE RESTRICT
             """)
+            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20)")
+            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)")
+            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS nif VARCHAR(9)")
             cursor.execute("""
                 ALTER TABLE event_portal_requests
                 ADD COLUMN IF NOT EXISTS access_code_hash VARCHAR(128)
             """)
+            cursor.execute("ALTER TABLE event_portal_requests ADD COLUMN IF NOT EXISTS short_notice_warning TEXT")
+            cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS min_advance_days INTEGER NOT NULL DEFAULT 0")
+            cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS short_notice_warning TEXT NOT NULL DEFAULT 'Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.'")
             cursor.execute("""
                 ALTER TABLE event_portal_requests
                 ADD COLUMN IF NOT EXISTS sent_quote_version_id BIGINT
@@ -584,6 +664,21 @@ def run_migrations_eventos_customer_portal():
             cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS image_url TEXT")
             cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS public_description TEXT")
             cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS public_capacity_flavors INTEGER")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS width_cm NUMERIC(10,2)")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS height_cm NUMERIC(10,2)")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS length_cm NUMERIC(10,2)")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS weight_kg NUMERIC(10,2)")
+            cursor.execute("ALTER TABLE event_resources ADD COLUMN IF NOT EXISTS public_customer_requirements TEXT")
+            for name, expression in (
+                ("event_resources_width_cm_check", "width_cm IS NULL OR (width_cm >= 0 AND width_cm <= 100000)"),
+                ("event_resources_height_cm_check", "height_cm IS NULL OR (height_cm >= 0 AND height_cm <= 100000)"),
+                ("event_resources_length_cm_check", "length_cm IS NULL OR (length_cm >= 0 AND length_cm <= 100000)"),
+                ("event_resources_weight_kg_check", "weight_kg IS NULL OR (weight_kg >= 0 AND weight_kg <= 100000)"),
+            ):
+                cursor.execute(f"""DO $$ BEGIN
+                    ALTER TABLE event_resources ADD CONSTRAINT {name} CHECK ({expression});
+                EXCEPTION WHEN duplicate_object THEN NULL; END $$;""")
+            cursor.execute("ALTER TABLE event_portal_requests ADD COLUMN IF NOT EXISTS resource_requirements_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb")
             cursor.execute("""
                 DO $$ BEGIN
                     ALTER TABLE event_resources
@@ -1728,6 +1823,25 @@ def run_migrations():
         cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES event_clients(id) ON DELETE SET NULL")
         cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS google_sheet_row_id VARCHAR(100)")
         cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'manual'")
+        # Keep the additive lead conversion self-contained: older installations
+        # may not yet have the customer metadata columns when this migration runs.
+        cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20)")
+        cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)")
+        cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS nif VARCHAR(9)")
+        cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20)")
+        cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)")
+        cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS nif VARCHAR(9)")
+        # Imported leads and events share the immutable Sheet row identity.
+        # Backfill only unlinked rows; do not overwrite an operational link.
+        cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS lead_id INTEGER REFERENCES lead_requests(id) ON DELETE SET NULL")
+        cursor.execute("""
+            UPDATE events e
+               SET lead_id = l.id
+              FROM lead_requests l
+             WHERE e.lead_id IS NULL
+               AND e.google_sheet_row_id IS NOT NULL
+               AND l.google_sheet_row_id = e.google_sheet_row_id
+        """)
         cursor.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS events_google_sheet_row_id_idx
             ON events(google_sheet_row_id) WHERE google_sheet_row_id IS NOT NULL

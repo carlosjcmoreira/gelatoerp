@@ -4,8 +4,21 @@
 <div class="container-fluid px-3 pt-3 pb-5">
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <div><h5 class="fw-bold mb-0">📋 Pipeline de Eventos</h5><small class="text-muted">{{ events|length }} resultado(s)</small></div>
-    <div class="d-flex gap-2"><a href="{{ url_for('eventos.calendario') }}" class="btn btn-sm btn-outline-secondary">🗓️ Calendário</a><a href="{{ url_for('eventos.novo_evento') }}" class="btn btn-sm btn-primary">+ Novo Evento</a></div>
+     <div class="d-flex gap-2">
+       <form method="post" action="{{ url_for('eventos.sync_sheets') }}" data-no-loading>
+         <button type="submit" class="btn btn-sm btn-outline-success" {% if sync_run and sync_run.status in ['queued', 'running'] %}disabled{% endif %}>🔄 Sincronizar Google Sheets</button>
+       </form>
+       <a href="{{ url_for('eventos.calendario') }}" class="btn btn-sm btn-outline-secondary">🗓️ Calendário</a>
+       <a href="{{ url_for('eventos.novo_evento') }}" class="btn btn-sm btn-primary">+ Novo Evento</a>
+     </div>
   </div>
+   {% if sync_run %}
+   <div class="alert {% if sync_run.status == 'failed' %}alert-danger{% elif sync_run.status == 'succeeded' %}alert-success{% else %}alert-info{% endif %} py-2 small">
+     <strong>{% if sync_run.status in ['queued', 'running'] %}Sincronização em curso{% elif sync_run.status == 'succeeded' %}Última sincronização concluída{% else %}A última sincronização falhou{% endif %}</strong>
+     <span class="ms-2">{{ sync_run.inserted or 0 }} novas · {{ sync_run.updated or 0 }} atualizadas · {{ sync_run.errors or 0 }} erros</span>
+     {% if sync_run.status in ['queued', 'running'] %}<span class="ms-2 text-muted">Pode continuar a trabalhar; o pipeline será atualizado.</span>{% endif %}
+   </div>
+   {% endif %}
   <div class="d-flex flex-wrap gap-1 mb-3">
     <a href="{{ url_for('eventos.pipeline') }}" class="btn btn-sm {{ 'btn-dark' if not status_filter else 'btn-outline-secondary' }}">Todos</a>
     {% for s in all_statuses %}<a href="{{ url_for('eventos.pipeline', status=s) }}" class="btn btn-sm {{ 'btn-' ~ status_colors[s] if status_filter==s else 'btn-outline-' ~ status_colors[s] }}">{{ status_labels[s] }}</a>{% endfor %}
@@ -25,7 +38,7 @@
   <div class="card shadow-sm"><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0 small">
     <thead class="table-light"><tr><th>Evento / cliente</th><th>Data</th><th>Tipo</th><th>Origem</th><th>Estado</th><th class="text-end">Orçamento</th><th></th></tr></thead>
     <tbody>{% for ev in events %}<tr>
-      <td><strong>{{ ev.event_name or '(sem nome)' }}</strong><div class="text-muted">{{ ev.client_name or 'Cliente a definir' }}</div></td>
+       <td><strong>{{ ev.event_name or '(sem nome)' }}</strong><div class="text-muted">{{ ev.client_name or 'Cliente a definir' }}</div><div class="small">{{ ev.customer_type or '—' }}{% if ev.company_name %} · {{ ev.company_name }}{% endif %}</div></td>
       <td>{{ ev.event_date.strftime('%d/%m/%Y') if ev.event_date else 'A definir' }}<div class="text-muted">{{ ev.event_time or '' }}</div></td>
       <td>{{ ev.event_type or '—' }}</td><td><span class="badge text-bg-light border">{{ ev.source or 'manual' }}</span></td>
       <td><span class="badge bg-{{ status_colors.get(ev.status, 'secondary') }}">{{ status_labels.get(ev.status, ev.status) }}</span></td>

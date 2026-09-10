@@ -4,6 +4,7 @@ import hashlib
 import secrets
 import time
 import re
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, date, timedelta
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session, current_app
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -19,6 +20,7 @@ from flask_app.services.event_portal_brand import (
     validate_brand_form,
     validate_portal_logo,
 )
+from flask_app.services.event_quote_pdf import render_quote_pdf
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import database as db
@@ -143,6 +145,19 @@ def _require_admin_portal_brand_csrf():
     expected = session.get('event_portal_brand_csrf', '')
     if not expected or not secrets.compare_digest(supplied, expected):
         raise ValueError('A página expirou. Atualize e tente novamente.')
+
+
+def _configuration_number(raw, label, maximum=100000):
+    """Normalize editable numeric settings before touching the database."""
+    if raw is None or str(raw).strip() == '':
+        return None
+    try:
+        value = Decimal(str(raw).strip().replace(',', '.'))
+    except (InvalidOperation, ValueError):
+        raise ValueError(f'{label} inválido.')
+    if not value.is_finite() or value < 0 or value > maximum:
+        raise ValueError(f'{label} deve estar entre 0 e {maximum}.')
+    return value
 
 
 def _portal_email():
@@ -322,14 +337,20 @@ def portal_request():
                         'Geocoding pendente de revisão manual.'
                         if location.get('manual_review') else None
                     ),
+                    # The public form may hide this control, but its policy
+                    # default is still an explicit service choice.
                     'service_mode': (
-                        'catering' if request.form.get('service_mode') == 'catering'
-                        else 'pending'
+                        request.form.get('service_mode')
+                        if request.form.get('service_mode') in ('niva_serves', 'client_serves', 'catering')
+                        else 'niva_serves'
                     ),
                 })
             result = db.create_portal_event_request({
                 'event_name': request.form.get('event_name', '').strip(),
                 'event_type': request.form.get('event_type', '').strip(),
+                'customer_type': request.form.get('customer_type', '').strip(),
+                'company_name': request.form.get('company_name', '').strip(),
+                'nif': request.form.get('nif', '').strip(),
                 'estimated_guests': request.form.get('estimated_guests'),
                 'servings_per_guest': request.form.get('servings_per_guest'),
                 'flavours': request.form.getlist('flavours[]'),
@@ -343,6 +364,8 @@ def portal_request():
                 'catering_requested': request.form.get('service_mode') == 'catering',
                 'brand_store_id': brand.get('store_id'),
                 'confirmation_message': brand.get('confirmation_message'),
+                 'min_advance_days': brand.get('min_advance_days', 0),
+                 'short_notice_warning': brand.get('short_notice_warning'),
             })
             email = db.normalize_portal_email(request.form.get('client_email'))
             access_code = result.get('access_code')
@@ -377,6 +400,8 @@ def portal_request():
                     'A equipa pode propor serviço pelo cliente, catering ou outra alternativa.',
                     'warning',
                 )
+            if result.get('short_notice_warning'):
+                flash(result['short_notice_warning'], 'warning')
             if access_code:
                 flash('Recebemos o seu pedido. Guarde o código de consulta mostrado abaixo.', 'success')
                 return redirect(url_for('eventos.portal_event', event_id=result['event_id']))
@@ -485,6 +510,23 @@ def portal_event(event_id):
     )
 
 
+@eventos_bp.route('/portal-eventos/pedido/<int:event_id>/pdf')
+def portal_quote_pdf(event_id):
+    email = _portal_login_required()
+    if not email:
+        return redirect(url_for('eventos.portal_access'))
+    if event_id != _portal_event_id():
+        return ('Pedido não encontrado.', 404)
+    event = db.get_portal_event_for_email(event_id, email)
+    if not event or event.get('customer_type') == 'empresa' or not event.get('quote_items_public'):
+        return ('Proposta não disponível.', 404)
+    db.record_portal_access(email, 'quote_pdf_downloaded', event_id, _portal_ip_fingerprint())
+    payload = render_quote_pdf(event, event.get('portal_brand'))
+    response = current_app.response_class(payload, mimetype='application/pdf')
+    response.headers['Content-Disposition'] = f'attachment; filename="proposta-evento-{event_id}.pdf"'
+    return response
+
+
 @eventos_bp.route('/portal-eventos/pedido/<int:event_id>/aceitar', methods=['POST'])
 def portal_accept_quote(event_id):
     email = _portal_login_required()
@@ -541,10 +583,8 @@ def portal_upload_proof(event_id):
 
 TABS = [
     {'id': 'dashboard', 'label': 'Dashboard', 'icon': '📊', 'url_endpoint': 'eventos.dashboard'},
-    {'id': 'pipeline',  'label': 'Pipeline',  'icon': '📋', 'url_endpoint': 'eventos.pipeline'},
+    {'id': 'pipeline',  'label': 'Pipeline de Eventos',  'icon': '📋', 'url_endpoint': 'eventos.pipeline'},
     {'id': 'calendario', 'label': 'Calendário', 'icon': '🗓️', 'url_endpoint': 'eventos.calendario'},
-    {'id': 'leads',     'label': 'Leads do Formulário', 'icon': '📥', 'url_endpoint': 'eventos.leads'},
-    {'id': 'formulario', 'label': 'Formulário', 'icon': '📝', 'url_endpoint': 'eventos.configuracao_portal_marca'},
     {'id': 'clientes',  'label': 'Clientes',  'icon': '👥', 'url_endpoint': 'eventos.clientes'},
     {'id': 'artigos',   'label': 'Artigos',   'icon': '🏷️', 'url_endpoint': 'eventos.artigos'},
     {'id': 'configuracao', 'label': 'Configuração', 'icon': '⚙️', 'url_endpoint': 'eventos.configuracao'},
@@ -626,6 +666,8 @@ def pipeline():
         'resource_id': request.args.get('resource_id', type=int),
     }
     events = db.get_events(status=status_filter or None, **filters)
+    from flask_app.google_sheets_sync import get_sheet_sync_status
+    sync_run = get_sheet_sync_status()
     all_statuses = db.EVENT_STATUSES
     tabs = _get_tabs()
     return render_template('eventos/pipeline.html',
@@ -637,6 +679,7 @@ def pipeline():
                            status_labels=STATUS_LABELS,
                            status_colors=STATUS_COLORS,
                            valid_transitions=VALID_TRANSITIONS,
+                           sync_run=sync_run,
                            tabs=tabs,
                            active_tab='pipeline')
 
@@ -743,6 +786,9 @@ def evento_detail(event_id):
                 'client_name': request.form.get('client_name', '').strip(),
                 'client_email': request.form.get('client_email', '').strip(),
                 'client_phone': request.form.get('client_phone', '').strip(),
+                'customer_type': event.get('customer_type'),
+                'company_name': event.get('company_name'),
+                'nif': event.get('nif'),
                 'status': event['status'],
                 'loss_reason': event['loss_reason'],
                 'internal_notes': request.form.get('internal_notes', '').strip(),
@@ -1056,62 +1102,130 @@ def quote_action(event_id):
 @eventos_bp.route('/configuracao', methods=['GET', 'POST'])
 @perm_required('acesso_eventos')
 def configuracao():
+    can_edit_config = bool((session.get('user') or {}).get('acesso_administrativo'))
+    if request.method == 'POST' and not can_edit_config:
+        return ('Acesso administrativo necessário para alterar a configuração.', 403)
+    created_files = []
     if request.method == 'POST':
         try:
             _require_admin_portal_brand_csrf()
+            values = validate_brand_form(request.form)
+            codes = request.form.getlist('resource_code[]')
+            names = request.form.getlist('resource_name[]')
+            types = request.form.getlist('resource_type[]')
+            existing_images = request.form.getlist('resource_existing_image[]')
+            ids = request.form.getlist('resource_id[]')
+            fields = {
+                key: request.form.getlist('resource_' + key + '[]')
+                for key in ('capacity_carapinas', 'capacity_flavors', 'notes',
+                            'active', 'public_description', 'public_capacity_flavors',
+                            'width_cm', 'height_cm', 'length_cm', 'weight_kg',
+                            'public_customer_requirements')
+            }
+            lengths = [len(codes), len(names), len(types), len(existing_images)]
+            lengths += [len(values) for values in fields.values()]
+            if len(set(lengths)) != 1:
+                raise ValueError('A lista de meios está incompleta.')
+            if len(set(c.strip().casefold() for c in codes)) != len(codes):
+                raise ValueError('Os códigos dos meios devem ser únicos.')
+            if any(not c.strip() for c in codes) or any(not n.strip() for n in names):
+                raise ValueError('Cada meio precisa de código e nome.')
+            resources, uploads = [], request.files.getlist('resource_image[]')
+            if len(uploads) not in (0, len(codes)):
+                raise ValueError('A lista de imagens dos meios está incompleta.')
+            for i, code in enumerate(codes):
+                image = existing_images[i] or None
+                if i < len(uploads) and uploads[i].filename:
+                    image = save_public_event_resource_image(validate_portal_logo(uploads[i]), os.path.join(os.path.dirname(__file__), '..', 'static'))
+                    created_files.append(os.path.join(os.path.dirname(__file__), '..', 'static', image))
+                get = lambda key: request.form.getlist('resource_' + key + '[]')[i]
+                resources.append({'code': code.strip(), 'name': names[i].strip(), 'resource_type': types[i],
+                    'capacity_carapinas': _configuration_number(get('capacity_carapinas'), 'A capacidade'),
+                    'capacity_flavors': _configuration_number(get('capacity_flavors'), 'A capacidade de sabores', 6),
+                    'notes': get('notes') or None, 'active': get('active') == '1',
+                    'image_url': image, 'public_description': get('public_description') or None,
+                    'public_capacity_flavors': _configuration_number(get('public_capacity_flavors'), 'A capacidade pública', 6),
+                    'width_cm': _configuration_number(get('width_cm'), 'A largura'),
+                    'height_cm': _configuration_number(get('height_cm'), 'A altura'),
+                    'length_cm': _configuration_number(get('length_cm'), 'O comprimento'),
+                    'weight_kg': _configuration_number(get('weight_kg'), 'O peso'),
+                    'public_customer_requirements': get('public_customer_requirements') or None})
+            nc, nn = request.form.get('new_resource_code','').strip(), request.form.get('new_resource_name','').strip()
+            if nc or nn:
+                if not nc or not nn: raise ValueError('O meio precisa de código e nome.')
+                if nc.casefold() in {item['code'].casefold() for item in resources}:
+                    raise ValueError('Os códigos dos meios devem ser únicos.')
+                resources.append({'code':nc, 'name':nn, 'resource_type':'equipment', 'active':True})
+            pricing = []
+            pricing_keys = request.form.getlist('pricing_key[]')
+            pricing_labels = request.form.getlist('pricing_label[]')
+            pricing_types = request.form.getlist('pricing_type[]')
+            pricing_values = request.form.getlist('pricing_value[]')
+            pricing_ivas = request.form.getlist('pricing_iva[]')
+            pricing_reviews = request.form.getlist('pricing_review[]')
+            pricing_active = request.form.getlist('pricing_active[]')
+            if len({len(pricing_keys), len(pricing_labels), len(pricing_types),
+                    len(pricing_values), len(pricing_ivas), len(pricing_reviews),
+                    len(pricing_active)}) != 1:
+                raise ValueError('A lista de preços está incompleta.')
+            if len({key.strip().casefold() for key in pricing_keys}) != len(pricing_keys):
+                raise ValueError('As chaves de preços devem ser únicas.')
+            for i, key in enumerate(pricing_keys):
+                setting_type = pricing_types[i]
+                if setting_type not in ('money', 'percentage'):
+                    raise ValueError('Tipo de preço inválido.')
+                gross = _configuration_number(pricing_values[i], 'O valor do preço')
+                if gross is None or (setting_type == 'percentage' and gross > 100):
+                    raise ValueError('O valor do preço é inválido.')
+                iva = pricing_ivas[i]
+                taxa = _configuration_number(iva, 'A taxa de IVA', 100)
+                pricing.append({'key':key.strip(), 'label':pricing_labels[i].strip(), 'setting_type':setting_type,
+                    'value_gross':gross, 'taxa_iva':None if taxa is None else taxa / 100,
+                    'requires_tax_review':pricing_reviews[i]=='1', 'active':pricing_active[i]=='1'})
+            # All parsing and upload validation happens before the first DB call.
+            logo_upload = None
+            if request.files.get('logo_file') and request.files['logo_file'].filename:
+                logo_upload = validate_portal_logo(request.files['logo_file'])
+            current = db.get_default_portal_brand()
+            logo = current.get('logo_filename')
+            if request.form.get('remove_logo') == '1': logo = None
+            if logo_upload:
+                logo = save_public_portal_logo(logo_upload, os.path.join(os.path.dirname(__file__), '..', 'static'))
+                created_files.append(os.path.join(
+                    os.path.dirname(__file__), '..', 'static', 'uploads',
+                    'event_portal_brands', logo,
+                ))
+            db.save_event_configuration(values, logo, resources, pricing, request.form.getlist('flavour_ids[]'), _current_actor())
+            flash('Configuração guardada.', 'success')
         except ValueError as exc:
+            for path in created_files:
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                except OSError:
+                    pass
             flash(str(exc), 'error')
-            return redirect(url_for('eventos.configuracao'))
-        action = request.form.get('action')
-        try:
-            if action == 'resource':
-                image_path = request.form.get('existing_image_path', '').strip() or None
-                if request.files.get('resource_image') and request.files['resource_image'].filename:
-                    validated_image = validate_portal_logo(request.files['resource_image'])
-                    image_path = save_public_event_resource_image(
-                        validated_image,
-                        os.path.join(os.path.dirname(__file__), '..', 'static'),
-                    )
-                db.upsert_event_resource(
-                    request.form.get('code', '').strip(),
-                    request.form.get('name', '').strip(),
-                    request.form.get('resource_type', 'equipment').strip(),
-                    request.form.get('capacity_carapinas', type=int),
-                    request.form.get('capacity_flavors', type=int),
-                    request.form.get('active') == '1',
-                    request.form.get('notes', '').strip() or None,
-                    image_path,
-                    request.form.get('public_description', '').strip() or None,
-                    request.form.get('public_capacity_flavors', type=int),
-                )
-                flash('Meio guardado.', 'success')
-            elif action == 'pricing':
-                raw_rate = request.form.get('taxa_iva')
-                rate = None if request.form.get('setting_type') == 'percentage' and not raw_rate else _parse_taxa_iva(raw_rate)
-                db.upsert_event_pricing_setting(
-                    request.form.get('key', '').strip(), request.form.get('label', '').strip(),
-                    request.form.get('setting_type', 'money'), request.form.get('value_gross', '0'),
-                    rate, actor=_current_actor(),
-                    requires_tax_review=request.form.get('requires_tax_review') == '1',
-                    active=request.form.get('active') == '1',
-                )
-                flash('Preço/configuração guardado.', 'success')
-            elif action == 'portal_flavours':
-                db.set_event_portal_flavours(request.form.getlist('flavour_ids[]'))
-                flash('Sabores disponíveis para eventos atualizados.', 'success')
-        except ValueError as exc:
-            flash(str(exc), 'error')
+        except Exception:
+            for path in created_files:
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                except OSError:
+                    pass
+            flash('Não foi possível guardar a configuração. Verifique os dados e tente novamente.', 'error')
         return redirect(url_for('eventos.configuracao'))
     return render_template(
         'eventos/configuracao.html', resources=db.get_event_resources(active_only=False),
         pricing=db.get_event_pricing_settings(), tabs=_get_tabs(), active_tab='configuracao',
         portal_flavours=db.get_event_portal_flavour_configuration(),
+        brand=db.get_default_portal_brand(),
         csrf_token=_admin_portal_brand_csrf_token(),
+        can_edit_config=can_edit_config,
     )
 
 
 @eventos_bp.route('/configuracao/portal-marca', methods=['GET', 'POST'])
-@perm_required('acesso_administrativo')
+@perm_required('acesso_eventos')
 def configuracao_portal_marca():
     """Admin-only editor for the single public Events form configuration.
 
@@ -1119,32 +1233,10 @@ def configuracao_portal_marca():
     reference the brand that was used when they were submitted.  The editor,
     however, intentionally exposes only the one active public configuration.
     """
-    brand = db.get_default_portal_brand()
-    if request.method == 'POST':
-        try:
-            _require_admin_portal_brand_csrf()
-            values = validate_brand_form(request.form)
-            logo_filename = brand.get('logo_filename')
-            if request.form.get('remove_logo') == '1':
-                logo_filename = None
-            if request.files.get('logo_file') and request.files['logo_file'].filename:
-                validated_logo = validate_portal_logo(request.files['logo_file'])
-                static_root = os.path.join(os.path.dirname(__file__), '..', 'static')
-                logo_filename = save_public_portal_logo(validated_logo, static_root)
-            db.save_public_portal_brand_config(
-                values, logo_filename=logo_filename,
-            )
-            flash('O formulário público foi guardado.', 'success')
-            return redirect(url_for('eventos.configuracao_portal_marca'))
-        except ValueError as exc:
-            flash(str(exc), 'error')
-            brand = {**brand, **request.form.to_dict()}
-
-    return render_template(
-        'eventos/configuracao_portal_marca.html',
-        brand=brand, tabs=_get_tabs(), active_tab='formulario',
-        csrf_token=_admin_portal_brand_csrf_token(),
-    )
+    user = session.get('user') or {}
+    if not user.get('acesso_administrativo') and not user.get('acesso_gestor'):
+        return redirect(url_for('home.index'))
+    return redirect(url_for('eventos.configuracao'))
 
 
 @eventos_bp.route('/backfill-iva', methods=['GET', 'POST'])
@@ -1183,24 +1275,17 @@ def backfill_iva():
 @eventos_bp.route('/leads')
 @perm_required('acesso_eventos')
 def leads():
-    status_filter = request.args.get('status', '')
-    leads_list = db.get_leads(status=status_filter if status_filter else None)
-    from flask_app.google_sheets_sync import get_sheet_sync_status
-    sync_run = get_sheet_sync_status()
-    tabs = _get_tabs()
-    return render_template('eventos/leads.html',
-                           leads=leads_list,
-                           sync_run=sync_run,
-                           status_filter=status_filter,
-                           status_labels=STATUS_LABELS,
-                           status_colors=STATUS_COLORS,
-                           tabs=tabs,
-                           active_tab='leads')
+    return redirect(url_for('eventos.pipeline', **request.args))
 
 
 @eventos_bp.route('/leads/nova', methods=['GET', 'POST'])
 @perm_required('acesso_eventos')
 def nova_lead():
+    # Legacy bookmarks must never create a second, lead-only funnel.
+    return redirect(url_for('eventos.pipeline'))
+
+    if request.method == 'GET':
+        return redirect(url_for('eventos.pipeline'))
     if request.method == 'POST':
         def _int_or_none(v):
             try:
@@ -1237,7 +1322,7 @@ def nova_lead():
         }
         lead_id = db.create_lead(data)
         flash('Lead criada com sucesso!', 'success')
-        return redirect(url_for('eventos.lead_detail', lead_id=lead_id))
+        return redirect(url_for('eventos.pipeline'))
 
     tabs = _get_tabs()
     return render_template('eventos/lead_form.html',
@@ -1253,7 +1338,13 @@ def lead_detail(lead_id):
     lead = db.get_lead(lead_id)
     if not lead:
         flash('Lead não encontrada.', 'error')
-        return redirect(url_for('eventos.leads'))
+        return redirect(url_for('eventos.pipeline'))
+    # Keep legacy URLs usable without exposing a second lead funnel.  A linked
+    # event is authoritative; otherwise the canonical destination is pipeline.
+    event_id = db.get_event_id_for_lead(lead_id)
+    if event_id:
+        return redirect(url_for('eventos.evento_detail', event_id=event_id))
+    return redirect(url_for('eventos.pipeline'))
 
     if request.method == 'POST':
         action = request.form.get('action', 'save')
@@ -1352,7 +1443,7 @@ def sync_sheets():
     except Exception as e:
         current_app.logger.exception('Não foi possível iniciar a sincronização de Eventos')
         flash('Não foi possível iniciar a sincronização. Tente novamente.', 'error')
-    return redirect(url_for('eventos.leads'))
+    return redirect(url_for('eventos.pipeline'))
 
 
 @eventos_bp.route('/sync-sheets/status')

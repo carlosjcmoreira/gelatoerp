@@ -143,15 +143,24 @@ class EventosAccessTests(unittest.TestCase):
         configured_ids = {tile['id'] for tile in _TILE_MASTER['eventos']}
         self.assertEqual({tab['id'] for tab in TABS}, configured_ids)
 
-    def test_formulario_tile_opens_the_admin_form_editor(self):
+    def test_public_form_editor_is_part_of_the_single_configuration_tile(self):
         with self.app.test_request_context('/eventos/'):
             with patch('db.tiles.get_tile_visibility', return_value={}), \
                  patch('db.tiles.get_tile_labels', return_value={}), \
                  patch('db.tiles.get_tile_icons', return_value={}):
                 tabs = {tab['id']: tab for tab in _get_tabs()}
 
-        self.assertEqual(tabs['formulario']['label'], 'Formulário')
-        self.assertEqual(tabs['formulario']['url'], '/eventos/configuracao/portal-marca')
+        self.assertNotIn('formulario', tabs)
+        self.assertEqual(tabs['configuracao']['url'], '/eventos/configuracao')
+
+    def test_legacy_new_lead_post_redirects_without_creating_a_lead(self):
+        self._set_user(acesso_eventos=True)
+        with patch('flask_app.routes.eventos.db.create_lead') as create_lead:
+            response = self.client.post('/eventos/leads/nova', data={'client_name': 'Teste'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, '/eventos/pipeline')
+        create_lead.assert_not_called()
 
     def test_hidden_event_tile_remains_hidden_for_authorized_users(self):
         with self.app.test_request_context('/eventos/'):

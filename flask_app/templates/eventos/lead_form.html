@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "eventos/_macros.html" import time_select, event_type_radio with context %}
-{% set back_url = url_for("eventos.leads") %}
+{% set back_url = url_for("eventos.pipeline") %}
 
 {% block content %}
 <div class="container-fluid px-3 pt-3 pb-5">
@@ -9,7 +9,7 @@
         <div class="card-body">
             <form method="post">
                 <div class="d-flex gap-2 mb-3">
-                    <a href="{{ url_for('eventos.leads') }}" class="btn btn-sm btn-outline-secondary flex-fill">Cancelar</a>
+                    <a href="{{ url_for('eventos.pipeline') }}" class="btn btn-sm btn-outline-secondary flex-fill">Cancelar</a>
                     <button type="submit" class="btn btn-sm btn-primary flex-fill">💾 Criar Lead</button>
                 </div>
                 <div class="row g-3">

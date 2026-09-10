@@ -1,0 +1,2 @@
+Modulo eventos
+1- Coloca na configuração dos eventos um campo para indicarmos o minimo de dias de antecedencia para agendamente de um evento. E coloca um campo para colcoarmos uma mensagem de aviso para o cliente caso submeta um pedido abaixo desses dias minimos de atencedencia. 

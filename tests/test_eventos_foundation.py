@@ -4,6 +4,7 @@ These tests deliberately use recording connections.  They protect domain rules
 without requiring a developer machine to carry a copy of the production data.
 """
 
+import inspect
 import unittest
 from unittest.mock import patch
 
@@ -445,8 +446,22 @@ class EventFoundationMigrationTests(unittest.TestCase):
         self.assertIn('CREATE TABLE IF NOT EXISTS event_pricing_settings', statements)
         self.assertIn('CREATE TABLE IF NOT EXISTS event_history', statements)
         self.assertIn("WHEN 'won' THEN 'adjudicado'", statements)
+        self.assertIn('FROM lead_requests l', statements)
+        self.assertIn('WHERE e.lead_id = l.id', statements)
+        self.assertIn('ON CONFLICT (event_id, occurrence_number) DO NOTHING', statements)
         self.assertIn('INSERT INTO event_occurrences', statements)
+        self.assertLess(
+            statements.index('CREATE TABLE IF NOT EXISTS event_occurrences'),
+            statements.index('FROM lead_requests l'),
+        )
+        self.assertIn(r"e.event_time ~ '^\d{1,2}:\d{2}(:\d{2})?$'", statements)
+        self.assertIn(r"e.event_end_time ~ '^\d{1,2}:\d{2}(:\d{2})?$'", statements)
+        self.assertNotIn("NULLIF(e.event_time, '')::time", statements)
         self.assertNotIn('DROP TABLE eventos', statements)
+
+    def test_general_migration_does_not_use_occurrences_before_foundation(self):
+        source = inspect.getsource(schema.run_migrations)
+        self.assertNotIn('INSERT INTO event_occurrences', source)
 
 
 if __name__ == '__main__':

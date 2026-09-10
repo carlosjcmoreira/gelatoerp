@@ -7,6 +7,7 @@ import json
 import hashlib
 import secrets
 import re
+from decimal import Decimal, InvalidOperation
 import time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
@@ -84,6 +85,8 @@ _PORTAL_BRAND_DEFAULTS = {
         'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.'
     ),
     'contact_text': 'Deixe-nos os seus contactos para podermos responder ao pedido.',
+    'min_advance_days': 0,
+    'short_notice_warning': 'Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.',
     'field_labels': {},
     'visible_fields': {
         'event_name': True, 'duration': True, 'service_mode': True,
@@ -148,6 +151,33 @@ def calculate_quote_line(quantity, unit_price_gross, taxa_iva):
         'total_vat': gross - net,
         'total_gross': gross,
     }
+
+
+def validate_portal_nif(value):
+    """Validate a Portuguese NIF without inferring it for legacy records."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) != 9 or digits[0] not in "1235689":
+        raise ValueError("Indique um NIF português válido de 9 dígitos.")
+    check = sum(int(digits[i]) * (9 - i) for i in range(8))
+    check = 11 - (check % 11)
+    if check >= 10:
+        check = 0
+    if check != int(digits[-1]):
+        raise ValueError("Indique um NIF português válido.")
+    return digits
+
+
+def validate_portal_customer(customer_type, company_name=None, nif=None):
+    customer_type = (customer_type or "").strip().lower()
+    if customer_type not in ("particular", "empresa"):
+        raise ValueError("Selecione Particular ou Empresa.")
+    company = (company_name or "").strip() or None
+    normalized_nif = None
+    if customer_type == "empresa":
+        if not company:
+            raise ValueError("Indique o nome da empresa.")
+        normalized_nif = validate_portal_nif(nif)
+    return customer_type, company, normalized_nif
 
 
 def get_default_quote_taxa_iva(artigo_codigo=None):
@@ -600,13 +630,27 @@ def consume_portal_rate_limit(ip_fingerprint, action, limit, window_seconds):
 def upsert_event_resource(code, name, resource_type='equipment',
                           capacity_carapinas=None, capacity_flavors=None,
                           active=True, notes=None, image_url=None,
-                          public_description=None, public_capacity_flavors=None):
+                          public_description=None, public_capacity_flavors=None,
+                          width_cm=None, height_cm=None, length_cm=None,
+                          weight_kg=None, public_customer_requirements=None):
     code = (code or '').strip()
     name = (name or '').strip()
     if not code or not name:
         raise ValueError('O meio precisa de código e nome.')
     if public_capacity_flavors is not None and not 1 <= int(public_capacity_flavors) <= 6:
         raise ValueError('A capacidade pública deve estar entre 1 e 6 sabores.')
+    def dimension(value, label):
+        if value is None or str(value).strip() == '':
+            return None
+        try:
+            parsed = Decimal(str(value).replace(',', '.'))
+        except (InvalidOperation, ValueError):
+            raise ValueError(f'{label} inválido.')
+        if parsed < 0 or parsed > 100000:
+            raise ValueError(f'{label} deve estar entre 0 e 100000.')
+        return parsed
+    width_cm, height_cm = dimension(width_cm, 'A largura'), dimension(height_cm, 'A altura')
+    length_cm, weight_kg = dimension(length_cm, 'O comprimento'), dimension(weight_kg, 'O peso')
     if image_url and not re.fullmatch(
         r'uploads/event_resources/[0-9a-f]{32}\.(?:png|jpg|webp)',
         str(image_url),
@@ -618,8 +662,9 @@ def upsert_event_resource(code, name, resource_type='equipment',
             """
             INSERT INTO event_resources
                 (code, name, resource_type, capacity_carapinas, capacity_flavors, active, notes,
-                 image_url, public_description, public_capacity_flavors)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 image_url, public_description, public_capacity_flavors, width_cm, height_cm,
+                 length_cm, weight_kg, public_customer_requirements)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (code) DO UPDATE SET
                 name = EXCLUDED.name,
                 resource_type = EXCLUDED.resource_type,
@@ -630,10 +675,14 @@ def upsert_event_resource(code, name, resource_type='equipment',
                 image_url = EXCLUDED.image_url,
                 public_description = EXCLUDED.public_description,
                 public_capacity_flavors = EXCLUDED.public_capacity_flavors,
+                width_cm = EXCLUDED.width_cm, height_cm = EXCLUDED.height_cm,
+                length_cm = EXCLUDED.length_cm, weight_kg = EXCLUDED.weight_kg,
+                public_customer_requirements = EXCLUDED.public_customer_requirements,
                 updated_at = NOW()
             """,
             (code, name, resource_type, capacity_carapinas, capacity_flavors, active, notes,
-             image_url, public_description, public_capacity_flavors),
+             image_url, public_description, public_capacity_flavors, width_cm, height_cm,
+             length_cm, weight_kg, public_customer_requirements),
         )
         conn.commit()
 
@@ -1054,19 +1103,34 @@ def get_lead(lead_id):
         cursor.execute("SELECT * FROM lead_requests WHERE id=%s", (lead_id,))
         return cursor.fetchone()
 
+def get_event_id_for_lead(lead_id):
+    """Return the canonical event linked to a lead, if one exists."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id FROM events WHERE lead_id=%s ORDER BY id LIMIT 1",
+            (lead_id,),
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
 def create_lead(data: dict):
+    data.setdefault('customer_type', None)
+    data.setdefault('company_name', None)
+    data.setdefault('nif', None)
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO lead_requests (
                 submitted_at, source, google_sheet_row_id, event_type, event_date, event_time,
                 event_end_time, estimated_guests_raw, estimated_guests, venue, venue_address,
-                client_name, client_email, client_phone, marketing_consent,
+                client_name, client_email, client_phone, customer_type, company_name, nif, marketing_consent,
                 referral_source, notes, internal_notes, status
             ) VALUES (
                 %(submitted_at)s, %(source)s, %(google_sheet_row_id)s, %(event_type)s,
                 %(event_date)s, %(event_time)s, %(event_end_time)s, %(estimated_guests_raw)s, %(estimated_guests)s,
                 %(venue)s, %(venue_address)s, %(client_name)s, %(client_email)s, %(client_phone)s,
+                %(customer_type)s, %(company_name)s, %(nif)s,
                 %(marketing_consent)s, %(referral_source)s, %(notes)s, %(internal_notes)s, %(status)s
             ) RETURNING id
         """, data)
@@ -1079,6 +1143,9 @@ def update_lead(lead_id, data: dict):
     data['id'] = lead_id
     data.setdefault('loss_reason', None)
     data.setdefault('event_end_time', None)
+    data.setdefault('customer_type', None)
+    data.setdefault('company_name', None)
+    data.setdefault('nif', None)
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -1088,6 +1155,7 @@ def update_lead(lead_id, data: dict):
                 estimated_guests_raw=%(estimated_guests_raw)s, estimated_guests=%(estimated_guests)s,
                 venue=%(venue)s, venue_address=%(venue_address)s,
                 client_name=%(client_name)s, client_email=%(client_email)s, client_phone=%(client_phone)s,
+                customer_type=%(customer_type)s, company_name=%(company_name)s, nif=%(nif)s,
                 marketing_consent=%(marketing_consent)s, referral_source=%(referral_source)s,
                 notes=%(notes)s, internal_notes=%(internal_notes)s, status=%(status)s,
                 loss_reason=%(loss_reason)s, updated_at=%(updated_at)s
@@ -1164,6 +1232,7 @@ def upsert_leads_from_sheet_batch(items):
                 data.get('estimated_guests'), data.get('venue'),
                 data.get('venue_address'), data.get('client_name'),
                 data.get('client_email'), data.get('client_phone'),
+                data.get('customer_type'), data.get('company_name'), data.get('nif'),
                 data.get('marketing_consent'), data.get('referral_source'),
                 data.get('notes'), 'lead',
             ))
@@ -1172,7 +1241,8 @@ def upsert_leads_from_sheet_batch(items):
                 (submitted_at, source, google_sheet_row_id, event_type,
                  event_date, event_time, event_end_time, estimated_guests_raw,
                  estimated_guests, venue, venue_address, client_name,
-                 client_email, client_phone, marketing_consent, referral_source,
+                 client_email, client_phone, customer_type, company_name, nif,
+                 marketing_consent, referral_source,
                  notes, status)
             VALUES %s
             ON CONFLICT (google_sheet_row_id) DO UPDATE SET
@@ -1188,6 +1258,9 @@ def upsert_leads_from_sheet_batch(items):
                 client_name=EXCLUDED.client_name,
                 client_email=EXCLUDED.client_email,
                 client_phone=EXCLUDED.client_phone,
+                 customer_type=EXCLUDED.customer_type,
+                 company_name=EXCLUDED.company_name,
+                 nif=EXCLUDED.nif,
                 marketing_consent=EXCLUDED.marketing_consent,
                 referral_source=EXCLUDED.referral_source,
                 notes=EXCLUDED.notes,
@@ -1373,13 +1446,20 @@ def upsert_event_from_sheet(row_id, data, status):
             if apply_sheet_update:
                 cursor.execute("""
                     UPDATE events SET
-                        event_name=%(event_name)s, event_type=%(event_type)s,
-                        event_date=%(event_date)s, event_time=%(event_time)s,
+                        event_name=%(event_name)s,
+                        event_type=%(event_type)s,
+                        event_date=%(event_date)s,
+                        event_time=%(event_time)s,
                         event_end_time=%(event_end_time)s,
                         estimated_guests=%(estimated_guests)s,
-                        venue=%(venue)s, venue_address=%(venue_address)s,
-                        client_name=%(client_name)s, client_email=%(client_email)s,
+                        venue=%(venue)s,
+                        venue_address=%(venue_address)s,
+                        client_name=%(client_name)s,
+                        client_email=%(client_email)s,
                         client_phone=%(client_phone)s,
+                        customer_type=%(customer_type)s,
+                        company_name=%(company_name)s,
+                        nif=%(nif)s,
                         status=%(status)s, updated_at=NOW()
                     WHERE google_sheet_row_id=%(google_sheet_row_id)s
                 """, {**data, 'status': status, 'google_sheet_row_id': row_id})
@@ -1395,12 +1475,13 @@ def upsert_event_from_sheet(row_id, data, status):
                     google_sheet_row_id, source, event_name, event_type,
                     event_date, event_time, event_end_time,
                     estimated_guests, venue, venue_address,
-                    client_name, client_email, client_phone, status
+                     client_name, client_email, client_phone, customer_type, company_name, nif, status
                 ) VALUES (
                     %(google_sheet_row_id)s, 'google_sheet', %(event_name)s, %(event_type)s,
                     %(event_date)s, %(event_time)s, %(event_end_time)s,
                     %(estimated_guests)s, %(venue)s, %(venue_address)s,
-                    %(client_name)s, %(client_email)s, %(client_phone)s, %(status)s
+                     %(client_name)s, %(client_email)s, %(client_phone)s,
+                     %(customer_type)s, %(company_name)s, %(nif)s, %(status)s
                 ) RETURNING id
             """, {**data, 'status': status, 'google_sheet_row_id': row_id})
             row = cursor.fetchone()
@@ -1408,6 +1489,19 @@ def upsert_event_from_sheet(row_id, data, status):
             old_status = None
             is_new = True
             apply_sheet_update = True
+        # Sheet rows are the stable identity shared by both imported records.
+        # Link only on that key; never infer a relationship from names/dates.
+        cursor.execute(
+            """
+            UPDATE events e
+               SET lead_id = l.id
+              FROM lead_requests l
+             WHERE e.id=%s
+               AND l.google_sheet_row_id=%s
+               AND e.lead_id IS NULL
+            """,
+            (event_id, str(row_id)),
+        )
         if event_id and apply_sheet_update:
             _upsert_primary_occurrence(cursor, event_id, data)
         if event_id and apply_sheet_update and orcamento and float(orcamento) > 0:
@@ -1674,6 +1768,9 @@ def get_event(event_id):
 
 def create_event(data: dict, actor=None):
     data.setdefault('event_end_time', None)
+    data.setdefault('customer_type', None)
+    data.setdefault('company_name', None)
+    data.setdefault('nif', None)
     data['status'] = normalize_event_status(data.get('status'))
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -1681,12 +1778,13 @@ def create_event(data: dict, actor=None):
             INSERT INTO events (
                 lead_id, event_name, event_type, event_date, event_time, event_end_time,
                 estimated_guests, venue, venue_address,
-                client_name, client_email, client_phone,
+                 client_name, client_email, client_phone, customer_type, company_name, nif,
                 status, internal_notes
             ) VALUES (
                 %(lead_id)s, %(event_name)s, %(event_type)s, %(event_date)s, %(event_time)s, %(event_end_time)s,
                 %(estimated_guests)s, %(venue)s, %(venue_address)s,
-                %(client_name)s, %(client_email)s, %(client_phone)s,
+                 %(client_name)s, %(client_email)s, %(client_phone)s, %(customer_type)s,
+                 %(company_name)s, %(nif)s,
                 %(status)s, %(internal_notes)s
             ) RETURNING id
         """, data)
@@ -1706,6 +1804,9 @@ def update_event(event_id, data: dict, actor=None, risk_acknowledged=False):
     data['updated_at'] = datetime.now()
     data['id'] = event_id
     data.setdefault('event_end_time', None)
+    data.setdefault('customer_type', None)
+    data.setdefault('company_name', None)
+    data.setdefault('nif', None)
     data['status'] = normalize_event_status(data.get('status'))
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -1722,7 +1823,10 @@ def update_event(event_id, data: dict, actor=None, risk_acknowledged=False):
                 event_date=%(event_date)s, event_time=%(event_time)s, event_end_time=%(event_end_time)s,
                 estimated_guests=%(estimated_guests)s,
                 venue=%(venue)s, venue_address=%(venue_address)s,
-                client_name=%(client_name)s, client_email=%(client_email)s, client_phone=%(client_phone)s,
+                 client_name=%(client_name)s, client_email=%(client_email)s, client_phone=%(client_phone)s,
+                 customer_type=COALESCE(%(customer_type)s, customer_type),
+                 company_name=COALESCE(%(company_name)s, company_name),
+                 nif=COALESCE(%(nif)s, nif),
                 status=%(status)s, loss_reason=%(loss_reason)s,
                 internal_notes=%(internal_notes)s, updated_at=%(updated_at)s
             WHERE id=%(id)s
@@ -1807,13 +1911,23 @@ def transition_event_status(event_id, new_status, loss_reason=None, actor=None):
                 return False, "O orçamento atual deve ter pelo menos uma linha e total positivo."
             revision = _quote_revision(cursor, event_id, lock_rows=True)
             cursor.execute(
-                "SELECT id FROM event_quote_versions WHERE event_id=%s AND quote_revision=%s "
+                "SELECT id, proposal_snapshot FROM event_quote_versions WHERE event_id=%s AND quote_revision=%s "
                 "AND total_gross > 0 ORDER BY version_number DESC LIMIT 1",
                 (event_id, revision),
             )
             sent_version = cursor.fetchone()
             if not sent_version:
                 return False, "Guarde a versão atual do orçamento antes de registar o envio ao cliente."
+            # Older versions predate proposal_snapshot.  Freeze the event
+            # presentation now, without replacing a snapshot already sent.
+            if not sent_version.get('proposal_snapshot'):
+                frozen_proposal = _build_proposal_snapshot(cursor, event_id)
+                cursor.execute(
+                    "UPDATE event_quote_versions SET proposal_snapshot=%s::jsonb "
+                    "WHERE id=%s AND proposal_snapshot IS NULL",
+                    (json.dumps(frozen_proposal, ensure_ascii=False, default=_json_default),
+                     sent_version['id']),
+                )
 
         if new_status in ('rejeitado', 'cancelado'):
             if not loss_reason or not loss_reason.strip():
@@ -2013,11 +2127,14 @@ def create_quote_version(event_id, reason=None, actor=None):
         version = cursor.fetchone()['next_version']
         cursor.execute("""
             INSERT INTO event_quote_versions
-              (event_id, version_number, reason, created_by, snapshot, total_net, total_vat, total_gross, quote_revision)
-            VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s)
+              (event_id, version_number, reason, created_by, snapshot, proposal_snapshot,
+               total_net, total_vat, total_gross, quote_revision)
+             VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s)
         """, (
             event_id, version, reason or None, actor,
             json.dumps(items, ensure_ascii=False, default=str),
+            json.dumps(_build_proposal_snapshot(cursor, event_id),
+                       ensure_ascii=False, default=_json_default),
             total_net, total_vat, total_gross, revision,
         ))
         _insert_event_history(
@@ -2272,7 +2389,7 @@ def get_portal_brand_config(store_id):
             SELECT id, store_id, brand_name, logo_filename, primary_color, accent_color,
                    background_color, text_color, button_color, button_text_color,
                    form_title, form_intro, confirmation_message, contact_text,
-                   field_labels, visible_fields, is_default
+                   field_labels, visible_fields, min_advance_days, short_notice_warning, is_default
             FROM event_portal_brand_configs
             WHERE store_id = %s
         """, (store_id,))
@@ -2286,7 +2403,7 @@ def get_portal_brand_configs():
             SELECT id, store_id, brand_name, logo_filename, primary_color, accent_color,
                    background_color, text_color, button_color, button_text_color,
                    form_title, form_intro, confirmation_message, contact_text,
-                   field_labels, visible_fields, is_default
+                   field_labels, visible_fields, min_advance_days, short_notice_warning, is_default
             FROM event_portal_brand_configs
             ORDER BY store_id
         """)
@@ -2301,7 +2418,7 @@ def get_default_portal_brand():
                    c.accent_color, c.background_color, c.text_color, c.button_color,
                    c.button_text_color, c.form_title, c.form_intro,
                    c.confirmation_message, c.contact_text, c.field_labels,
-                   c.visible_fields, c.is_default
+                    c.visible_fields, c.min_advance_days, c.short_notice_warning, c.is_default
             FROM event_portal_brand_configs c
             JOIN stores s ON s.id = c.store_id
             WHERE s.is_active = TRUE
@@ -2344,8 +2461,8 @@ def save_public_portal_brand_config(values, logo_filename=None):
                     store_id, brand_name, logo_filename, primary_color, accent_color,
                     background_color, text_color, button_color, button_text_color,
                     form_title, form_intro, confirmation_message, contact_text,
-                    field_labels, visible_fields, is_default
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                    field_labels, visible_fields, min_advance_days, short_notice_warning, is_default
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
                 ON CONFLICT (store_id) DO UPDATE SET
                     brand_name=EXCLUDED.brand_name, logo_filename=EXCLUDED.logo_filename,
                     primary_color=EXCLUDED.primary_color, accent_color=EXCLUDED.accent_color,
@@ -2354,7 +2471,8 @@ def save_public_portal_brand_config(values, logo_filename=None):
                     form_title=EXCLUDED.form_title, form_intro=EXCLUDED.form_intro,
                     confirmation_message=EXCLUDED.confirmation_message,
                     contact_text=EXCLUDED.contact_text, field_labels=EXCLUDED.field_labels,
-                    visible_fields=EXCLUDED.visible_fields, is_default=TRUE,
+                    visible_fields=EXCLUDED.visible_fields, min_advance_days=EXCLUDED.min_advance_days,
+                    short_notice_warning=EXCLUDED.short_notice_warning, is_default=TRUE,
                     updated_at=NOW()
             """, (
                 store_id, values['brand_name'], logo_filename,
@@ -2363,7 +2481,140 @@ def save_public_portal_brand_config(values, logo_filename=None):
                 values['form_title'], values['form_intro'], values['confirmation_message'],
                 values['contact_text'], json.dumps(values['field_labels'], ensure_ascii=False),
                 json.dumps(values['visible_fields'], ensure_ascii=False),
+                values['min_advance_days'], values['short_notice_warning'],
             ))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def save_event_configuration(values, logo_filename, resources, pricing, flavour_ids, actor=None):
+    """Persist the complete Events settings payload in one database transaction."""
+    # Reject malformed payloads before opening a transaction or issuing DDL/DML.
+    codes = set()
+    for item in resources:
+        code = str(item.get('code') or '').strip()
+        name = str(item.get('name') or '').strip()
+        if not code or not name:
+            raise ValueError('Cada meio precisa de código e nome.')
+        folded = code.casefold()
+        if folded in codes:
+            raise ValueError('Os códigos dos meios devem ser únicos.')
+        codes.add(folded)
+        for key in ('capacity_carapinas', 'capacity_flavors', 'public_capacity_flavors',
+                    'width_cm', 'height_cm', 'length_cm', 'weight_kg'):
+            value = item.get(key)
+            if value is None or str(value).strip() == '':
+                continue
+            try:
+                number = Decimal(str(value).replace(',', '.'))
+            except (InvalidOperation, ValueError):
+                raise ValueError(f'O campo {key} é inválido.')
+            if not number.is_finite() or number < 0 or number > (6 if key in ('capacity_flavors', 'public_capacity_flavors') else 100000):
+                raise ValueError(f'O campo {key} está fora dos limites.')
+        if item.get('public_capacity_flavors') is not None and not 1 <= int(item['public_capacity_flavors']) <= 6:
+            raise ValueError('A capacidade pública deve estar entre 1 e 6 sabores.')
+    pricing_keys = set()
+    for item in pricing:
+        key = str(item.get('key') or '').strip()
+        if not key or key.casefold() in pricing_keys:
+            raise ValueError('As chaves de preços devem ser únicas e não podem ficar vazias.')
+        pricing_keys.add(key.casefold())
+        if item.get('setting_type') not in ('money', 'percentage'):
+            raise ValueError('Tipo de preço inválido.')
+        try:
+            gross = Decimal(str(item.get('value_gross')).replace(',', '.'))
+        except (InvalidOperation, ValueError, TypeError):
+            raise ValueError('O valor do preço é inválido.')
+        if not gross.is_finite() or gross < 0 or (item['setting_type'] == 'percentage' and gross > 100):
+            raise ValueError('O valor do preço está fora dos limites.')
+        iva = item.get('taxa_iva')
+        if iva is not None:
+            try:
+                iva = Decimal(str(iva))
+            except (InvalidOperation, ValueError, TypeError):
+                raise ValueError('A taxa de IVA é inválida.')
+            if not iva.is_finite() or iva < 0 or iva > 1:
+                raise ValueError('A taxa de IVA deve estar entre 0% e 100%.')
+    flavour_ids = list(flavour_ids or [])
+    try:
+        normalized_flavours = {int(value) for value in flavour_ids}
+    except (TypeError, ValueError):
+        raise ValueError('A seleção de sabores é inválida.')
+    if len(normalized_flavours) != len(list(flavour_ids)):
+        raise ValueError('A seleção de sabores contém duplicados.')
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""SELECT s.id FROM stores s LEFT JOIN event_portal_brand_configs c
+                ON c.store_id=s.id WHERE s.is_active=TRUE
+                ORDER BY COALESCE(c.is_default,FALSE) DESC, c.updated_at DESC NULLS LAST, s.id
+                LIMIT 1 FOR UPDATE OF s""")
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError('Não existe uma loja ativa para associar o formulário público.')
+            store_id = row[0]
+            cursor.execute("UPDATE event_portal_brand_configs SET is_default=FALSE, updated_at=NOW() WHERE is_default=TRUE")
+            cursor.execute("""INSERT INTO event_portal_brand_configs
+                (store_id,brand_name,logo_filename,primary_color,accent_color,background_color,
+                 text_color,button_color,button_text_color,form_title,form_intro,
+                 confirmation_message,contact_text,field_labels,visible_fields,min_advance_days,short_notice_warning,is_default)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
+                ON CONFLICT (store_id) DO UPDATE SET brand_name=EXCLUDED.brand_name,
+                 logo_filename=EXCLUDED.logo_filename,primary_color=EXCLUDED.primary_color,
+                 accent_color=EXCLUDED.accent_color,background_color=EXCLUDED.background_color,
+                 text_color=EXCLUDED.text_color,button_color=EXCLUDED.button_color,
+                 button_text_color=EXCLUDED.button_text_color,form_title=EXCLUDED.form_title,
+                 form_intro=EXCLUDED.form_intro,confirmation_message=EXCLUDED.confirmation_message,
+                 contact_text=EXCLUDED.contact_text,field_labels=EXCLUDED.field_labels,
+                 visible_fields=EXCLUDED.visible_fields,min_advance_days=EXCLUDED.min_advance_days,
+                 short_notice_warning=EXCLUDED.short_notice_warning,is_default=TRUE,updated_at=NOW()""",
+                (store_id, values['brand_name'], logo_filename, values['primary_color'],
+                 values['accent_color'], values['background_color'], values['text_color'],
+                 values['button_color'], values['button_text_color'], values['form_title'],
+                 values['form_intro'], values['confirmation_message'], values['contact_text'],
+                 json.dumps(values['field_labels'], ensure_ascii=False),
+                 json.dumps(values['visible_fields'], ensure_ascii=False),
+                 values['min_advance_days'], values['short_notice_warning']))
+            for item in resources:
+                cursor.execute("""INSERT INTO event_resources
+                    (code,name,resource_type,capacity_carapinas,capacity_flavors,active,notes,
+                     image_url,public_description,public_capacity_flavors,width_cm,height_cm,
+                     length_cm,weight_kg,public_customer_requirements)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (code) DO UPDATE SET name=EXCLUDED.name,resource_type=EXCLUDED.resource_type,
+                     capacity_carapinas=EXCLUDED.capacity_carapinas,capacity_flavors=EXCLUDED.capacity_flavors,
+                     active=EXCLUDED.active,notes=EXCLUDED.notes,image_url=EXCLUDED.image_url,
+                     public_description=EXCLUDED.public_description,public_capacity_flavors=EXCLUDED.public_capacity_flavors,
+                     width_cm=EXCLUDED.width_cm,height_cm=EXCLUDED.height_cm,length_cm=EXCLUDED.length_cm,
+                     weight_kg=EXCLUDED.weight_kg,public_customer_requirements=EXCLUDED.public_customer_requirements,
+                     updated_at=NOW()""",
+                    (item['code'],item['name'],item.get('resource_type','equipment'),
+                     item.get('capacity_carapinas'),item.get('capacity_flavors'),item.get('active',True),
+                     item.get('notes'),item.get('image_url'),item.get('public_description'),
+                     item.get('public_capacity_flavors'),item.get('width_cm'),item.get('height_cm'),
+                     item.get('length_cm'),item.get('weight_kg'),item.get('public_customer_requirements')))
+            for item in pricing:
+                cursor.execute("""INSERT INTO event_pricing_settings
+                    (key,label,setting_type,value_gross,taxa_iva,requires_tax_review,active,updated_by,updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (key) DO UPDATE SET label=EXCLUDED.label,setting_type=EXCLUDED.setting_type,
+                    value_gross=EXCLUDED.value_gross,taxa_iva=EXCLUDED.taxa_iva,
+                    requires_tax_review=EXCLUDED.requires_tax_review,active=EXCLUDED.active,
+                    updated_by=EXCLUDED.updated_by,updated_at=NOW()""",
+                    (item['key'],item['label'],item['setting_type'],item['value_gross'],
+                     item.get('taxa_iva'),item.get('requires_tax_review',True),item.get('active',True),actor))
+            ids = normalized_flavours
+            cursor.execute("""SELECT id FROM receitas_gelado WHERE ativo=TRUE
+                AND NULLIF(BTRIM(nome_corrente),'') IS NOT NULL""")
+            eligible = {r[0] for r in cursor.fetchall()}
+            if not ids.issubset(eligible):
+                raise ValueError('Um dos sabores selecionados já não está disponível.')
+            for recipe_id in eligible:
+                cursor.execute("""INSERT INTO event_portal_flavours (receita_id,active)
+                    VALUES (%s,%s) ON CONFLICT (receita_id) DO UPDATE SET active=EXCLUDED.active""",
+                    (recipe_id, recipe_id in ids))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -2393,8 +2644,8 @@ def save_portal_brand_config(store_id, values, logo_filename=None, is_default=Fa
                     store_id, brand_name, logo_filename, primary_color, accent_color,
                     background_color, text_color, button_color, button_text_color,
                     form_title, form_intro, confirmation_message, contact_text,
-                    field_labels, visible_fields, is_default
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    field_labels, visible_fields, min_advance_days, short_notice_warning, is_default
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (store_id) DO UPDATE SET
                     brand_name=EXCLUDED.brand_name, logo_filename=EXCLUDED.logo_filename,
                     primary_color=EXCLUDED.primary_color, accent_color=EXCLUDED.accent_color,
@@ -2403,7 +2654,8 @@ def save_portal_brand_config(store_id, values, logo_filename=None, is_default=Fa
                     form_title=EXCLUDED.form_title, form_intro=EXCLUDED.form_intro,
                     confirmation_message=EXCLUDED.confirmation_message,
                     contact_text=EXCLUDED.contact_text, field_labels=EXCLUDED.field_labels,
-                    visible_fields=EXCLUDED.visible_fields, is_default=EXCLUDED.is_default,
+                    visible_fields=EXCLUDED.visible_fields, min_advance_days=EXCLUDED.min_advance_days,
+                    short_notice_warning=EXCLUDED.short_notice_warning, is_default=EXCLUDED.is_default,
                     updated_at=NOW()
             """, (
                 store_id, values['brand_name'], logo_filename,
@@ -2411,7 +2663,8 @@ def save_portal_brand_config(store_id, values, logo_filename=None, is_default=Fa
                 values['text_color'], values['button_color'], values['button_text_color'],
                 values['form_title'], values['form_intro'], values['confirmation_message'],
                 values['contact_text'], json.dumps(values['field_labels'], ensure_ascii=False),
-                json.dumps(values['visible_fields'], ensure_ascii=False), is_default,
+                json.dumps(values['visible_fields'], ensure_ascii=False),
+                values['min_advance_days'], values['short_notice_warning'], is_default,
             ))
             conn.commit()
         except Exception:
@@ -2443,10 +2696,142 @@ def _quote_revision(cursor, event_id, lock_rows=False):
     return hashlib.sha256(encoded.encode('utf-8')).hexdigest(), rows
 
 
+def _json_default(value):
+    """JSON encoder for database date/time and numeric values."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return str(value)
+
+
+def _build_proposal_snapshot(cursor, event_id):
+    """Freeze all customer-facing event inputs used by a staff proposal."""
+    cursor.execute("""
+        SELECT event_name, event_type, event_date, event_time, event_end_time,
+               estimated_guests, client_name, client_email, client_phone,
+               customer_type, company_name, nif, venue, venue_address, internal_notes
+          FROM events WHERE id=%s
+    """, (event_id,))
+    event = cursor.fetchone() or {}
+    if not hasattr(event, 'get'):
+        fields = ('event_name', 'event_type', 'event_date', 'event_time',
+                  'event_end_time', 'estimated_guests', 'client_name',
+                  'client_email', 'client_phone', 'customer_type', 'company_name',
+                  'nif', 'venue', 'venue_address', 'internal_notes')
+        event = dict(zip(fields, event))
+    cursor.execute("""
+        SELECT event_date, venue, venue_address, service_start_time,
+               service_end_time, estimated_km, expected_duration_minutes,
+               logistics_notes, service_mode
+          FROM event_occurrences
+         WHERE event_id=%s ORDER BY occurrence_number, id
+    """, (event_id,))
+    occurrences = cursor.fetchall() or []
+    # Portal data is optional for staff-created events, but the table exists
+    # whenever quote versions are available after the additive migration.
+    flavours, resources = [], {}
+    cursor.execute("""
+        SELECT flavours, resource_requirements_snapshot
+          FROM event_portal_requests WHERE event_id=%s
+          ORDER BY id DESC LIMIT 1
+    """, (event_id,))
+    portal = cursor.fetchone()
+    if portal:
+        flavours = portal.get('flavours') if hasattr(portal, 'get') else portal[0]
+        resources = (portal.get('resource_requirements_snapshot')
+                     if hasattr(portal, 'get') else portal[1]) or {}
+        flavours = flavours or []
+    def as_dict(row, fields):
+        return row if hasattr(row, 'get') else dict(zip(fields, row))
+    occurrence_fields = ('event_date', 'venue', 'venue_address',
+                         'service_start_time', 'service_end_time', 'estimated_km',
+                         'expected_duration_minutes', 'logistics_notes', 'service_mode')
+    return {
+        'event': {key: event.get(key) for key in (
+            'event_name', 'event_type', 'estimated_guests', 'venue', 'venue_address',
+            'event_date', 'event_time', 'event_end_time'
+        )},
+        'customer': {
+            'name': event.get('client_name'),
+            'email': event.get('client_email'),
+            'phone': event.get('client_phone'),
+            'customer_type': event.get('customer_type'),
+            'company_name': event.get('company_name'),
+            'nif': event.get('nif'),
+        },
+        'occurrences': [
+            as_dict(row, occurrence_fields) for row in occurrences
+        ],
+        'flavours': flavours,
+        'resources': resources,
+        'assumptions': [],
+    }
+
+
+def _restore_proposal_occurrences(occurrences):
+    """Restore JSON-serialized date/time values for portal template rendering."""
+    restored_occurrences = []
+    for occurrence in occurrences or []:
+        restored = dict(occurrence)
+        raw_date = restored.get('event_date')
+        if isinstance(raw_date, str) and raw_date:
+            try:
+                restored['event_date'] = date.fromisoformat(raw_date[:10])
+            except ValueError:
+                restored['event_date'] = None
+        for field in ('service_start_time', 'service_end_time'):
+            raw_time = restored.get(field)
+            if isinstance(raw_time, str) and raw_time:
+                try:
+                    restored[field] = datetime.fromisoformat(
+                        f'2000-01-01T{raw_time}'
+                    ).time()
+                except ValueError:
+                    restored[field] = None
+        restored_occurrences.append(restored)
+    return restored_occurrences
+
+
+def _portal_auto_quote_eligible(customer_type, occurrences):
+    """Only price Particular requests when every trip distance is known."""
+    return (
+        customer_type == 'particular'
+        and all(occurrence.get('estimated_km') is not None for occurrence in occurrences)
+    )
+
+
+def portal_short_notice_warning(occurrences, min_advance_days, warning):
+    """Return the configured warning when any occurrence is before the threshold.
+
+    The threshold is inclusive: an occurrence on ``today + days`` is on time.
+    Kept pure so the boundary policy can be tested without database setup.
+    """
+    threshold = date.today() + timedelta(days=int(min_advance_days or 0))
+    for occurrence in occurrences or []:
+        event_date = occurrence.get('event_date')
+        if isinstance(event_date, str):
+            event_date = date.fromisoformat(event_date[:10])
+        if event_date is not None and event_date < threshold:
+            return warning
+    return None
+
+
 def create_portal_event_request(data):
     """Create a public request, its occurrences and its initial estimate atomically."""
     email = normalize_portal_email(data.get('client_email'))
+    customer_type, company_name, nif = validate_portal_customer(
+        data.get('customer_type'), data.get('company_name'), data.get('nif')
+    )
     occurrences = data.get('occurrences') or []
+    min_advance_days = int(data.get('min_advance_days') or 0)
+    short_notice_warning = data.get('short_notice_warning') or _PORTAL_BRAND_DEFAULTS['short_notice_warning']
+    short_notice_warning = portal_short_notice_warning(
+        occurrences, min_advance_days, short_notice_warning
+    )
+    short_notice = short_notice_warning is not None
     if not occurrences:
         raise ValueError('Adicione pelo menos uma data para o evento.')
     if not data.get('privacy_accepted'):
@@ -2456,16 +2841,30 @@ def create_portal_event_request(data):
         data.get('estimated_guests'), data.get('servings_per_guest'), flavours,
     )
     catering = bool(data.get('catering_requested'))
-    estimate_eligible = (
-        flavour_plan['guests'] <= 200 and len(occurrences) == 1 and not catering
-    )
+    if customer_type == 'particular':
+        allowed_portal_modes = (
+            'niva_serves', 'client_serves', 'delivery_only', 'catering',
+        )
+        invalid_modes = [
+            str(index + 1) for index, occurrence in enumerate(occurrences)
+            if occurrence.get('service_mode') not in allowed_portal_modes
+        ]
+        if invalid_modes:
+            raise ValueError(
+                'Indique um tipo de serviço válido para todas as ocorrências '
+                f'({", ".join(invalid_modes)}).'
+            )
+    estimate_eligible = _portal_auto_quote_eligible(customer_type, occurrences)
 
     with db_connection() as conn:
         cursor = conn.cursor()
         resource_codes = list(dict.fromkeys(data.get('resource_preferences') or []))
+        resource_requirements_snapshot = {}
         if resource_codes:
             cursor.execute(
-                """SELECT code, COALESCE(public_capacity_flavors, capacity_flavors, 6)
+                """SELECT code, COALESCE(public_capacity_flavors, capacity_flavors, 6),
+                          width_cm, height_cm, length_cm, weight_kg,
+                          public_customer_requirements
                    FROM event_resources WHERE code = ANY(%s) AND active=TRUE""",
                 (resource_codes,),
             )
@@ -2478,6 +2877,15 @@ def create_portal_event_request(data):
                 raise ValueError(
                     f'O equipamento selecionado permite no máximo {flavour_limit} sabores.'
                 )
+            resource_requirements_snapshot = {
+                row[0]: {
+                    'width_cm': str(row[2]) if row[2] is not None else None,
+                    'height_cm': str(row[3]) if row[3] is not None else None,
+                    'length_cm': str(row[4]) if row[4] is not None else None,
+                    'weight_kg': str(row[5]) if row[5] is not None else None,
+                    'public_customer_requirements': row[6],
+                } for row in resource_rows
+            }
         access_code = secrets.token_urlsafe(9)
         access_code_hash = hashlib.sha256(access_code.encode('utf-8')).hexdigest()
         first = occurrences[0]
@@ -2485,17 +2893,18 @@ def create_portal_event_request(data):
             INSERT INTO events (
                 source, event_name, event_type, event_date, event_time, event_end_time,
                 estimated_guests, venue, venue_address, client_name, client_email,
-                client_phone, status, internal_notes
+                client_phone, customer_type, company_name, nif, status, internal_notes
             ) VALUES (
                 'customer_portal', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, 'novos', %s
+                %s, %s, %s, %s, 'novos', %s
             ) RETURNING id
         """, (
             data.get('event_name') or f"Pedido de {data.get('client_name', '').strip()}",
             data.get('event_type'), first.get('event_date'), first.get('service_start_time'),
             first.get('service_end_time'), flavour_plan['guests'], first.get('venue'),
             first.get('venue_address'), data.get('client_name'), email,
-            data.get('client_phone'), 'Pedido submetido pelo portal de clientes.',
+            data.get('client_phone'), customer_type, company_name, nif,
+            'Pedido submetido pelo portal de clientes.',
         ))
         event_row = cursor.fetchone()
         event_id = event_row[0]
@@ -2517,49 +2926,120 @@ def create_portal_event_request(data):
 
         estimate_base = estimate_vat = estimate_total = None
         if estimate_eligible:
-            cursor.execute("""
-                SELECT value_gross, taxa_iva FROM event_pricing_settings
-                WHERE key = 'gelado_kg' AND active = TRUE
-            """)
-            price = cursor.fetchone() or (Decimal('0'), None)
-            snapshot = calculate_quote_line(flavour_plan['total_kg'], price[0], price[1])
-            estimate_base = snapshot['total_net']
-            estimate_vat = snapshot['total_vat']
-            estimate_total = snapshot['total_gross']
-            cursor.execute("""
-                INSERT INTO quote_items (
-                    event_id, artigo_codigo, descricao, quantidade, preco_unitario, taxa_iva,
-                    unit_price_gross, total_net, total_vat, total_gross
-                ) VALUES (%s, 'gelado_kg', 'Estimativa de gelado (portal)', %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                event_id, flavour_plan['total_kg'], price[0], price[1],
-                snapshot['unit_price_gross'], snapshot['total_net'],
-                snapshot['total_vat'], snapshot['total_gross'],
-            ))
+            keys = ['gelado_kg']
+            if any(o.get('service_mode') == 'niva_serves' for o in occurrences):
+                keys.append('servico_fixo')
+            keys.append('deslocacao_km')
+            resource_keys = {'carrinha': 'carrinha_fixa', 'carrinho': 'carrinho_fixo', 'arca': 'arca_fixa'}
+            unsupported = [code for code in resource_codes if code not in resource_keys]
+            if unsupported:
+                raise ValueError('Recurso selecionado sem mapeamento de preço: ' + ', '.join(unsupported))
+            keys += [resource_keys[c] for c in resource_codes if c in resource_keys]
+            cursor.execute("SELECT key,value_gross,taxa_iva,requires_tax_review FROM event_pricing_settings "
+                           "WHERE key=ANY(%s) AND active=TRUE", (list(dict.fromkeys(keys)),))
+            settings = {r[0]: r for r in cursor.fetchall()}
+            missing = [key for key in dict.fromkeys(keys) if key not in settings]
+            if missing:
+                raise ValueError("Configuração de preços em falta ou inativa: " + ", ".join(missing))
+            tax_unvalidated = [
+                key for key in dict.fromkeys(keys)
+                if settings[key][2] is None or settings[key][3]
+            ]
+            if tax_unvalidated:
+                raise ValueError(
+                    "Não é possível emitir proposta automática: valide o IVA destas "
+                    "configurações: " + ", ".join(tax_unvalidated)
+                )
+            lines = []
+            def make_line(key, label, quantity):
+                row = settings[key]
+                snap = calculate_quote_line(quantity, row[1], row[2])
+                lines.append((key, label, quantity, row[1], row[2], snap))
+            make_line('gelado_kg', 'Gelado (kg)',
+                      flavour_plan['total_kg'] * len(occurrences))
+            services = sum(o.get('service_mode') == 'niva_serves' for o in occurrences)
+            if services:
+                make_line('servico_fixo', 'Serviço por ocorrência', services)
+            make_line('deslocacao_km', 'Deslocação (km)', sum(Decimal(str(o['estimated_km'])) for o in occurrences))
+            for code in resource_codes:
+                if code in resource_keys:
+                    make_line(resource_keys[code], 'Recurso: ' + code, len(occurrences))
+            if any(x[5]['total_net'] is None or x[5]['total_vat'] is None for x in lines):
+                raise ValueError(
+                    'Não é possível emitir proposta automática: uma configuração '
+                    'de preço não tem valores líquidos/IVA calculáveis.'
+                )
+            for key, label, qty, gross, rate, snap in lines:
+                cursor.execute("""INSERT INTO quote_items
+                    (event_id,artigo_codigo,descricao,quantidade,preco_unitario,taxa_iva,
+                     unit_price_gross,total_net,total_vat,total_gross,pricing_setting_key)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (event_id,key,label,qty,gross,rate,snap['unit_price_gross'],
+                     snap['total_net'],snap['total_vat'],snap['total_gross'],key))
+            estimate_base = sum((x[5]['total_net'] for x in lines), Decimal('0'))
+            estimate_vat = sum((x[5]['total_vat'] for x in lines), Decimal('0'))
+            estimate_total = sum((x[5]['total_gross'] for x in lines), Decimal('0'))
+            frozen = [{k: (str(v) if v is not None else None) for k, v in
+                       {'artigo_codigo': x[0], 'descricao': x[1], 'quantidade': x[2],
+                        'unit_price_gross': x[5]['unit_price_gross'], 'taxa_iva': x[4],
+                        'total_net': x[5]['total_net'], 'total_vat': x[5]['total_vat'],
+                        'total_gross': x[5]['total_gross']}.items()} for x in lines]
+            revision = hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest()
+            assumptions = []
+            if any(o.get('service_mode') == 'catering' for o in occurrences):
+                assumptions.append('Catering: não é cobrado serviço Scoopy.')
+            if any(o.get('service_mode') == 'client_serves' for o in occurrences):
+                assumptions.append('Serviço pelo cliente: não é cobrado serviço Scoopy.')
+            proposal_snapshot = {
+                'event': {'event_name': data.get('event_name'), 'event_type': data.get('event_type'),
+                          'estimated_guests': flavour_plan['guests']},
+                'customer': {'name': data.get('client_name'), 'email': email,
+                             'customer_type': customer_type, 'company_name': company_name, 'nif': nif},
+                'occurrences': [
+                    {key: (str(value) if value is not None else None)
+                     for key, value in occurrence.items()}
+                    for occurrence in occurrences
+                ],
+                'flavours': flavour_plan['flavours'],
+                'resources': resource_requirements_snapshot,
+                'assumptions': assumptions,
+            }
+            cursor.execute("""INSERT INTO event_quote_versions
+                (event_id,version_number,reason,created_by,snapshot,proposal_snapshot,total_net,total_vat,total_gross,quote_revision)
+                VALUES (%s,1,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s) RETURNING id""",
+                (event_id, 'Oferta imediata do portal', 'portal', json.dumps(frozen),
+                 json.dumps(proposal_snapshot, ensure_ascii=False),
+                 estimate_base, estimate_vat, estimate_total, revision))
+            version_id = cursor.fetchone()[0]
+            cursor.execute("UPDATE events SET status='enviado', status_changed_at=NOW() WHERE id=%s", (event_id,))
 
         cursor.execute("""
             INSERT INTO event_portal_requests (
                 event_id, email_normalized, access_code_hash, marketing_consent, referral_source,
                 servings_per_guest, flavours, resource_preferences, catering_requested,
                 estimate_eligible, estimated_base_eur, estimated_vat_eur, estimated_total_eur,
-                public_message, brand_store_id
-            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s)
+                public_message, short_notice_warning, brand_store_id, resource_requirements_snapshot
+            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
         """, (
             event_id, email, access_code_hash, bool(data.get('marketing_consent')), data.get('referral_source'),
             flavour_plan['scoops'], json.dumps(flavour_plan['flavours'], ensure_ascii=False),
             json.dumps(resource_codes, ensure_ascii=False),
             catering, estimate_eligible, estimate_base, estimate_vat, estimate_total,
-            data.get('confirmation_message') or (
-                'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.'
-                if estimate_eligible else
-                'Recebemos o seu pedido. Como envolve mais de 200 participantes, várias datas '
-                'ou catering, a equipa irá contactar para preparar uma proposta.'
-            ),
-            data.get('brand_store_id'),
+            (('Recebemos o pedido da empresa. A nossa equipa irá contactar pessoalmente para preparar uma proposta.')
+             if customer_type == 'empresa' else
+             ('Recebemos o seu pedido. Não foi possível calcular automaticamente a deslocação; a nossa equipa irá contactar para preparar a proposta.'
+              if not estimate_eligible else
+              data.get('confirmation_message') or
+              'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.')),
+             short_notice_warning if short_notice else None, data.get('brand_store_id'),
+            json.dumps(resource_requirements_snapshot, ensure_ascii=False),
         ))
+        if estimate_eligible:
+            cursor.execute("UPDATE event_portal_requests SET sent_quote_version_id=%s WHERE event_id=%s",
+                           (version_id, event_id))
         _insert_event_history(
             cursor, event_id, 'portal_request_submitted', actor=f'portal:{email}',
-            new_status='novos',
+            new_status='enviado' if estimate_eligible else 'novos',
             details={
                 'occurrence_count': len(occurrences),
                 'estimate_eligible': estimate_eligible,
@@ -2575,6 +3055,7 @@ def create_portal_event_request(data):
             'estimated_total_eur': estimate_total,
             'flavour_plan': flavour_plan,
             'access_code': access_code,
+            'short_notice_warning': short_notice_warning if short_notice else None,
         }
 
 
@@ -2611,7 +3092,7 @@ def get_portal_events_for_email(email):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
             SELECT e.id, e.event_name, e.event_type, e.status, e.created_at,
-                   p.brand_store_id,
+                     p.brand_store_id, p.resource_requirements_snapshot,
                    p.estimate_eligible, p.estimated_total_eur, p.public_message,
                    (SELECT MIN(eo.event_date) FROM event_occurrences eo WHERE eo.event_id = e.id) AS next_date,
                    (SELECT COUNT(*) FROM event_occurrences eo WHERE eo.event_id = e.id) AS occurrence_count
@@ -2630,8 +3111,8 @@ def get_portal_event_for_email(event_id, email):
             SELECT e.*, p.marketing_consent, p.referral_source, p.servings_per_guest,
                    p.flavours, p.resource_preferences, p.catering_requested,
                    p.estimate_eligible, p.estimated_base_eur, p.estimated_vat_eur,
-                    p.estimated_total_eur, p.public_message, p.logistics_message,
-                    p.brand_store_id,
+                     p.estimated_total_eur, p.public_message, p.short_notice_warning, p.logistics_message,
+                    p.brand_store_id, p.resource_requirements_snapshot,
                     p.sent_quote_version_id, p.accepted_quote_revision, p.quote_accepted_at,
                    (SELECT MIN(eo.event_date) FROM event_occurrences eo
                     WHERE eo.event_id = e.id) AS next_date,
@@ -2651,7 +3132,7 @@ def get_portal_event_for_email(event_id, email):
         )
         if event['sent_quote_version_id']:
             cursor.execute("""
-                SELECT snapshot, quote_revision, total_net, total_vat, total_gross
+                SELECT snapshot, proposal_snapshot, quote_revision, version_number, created_at, total_net, total_vat, total_gross
                 FROM event_quote_versions WHERE id=%s AND event_id=%s
             """, (event['sent_quote_version_id'], event_id))
             sent_quote = cursor.fetchone()
@@ -2665,16 +3146,44 @@ def get_portal_event_for_email(event_id, email):
                         item[field] = Decimal(str(item[field]))
             event['quote_items_public'] = quote_items
             event['quote_revision'] = sent_quote['quote_revision']
+            event['quote_version_number'] = sent_quote['version_number']
+            event['quote_created_at'] = sent_quote['created_at']
             event['quote_totals'] = {
                 'total_net': sent_quote['total_net'],
                 'total_vat': sent_quote['total_vat'],
                 'total_gross': sent_quote['total_gross'],
             }
+            # Sent proposals render exclusively from this immutable snapshot.
+            frozen = sent_quote.get('proposal_snapshot') or {}
+            if frozen.get('event'):
+                event.update(frozen['event'])
+            if frozen.get('customer'):
+                customer = frozen['customer']
+                event['client_name'] = customer.get('name')
+                event['client_email'] = customer.get('email')
+                event['customer_type'] = customer.get('customer_type')
+                event['company_name'] = customer.get('company_name')
+                event['nif'] = customer.get('nif')
+            if frozen.get('event'):
+                event['event_name'] = frozen['event'].get('event_name')
+                event['event_type'] = frozen['event'].get('event_type')
+                event['estimated_guests'] = frozen['event'].get('estimated_guests')
+            if 'occurrences' in frozen:
+                event['occurrences_public'] = _restore_proposal_occurrences(
+                    frozen['occurrences']
+                )
+            if 'flavours' in frozen:
+                event['flavours'] = frozen['flavours']
+            if 'resources' in frozen:
+                event['resource_requirements_snapshot'] = frozen['resources']
+            if 'assumptions' in frozen:
+                event['logistics_message'] = ' '.join(frozen['assumptions'])
         else:
             event['quote_items_public'] = []
             event['quote_revision'] = None
             event['quote_totals'] = {'total_net': None, 'total_vat': None, 'total_gross': Decimal('0')}
-        event['occurrences_public'] = get_event_occurrences(event_id)
+        if 'occurrences_public' not in event:
+            event['occurrences_public'] = get_event_occurrences(event_id)
         cursor.execute("""
             SELECT original_filename, purpose, created_at
             FROM event_portal_files

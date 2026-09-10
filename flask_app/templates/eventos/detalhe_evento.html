@@ -1,6 +1,7 @@
 {% extends "eventos/tabs.html" %}
 
 {% block tab_content %}
+<div class="mb-2"><a href="{{ url_for('eventos.recebimentos') }}" class="btn btn-sm btn-outline-secondary">← Recebimentos</a></div>
 <div class="d-flex align-items-center justify-content-between mb-3">
     <h5 class="mb-0">{{ evento.cliente }}</h5>
     <span class="badge bg-{{ evento.status_badge }}">{{ evento.status_label }}</span>

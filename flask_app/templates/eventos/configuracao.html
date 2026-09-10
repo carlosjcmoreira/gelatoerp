@@ -1,71 +1,34 @@
 {% extends "base.html" %}
 {% set back_url = url_for("eventos.index") %}
+{% block head %}<style>.brand-preview{--p:{{ brand.primary_color }};--a:{{ brand.accent_color }};--bg:{{ brand.background_color }};--t:{{ brand.text_color }};--b:{{ brand.button_color }};--bt:{{ brand.button_text_color }};background:var(--bg);color:var(--t);border-radius:18px;overflow:hidden;border:1px solid #dfe5e3}.brand-preview .hero{background:linear-gradient(135deg,var(--p),var(--a));color:#fff;padding:1.35rem}.brand-preview .body{padding:1rem}.brand-preview .sample-button{background:var(--b);color:var(--bt);border:0}.brand-preview .sample-logo{max-width:54px;max-height:54px;object-fit:contain;background:#fff;border-radius:10px;padding:4px}</style>{% endblock %}
 {% block content %}
-<div class="container-fluid px-3 pt-3 pb-5">
-  <h5 class="fw-bold mb-3">⚙️ Configuração de eventos</h5>
-  <div class="row g-3">
-    <div class="col-12 col-xl-7">
-      <div class="card shadow-sm">
-        <div class="card-header fw-semibold">Meios e apresentação pública</div>
-        <div class="card-body">
-          {% for r in resources %}
-          <form method="post" enctype="multipart/form-data" class="border-bottom pb-3 mb-3 row g-2 align-items-end">
-            <input type="hidden" name="action" value="resource">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="existing_image_path" value="{{ r.image_url or '' }}">
-            <input type="hidden" name="resource_type" value="{{ r.resource_type }}">
-            <input type="hidden" name="capacity_flavors" value="{{ r.capacity_flavors or '' }}">
-            <div class="col-md-3"><label class="form-label small">Código</label><input name="code" value="{{ r.code }}" class="form-control form-control-sm" required></div>
-            <div class="col-md-5"><label class="form-label small">Nome público</label><input name="name" value="{{ r.name }}" class="form-control form-control-sm" required></div>
-            <div class="col-6 col-md-2"><label class="form-label small">Carapinas</label><input type="number" min="0" name="capacity_carapinas" value="{{ r.capacity_carapinas or '' }}" class="form-control form-control-sm"></div>
-            <div class="col-6 col-md-2"><label class="form-label small">Estado</label><select name="active" class="form-select form-select-sm"><option value="1" {{ 'selected' if r.active }}>Ativo</option><option value="0" {{ 'selected' if not r.active }}>Inativo</option></select></div>
-            <div class="col-md-8"><label class="form-label small">Imagem pública (PNG, JPG ou WebP)</label><input type="file" name="resource_image" accept=".png,.jpg,.jpeg,.webp" class="form-control form-control-sm">{% if r.image_url %}<div class="form-text">Já existe uma imagem carregada.</div>{% endif %}</div>
-            <div class="col-md-4"><label class="form-label small">Máximo de sabores</label><input type="number" min="1" max="6" name="public_capacity_flavors" value="{{ r.public_capacity_flavors or r.capacity_flavors or '' }}" class="form-control form-control-sm"></div>
-            <div class="col-md-10"><label class="form-label small">Descrição pública</label><input name="public_description" value="{{ r.public_description or '' }}" maxlength="500" class="form-control form-control-sm" placeholder="Informação mostrada ao cliente"></div>
-            <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Guardar</button></div>
-          </form>
-          {% endfor %}
-          <form method="post" class="row g-2 align-items-end">
-            <input type="hidden" name="action" value="resource"><input type="hidden" name="resource_type" value="equipment"><input type="hidden" name="active" value="1">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="col-4"><input name="code" class="form-control form-control-sm" placeholder="código" required></div>
-            <div class="col-6"><input name="name" class="form-control form-control-sm" placeholder="Novo meio" required></div>
-            <div class="col-2"><button class="btn btn-sm btn-outline-primary w-100">Adicionar</button></div>
-          </form>
-        </div>
-      </div>
-    </div>
-    <div class="col-12 col-xl-5">
-      <div class="card shadow-sm mb-3">
-        <div class="card-header fw-semibold">Sabores disponíveis para eventos</div>
-        <form method="post" class="card-body">
-          <input type="hidden" name="action" value="portal_flavours">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <p class="small text-muted">Só são apresentados sabores ativos com Nome Corrente definido.</p>
-          <div class="row g-2">
-            {% for flavour in portal_flavours %}
-            <div class="col-sm-6"><label class="form-check"><input class="form-check-input" type="checkbox" name="flavour_ids[]" value="{{ flavour.id }}" {% if flavour.event_active %}checked{% endif %}><span class="form-check-label">{{ flavour.nome_corrente }}</span></label></div>
-            {% else %}<p class="text-muted small">Não existem sabores elegíveis.</p>{% endfor %}
-          </div>
-          <button class="btn btn-primary btn-sm mt-3">Guardar sabores</button>
-        </form>
-      </div>
-      <div class="card shadow-sm">
-        <div class="card-header fw-semibold">Preços, IVA e sinal</div>
-        <div class="card-body">
-          {% for p in pricing %}
-          <form method="post" class="border-bottom pb-2 mb-2 row g-1 align-items-end">
-            <input type="hidden" name="action" value="pricing"><input type="hidden" name="key" value="{{ p.key }}"><input type="hidden" name="label" value="{{ p.label }}"><input type="hidden" name="setting_type" value="{{ p.setting_type }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <div class="col-5"><label class="small">{{ p.label }}</label></div>
-            <div class="col-3"><input name="value_gross" type="number" step="0.01" min="0" value="{{ p.value_gross }}" class="form-control form-control-sm"></div>
-            <div class="col-2"><input name="taxa_iva" type="number" step="1" min="0" max="100" value="{{ (p.taxa_iva*100)|round(0)|int if p.taxa_iva is not none else '' }}" placeholder="IVA" class="form-control form-control-sm"></div>
-            <div class="col-2"><input type="hidden" name="requires_tax_review" value="{{ '1' if p.requires_tax_review else '0' }}"><input type="hidden" name="active" value="{{ '1' if p.active else '0' }}"><button class="btn btn-sm btn-primary w-100">Guardar</button></div>
-          </form>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
+<div class="container-fluid px-3 pt-3 pb-5"><h5 class="fw-bold mb-3">⚙️ Configuração de eventos</h5>
+{% if not can_edit_config %}<div class="alert alert-info">Tem acesso de consulta a esta configuração. Apenas acesso administrativo pode guardar alterações.</div>{% endif %}
+<form method="post" enctype="multipart/form-data" data-ios-submit-scroll="false">
+<fieldset {% if not can_edit_config %}disabled{% endif %}>
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<div class="row g-3"><div class="col-12 col-xl-7">
+<div class="card shadow-sm"><div class="card-header fw-semibold">Meios e apresentação pública</div><div class="card-body">
+{% for r in resources %}
+<div class="border-bottom pb-3 mb-3 row g-2 align-items-end">
+<input type="hidden" name="resource_existing_image[]" value="{{ r.image_url or '' }}"><input type="hidden" name="resource_type[]" value="{{ r.resource_type }}"><input type="hidden" name="resource_id[]" value="{{ r.id }}"><input type="hidden" name="resource_capacity_flavors[]" value="{{ r.capacity_flavors or '' }}"><input type="hidden" name="resource_notes[]" value="{{ r.notes or '' }}">
+<div class="col-md-3"><label class="form-label small">Código</label><input name="resource_code[]" value="{{ r.code }}" class="form-control form-control-sm" required></div><div class="col-md-5"><label class="form-label small">Nome público</label><input name="resource_name[]" value="{{ r.name }}" class="form-control form-control-sm" required></div><div class="col-6 col-md-2"><label class="form-label small">Carapinas</label><input type="number" min="0" name="resource_capacity_carapinas[]" value="{{ r.capacity_carapinas or '' }}" class="form-control form-control-sm"></div><div class="col-6 col-md-2"><label class="form-label small">Estado</label><select name="resource_active[]" class="form-select form-select-sm"><option value="1" {{ 'selected' if r.active }}>Ativo</option><option value="0" {{ 'selected' if not r.active }}>Inativo</option></select></div>
+<div class="col-md-8"><label class="form-label small">Imagem pública</label><input type="file" name="resource_image[]" accept=".png,.jpg,.jpeg,.webp" class="form-control form-control-sm">{% if r.image_url %}<div class="form-text">Já existe uma imagem carregada.</div>{% endif %}</div><div class="col-md-4"><label class="form-label small">Máximo de sabores</label><input type="number" min="1" max="6" name="resource_public_capacity_flavors[]" value="{{ r.public_capacity_flavors or r.capacity_flavors or '' }}" class="form-control form-control-sm"></div>
+<div class="col-md-10"><label class="form-label small">Descrição pública</label><input name="resource_public_description[]" value="{{ r.public_description or '' }}" maxlength="500" class="form-control form-control-sm"></div>{% for key,label in [('width_cm','Largura (cm)'),('height_cm','Altura (cm)'),('length_cm','Comprimento (cm)'),('weight_kg','Peso (kg)')] %}<div class="col-6 col-md-3"><label class="form-label small">{{ label }}</label><input type="number" min="0" max="100000" step="0.01" name="resource_{{ key }}[]" value="{{ r[key] or '' }}" class="form-control form-control-sm"></div>{% endfor %}<div class="col-md-10"><label class="form-label small">Requisitos para o cliente</label><input name="resource_public_customer_requirements[]" value="{{ r.public_customer_requirements or '' }}" maxlength="1000" class="form-control form-control-sm"></div>
+</div>{% endfor %}
+<div class="row g-2 align-items-end border-top pt-2"><input type="hidden" name="new_resource" value="1"><div class="col-4"><input name="new_resource_code" class="form-control form-control-sm" placeholder="código"></div><div class="col-6"><input name="new_resource_name" class="form-control form-control-sm" placeholder="Novo meio"></div><div class="col-2 small text-muted">opcional</div></div>
+</div></div>
+<div class="card shadow-sm mt-3"><div class="card-header fw-semibold">Formulário público</div><div class="card-body">
+<div class="row g-3"><div class="col-md-7"><label class="form-label">Nome comercial</label><input class="form-control" name="brand_name" value="{{ brand.brand_name }}" data-preview="brand-name" required></div><div class="col-md-5"><label class="form-label">Logótipo</label><input class="form-control" type="file" name="logo_file" accept="image/png,image/jpeg,image/webp" id="logo-file"></div>
+{% if brand.logo_filename %}<div class="col-12 small"><label class="form-check-label"><input type="checkbox" class="form-check-input me-1" name="remove_logo" value="1">Remover logótipo atual</label></div>{% endif %}
+{% for key,label in [('primary_color','Cor principal'),('accent_color','Cor de destaque'),('background_color','Fundo'),('text_color','Texto'),('button_color','Botão'),('button_text_color','Texto do botão')] %}<div class="col-sm-4"><label class="form-label">{{ label }}</label><input type="color" value="{{ brand[key] }}" data-color-target="{{ key }}"><input class="form-control" name="{{ key }}" value="{{ brand[key] }}" pattern="#[0-9A-Fa-f]{6}" data-preview-color="{{ key }}" required></div>{% endfor %}
+<div class="col-md-6"><label class="form-label">Título</label><input class="form-control" name="form_title" value="{{ brand.form_title }}" data-preview="form-title" required></div><div class="col-md-6"><label class="form-label">Texto de contacto</label><input class="form-control" name="contact_text" value="{{ brand.contact_text }}" data-preview="contact-text" required></div><div class="col-12"><label class="form-label">Apresentação</label><textarea class="form-control" name="form_intro" rows="2" data-preview="form-intro" required>{{ brand.form_intro }}</textarea></div><div class="col-12"><label class="form-label">Mensagem após envio</label><textarea class="form-control" name="confirmation_message" rows="2" required>{{ brand.confirmation_message }}</textarea></div>
+ <div class="col-md-4"><label class="form-label">Antecedência mínima (dias)</label><input class="form-control" type="number" name="min_advance_days" min="0" max="3650" step="1" value="{{ brand.min_advance_days }}" required></div><div class="col-md-8"><label class="form-label">Aviso de data próxima</label><input class="form-control" name="short_notice_warning" maxlength="500" value="{{ brand.short_notice_warning }}" required></div>
+ <div class="col-12"><h6>Secções opcionais</h6>{% for key,label in [('event_name','Nome do evento'),('duration','Duração'),('service_mode','Tipo de serviço'),('resource_preferences','Equipamento preferido'),('referral_source','Origem do contacto')] %}<label class="form-check form-check-inline"><input class="form-check-input" type="checkbox" name="visible_{{ key }}" value="1" {% if brand.visible_fields.get(key, true) %}checked{% endif %} data-preview-section="{{ key }}">{{ label }}</label>{% endfor %}</div>
+{% for key,label in [('event_name','Nome do evento'),('event_type','Tipo de evento'),('estimated_guests','Participantes'),('servings_per_guest','Bolas por pessoa'),('duration','Duração'),('occurrences','Datas e local'),('flavours','Sabores'),('service_mode','Tipo de serviço'),('resource_preferences','Equipamento preferido'),('contact','Contacto'),('client_name','Nome'),('client_email','Email'),('client_phone','Telefone'),('referral_source','Origem do contacto'),('submit','Botão de envio')] %}<div class="col-md-6"><label class="form-label small">{{ label }}</label><input class="form-control form-control-sm" name="label_{{ key }}" value="{{ brand.field_labels.get(key, label) }}"></div>{% endfor %}</div>
+</div></div></div>
+<div class="col-12 col-xl-5"><div class="brand-preview mb-3" id="brand-preview"><div class="hero"><div class="small" id="preview-brand-name">{{ brand.brand_name }}</div><div class="h5" id="preview-form-title">{{ brand.form_title }}</div><p class="small mb-0" id="preview-form-intro">{{ brand.form_intro }}</p></div><div class="body"><p class="small" id="preview-contact-text">{{ brand.contact_text }}</p><button type="button" class="btn sample-button w-100">Enviar pedido</button></div></div><div class="card shadow-sm mb-3"><div class="card-header fw-semibold">Sabores disponíveis</div><div class="card-body"><p class="small text-muted">Só são apresentados sabores ativos com Nome Corrente definido.</p>{% for flavour in portal_flavours %}<label class="form-check"><input class="form-check-input" type="checkbox" name="flavour_ids[]" value="{{ flavour.id }}" {% if flavour.event_active %}checked{% endif %}>{{ flavour.nome_corrente }}</label>{% else %}<p class="text-muted small">Não existem sabores elegíveis.</p>{% endfor %}</div></div>
+ <div class="card shadow-sm"><div class="card-header fw-semibold">Preços, IVA e sinal</div><div class="card-body">{% for p in pricing %}<div class="border-bottom pb-2 mb-2 row g-1 align-items-end"><input type="hidden" name="pricing_key[]" value="{{ p.key }}"><input type="hidden" name="pricing_label[]" value="{{ p.label }}"><input type="hidden" name="pricing_type[]" value="{{ p.setting_type }}"><input type="hidden" name="pricing_active[]" value="{{ '1' if p.active else '0' }}"><div class="col-4"><label class="small">{{ p.label }}</label></div><div class="col-3"><input name="pricing_value[]" type="number" step="0.01" min="0" value="{{ p.value_gross }}" class="form-control form-control-sm"></div><div class="col-3"><input name="pricing_iva[]" type="number" step="1" min="0" max="100" value="{{ (p.taxa_iva*100)|round(0)|int if p.taxa_iva is not none else '' }}" placeholder="IVA" class="form-control form-control-sm"></div><div class="col-2"><select name="pricing_review[]" class="form-select form-select-sm" aria-label="Validação IVA"><option value="1" {{ 'selected' if p.requires_tax_review }}>Por validar</option><option value="0" {{ 'selected' if not p.requires_tax_review and p.taxa_iva is not none }}>IVA validado</option></select></div></div>{% endfor %}</div></div>
+{% if can_edit_config %}<button type="submit" class="btn btn-primary btn-lg mt-3 w-100">Guardar alterações</button>{% endif %}</div></div></fieldset></form></div>
+<script>const preview=document.getElementById('brand-preview');const cssMap={primary_color:'--p',accent_color:'--a',background_color:'--bg',text_color:'--t',button_color:'--b',button_text_color:'--bt'};document.querySelectorAll('[data-preview]').forEach(i=>i.addEventListener('input',()=>{const e=document.getElementById('preview-'+i.dataset.preview);if(e)e.textContent=i.value;}));document.querySelectorAll('[data-preview-color]').forEach(i=>i.addEventListener('input',()=>{if(/^#[0-9a-f]{6}$/i.test(i.value)&&preview)preview.style.setProperty(cssMap[i.dataset.previewColor],i.value)}));document.querySelectorAll('[data-color-target]').forEach(i=>i.addEventListener('input',()=>{const t=document.querySelector('[name="'+i.dataset.colorTarget+'"]');t.value=i.value;t.dispatchEvent(new Event('input'));}));document.getElementById('logo-file')?.addEventListener('change',e=>{const f=e.target.files[0],i=document.getElementById('preview-logo');if(f&&i){i.src=URL.createObjectURL(f);i.classList.remove('d-none');}});</script>
 {% endblock %}

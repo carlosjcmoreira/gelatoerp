@@ -42,6 +42,8 @@ DEFAULT_PORTAL_BRAND = {
     "contact_text": (
         "Deixe-nos os seus contactos para podermos responder ao pedido."
     ),
+    "min_advance_days": 0,
+    "short_notice_warning": "Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.",
     "field_labels": {},
     "visible_fields": {
         "event_name": True,
@@ -88,6 +90,23 @@ def validate_brand_form(form):
         ),
         "contact_text": _text(form.get("contact_text"), result["contact_text"], 300),
     })
+    raw_days = form.get("min_advance_days", result["min_advance_days"])
+    try:
+        if isinstance(raw_days, str) and not raw_days.strip():
+            raise ValueError
+        days = int(raw_days)
+    except (TypeError, ValueError):
+        raise ValueError("Os dias de antecedência devem ser um número inteiro.")
+    if str(raw_days).strip() != str(days) or not 0 <= days <= 3650:
+        raise ValueError("Os dias de antecedência devem ser um inteiro entre 0 e 3650.")
+    raw_warning = form.get("short_notice_warning", result["short_notice_warning"])
+    if not str(raw_warning or "").strip():
+        raise ValueError("Indique o aviso para datas de curto prazo.")
+    if len(str(raw_warning).strip()) > 500:
+        raise ValueError("O aviso para datas de curto prazo é demasiado longo (máximo 500 caracteres).")
+    warning = _text(raw_warning, result["short_notice_warning"], 500)
+    result["min_advance_days"] = days
+    result["short_notice_warning"] = warning
     if not result["brand_name"] or not result["form_title"]:
         raise ValueError("Indique o nome da marca e o título do formulário.")
 

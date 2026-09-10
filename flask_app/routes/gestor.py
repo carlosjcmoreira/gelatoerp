@@ -1998,10 +1998,8 @@ _TILE_MASTER = {
     ],
     'eventos': [
         {'id': 'dashboard',     'icon': '📊', 'default_label': 'Dashboard',               'description': 'Resumo do pipeline de eventos com indicadores de leads e adjudicações'},
-        {'id': 'pipeline',      'icon': '📋', 'default_label': 'Pipeline',                 'description': 'Gerir o pipeline de eventos por estado: lead, proposta, adjudicado, etc.'},
+        {'id': 'pipeline',      'icon': '📋', 'default_label': 'Pipeline de Eventos',      'description': 'Gerir o pipeline de eventos por estado: lead, proposta, adjudicado, etc.'},
         {'id': 'calendario',    'icon': '🗓️', 'default_label': 'Calendário',                'description': 'Consultar as ocorrências de eventos e a agenda operacional'},
-        {'id': 'leads',         'icon': '📥', 'default_label': 'Leads do Formulário',      'description': 'Consultar e gerir leads recebidas via formulário e Google Sheets'},
-        {'id': 'formulario',    'icon': '📝', 'default_label': 'Formulário',               'description': 'Configurar e abrir o formulário público de pedidos de eventos'},
         {'id': 'clientes',      'icon': '👥', 'default_label': 'Clientes',                 'description': 'Gerir a base de dados de clientes associados a eventos'},
         {'id': 'artigos',       'icon': '🏷️', 'default_label': 'Artigos',                  'description': 'Gerir os artigos e serviços disponíveis para orçamentação de eventos'},
         {'id': 'configuracao',  'icon': '⚙️', 'default_label': 'Configuração',              'description': 'Configurar meios, capacidades, preços, IVA e sinal dos eventos'},
