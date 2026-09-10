@@ -2913,6 +2913,33 @@ def create_portal_event_request(data):
 
     with db_connection() as conn:
         cursor = conn.cursor()
+        submission_identifier = str(data.get('submission_identifier') or '').strip()
+        if not submission_identifier:
+            raise ValueError('O identificador da submissão está em falta. Atualize a página e tente novamente.')
+        # Serialize requests carrying the same identifier before checking it. This
+        # makes concurrent retries wait for the first transaction to commit.
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (submission_identifier,),
+        )
+        cursor.execute("""
+            SELECT event_id, estimate_eligible, estimated_base_eur,
+                   estimated_vat_eur, estimated_total_eur, short_notice_warning
+            FROM event_portal_requests
+            WHERE submission_identifier = %s
+        """, (submission_identifier,))
+        existing = cursor.fetchone()
+        if existing:
+            return {
+                'event_id': existing[0],
+                'estimate_eligible': existing[1],
+                'estimated_base_eur': existing[2],
+                'estimated_vat_eur': existing[3],
+                'estimated_total_eur': existing[4],
+                'short_notice_warning': existing[5],
+                'access_code': str(data.get('access_code') or '').strip() or None,
+                'replayed': True,
+            }
         resource_codes = list(dict.fromkeys(data.get('resource_preferences') or []))
         resource_requirements_snapshot = {}
         if resource_codes:
@@ -2941,7 +2968,7 @@ def create_portal_event_request(data):
                     'public_customer_requirements': row[6],
                 } for row in resource_rows
             }
-        access_code = secrets.token_urlsafe(9)
+        access_code = str(data.get('access_code') or '').strip() or secrets.token_urlsafe(9)
         access_code_hash = hashlib.sha256(access_code.encode('utf-8')).hexdigest()
         first = occurrences[0]
         cursor.execute("""
@@ -3073,8 +3100,9 @@ def create_portal_event_request(data):
                 event_id, email_normalized, access_code_hash, marketing_consent, referral_source,
                 servings_per_guest, flavours, resource_preferences, catering_requested,
                 estimate_eligible, estimated_base_eur, estimated_vat_eur, estimated_total_eur,
-                public_message, short_notice_warning, brand_store_id, resource_requirements_snapshot
-            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                public_message, short_notice_warning, brand_store_id,
+                resource_requirements_snapshot, submission_identifier
+            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
         """, (
             event_id, email, access_code_hash, bool(data.get('marketing_consent')), data.get('referral_source'),
             flavour_plan['scoops'], json.dumps(flavour_plan['flavours'], ensure_ascii=False),
@@ -3088,6 +3116,7 @@ def create_portal_event_request(data):
               'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.')),
              short_notice_warning if short_notice else None, data.get('brand_store_id'),
             json.dumps(resource_requirements_snapshot, ensure_ascii=False),
+            submission_identifier,
         ))
         if estimate_eligible:
             cursor.execute("UPDATE event_portal_requests SET sent_quote_version_id=%s WHERE event_id=%s",
@@ -3111,6 +3140,7 @@ def create_portal_event_request(data):
             'flavour_plan': flavour_plan,
             'access_code': access_code,
             'short_notice_warning': short_notice_warning if short_notice else None,
+            'replayed': False,
         }
 
 

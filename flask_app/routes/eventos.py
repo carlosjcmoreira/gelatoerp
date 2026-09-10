@@ -1,7 +1,9 @@
 import io
+import base64
 import os
 import sys
 import hashlib
+import hmac
 import secrets
 import time
 import re
@@ -283,6 +285,54 @@ def _address_serializer():
     )
 
 
+def _submission_serializer():
+    return URLSafeTimedSerializer(
+        current_app.secret_key, salt='event-portal-submission-v1'
+    )
+
+
+def _new_submission_identifier():
+    return _submission_serializer().dumps({
+        'nonce': secrets.token_urlsafe(32),
+        'csrf': hashlib.sha256(_portal_csrf_token().encode('utf-8')).hexdigest(),
+    })
+
+
+def _valid_submission_identifier(raw):
+    token = str(raw or '').strip()
+    if not token:
+        raise ValueError(
+            'O identificador da submissão está em falta. Atualize a página e tente novamente.'
+        )
+    try:
+        payload = _submission_serializer().loads(token)
+    except BadSignature:
+        raise ValueError(
+            'O identificador da submissão não é válido. Atualize a página e tente novamente.'
+        )
+    expected_csrf = hashlib.sha256(_portal_csrf_token().encode('utf-8')).hexdigest()
+    if (
+        not isinstance(payload, dict)
+        or not payload.get('nonce')
+        or not hmac.compare_digest(str(payload.get('csrf') or ''), expected_csrf)
+    ):
+        raise ValueError(
+            'O identificador da submissão não pertence a esta sessão. '
+            'Atualize a página e tente novamente.'
+        )
+    return token
+
+
+def _submission_access_code(submission_identifier):
+    payload = _submission_serializer().loads(submission_identifier)
+    digest = hmac.new(
+        str(current_app.secret_key).encode('utf-8'),
+        str(payload['nonce']).encode('utf-8'),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest[:9]).decode('ascii').rstrip('=')
+
+
 def _portal_end_time(start, duration_minutes):
     if not start:
         return None
@@ -370,6 +420,9 @@ def portal_request():
                 elapsed_ms = int(time.time() * 1000) - started_at
                 if elapsed_ms < 1200:
                     raise ValueError('Aguarde um momento antes de enviar o pedido.')
+            submission_identifier = _valid_submission_identifier(
+                request.form.get('submission_identifier')
+            )
             _portal_rate_limit('submission', 5)
             dates = request.form.getlist('occurrence_date[]')
             start_times = request.form.getlist('occurrence_start[]')
@@ -456,15 +509,20 @@ def portal_request():
                 'confirmation_message': brand.get('confirmation_message'),
                  'min_advance_days': brand.get('min_advance_days', 0),
                  'short_notice_warning': brand.get('short_notice_warning'),
+                'submission_identifier': submission_identifier,
+                'access_code': _submission_access_code(submission_identifier),
             })
             email = db.normalize_portal_email(request.form.get('client_email'))
             access_code = result.get('access_code')
+            session['event_portal_email'] = email
+            session['event_portal_verified'] = True
+            session['event_portal_access_until'] = time.time() + 30 * 60
+            session['event_portal_event_id'] = result['event_id']
             if access_code:
-                session['event_portal_email'] = email
-                session['event_portal_verified'] = True
-                session['event_portal_access_until'] = time.time() + 30 * 60
-                session['event_portal_event_id'] = result['event_id']
                 session['event_portal_access_code_once'] = access_code
+            if result.get('replayed'):
+                flash('Este pedido já tinha sido recebido. Mostramos abaixo o pedido original.', 'success')
+                return redirect(url_for('eventos.portal_event', event_id=result['event_id']))
             try:
                 db.record_portal_access(
                     email, 'request_submitted', result['event_id'],
@@ -529,6 +587,11 @@ def portal_request():
     return render_template(
         'eventos/portal_request.html', calendar_dates=calendar_dates,
         csrf_token=_portal_csrf_token(), form=request.form, brand=brand,
+        submission_identifier=(
+            request.form.get('submission_identifier')
+            if request.method == 'POST' and request.form.get('submission_identifier')
+            else _new_submission_identifier()
+        ),
         submitted_occurrences=_portal_submitted_occurrences(request.form),
         phone_code=phone_code, phone_national=phone_national,
         resources=db.get_event_resources(),

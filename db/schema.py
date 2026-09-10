@@ -611,6 +611,15 @@ def run_migrations_eventos_customer_portal():
                 )
             """)
             cursor.execute("""
+                ALTER TABLE event_portal_requests
+                ADD COLUMN IF NOT EXISTS submission_identifier VARCHAR(255)
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_event_portal_requests_submission_identifier
+                ON event_portal_requests (submission_identifier)
+                WHERE submission_identifier IS NOT NULL
+            """)
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS event_portal_brand_configs (
                     id BIGSERIAL PRIMARY KEY,
                     store_id INTEGER NOT NULL UNIQUE REFERENCES stores(id) ON DELETE RESTRICT,

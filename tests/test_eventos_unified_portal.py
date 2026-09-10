@@ -1,6 +1,9 @@
 """Focused contracts for the unified Events portal and persisted proposals."""
 
 import os
+import hashlib
+import re
+import secrets
 import time
 import unittest
 from datetime import date, timedelta
@@ -415,6 +418,9 @@ class PortalSubmissionRecoveryContracts(unittest.TestCase):
     def _post_data(self, token, started_at=None):
         data = {
             "csrf_token": token, "event_type": "Aniversário",
+            "submission_identifier": (
+                self._issued_submission_identifier(token) if token else ""
+            ),
             "customer_type": "particular", "estimated_guests": "20",
             "servings_per_guest": "1", "flavours[]": "12",
             "occurrence_date[]": "2027-01-01", "occurrence_start[]": "14:00",
@@ -426,6 +432,14 @@ class PortalSubmissionRecoveryContracts(unittest.TestCase):
         if started_at is not None:
             data["started_at"] = str(started_at)
         return data
+
+    def _issued_submission_identifier(self, csrf_token):
+        with self.app.test_request_context():
+            from flask_app.routes.eventos import _submission_serializer
+            return _submission_serializer().dumps({
+                "nonce": secrets.token_urlsafe(32),
+                "csrf": hashlib.sha256(csrf_token.encode("utf-8")).hexdigest(),
+            })
 
     def test_missing_and_old_timestamps_are_accepted(self):
         for started_at in (None, int(time.time() * 1000) - 48 * 60 * 60 * 1000):
@@ -467,6 +481,93 @@ class PortalSubmissionRecoveryContracts(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.location.endswith("/eventos/portal-eventos/pedido/4"))
 
+    def test_rendered_forms_receive_distinct_signed_submission_identifiers(self):
+        with self.app.test_client() as client, \
+             patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=self._brand()), \
+             patch("flask_app.routes.eventos.db.get_event_resources", return_value=[]), \
+             patch("flask_app.routes.eventos.db.get_portal_flavours", return_value=[]):
+            first = client.get("/eventos/pedido-evento").get_data(as_text=True)
+            second = client.get("/eventos/pedido-evento").get_data(as_text=True)
+        pattern = r'name="submission_identifier" value="([^"]+)"'
+        first_identifier = re.search(pattern, first).group(1)
+        second_identifier = re.search(pattern, second).group(1)
+        self.assertNotEqual(first_identifier, second_identifier)
+
+    def test_double_click_and_network_retry_redirect_to_original_event(self):
+        created = {
+            "event_id": 44, "access_code": "first-code", "replayed": False,
+        }
+        replayed = {
+            "event_id": 44, "access_code": "first-code", "replayed": True,
+        }
+        with self.app.test_client() as client, \
+             patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=self._brand()), \
+             patch("flask_app.routes.eventos.db.get_event_resources", return_value=[]), \
+             patch("flask_app.routes.eventos.db.get_portal_flavours", return_value=[]), \
+             patch("flask_app.routes.eventos.resolve_event_address", return_value={}), \
+             patch("flask_app.routes.eventos.db.consume_portal_rate_limit", return_value=True), \
+             patch("flask_app.routes.eventos.db.record_portal_access"), \
+             patch("flask_app.routes.eventos.queue_analytics_event") as analytics, \
+             patch("flask_app.routes.eventos.db.create_portal_event_request",
+                   side_effect=[created, replayed]) as create:
+            client.get("/eventos/pedido-evento")
+            with client.session_transaction() as session:
+                csrf = session["event_portal_csrf"]
+            data = self._post_data(csrf)
+            first = client.post("/eventos/pedido-evento", data=data)
+            retry = client.post("/eventos/pedido-evento", data=data)
+        self.assertEqual(create.call_count, 2)
+        self.assertEqual(
+            create.call_args_list[0].args[0]["submission_identifier"],
+            create.call_args_list[1].args[0]["submission_identifier"],
+        )
+        self.assertTrue(first.location.endswith("/eventos/portal-eventos/pedido/44"))
+        self.assertTrue(retry.location.endswith("/eventos/portal-eventos/pedido/44"))
+        analytics.assert_called_once()
+        with client.session_transaction() as session:
+            self.assertEqual(session["event_portal_access_code_once"], "first-code")
+
+    def test_submission_identifier_cannot_be_replayed_from_another_session(self):
+        with self.app.test_client() as first_client, \
+             patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=self._brand()), \
+             patch("flask_app.routes.eventos.db.get_event_resources", return_value=[]), \
+             patch("flask_app.routes.eventos.db.get_portal_flavours", return_value=[]):
+            page = first_client.get("/eventos/pedido-evento").get_data(as_text=True)
+        identifier = re.search(
+            r'name="submission_identifier" value="([^"]+)"', page
+        ).group(1)
+
+        with self.app.test_client() as other_client, \
+             patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=self._brand()), \
+             patch("flask_app.routes.eventos.db.get_event_resources", return_value=[]), \
+             patch("flask_app.routes.eventos.db.get_portal_flavours", return_value=[]), \
+             patch("flask_app.routes.eventos.db.create_portal_event_request") as create:
+            other_client.get("/eventos/pedido-evento")
+            with other_client.session_transaction() as session:
+                csrf = session["event_portal_csrf"]
+            data = self._post_data(csrf)
+            data["submission_identifier"] = identifier
+            response = other_client.post("/eventos/pedido-evento", data=data)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("não pertence a esta sessão".encode(), response.data)
+        create.assert_not_called()
+
+    def test_concurrent_retry_is_serialized_and_database_identifier_is_unique(self):
+        implementation = (ROOT / "db/eventos.py").read_text()
+        schema = (ROOT / "db/schema.py").read_text()
+        lock = "pg_advisory_xact_lock(hashtextextended(%s, 0))"
+        self.assertIn(lock, implementation)
+        self.assertLess(
+            implementation.index(lock),
+            implementation.index("WHERE submission_identifier = %s"),
+        )
+        self.assertIn(
+            "uq_event_portal_requests_submission_identifier", schema
+        )
+        self.assertIn(
+            "ON event_portal_requests (submission_identifier)", schema
+        )
+
     def test_validation_error_restores_repeated_and_selectable_form_data(self):
         data = self._post_data(None, None)
         data.update({
@@ -500,6 +601,9 @@ class PortalSubmissionRecoveryContracts(unittest.TestCase):
             client.get("/eventos/pedido-evento")
             with client.session_transaction() as session:
                 data["csrf_token"] = session["event_portal_csrf"]
+                data["submission_identifier"] = self._issued_submission_identifier(
+                    session["event_portal_csrf"]
+                )
             response = client.post("/eventos/pedido-evento", data=data)
         page = response.get_data(as_text=True)
         self.assertEqual(response.status_code, 200)
