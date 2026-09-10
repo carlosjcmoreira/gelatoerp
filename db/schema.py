@@ -207,6 +207,55 @@ def run_migrations_eventos_v2_foundation():
                 "CREATE INDEX IF NOT EXISTS idx_event_history_event_created "
                 "ON event_history(event_id, created_at DESC)"
             )
+            # Durable coordination for the Sheets importer.  The partial unique
+            # index is important: it closes the race between two web workers
+            # both deciding that no import is currently queued.
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_sheet_sync_runs (
+                    id BIGSERIAL PRIMARY KEY,
+                    status VARCHAR(20) NOT NULL DEFAULT 'queued'
+                        CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+                    trigger_source VARCHAR(80) NOT NULL DEFAULT 'scheduler',
+                    requester VARCHAR(255),
+                    phase VARCHAR(40),
+                    total_rows INTEGER NOT NULL DEFAULT 0,
+                    processed_rows INTEGER NOT NULL DEFAULT 0,
+                    inserted INTEGER NOT NULL DEFAULT 0,
+                    updated INTEGER NOT NULL DEFAULT 0,
+                    errors INTEGER NOT NULL DEFAULT 0,
+                    error_summary TEXT,
+                    timings JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    started_at TIMESTAMP,
+                    finished_at TIMESTAMP,
+                    heartbeat_at TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE event_sheet_sync_runs
+                    ADD COLUMN IF NOT EXISTS worker_id VARCHAR(120),
+                    ADD COLUMN IF NOT EXISTS lease_token VARCHAR(80),
+                    ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(120)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_event_sheet_sync_active
+                ON event_sheet_sync_runs ((1))
+                WHERE status IN ('queued', 'running')
+                """
+            )
+            cursor.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_event_sheet_sync_idempotency
+                ON event_sheet_sync_runs (idempotency_key)
+                WHERE idempotency_key IS NOT NULL
+                """
+            )
 
             # Keep the previous date/location fields for established screens, while
             # adding the financial and operational snapshots used by v2.

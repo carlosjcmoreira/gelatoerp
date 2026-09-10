@@ -69,27 +69,9 @@ from db.schema import run_migrations_eventos_v2_foundation, run_migrations_event
 
 
 def _start_sheets_sync_scheduler():
-    """Background thread that syncs leads from Google Sheets daily at 08:00."""
-    def _worker():
-        import time
-        from datetime import datetime, timedelta
-        while True:
-            now = datetime.now()
-            target = now.replace(hour=8, minute=0, second=0, microsecond=0)
-            if target <= now:
-                target += timedelta(days=1)
-            wait_seconds = (target - now).total_seconds()
-            logger.info("Next Google Sheets sync scheduled at %s (in %.0f s)", target.strftime('%Y-%m-%d %H:%M'), wait_seconds)
-            time.sleep(wait_seconds)
-            try:
-                from flask_app.google_sheets_sync import sync_leads_from_sheet
-                inserted, updated, errors = sync_leads_from_sheet()
-                logger.info("Auto sync Google Sheets: %d new, %d updated, %d errors", inserted, updated, errors)
-            except Exception as e:
-                logger.warning("Auto sync Google Sheets failed: %s", e)
-
-    t = threading.Thread(target=_worker, daemon=True, name="sheets-sync")
-    t.start()
+    """Start the durable Sheets job worker and its daily 08:00 enqueue."""
+    from flask_app.google_sheets_sync import start_sheet_sync_worker
+    start_sheet_sync_worker(schedule_daily=True)
 
 
 def _start_event_portal_cleanup_scheduler():

@@ -1,6 +1,9 @@
 import os
 import logging
 import requests
+import threading
+import time
+import os
 from datetime import datetime, date
 
 logger = logging.getLogger(__name__)
@@ -255,18 +258,29 @@ def _map_row_with_headers(headers, row, row_index):
     }
 
 
-def sync_leads_from_sheet():
+def sync_leads_from_sheet(progress_callback=None):
     """
     Pull all rows from the Google Sheet, upsert into lead_requests AND events (pipeline).
     Returns (inserted, updated, errors) counts (based on lead_requests inserts/updates).
     """
     import database as db_mod
 
+    started = time.monotonic()
+    timings = {}
+    logger.info("sheet_sync phase=fetch_start")
     try:
         rows = fetch_sheet_rows()
     except Exception as e:
-        logger.error("Failed to fetch sheet rows: %s", e)
-        return 0, 0, 1
+        # A connector/auth failure must make the durable run fail, rather than
+        # looking like a successful import with one bad row.
+        logger.error("sheet_sync phase=fetch_failed error_type=%s", type(e).__name__)
+        raise
+
+    timings["fetch_ms"] = int((time.monotonic() - started) * 1000)
+    logger.info("sheet_sync phase=fetch_complete elapsed_ms=%d rows=%d",
+                timings["fetch_ms"], len(rows))
+    if progress_callback:
+        progress_callback({"phase": "mapping", "total_rows": len(rows), "processed_rows": 0})
 
     if not rows:
         return 0, 0, 0
@@ -288,10 +302,87 @@ def sync_leads_from_sheet():
         data_rows = rows
         row_offset = 1
 
+    # Parse once and upsert leads in one transaction; event work below retains
+    # the established row mapping and history/protected-status behavior.
+    mapping_started = time.monotonic()
+    batch_items = []
     for i, row in enumerate(data_rows):
         if not row or all(c == "" for c in row):
             continue
         row_id = str(i + row_offset)
+        mapped = (_map_row_with_headers(headers, row, row_id)
+                  if has_headers else _map_row_to_lead(row_id, row))
+        if not mapped.get("client_name") and not mapped.get("client_email"):
+            continue
+        mapped.pop("sheet_status", None)
+        mapped.pop("orcamento", None)
+        batch_items.append((row_id, mapped))
+    timings["mapping_ms"] = int((time.monotonic() - mapping_started) * 1000)
+    logger.info("sheet_sync phase=mapping_complete elapsed_ms=%d rows=%d",
+                timings["mapping_ms"], len(batch_items))
+    if progress_callback:
+        progress_callback({
+            "phase": "importing_leads", "total_rows": len(batch_items),
+            "processed_rows": 0, "timings": timings, "force_heartbeat": True,
+        })
+
+    lead_started = time.monotonic()
+    batch_results = {}
+    failed_lead_rows = set()
+    batch_upsert = getattr(db_mod, "upsert_leads_from_sheet_batch", None)
+    if batch_upsert:
+        for offset in range(0, len(batch_items), 100):
+            chunk = batch_items[offset:offset + 100]
+            if progress_callback:
+                progress_callback({
+                    "phase": "importing_leads", "total_rows": len(batch_items),
+                    "processed_rows": offset, "timings": timings,
+                    "force_heartbeat": True,
+                })
+            try:
+                results = batch_upsert(chunk)
+                batch_results.update(zip((item[0] for item in chunk), results))
+            except Exception:
+                logger.warning(
+                    "sheet_sync phase=lead_batch_fallback offset=%d size=%d",
+                    offset, len(chunk),
+                )
+                for row_id, lead_data in chunk:
+                    if progress_callback:
+                        progress_callback({
+                            "phase": "importing_leads",
+                            "total_rows": len(batch_items),
+                            "processed_rows": offset,
+                            "timings": timings,
+                            "force_heartbeat": True,
+                        })
+                    try:
+                        batch_results[row_id] = db_mod.upsert_lead_from_sheet(
+                            row_id, lead_data.copy())
+                    except Exception as exc:
+                        failed_lead_rows.add(row_id)
+                        logger.error(
+                            "sheet_sync phase=lead_row_failed row_index=%s error_type=%s",
+                            row_id, type(exc).__name__,
+                        )
+    timings["lead_upsert_ms"] = int((time.monotonic() - lead_started) * 1000)
+    logger.info("sheet_sync phase=lead_upsert_complete elapsed_ms=%d rows=%d",
+                timings["lead_upsert_ms"], len(batch_items))
+
+    events_started = time.monotonic()
+    for i, row in enumerate(data_rows):
+        if not row or all(c == "" for c in row):
+            continue
+        row_id = str(i + row_offset)
+        if progress_callback:
+            # Lease renewal is deliberately outside the per-row error handler:
+            # ownership loss must stop the old worker, not be counted as bad data.
+            progress_callback({
+                "phase": "importing_events", "total_rows": len(batch_items),
+                "processed_rows": min(i, len(batch_items)),
+                "inserted": inserted, "updated": updated, "errors": errors,
+                "timings": timings, "force_heartbeat": True,
+            })
         try:
             if has_headers:
                 lead_data = _map_row_with_headers(headers, row, row_id)
@@ -305,7 +396,14 @@ def sync_leads_from_sheet():
             orcamento = lead_data.pop("orcamento", None)
             pipeline_status = _map_sheet_status(sheet_status_raw)
 
-            _, is_new = db_mod.upsert_lead_from_sheet(row_id, lead_data.copy())
+            if row_id in failed_lead_rows:
+                errors += 1
+                continue
+            lead_result = batch_results.get(row_id)
+            if lead_result is None:
+                _, is_new = db_mod.upsert_lead_from_sheet(row_id, lead_data.copy())
+            else:
+                _, is_new = lead_result
             if is_new:
                 inserted += 1
             else:
@@ -328,7 +426,153 @@ def sync_leads_from_sheet():
             db_mod.upsert_event_from_sheet(row_id, event_data, pipeline_status)
 
         except Exception as e:
-            logger.error("Error processing row %s: %s", row_id, e)
+            logger.error("sheet_sync phase=row_failed row_index=%s error_type=%s",
+                         row_id, type(e).__name__)
             errors += 1
+        if progress_callback:
+            progress_callback({
+                "phase": "importing", "total_rows": len(data_rows),
+                "processed_rows": i + 1, "inserted": inserted,
+                "updated": updated, "errors": errors, "timings": timings,
+            })
 
+    timings["event_upsert_ms"] = int((time.monotonic() - events_started) * 1000)
+    timings["total_ms"] = int((time.monotonic() - started) * 1000)
+    logger.info(
+        "sheet_sync phase=complete elapsed_ms=%d fetch_ms=%d mapping_ms=%d "
+        "lead_upsert_ms=%d event_upsert_ms=%d processed=%d errors=%d",
+        timings["total_ms"], timings["fetch_ms"], timings["mapping_ms"],
+        timings["lead_upsert_ms"], timings["event_upsert_ms"],
+        len(data_rows), errors,
+    )
+    if progress_callback:
+        progress_callback({
+            "phase": "complete", "total_rows": len(batch_items),
+            "processed_rows": len(batch_items), "inserted": inserted,
+            "updated": updated, "errors": errors, "timings": timings,
+        })
     return inserted, updated, errors
+
+
+_worker_lock = threading.Lock()
+_worker_thread = None
+_worker_stop = threading.Event()
+
+
+def enqueue_sheet_sync(requested_by=None, trigger='manual',
+                       idempotency_key=None):
+    """Create (or return) the single active persistent import job."""
+    import database as db_mod
+    job_id = db_mod.enqueue_event_sheet_sync(trigger_source=trigger,
+                                             requester=requested_by,
+                                             idempotency_key=idempotency_key)
+    return db_mod.get_event_sheet_sync_run(job_id)
+
+
+def get_sheet_sync_status(job_id=None):
+    import database as db_mod
+    if job_id is None:
+        return db_mod.get_latest_event_sheet_sync_run()
+    return db_mod.get_event_sheet_sync_run(job_id)
+
+
+def run_pending_sheet_sync_once():
+    """Claim and process one job; intended for workers and deterministic tests."""
+    import database as db_mod
+    worker_id = f"{os.getpid()}:{threading.get_ident()}"
+    job = db_mod.claim_event_sheet_sync(worker=worker_id)
+    if not job:
+        return None
+    job_id = job["id"]
+    lease_token = job["lease_token"]
+    last_update = [0.0]
+
+    def progress(info):
+        now = time.monotonic()
+        force_heartbeat = info.pop("force_heartbeat", False)
+        # Progress is durable, but do not turn a large sheet into a DB
+        # write-amplifier. Always persist completion and occasional heartbeats.
+        if (not force_heartbeat and now - last_update[0] < 1.0 and
+                info.get("processed_rows", 0) < info.get("total_rows", 0)):
+            return
+        last_update[0] = now
+        updated = db_mod.update_event_sheet_sync_run(
+            job_id, lease_token=lease_token, **info)
+        if updated is None:
+            raise RuntimeError("sheet sync lease lost")
+
+    try:
+        inserted, updated, errors = sync_leads_from_sheet(progress_callback=progress)
+        completed = db_mod.update_event_sheet_sync_run(
+            job_id, status='succeeded', phase='complete',
+            inserted=inserted,
+            updated=updated, errors=errors, lease_token=lease_token,
+        )
+        if completed is None:
+            raise RuntimeError("sheet sync lease lost")
+        # The final callback may have been rate-limited; the import completed,
+        # so its total is the authoritative processed count.
+        current = db_mod.get_event_sheet_sync_run(job_id) or {}
+        if current.get("total_rows"):
+            db_mod.update_event_sheet_sync_run(
+                job_id, processed_rows=current["total_rows"])
+        return db_mod.get_event_sheet_sync_run(job_id)
+    except Exception as exc:
+        db_mod.update_event_sheet_sync_run(
+            job_id, status='failed', phase='failed',
+            # Connector exceptions can contain URLs, account identifiers, or
+            # provider response bodies.  Keep the public summary non-sensitive.
+            error_summary=f"{type(exc).__name__}", lease_token=lease_token)
+        return db_mod.get_event_sheet_sync_run(job_id)
+
+
+def _sheet_worker(schedule_daily):
+    last_daily = None
+    while not _worker_stop.is_set():
+        try:
+            if schedule_daily and datetime.now().hour == 8:
+                today = datetime.now().date()
+                if last_daily != today:
+                    daily_key = f"daily:{today.isoformat()}"
+                    job = enqueue_sheet_sync(
+                        trigger='daily',
+                        idempotency_key=daily_key,
+                    )
+                    # An active manual run can temporarily prevent this insert.
+                    # Retry until this exact daily job exists.
+                    if job and job.get("idempotency_key") == daily_key:
+                        last_daily = today
+            run_pending_sheet_sync_once()
+        except Exception:
+            logger.exception("sheet_sync worker iteration failed")
+        _worker_stop.wait(5.0)
+
+
+def start_sheet_sync_worker(schedule_daily=False):
+    """Start one daemon importer thread; repeated calls are harmless."""
+    global _worker_thread
+    with _worker_lock:
+        if _worker_thread and _worker_thread.is_alive():
+            return _worker_thread
+        _worker_stop.clear()
+        _worker_thread = threading.Thread(
+            target=_sheet_worker, args=(schedule_daily,),
+            name="sheet-sync-worker", daemon=True,
+        )
+        _worker_thread.start()
+        return _worker_thread
+
+
+def stop_sheet_sync_worker(timeout=2.0):
+    """Stop this process's importer thread during a graceful worker exit."""
+    global _worker_thread
+    with _worker_lock:
+        thread = _worker_thread
+        if not thread:
+            return
+        _worker_stop.set()
+    if thread.is_alive():
+        thread.join(timeout=timeout)
+    with _worker_lock:
+        if _worker_thread is thread:
+            _worker_thread = None

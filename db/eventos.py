@@ -1,5 +1,5 @@
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json, execute_values
 from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger
@@ -7,6 +7,7 @@ import json
 import hashlib
 import secrets
 import re
+import time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
@@ -1133,6 +1134,214 @@ def upsert_lead_from_sheet(row_id, data: dict):
             row = cursor.fetchone()
             conn.commit()
             return row[0] if row else None, True
+
+
+def upsert_leads_from_sheet_batch(items):
+    """Batch variant of sheet lead upsert.
+
+    ``items`` is an iterable of ``(row_id, data)`` pairs and returns
+    ``[(lead_id, is_new), ...]`` in the same order.  Existing lead statuses
+    are intentionally never changed by an import.
+    """
+    items = list(items)
+    if not items:
+        return []
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        keys = [str(row_id) for row_id, _ in items]
+        cursor.execute(
+            "SELECT id, google_sheet_row_id FROM lead_requests "
+            "WHERE google_sheet_row_id = ANY(%s)", (keys,))
+        existing = {str(row[1]): row[0] for row in cursor.fetchall()}
+        values = []
+        for row_id, raw in items:
+            data = dict(raw)
+            data.setdefault('event_end_time', None)
+            values.append((
+                data.get('submitted_at'), 'google_sheet', str(row_id),
+                data.get('event_type'), data.get('event_date'), data.get('event_time'),
+                data.get('event_end_time'), data.get('estimated_guests_raw'),
+                data.get('estimated_guests'), data.get('venue'),
+                data.get('venue_address'), data.get('client_name'),
+                data.get('client_email'), data.get('client_phone'),
+                data.get('marketing_consent'), data.get('referral_source'),
+                data.get('notes'), 'lead',
+            ))
+        returned = execute_values(cursor, """
+            INSERT INTO lead_requests
+                (submitted_at, source, google_sheet_row_id, event_type,
+                 event_date, event_time, event_end_time, estimated_guests_raw,
+                 estimated_guests, venue, venue_address, client_name,
+                 client_email, client_phone, marketing_consent, referral_source,
+                 notes, status)
+            VALUES %s
+            ON CONFLICT (google_sheet_row_id) DO UPDATE SET
+                submitted_at=EXCLUDED.submitted_at,
+                event_type=EXCLUDED.event_type,
+                event_date=EXCLUDED.event_date,
+                event_time=EXCLUDED.event_time,
+                event_end_time=EXCLUDED.event_end_time,
+                estimated_guests_raw=EXCLUDED.estimated_guests_raw,
+                estimated_guests=EXCLUDED.estimated_guests,
+                venue=EXCLUDED.venue,
+                venue_address=EXCLUDED.venue_address,
+                client_name=EXCLUDED.client_name,
+                client_email=EXCLUDED.client_email,
+                client_phone=EXCLUDED.client_phone,
+                marketing_consent=EXCLUDED.marketing_consent,
+                referral_source=EXCLUDED.referral_source,
+                notes=EXCLUDED.notes,
+                updated_at=NOW()
+            RETURNING id, google_sheet_row_id
+        """, values, page_size=500, fetch=True)
+        returned_by_key = {str(row[1]): row[0] for row in returned}
+        conn.commit()
+        return [
+            (returned_by_key[str(row_id)], str(row_id) not in existing)
+            for row_id, _ in items
+        ]
+
+
+def enqueue_event_sheet_sync(trigger_source='scheduler', requester=None,
+                             idempotency_key=None):
+    """Queue one Sheets import, returning its id (or the active run id).
+
+    The partial unique index created by the Eventos v2 migration provides the
+    cross-worker exclusion; the conflict is deliberately treated as a no-op.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO event_sheet_sync_runs
+                    (trigger_source, requester, phase, idempotency_key)
+                VALUES (%s, %s, 'queued', %s)
+                ON CONFLICT DO NOTHING
+                RETURNING id
+                """, (trigger_source, requester, idempotency_key),
+            )
+            row = cursor.fetchone()
+            if row:
+                conn.commit()
+                return row[0]
+            if idempotency_key:
+                cursor.execute(
+                    "SELECT id FROM event_sheet_sync_runs WHERE idempotency_key=%s",
+                    (idempotency_key,),
+                )
+            else:
+                cursor.execute(
+                    """SELECT id FROM event_sheet_sync_runs
+                       WHERE status IN ('queued', 'running')
+                       ORDER BY id DESC LIMIT 1"""
+                )
+            row = cursor.fetchone()
+            conn.commit()
+            return row[0] if row else None
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def claim_event_sheet_sync(worker=None, stale_after_seconds=1800):
+    """Atomically claim the oldest queued run and recover stale workers."""
+    lease_token = secrets.token_urlsafe(32)
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cursor.execute(
+                """
+                UPDATE event_sheet_sync_runs
+                SET status='queued', phase='requeued', heartbeat_at=NOW(),
+                    worker_id=NULL, lease_token=NULL
+                WHERE status='running'
+                  AND COALESCE(heartbeat_at, started_at, created_at)
+                      < NOW() - (%s * INTERVAL '1 second')
+                """, (stale_after_seconds,),
+            )
+            cursor.execute(
+                """
+                WITH candidate AS (
+                    SELECT id FROM event_sheet_sync_runs
+                    WHERE status='queued'
+                    ORDER BY id
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
+                )
+                UPDATE event_sheet_sync_runs r
+                SET status='running', phase='fetching', started_at=COALESCE(started_at, NOW()),
+                    heartbeat_at=NOW(), worker_id=%s, lease_token=%s,
+                    attempt=attempt + 1
+                FROM candidate
+                WHERE r.id=candidate.id
+                RETURNING r.*
+                """, (worker, lease_token),
+            )
+            run = cursor.fetchone()
+            conn.commit()
+            return dict(run) if run else None
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def get_event_sheet_sync_run(run_id):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM event_sheet_sync_runs WHERE id=%s", (run_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_latest_event_sheet_sync_run():
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("SELECT * FROM event_sheet_sync_runs ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def update_event_sheet_sync_run(run_id, status=None, phase=None, total_rows=None,
+                                processed_rows=None, inserted=None, updated=None,
+                                errors=None, error_summary=None, timings=None,
+                                lease_token=None):
+    """Update progress or final state. Error text is bounded and non-sensitive."""
+    allowed = {'queued', 'running', 'succeeded', 'failed'}
+    if status is not None and status not in allowed:
+        raise ValueError("invalid event sheet sync status")
+    if error_summary is not None:
+        error_summary = re.sub(r'[\r\n\t]+', ' ', str(error_summary))[:500]
+    fields, values = [], []
+    for name, value in (
+        ('status', status), ('phase', phase), ('total_rows', total_rows),
+        ('processed_rows', processed_rows), ('inserted', inserted),
+        ('updated', updated), ('errors', errors), ('error_summary', error_summary),
+    ):
+        if value is not None:
+            fields.append("%s=%%s" % name); values.append(value)
+    if timings is not None:
+        fields.append("timings=%s"); values.append(Json(timings))
+    if status in ('succeeded', 'failed'):
+        fields.append("finished_at=NOW()")
+    if status == 'running' or processed_rows is not None or phase is not None:
+        fields.append("heartbeat_at=NOW()")
+    if not fields:
+        return get_event_sheet_sync_run(run_id)
+    values.append(run_id)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        where = " WHERE id=%s"
+        if lease_token is not None:
+            where += " AND status='running' AND lease_token=%s"
+            values.append(lease_token)
+        cursor.execute("UPDATE event_sheet_sync_runs SET " + ", ".join(fields) +
+                       where, values)
+        changed = cursor.rowcount
+        conn.commit()
+    if lease_token is not None and not changed:
+        return None
+    return get_event_sheet_sync_run(run_id)
 
 def upsert_event_from_sheet(row_id, data, status):
     """Insert or update an event in the pipeline from a Google Sheets row.

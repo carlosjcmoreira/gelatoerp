@@ -7,10 +7,40 @@
     <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
         <h5 class="fw-bold mb-0">📥 Leads do Formulário</h5>
         <div class="d-flex gap-2">
-            <form method="post" action="{{ url_for('eventos.sync_sheets') }}" data-no-loading>
-                <button type="submit" class="btn btn-sm btn-outline-success">🔄 Sync Google Sheets</button>
+            <form method="post" action="{{ url_for('eventos.sync_sheets') }}" data-no-loading id="sheet-sync-form">
+                <button type="submit" class="btn btn-sm btn-outline-success" id="sheet-sync-button"
+                        {% if sync_run and sync_run.status in ['queued', 'running'] %}disabled{% endif %}>
+                    🔄 Sincronizar Google Sheets
+                </button>
             </form>
             <a href="{{ url_for('eventos.nova_lead') }}" class="btn btn-sm btn-primary">+ Nova Lead</a>
+        </div>
+    </div>
+
+    <div id="sheet-sync-status"
+         class="alert {% if sync_run and sync_run.status == 'failed' %}alert-danger{% elif sync_run and sync_run.status == 'succeeded' %}alert-success{% else %}alert-info{% endif %} py-2 small"
+         {% if not sync_run %}hidden{% endif %}
+         data-status-url="{{ url_for('eventos.sync_sheets_status') }}"
+         data-job-id="{{ sync_run.id if sync_run else '' }}">
+        <div class="d-flex justify-content-between gap-3">
+            <strong id="sheet-sync-title">
+                {% if sync_run and sync_run.status in ['queued', 'running'] %}Sincronização em curso
+                {% elif sync_run and sync_run.status == 'succeeded' %}Última sincronização concluída
+                {% elif sync_run %}A última sincronização falhou{% endif %}
+            </strong>
+            <span id="sheet-sync-counts">
+                {% if sync_run %}{{ sync_run.inserted }} novas · {{ sync_run.updated }} atualizadas · {{ sync_run.errors }} erros{% endif %}
+            </span>
+        </div>
+        <div class="progress mt-2" style="height: 6px;" id="sheet-sync-progress-wrap"
+             {% if not sync_run or sync_run.status not in ['queued', 'running'] %}hidden{% endif %}>
+            <div class="progress-bar progress-bar-striped progress-bar-animated" id="sheet-sync-progress"
+                 style="width: 5%"></div>
+        </div>
+        <div class="text-muted mt-1" id="sheet-sync-detail">
+            {% if sync_run and sync_run.status in ['queued', 'running'] %}
+                Pode continuar a usar a aplicação. Esta página atualiza o progresso automaticamente.
+            {% endif %}
         </div>
     </div>
 
@@ -67,4 +97,62 @@
     </div>
     {% endif %}
 </div>
+
+<script>
+(() => {
+    const box = document.getElementById('sheet-sync-status');
+    if (!box || box.hidden || !box.dataset.jobId) return;
+    const button = document.getElementById('sheet-sync-button');
+    const title = document.getElementById('sheet-sync-title');
+    const counts = document.getElementById('sheet-sync-counts');
+    const detail = document.getElementById('sheet-sync-detail');
+    const progressWrap = document.getElementById('sheet-sync-progress-wrap');
+    const progress = document.getElementById('sheet-sync-progress');
+    const active = new Set(['queued', 'running']);
+
+    function render(job) {
+        counts.textContent = `${job.inserted} novas · ${job.updated} atualizadas · ${job.errors} erros`;
+        if (active.has(job.status)) {
+            box.className = 'alert alert-info py-2 small';
+            title.textContent = job.status === 'queued' ? 'Sincronização em fila' : 'Sincronização em curso';
+            detail.textContent = job.total_rows
+                ? `${job.processed_rows} de ${job.total_rows} linhas processadas`
+                : 'A preparar a leitura da folha…';
+            progressWrap.hidden = false;
+            const percentage = job.total_rows
+                ? Math.max(5, Math.min(100, Math.round(job.processed_rows * 100 / job.total_rows)))
+                : 5;
+            progress.style.width = `${percentage}%`;
+            if (button) button.disabled = true;
+            return true;
+        }
+        progressWrap.hidden = true;
+        if (button) button.disabled = false;
+        if (job.status === 'succeeded') {
+            box.className = 'alert alert-success py-2 small';
+            title.textContent = job.errors ? 'Sincronização concluída com avisos' : 'Sincronização concluída';
+            detail.textContent = 'Os dados importados já estão disponíveis.';
+        } else {
+            box.className = 'alert alert-danger py-2 small';
+            title.textContent = 'A sincronização falhou';
+            detail.textContent = 'Não foram importados todos os dados. Tente novamente.';
+        }
+        return false;
+    }
+
+    async function refresh() {
+        try {
+            const response = await fetch(`${box.dataset.statusUrl}?job_id=${encodeURIComponent(box.dataset.jobId)}`, {
+                headers: {'Accept': 'application/json'}
+            });
+            if (!response.ok) throw new Error('status request failed');
+            if (render(await response.json())) window.setTimeout(refresh, 2000);
+        } catch (_) {
+            detail.textContent = 'Não foi possível atualizar o progresso. A sincronização continua em segundo plano.';
+            window.setTimeout(refresh, 5000);
+        }
+    }
+    if (active.has('{{ sync_run.status if sync_run else "" }}')) refresh();
+})();
+</script>
 {% endblock %}

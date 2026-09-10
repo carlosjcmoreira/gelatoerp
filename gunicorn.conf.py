@@ -31,12 +31,12 @@ def post_fork(server, worker):
     Running schedulers in a single worker avoids duplicate fetches and
     race conditions when multiple workers try to upsert the same data.
     """
-    if worker.age == 1:
-        if os.environ.get('EVENTOS_SYNC_ENABLED', '1') == '1':
-            from flask_app.app import _start_sheets_sync_scheduler
-            server.log.info("Starting Google Sheets sync scheduler in worker %s (age=%s)", worker.pid, worker.age)
-            _start_sheets_sync_scheduler()
+    if os.environ.get('EVENTOS_SYNC_ENABLED', '1') == '1':
+        from flask_app.google_sheets_sync import start_sheet_sync_worker
+        server.log.info("Starting durable Google Sheets sync worker in worker %s (age=%s)", worker.pid, worker.age)
+        start_sheet_sync_worker(schedule_daily=True)
 
+    if worker.age == 1:
         from flask_app.app import _start_event_portal_cleanup_scheduler
         server.log.info("Starting event portal proof cleanup in worker %s (age=%s)", worker.pid, worker.age)
         _start_event_portal_cleanup_scheduler()
@@ -48,3 +48,13 @@ def post_fork(server, worker):
         from flask_app.onedrive_scheduler import start_onedrive_scheduler
         server.log.info("Starting OneDrive retry scheduler in worker %s (age=%s)", worker.pid, worker.age)
         start_onedrive_scheduler()
+
+
+def worker_exit(server, worker):
+    """Release process-local workers and database connections on graceful exit."""
+    try:
+        from flask_app.google_sheets_sync import stop_sheet_sync_worker
+        stop_sheet_sync_worker()
+    finally:
+        from db.connection import close_pool
+        close_pool()

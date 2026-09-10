@@ -1185,9 +1185,12 @@ def backfill_iva():
 def leads():
     status_filter = request.args.get('status', '')
     leads_list = db.get_leads(status=status_filter if status_filter else None)
+    from flask_app.google_sheets_sync import get_sheet_sync_status
+    sync_run = get_sheet_sync_status()
     tabs = _get_tabs()
     return render_template('eventos/leads.html',
                            leads=leads_list,
+                           sync_run=sync_run,
                            status_filter=status_filter,
                            status_labels=STATUS_LABELS,
                            status_colors=STATUS_COLORS,
@@ -1339,15 +1342,45 @@ def lead_detail(lead_id):
 @perm_required('acesso_eventos')
 def sync_sheets():
     try:
-        from flask_app.google_sheets_sync import sync_leads_from_sheet
-        inserted, updated, errors = sync_leads_from_sheet()
-        if errors:
-            flash(f'Sync concluído com erros: {inserted} novas, {updated} actualizadas, {errors} erros.', 'warning')
+        from flask_app.google_sheets_sync import enqueue_sheet_sync, start_sheet_sync_worker
+        job = enqueue_sheet_sync(requested_by=_current_actor(), trigger='manual')
+        start_sheet_sync_worker()
+        if job and job.get('status') == 'running':
+            flash('A sincronização já está em curso. Pode acompanhar o progresso nesta página.', 'info')
         else:
-            flash(f'Sync concluído: {inserted} novas leads, {updated} actualizadas.', 'success')
+            flash('Sincronização iniciada. Pode continuar a trabalhar enquanto decorre.', 'success')
     except Exception as e:
-        flash(f'Erro ao sincronizar com Google Sheets: {e}', 'error')
+        current_app.logger.exception('Não foi possível iniciar a sincronização de Eventos')
+        flash('Não foi possível iniciar a sincronização. Tente novamente.', 'error')
     return redirect(url_for('eventos.leads'))
+
+
+@eventos_bp.route('/sync-sheets/status')
+@perm_required('acesso_eventos')
+def sync_sheets_status():
+    from flask_app.google_sheets_sync import get_sheet_sync_status
+    job_id = request.args.get('job_id', type=int)
+    job = get_sheet_sync_status(job_id)
+    if not job:
+        return jsonify({'status': 'idle'})
+
+    def serialized(value):
+        return value.isoformat() if hasattr(value, 'isoformat') else value
+
+    return jsonify({
+        'id': job['id'],
+        'status': job['status'],
+        'phase': job.get('phase'),
+        'total_rows': job.get('total_rows') or 0,
+        'processed_rows': job.get('processed_rows') or 0,
+        'inserted': job.get('inserted') or 0,
+        'updated': job.get('updated') or 0,
+        'errors': job.get('errors') or 0,
+        'error_summary': job.get('error_summary'),
+        'created_at': serialized(job.get('created_at')),
+        'started_at': serialized(job.get('started_at')),
+        'finished_at': serialized(job.get('finished_at')),
+    })
 
 
 # ── Artigos de evento ──────────────────────────────────────────────────────────
