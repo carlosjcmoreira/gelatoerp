@@ -100,3 +100,27 @@ test('associação parcial exige confirmação e mantém o texto histórico', as
     venue_id: 3,
   });
 });
+
+test('um local incompleto pode ser descartado sem apagar o histórico', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/eventos/locais');
+
+  const review = page.locator('.card', { hasText: 'Revisão de locais incompletos' });
+  const occurrence = review.locator('.border-top', { hasText: 'Festa Pequena' });
+  await expect(occurrence).toContainText('Estrada sem número');
+  page.once('dialog', dialog => dialog.accept());
+  await Promise.all([
+    page.waitForURL(/\/eventos\/locais$/),
+    occurrence.getByRole('button', { name: 'Descartar' }).click(),
+  ]);
+  await expect(page.getByText('Ocorrência descartada da revisão')).toBeVisible();
+  await expect(page.getByText('Festa Pequena')).not.toBeVisible();
+
+  const state = await (await page.request.get('/_test-state')).json();
+  expect(state.discard_occurrence).toMatchObject({
+    id: 10,
+    venue: '',
+    venue_address: 'Estrada sem número',
+    dismissed: true,
+  });
+});

@@ -1793,6 +1793,28 @@ def _event_venue_keys(name, address):
     )
 
 
+def _venue_geocode_fields(data, address_key):
+    latitude = data.get('latitude')
+    longitude = data.get('longitude')
+    failed = bool(data.get('geocode_failed'))
+    resolved_address_key = _event_venue_keys(
+        '', data.get('geocode_address')
+    )[1] if data.get('geocode_address') else None
+    trusted = resolved_address_key == address_key
+    if not trusted:
+        return None, None, None, False, False
+    if failed or latitude in ('', None) or longitude in ('', None):
+        return None, None, (data.get('geocode_provider') or '').strip() or None, failed, True
+    try:
+        latitude = Decimal(str(latitude))
+        longitude = Decimal(str(longitude))
+    except (InvalidOperation, ValueError):
+        raise ValueError('As coordenadas do local não são válidas.')
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise ValueError('As coordenadas do local não são válidas.')
+    return latitude, longitude, (data.get('geocode_provider') or '').strip() or None, False, True
+
+
 def _link_occurrence_to_matching_venue(cursor, occurrence_id):
     """Link a new/unlinked occurrence only when its exact normalised identity exists."""
     cursor.execute("""
@@ -1877,6 +1899,7 @@ def get_unlinked_venue_occurrences(venue_id):
             JOIN events e ON e.id=eo.event_id
             JOIN event_venues v ON v.id=%s
             WHERE eo.venue_id IS NULL
+              AND eo.venue_review_dismissed_at IS NULL
               AND (
                 LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue, '')), '\s+', ' ', 'g'))=v.name_key
                 OR LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g'))=v.address_key
@@ -1912,6 +1935,7 @@ def get_incomplete_venue_occurrences():
                 OR LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g'))
                     = candidate.address_key
             WHERE eo.venue_id IS NULL
+              AND eo.venue_review_dismissed_at IS NULL
               AND (
                   NULLIF(BTRIM(COALESCE(eo.venue, '')), '') IS NULL
                   OR NULLIF(BTRIM(COALESCE(eo.venue_address, '')), '') IS NULL
@@ -1937,6 +1961,7 @@ def link_incomplete_event_occurrence_to_venue(occurrence_id, venue_id, actor=Non
 
 def _link_event_occurrence_to_venue(occurrence_id, venue_id, actor=None, *, require_incomplete):
     incomplete_clause = """
+              AND eo.venue_review_dismissed_at IS NULL
               AND (
                   NULLIF(BTRIM(COALESCE(eo.venue, '')), '') IS NULL
                   OR NULLIF(BTRIM(COALESCE(eo.venue_address, '')), '') IS NULL
@@ -1972,6 +1997,35 @@ def _link_event_occurrence_to_venue(occurrence_id, venue_id, actor=None, *, requ
         conn.commit()
 
 
+def dismiss_incomplete_event_occurrence(occurrence_id, actor=None):
+    """Remove one unresolved historical occurrence from review without deleting it."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            UPDATE event_occurrences
+            SET venue_review_dismissed_at=NOW(), venue_review_dismissed_by=%s,
+                updated_at=NOW()
+            WHERE id=%s AND venue_id IS NULL AND venue_review_dismissed_at IS NULL
+              AND (
+                NULLIF(BTRIM(COALESCE(venue, '')), '') IS NULL
+                OR NULLIF(BTRIM(COALESCE(venue_address, '')), '') IS NULL
+              )
+            RETURNING event_id, venue, venue_address
+        """, (actor, occurrence_id))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError('A ocorrência já foi tratada ou descartada.')
+        _insert_event_history(
+            cursor, row['event_id'], 'venue_review_dismissed', actor=actor,
+            details={
+                'occurrence_id': occurrence_id,
+                'historical_venue': row.get('venue'),
+                'historical_venue_address': row.get('venue_address'),
+            },
+        )
+        conn.commit()
+
+
 def complete_event_occurrence_venue(occurrence_id, data, actor=None):
     """Create or reuse a complete venue and manually attach an incomplete occurrence.
 
@@ -1983,12 +2037,16 @@ def complete_event_occurrence_venue(occurrence_id, data, actor=None):
     if not name or not address:
         raise ValueError('Indique o nome e a localização completos do local.')
     name_key, address_key = _event_venue_keys(name, address)
+    latitude, longitude, provider, geocode_failed, geocode_trusted = (
+        _venue_geocode_fields(data, address_key)
+    )
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
             SELECT id, event_id, venue, venue_address
             FROM event_occurrences
             WHERE id=%s AND venue_id IS NULL
+              AND venue_review_dismissed_at IS NULL
               AND (
                   NULLIF(BTRIM(COALESCE(venue, '')), '') IS NULL
                   OR NULLIF(BTRIM(COALESCE(venue_address, '')), '') IS NULL
@@ -2000,19 +2058,28 @@ def complete_event_occurrence_venue(occurrence_id, data, actor=None):
             raise ValueError('A ocorrência não está disponível para completar o local.')
 
         cursor.execute("""
-            INSERT INTO event_venues (name, address, name_key, address_key)
-            VALUES (%s,%s,%s,%s)
-            ON CONFLICT (name_key, address_key) DO NOTHING
-            RETURNING id
-        """, (name, address, name_key, address_key))
+            INSERT INTO event_venues AS existing
+                (name, address, name_key, address_key, latitude, longitude,
+                 geocode_provider, geocode_failed)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (name_key, address_key) DO UPDATE SET
+                latitude=CASE WHEN EXCLUDED.latitude IS NOT NULL
+                              THEN EXCLUDED.latitude ELSE existing.latitude END,
+                longitude=CASE WHEN EXCLUDED.longitude IS NOT NULL
+                               THEN EXCLUDED.longitude ELSE existing.longitude END,
+                geocode_provider=CASE WHEN EXCLUDED.latitude IS NOT NULL
+                                      THEN EXCLUDED.geocode_provider ELSE existing.geocode_provider END,
+                geocode_failed=CASE WHEN EXCLUDED.latitude IS NOT NULL
+                                    THEN FALSE ELSE existing.geocode_failed END,
+                updated_at=CASE WHEN EXCLUDED.latitude IS NOT NULL
+                                THEN NOW() ELSE existing.updated_at END
+            RETURNING id, (xmax=0) AS created
+        """, (
+            name, address, name_key, address_key, latitude, longitude,
+            provider, geocode_failed,
+        ))
         venue = cursor.fetchone()
-        created = venue is not None
-        if venue is None:
-            cursor.execute("""
-                SELECT id FROM event_venues
-                WHERE name_key=%s AND address_key=%s
-            """, (name_key, address_key))
-            venue = cursor.fetchone()
+        created = bool(venue and venue.get('created'))
         if not venue:
             raise ValueError('Não foi possível guardar o local.')
         venue_id = venue['id']
@@ -2066,29 +2133,57 @@ def save_event_venue(data, actor=None, venue_id=None):
     if not name or not address:
         raise ValueError('Indique o nome e a localização do local.')
     name_key, address_key = _event_venue_keys(name, address)
-    fields = (
-        name, address, name_key, address_key, (data.get('contact_name') or '').strip() or None,
-        (data.get('contact_phone') or '').strip() or None,
-        (data.get('contact_email') or '').strip() or None,
-        (data.get('logistics_notes') or '').strip() or None,
+    latitude, longitude, provider, geocode_failed, geocode_trusted = (
+        _venue_geocode_fields(data, address_key)
     )
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         try:
             if venue_id:
                 cursor.execute("""
+                    SELECT address_key, latitude, longitude, geocode_provider, geocode_failed
+                    FROM event_venues WHERE id=%s FOR UPDATE
+                """, (venue_id,))
+                previous = cursor.fetchone()
+                if not previous:
+                    raise ValueError('Local não encontrado.')
+                if not geocode_trusted and previous['address_key'] == address_key:
+                    latitude, longitude = previous['latitude'], previous['longitude']
+                    provider = previous['geocode_provider']
+                    geocode_failed = previous['geocode_failed']
+                elif not geocode_trusted:
+                    latitude, longitude, provider, geocode_failed = None, None, None, False
+                fields = (
+                    name, address, name_key, address_key,
+                    (data.get('contact_name') or '').strip() or None,
+                    (data.get('contact_phone') or '').strip() or None,
+                    (data.get('contact_email') or '').strip() or None,
+                    (data.get('logistics_notes') or '').strip() or None,
+                    latitude, longitude, provider, geocode_failed,
+                )
+                cursor.execute("""
                     UPDATE event_venues SET name=%s, address=%s, name_key=%s, address_key=%s,
                         contact_name=%s, contact_phone=%s, contact_email=%s,
-                        logistics_notes=%s, updated_at=NOW()
+                        logistics_notes=%s, latitude=%s, longitude=%s,
+                        geocode_provider=%s, geocode_failed=%s, updated_at=NOW()
                     WHERE id=%s RETURNING id
                 """, fields + (venue_id,))
                 action = 'updated'
             else:
+                fields = (
+                    name, address, name_key, address_key,
+                    (data.get('contact_name') or '').strip() or None,
+                    (data.get('contact_phone') or '').strip() or None,
+                    (data.get('contact_email') or '').strip() or None,
+                    (data.get('logistics_notes') or '').strip() or None,
+                    latitude, longitude, provider, geocode_failed,
+                )
                 cursor.execute("""
                     INSERT INTO event_venues
                         (name, address, name_key, address_key, contact_name, contact_phone,
-                         contact_email, logistics_notes)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                         contact_email, logistics_notes, latitude, longitude,
+                         geocode_provider, geocode_failed)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
                 """, fields)
                 action = 'created'
         except psycopg2.IntegrityError as exc:
@@ -2238,6 +2333,10 @@ def create_event(data: dict, actor=None):
         row = cursor.fetchone()
         event_id = row[0] if row else None
         if event_id:
+            _sync_event_client_cursor(
+                cursor, event_id, data.get('client_name'), data.get('client_email'),
+                data.get('client_phone'), False,
+            )
             _upsert_primary_occurrence(cursor, event_id, data)
             _insert_event_history(
                 cursor, event_id, 'event_created',
@@ -3639,6 +3738,10 @@ def create_portal_event_request(data):
         ))
         event_row = cursor.fetchone()
         event_id = event_row[0]
+        _sync_event_client_cursor(
+            cursor, event_id, data.get('client_name'), email,
+            data.get('client_phone'), bool(data.get('marketing_consent')),
+        )
         for number, occurrence in enumerate(occurrences, start=1):
             cursor.execute("""
                 INSERT INTO event_occurrences (
@@ -4136,6 +4239,68 @@ def save_portal_geocode_cache(address_key, result):
 
 # ── event_clients ───────────────────────────────────────────────────────────────
 
+def _event_client_keys(email, phone):
+    email_key = str(email or '').strip().casefold() or None
+    phone_key = re.sub(r'\D', '', str(phone or '')) or None
+    return email_key, phone_key
+
+
+def _sync_event_client_cursor(cursor, event_id, name, email, phone,
+                              marketing_consent=False):
+    """Attach one event to a single exact client identity, never a fuzzy match."""
+    name = str(name or '').strip()
+    email = str(email or '').strip() or None
+    phone = str(phone or '').strip() or None
+    email_key, phone_key = _event_client_keys(email, phone)
+    if not name or not (email_key or phone_key):
+        return None
+    identity = 'email:' + email_key if email_key else 'phone:' + phone_key
+    cursor.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (identity,)
+    )
+    if email_key:
+        cursor.execute(
+            "SELECT id FROM event_clients WHERE email_key=%s ORDER BY id FOR UPDATE",
+            (email_key,),
+        )
+    else:
+        cursor.execute(
+            "SELECT id FROM event_clients "
+            "WHERE email_key IS NULL AND phone_key=%s ORDER BY id FOR UPDATE",
+            (phone_key,),
+        )
+    matches = cursor.fetchall()
+    if len(matches) > 1:
+        return None
+    if matches:
+        client_id = matches[0][0] if not isinstance(matches[0], dict) else matches[0]['id']
+        cursor.execute("""
+            UPDATE event_clients
+            SET name=COALESCE(NULLIF(name,''),%s),
+                email=COALESCE(email,%s), phone=COALESCE(phone,%s),
+                email_key=COALESCE(email_key,%s), phone_key=COALESCE(phone_key,%s),
+                marketing_consent=marketing_consent OR %s, updated_at=NOW()
+            WHERE id=%s
+        """, (
+            name, email, phone, email_key, phone_key,
+            bool(marketing_consent), client_id,
+        ))
+    else:
+        cursor.execute("""
+            INSERT INTO event_clients
+                (name,email,phone,email_key,phone_key,marketing_consent)
+            VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
+        """, (name, email, phone, email_key, phone_key, bool(marketing_consent)))
+        row = cursor.fetchone()
+        client_id = row[0] if not isinstance(row, dict) else row['id']
+    cursor.execute(
+        "UPDATE events SET client_id=%s, updated_at=NOW() "
+        "WHERE id=%s AND client_id IS NULL",
+        (client_id, event_id),
+    )
+    return client_id
+
+
 def get_event_clients(marketing_only=False, search=None):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -4185,29 +4350,41 @@ def search_event_clients(q):
         return cursor.fetchall()
 
 def create_event_client(data: dict):
+    payload = dict(data)
+    payload['email_key'], payload['phone_key'] = _event_client_keys(
+        payload.get('email'), payload.get('phone'),
+    )
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO event_clients (name, email, phone, marketing_consent, notes)
-            VALUES (%(name)s, %(email)s, %(phone)s, %(marketing_consent)s, %(notes)s)
+            INSERT INTO event_clients
+                (name, email, phone, email_key, phone_key, marketing_consent, notes)
+            VALUES
+                (%(name)s, %(email)s, %(phone)s, %(email_key)s, %(phone_key)s,
+                 %(marketing_consent)s, %(notes)s)
             RETURNING id
-        """, data)
+        """, payload)
         row = cursor.fetchone()
         conn.commit()
         return row[0] if row else None
 
 def update_event_client(client_id, data: dict):
-    data['id'] = client_id
-    data['updated_at'] = datetime.now()
+    payload = dict(data)
+    payload['id'] = client_id
+    payload['updated_at'] = datetime.now()
+    payload['email_key'], payload['phone_key'] = _event_client_keys(
+        payload.get('email'), payload.get('phone'),
+    )
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE event_clients SET
                 name=%(name)s, email=%(email)s, phone=%(phone)s,
+                email_key=%(email_key)s, phone_key=%(phone_key)s,
                 marketing_consent=%(marketing_consent)s, notes=%(notes)s,
                 updated_at=%(updated_at)s
             WHERE id=%(id)s
-        """, data)
+        """, payload)
         conn.commit()
 
 def get_client_events(client_id):

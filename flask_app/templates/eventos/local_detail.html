@@ -3,12 +3,12 @@
 {% block content %}
 <div class="container px-3 pt-3 pb-5">
   <div class="d-flex justify-content-between align-items-start mb-3">
-    <div><h5 class="fw-bold mb-0">📍 {{ venue.name }}</h5><small class="text-muted">{{ venue.address }}</small></div>
+    <div><h5 class="fw-bold mb-0">📍 {{ venue.name }}</h5><small class="text-muted">{{ venue.address }}</small><div class="mt-1">{% if venue.latitude is not none and venue.longitude is not none and not venue.geocode_failed %}<span class="badge text-bg-success">Morada validada para mapas</span>{% else %}<span class="badge text-bg-warning">Morada por validar nos mapas</span>{% endif %}</div></div>
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('eventos.locais') }}">Voltar a locais</a>
   </div>
   <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="card shadow-sm mb-3"><div class="card-header small fw-semibold">Dados e logística</div><div class="card-body row g-3">
     <div class="col-md-6"><label class="form-label small">Nome *</label><input class="form-control form-control-sm" name="name" required value="{{ venue.name }}"></div>
-    <div class="col-md-6"><label class="form-label small">Localização *</label><input class="form-control form-control-sm" name="address" required value="{{ venue.address }}"></div>
+    <div class="col-md-6"><label class="form-label small">Localização *</label><input class="form-control form-control-sm" name="address" required value="{{ venue.address }}"><div class="form-text">Ao guardar, a morada é validada novamente para mapas e distâncias.</div></div>
     <div class="col-md-4"><label class="form-label small">Responsável</label><input class="form-control form-control-sm" name="contact_name" value="{{ venue.contact_name or '' }}"></div>
     <div class="col-md-4"><label class="form-label small">Telefone</label><input class="form-control form-control-sm" name="contact_phone" value="{{ venue.contact_phone or '' }}"></div>
     <div class="col-md-4"><label class="form-label small">Email</label><input type="email" class="form-control form-control-sm" name="contact_email" value="{{ venue.contact_email or '' }}"></div>

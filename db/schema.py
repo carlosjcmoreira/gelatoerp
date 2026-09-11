@@ -223,6 +223,14 @@ def run_migrations_eventos_v2_foundation():
                 "ADD COLUMN IF NOT EXISTS venue_contact_phone VARCHAR(32)"
             )
             cursor.execute(
+                "ALTER TABLE event_occurrences "
+                "ADD COLUMN IF NOT EXISTS venue_review_dismissed_at TIMESTAMP"
+            )
+            cursor.execute(
+                "ALTER TABLE event_occurrences "
+                "ADD COLUMN IF NOT EXISTS venue_review_dismissed_by VARCHAR(255)"
+            )
+            cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_event_resource_reservations_resource "
                 "ON event_resource_reservations(resource_id)"
             )
@@ -579,6 +587,96 @@ def run_migrations_eventos_v2_foundation():
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(name_key, address_key)
                 )
+            """)
+            cursor.execute(
+                "ALTER TABLE event_venues ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7)"
+            )
+            cursor.execute(
+                "ALTER TABLE event_venues ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7)"
+            )
+            cursor.execute(
+                "ALTER TABLE event_venues ADD COLUMN IF NOT EXISTS geocode_provider VARCHAR(80)"
+            )
+            cursor.execute(
+                "ALTER TABLE event_venues "
+                "ADD COLUMN IF NOT EXISTS geocode_failed BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            cursor.execute(
+                "ALTER TABLE event_clients ADD COLUMN IF NOT EXISTS email_key VARCHAR(255)"
+            )
+            cursor.execute(
+                "ALTER TABLE event_clients ADD COLUMN IF NOT EXISTS phone_key VARCHAR(32)"
+            )
+            cursor.execute("""
+                UPDATE event_clients
+                SET email_key=LOWER(BTRIM(email))
+                WHERE email_key IS NULL AND NULLIF(BTRIM(COALESCE(email,'')), '') IS NOT NULL
+            """)
+            cursor.execute("""
+                UPDATE event_clients
+                SET phone_key=REGEXP_REPLACE(COALESCE(phone,''), '[^0-9]', '', 'g')
+                WHERE phone_key IS NULL
+                  AND NULLIF(REGEXP_REPLACE(COALESCE(phone,''), '[^0-9]', '', 'g'), '') IS NOT NULL
+            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_clients_email_key ON event_clients(email_key)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_clients_phone_key ON event_clients(phone_key)"
+            )
+            # Populate the CRM from historical events using deterministic identifiers
+            # only. Existing duplicate client identities remain unlinked for review.
+            cursor.execute("""
+                WITH historical AS (
+                    SELECT DISTINCT ON (identity_key)
+                           client_name, client_email, client_phone, email_key, phone_key
+                    FROM (
+                        SELECT client_name, NULLIF(BTRIM(client_email),'') AS client_email,
+                               NULLIF(BTRIM(client_phone),'') AS client_phone,
+                               NULLIF(LOWER(BTRIM(client_email)),'') AS email_key,
+                               NULLIF(REGEXP_REPLACE(COALESCE(client_phone,''), '[^0-9]', '', 'g'),'') AS phone_key,
+                               CASE
+                                 WHEN NULLIF(LOWER(BTRIM(client_email)),'') IS NOT NULL
+                                   THEN 'email:' || LOWER(BTRIM(client_email))
+                                 WHEN NULLIF(REGEXP_REPLACE(COALESCE(client_phone,''), '[^0-9]', '', 'g'),'') IS NOT NULL
+                                   THEN 'phone:' || REGEXP_REPLACE(COALESCE(client_phone,''), '[^0-9]', '', 'g')
+                               END AS identity_key,
+                               COALESCE(updated_at, created_at) AS seen_at
+                        FROM events
+                        WHERE NULLIF(BTRIM(COALESCE(client_name,'')), '') IS NOT NULL
+                    ) source
+                    WHERE identity_key IS NOT NULL
+                    ORDER BY identity_key, seen_at DESC NULLS LAST
+                )
+                INSERT INTO event_clients
+                    (name,email,phone,marketing_consent,email_key,phone_key)
+                SELECT client_name,client_email,client_phone,FALSE,email_key,phone_key
+                FROM historical h
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM event_clients ec
+                    WHERE (h.email_key IS NOT NULL AND ec.email_key=h.email_key)
+                       OR (h.email_key IS NULL AND h.phone_key IS NOT NULL
+                           AND ec.email_key IS NULL AND ec.phone_key=h.phone_key)
+                )
+            """)
+            cursor.execute("""
+                WITH candidates AS (
+                    SELECT e.id AS event_id, ec.id AS client_id,
+                           COUNT(*) OVER (PARTITION BY e.id) AS candidate_count
+                    FROM events e
+                    JOIN event_clients ec ON
+                      (NULLIF(LOWER(BTRIM(e.client_email)),'') IS NOT NULL
+                       AND ec.email_key=LOWER(BTRIM(e.client_email)))
+                      OR
+                      (NULLIF(LOWER(BTRIM(e.client_email)),'') IS NULL
+                       AND NULLIF(REGEXP_REPLACE(COALESCE(e.client_phone,''), '[^0-9]', '', 'g'),'') IS NOT NULL
+                       AND ec.email_key IS NULL
+                       AND ec.phone_key=REGEXP_REPLACE(COALESCE(e.client_phone,''), '[^0-9]', '', 'g'))
+                    WHERE e.client_id IS NULL
+                )
+                UPDATE events e SET client_id=c.client_id
+                FROM candidates c
+                WHERE e.id=c.event_id AND c.candidate_count=1
             """)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS event_venue_history (

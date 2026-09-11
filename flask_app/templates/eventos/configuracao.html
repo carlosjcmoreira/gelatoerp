@@ -2,7 +2,7 @@
 {% set back_url = url_for("eventos.index") %}
 {% block head %}<style>.brand-preview{--p:{{ brand.primary_color }};--a:{{ brand.accent_color }};--bg:{{ brand.background_color }};--t:{{ brand.text_color }};--b:{{ brand.button_color }};--bt:{{ brand.button_text_color }};background:var(--bg);color:var(--t);border-radius:18px;overflow:hidden;border:1px solid #dfe5e3}.brand-preview .hero{background:linear-gradient(135deg,var(--p),var(--a));color:#fff;padding:1.35rem}.brand-preview .body{padding:1rem}.brand-preview .sample-button{background:var(--b);color:var(--bt);border:0}.brand-preview .sample-logo{max-width:54px;max-height:54px;object-fit:contain;background:#fff;border-radius:10px;padding:4px}</style>{% endblock %}
 {% block content %}
-<div class="container-fluid px-3 pt-3 pb-5"><h5 class="fw-bold mb-3">⚙️ Configuração de eventos</h5>
+<div class="container-fluid px-3 pt-3 pb-5"><div class="d-flex justify-content-between align-items-center mb-3"><h5 class="fw-bold mb-0">⚙️ Configuração de eventos</h5><a class="btn btn-sm btn-outline-primary" href="{{ url_for('eventos.portal_request') }}" target="_blank" rel="noopener">Abrir formulário público</a></div>
 {% if not can_edit_config %}<div class="alert alert-info">Tem acesso de consulta a esta configuração. Apenas acesso administrativo pode guardar alterações.</div>{% endif %}
 <form method="post" enctype="multipart/form-data" data-ios-submit-scroll="false">
 <fieldset {% if not can_edit_config %}disabled{% endif %}>

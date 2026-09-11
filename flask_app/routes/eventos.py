@@ -245,6 +245,23 @@ def _require_locations_csrf():
         raise ValueError('A página expirou. Atualize e tente novamente.')
 
 
+def _venue_form_data(form):
+    """Resolve a staff-entered venue address into reusable mapping data."""
+    data = form.to_dict()
+    address = str(data.get('address') or '').strip()
+    if not address:
+        return data
+    location = resolve_event_address(address)
+    data.update({
+        'geocode_address': address,
+        'latitude': location.get('latitude'),
+        'longitude': location.get('longitude'),
+        'geocode_provider': location.get('provider'),
+        'geocode_failed': bool(location.get('failed')),
+    })
+    return data
+
+
 def _admin_portal_brand_csrf_token():
     token = session.get('event_portal_brand_csrf')
     if not token:
@@ -1004,7 +1021,8 @@ def locais():
         if action == 'complete_incomplete_occurrence':
             try:
                 venue_id = db.complete_event_occurrence_venue(
-                    int(request.form.get('occurrence_id', '')), request.form, _current_actor(),
+                    int(request.form.get('occurrence_id', '')),
+                    _venue_form_data(request.form), _current_actor(),
                 )
                 flash(
                     'Local completo guardado e ocorrência associada. '
@@ -1015,8 +1033,20 @@ def locais():
             except (TypeError, ValueError) as exc:
                 flash(str(exc) or 'Não foi possível completar o local.', 'error')
             return redirect(url_for('eventos.locais'))
+        if action == 'dismiss_incomplete_occurrence':
+            try:
+                db.dismiss_incomplete_event_occurrence(
+                    int(request.form.get('occurrence_id', '')), _current_actor(),
+                )
+                flash('Ocorrência descartada da revisão. O histórico foi preservado.', 'success')
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or 'Não foi possível descartar a ocorrência.', 'error')
+            return redirect(url_for('eventos.locais'))
         try:
-            venue_id = db.save_event_venue(request.form, actor=_current_actor())
+            venue_data = _venue_form_data(request.form)
+            venue_id = db.save_event_venue(venue_data, actor=_current_actor())
+            if venue_data.get('geocode_failed'):
+                flash('Local guardado, mas a morada ainda não foi reconhecida pelos mapas.', 'warning')
             flash('Local registado.', 'success')
             return redirect(url_for('eventos.local_detail', venue_id=venue_id))
         except ValueError as exc:
@@ -1053,7 +1083,10 @@ def local_detail(venue_id):
                 flash(str(exc) or 'Não foi possível associar a ocorrência.', 'error')
             return redirect(url_for('eventos.local_detail', venue_id=venue_id))
         try:
-            db.save_event_venue(request.form, actor=_current_actor(), venue_id=venue_id)
+            venue_data = _venue_form_data(request.form)
+            db.save_event_venue(venue_data, actor=_current_actor(), venue_id=venue_id)
+            if venue_data.get('geocode_failed'):
+                flash('Dados guardados, mas a morada ainda não foi reconhecida pelos mapas.', 'warning')
             flash('Dados do local atualizados.', 'success')
             return redirect(url_for('eventos.local_detail', venue_id=venue_id))
         except ValueError as exc:

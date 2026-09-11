@@ -151,8 +151,8 @@ class CustomerAndSheetContracts(unittest.TestCase):
         context = MagicMock()
         context.__enter__.return_value = connection
         cursor = connection.cursor.return_value
-        cursor.fetchone.side_effect = [None, (77,)]
-        cursor.fetchall.return_value = pricing_rows
+        cursor.fetchone.side_effect = [None, (77,), (501,)]
+        cursor.fetchall.side_effect = [pricing_rows, []]
         data = {
             "client_name": "Cliente",
             "client_email": "cliente@example.com",
@@ -490,6 +490,9 @@ class UnifiedTemplateContracts(unittest.TestCase):
         self.assertIn('name="company_name"', portal)
         self.assertIn('name="nif"', portal)
         self.assertIn("Requisitos para o cliente", config)
+        self.assertIn("Abrir formulário público", config)
+        self.assertIn("url_for('eventos.portal_request')", config)
+        self.assertIn('target="_blank"', config)
         self.assertIn("data-requirements", portal)
         self.assertIn('event.persisted', portal)
         self.assertIn("button.disabled=false", portal)

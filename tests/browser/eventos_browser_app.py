@@ -16,6 +16,14 @@ STATE = {
         "venue_address": "",
         "venue_id": None,
     },
+    "discard_occurrence": {
+        "id": 10,
+        "event_id": 2,
+        "venue": "",
+        "venue_address": "Estrada sem número",
+        "venue_id": None,
+        "dismissed": False,
+    },
 }
 
 EVENTS = [
@@ -63,6 +71,10 @@ VENUE = {
     "logistics_notes": "",
     "event_count": 1,
     "last_event_date": date(2026, 6, 20),
+    "latitude": 38.72,
+    "longitude": -9.14,
+    "geocode_provider": "nominatim",
+    "geocode_failed": False,
 }
 
 
@@ -99,15 +111,19 @@ def _events_for_pipeline(**filters):
 
 def _incomplete_occurrences():
     occurrence = STATE["historical_occurrence"]
-    if occurrence["venue_id"] is not None:
-        return []
-    return [{
-        **occurrence,
-        "event_name": "Festa Grande",
-        "client_name": "Ana Silva",
-        "event_date": date(2026, 6, 20),
-        "candidate_venues": [VENUE],
-    }]
+    discarded = STATE["discard_occurrence"]
+    result = []
+    if occurrence["venue_id"] is None:
+        result.append({
+            **occurrence, "event_name": "Festa Grande", "client_name": "Ana Silva",
+            "event_date": date(2026, 6, 20), "candidate_venues": [VENUE],
+        })
+    if discarded["venue_id"] is None and not discarded["dismissed"]:
+        result.append({
+            **discarded, "event_name": "Festa Pequena", "client_name": "Bruno Costa",
+            "event_date": date(2026, 6, 10), "candidate_venues": [],
+        })
+    return result
 
 
 def _link_incomplete_occurrence(occurrence_id, venue_id, actor):
@@ -115,6 +131,14 @@ def _link_incomplete_occurrence(occurrence_id, venue_id, actor):
     if occurrence_id != occurrence["id"] or venue_id != VENUE["id"]:
         raise ValueError("A ocorrência não está disponível para associação.")
     occurrence["venue_id"] = venue_id
+    occurrence["actor"] = actor
+
+
+def _dismiss_incomplete_occurrence(occurrence_id, actor):
+    occurrence = STATE["discard_occurrence"]
+    if occurrence_id != occurrence["id"] or occurrence["dismissed"]:
+        raise ValueError("A ocorrência já foi tratada ou descartada.")
+    occurrence["dismissed"] = True
     occurrence["actor"] = actor
 
 
@@ -143,6 +167,9 @@ def _configure_eventos_data():
     eventos_routes.db.get_incomplete_venue_occurrences = _incomplete_occurrences
     eventos_routes.db.link_incomplete_event_occurrence_to_venue = (
         _link_incomplete_occurrence
+    )
+    eventos_routes.db.dismiss_incomplete_event_occurrence = (
+        _dismiss_incomplete_occurrence
     )
     eventos_routes._get_tabs = lambda: []
 
@@ -211,6 +238,7 @@ def create_test_app():
         return jsonify({
             "preferences": STATE["preferences"],
             "historical_occurrence": occurrence,
+            "discard_occurrence": STATE["discard_occurrence"],
         })
 
     return app
