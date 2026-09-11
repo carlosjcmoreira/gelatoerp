@@ -1,10 +1,14 @@
+import os
 import unittest
+import uuid
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
+import psycopg2
 from flask import Flask
-from db import pastelaria
+from db import pastelaria, schema
 
 
 class _Cursor:
@@ -316,6 +320,162 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertIn('Produtor', template)
         self.assertIn('Comentários', template)
         self.assertIn('@page { size: A4 landscape;', template)
+
+
+class PastelariaPlanMigrationPostgresTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        database_url = os.environ.get('DATABASE_URL')
+        if not database_url:
+            raise unittest.SkipTest(
+                'DATABASE_URL is required for PostgreSQL integration tests'
+            )
+
+        try:
+            cls.admin_connection = psycopg2.connect(database_url)
+        except Exception as exc:
+            raise unittest.SkipTest(
+                f'PostgreSQL test database unavailable: {exc}'
+            )
+
+        cls.admin_connection.autocommit = True
+        cls.schema_name = f'test_pastelaria_plan_migration_{uuid.uuid4().hex}'
+        with cls.admin_connection.cursor() as cursor:
+            cursor.execute(f'CREATE SCHEMA "{cls.schema_name}"')
+            cursor.execute(f'SET search_path TO "{cls.schema_name}"')
+            cursor.execute("""
+                CREATE TABLE plano_producao_pastelaria (
+                    id SERIAL PRIMARY KEY
+                );
+                CREATE TABLE stores (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL UNIQUE
+                );
+                CREATE TABLE produtos_pastelaria (
+                    id SERIAL PRIMARY KEY,
+                    nome VARCHAR(255) NOT NULL
+                );
+                CREATE TABLE pastelaria_stock_minimos (
+                    produto_id INTEGER NOT NULL
+                        REFERENCES produtos_pastelaria(id),
+                    store_id INTEGER NOT NULL REFERENCES stores(id),
+                    quantidade_minima INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (produto_id, store_id)
+                );
+                CREATE TABLE pastelaria_planos_prioridade (
+                    id SERIAL PRIMARY KEY,
+                    data_contagem DATE NOT NULL UNIQUE,
+                    generated_by VARCHAR(255),
+                    generated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE pastelaria_plano_prioridade_linhas (
+                    id SERIAL PRIMARY KEY,
+                    plano_id INTEGER NOT NULL
+                        REFERENCES pastelaria_planos_prioridade(id)
+                        ON DELETE CASCADE,
+                    produto_id INTEGER NOT NULL
+                        REFERENCES produtos_pastelaria(id),
+                    produto VARCHAR(500) NOT NULL,
+                    stock_minimo_total INTEGER NOT NULL,
+                    stock_contado_total INTEGER NOT NULL,
+                    quantidade_total INTEGER NOT NULL,
+                    percentagem_falta NUMERIC(8,5) NOT NULL,
+                    prioridade INTEGER NOT NULL,
+                    distribuicao_lojas JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    UNIQUE (plano_id, produto_id)
+                );
+
+                INSERT INTO stores (name) VALUES ('Bolhão');
+                INSERT INTO produtos_pastelaria (nome) VALUES ('Palito');
+                INSERT INTO pastelaria_stock_minimos
+                    (produto_id, store_id, quantidade_minima)
+                VALUES (1, 1, 12);
+                INSERT INTO pastelaria_planos_prioridade
+                    (data_contagem, generated_by)
+                VALUES ('2026-09-06', 'historico');
+                INSERT INTO pastelaria_plano_prioridade_linhas (
+                    plano_id, produto_id, produto, stock_minimo_total,
+                    stock_contado_total, quantidade_total, percentagem_falta,
+                    prioridade, distribuicao_lojas
+                ) VALUES (
+                    1, 1, 'Palito', 12, 4, 8, 0.66667, 1,
+                    '[{"loja": "Bolhão", "quantidade": 8}]'
+                );
+            """)
+
+        @contextmanager
+        def isolated_connection():
+            connection = psycopg2.connect(database_url)
+            with connection.cursor() as cursor:
+                cursor.execute(f'SET search_path TO "{cls.schema_name}"')
+            try:
+                yield connection
+            finally:
+                connection.close()
+
+        cls.isolated_connection = staticmethod(isolated_connection)
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, 'admin_connection', None):
+            with cls.admin_connection.cursor() as cursor:
+                cursor.execute(
+                    f'DROP SCHEMA IF EXISTS "{cls.schema_name}" CASCADE'
+                )
+            cls.admin_connection.close()
+
+    def test_upgrade_preserves_history_and_delete_rules(self):
+        with patch('db.schema.db_connection', self.isolated_connection):
+            schema.run_migrations_pastelaria_plano()
+            schema.run_migrations_pastelaria_plano()
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, data_contagem, versao, generated_by
+                    FROM pastelaria_planos_prioridade
+                    ORDER BY id
+                """)
+                self.assertEqual(
+                    cursor.fetchall(),
+                    [(1, date(2026, 9, 6), 1, 'historico')],
+                )
+                cursor.execute("""
+                    SELECT plano_id, produto_id, produto, quantidade_total
+                    FROM pastelaria_plano_prioridade_linhas
+                """)
+                self.assertEqual(cursor.fetchall(), [(1, 1, 'Palito', 8)])
+
+                cursor.execute("""
+                    INSERT INTO pastelaria_planos_prioridade
+                        (data_contagem, versao, generated_by)
+                    VALUES ('2026-09-06', 2, 'novo')
+                    RETURNING versao
+                """)
+                self.assertEqual(cursor.fetchone()[0], 2)
+                cursor.execute('SAVEPOINT duplicate_version')
+                with self.assertRaises(psycopg2.errors.UniqueViolation):
+                    cursor.execute("""
+                        INSERT INTO pastelaria_planos_prioridade
+                            (data_contagem, versao)
+                        VALUES ('2026-09-06', 2)
+                    """)
+                cursor.execute('ROLLBACK TO SAVEPOINT duplicate_version')
+
+                cursor.execute('DELETE FROM produtos_pastelaria WHERE id = 1')
+                cursor.execute('SELECT COUNT(*) FROM pastelaria_stock_minimos')
+                self.assertEqual(cursor.fetchone()[0], 0)
+                cursor.execute("""
+                    SELECT produto_id, produto
+                    FROM pastelaria_plano_prioridade_linhas
+                    WHERE plano_id = 1
+                """)
+                self.assertEqual(cursor.fetchone(), (None, 'Palito'))
+                cursor.execute("""
+                    SELECT COUNT(*) FROM pastelaria_planos_prioridade
+                    WHERE id = 1
+                """)
+                self.assertEqual(cursor.fetchone()[0], 1)
 
 
 if __name__ == '__main__':

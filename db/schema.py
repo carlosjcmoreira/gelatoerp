@@ -5909,6 +5909,10 @@ def run_migrations_pastelaria_plano():
             )
         """)
         cursor.execute("""
+            ALTER TABLE pastelaria_plano_prioridade_linhas
+            ALTER COLUMN produto_id DROP NOT NULL
+        """)
+        cursor.execute("""
             DO $$
             BEGIN
                 IF EXISTS (
