@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, abort
 from flask_app.auth import perm_required
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -20,6 +20,13 @@ from database import (
     get_reconciliacao_pastelaria,
 )
 from datetime import date, timedelta
+from db.pastelaria import (
+    get_pastelaria_stock_minimums,
+    save_pastelaria_stock_minimums,
+    get_pastelaria_priority_status,
+    generate_pastelaria_priority_plan,
+    get_pastelaria_priority_plan,
+)
 
 pastelaria_bp = Blueprint('pastelaria', __name__)
 
@@ -33,6 +40,32 @@ TABS = [
     {'id': 'reconciliacao', 'label': 'Reconciliação', 'icon': '📊', 'endpoint': 'pastelaria.reconciliacao'},
     {'id': 'gerir_produtos', 'label': 'Gerir Produtos', 'icon': '🍡', 'endpoint': 'pastelaria.gerir_produtos'},
 ]
+
+
+def _can_configure_stock_minimums(user):
+    return bool(user and (
+        user.get('acesso_gestor') or user.get('role') in {'admin', 'gestao'}
+    ))
+
+
+def _can_generate_priority_plan(user):
+    return bool(user and (
+        user.get('acesso_gestor')
+        or user.get('role') in {'admin', 'gestao', 'producao'}
+    ))
+
+
+def _parse_stock_minimum_matrix(config, form):
+    values = []
+    for product in config['products']:
+        for store in config['stores']:
+            raw = form.get(f"min_{product['id']}_{store['id']}")
+            if raw is None or not raw.strip().isdigit():
+                raise ValueError(
+                    'Preencha todos os stocks mínimos com números inteiros não negativos.'
+                )
+            values.append((product['id'], store['id'], int(raw)))
+    return values
 
 def _tabs_with_urls():
     from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons
@@ -130,6 +163,8 @@ def index():
 @perm_required('acesso_pastelaria')
 def stock_balcao():
     produtos_stock = get_produtos_pastelaria() or []
+    stock_config = get_pastelaria_stock_minimums()
+    valid_store_names = {store['name'] for store in stock_config['stores']}
 
     msg = None
     msg_type = None
@@ -141,16 +176,32 @@ def stock_balcao():
             data_contagem = request.form.get('data_contagem', '')
             loja = request.form.get('loja', 'Matosinhos')
             produto = request.form.get('produto', '')
-            quantidade = _parse_int(request.form.get('quantidade', '0'))
-
-            if produto:
-                add_contagem_stock(date.fromisoformat(data_contagem), loja, produto, quantidade, AREA)
+            raw_quantity = request.form.get('quantidade', '')
+            try:
+                count_date = date.fromisoformat(data_contagem)
+                if loja not in valid_store_names or produto not in produtos_stock:
+                    raise ValueError
+                if not raw_quantity.strip().isdigit():
+                    raise ValueError
+                quantidade = int(raw_quantity)
+            except (TypeError, ValueError):
+                msg, msg_type = 'Data, loja, produto ou quantidade inválidos.', 'warning'
+            else:
+                add_contagem_stock(count_date, loja, produto, quantidade, AREA)
                 msg = f'Contagem de {quantidade}x {produto} registada!'
                 msg_type = 'success'
-            else:
-                msg = 'Por favor, selecione um produto.'
-                msg_type = 'warning'
 
+        elif action == 'gerar_plano':
+            if not _can_generate_priority_plan(session.get('user') or {}):
+                abort(403)
+            try:
+                count_date = date.fromisoformat(request.form.get('data_plano', ''))
+                plan_id = generate_pastelaria_priority_plan(
+                    count_date, (session.get('user') or {}).get('username'),
+                )
+                return redirect(url_for('pastelaria.plano_prioridade', plan_id=plan_id))
+            except (TypeError, ValueError) as exc:
+                msg, msg_type = str(exc), 'warning'
         elif action == 'eliminar':
             id_del = request.form.get('id_delete', '0')
             try:
@@ -184,6 +235,16 @@ def stock_balcao():
                 'quantidade': int(row['quantidade']),
             })
 
+    plan_date_value = request.args.get('data_plano')
+    try:
+        plan_date = date.fromisoformat(plan_date_value) if plan_date_value else (
+            date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
+        )
+        priority_status = get_pastelaria_priority_status(plan_date)
+    except ValueError as exc:
+        plan_date = date.today()
+        priority_status = {'complete': False, 'missing': [], 'rows': [], 'error': str(exc)}
+
     return render_template('pastelaria/stock_balcao.html',
                            active_tab='stock_balcao',
                            tabs=_tabs_with_urls(),
@@ -192,6 +253,12 @@ def stock_balcao():
                            stock_matrix=stock_matrix_list,
                            contagens=contagens_list,
                            today=date.today().isoformat(),
+                           plan_date=plan_date,
+                           priority_status=priority_status,
+                           stock_stores=stock_config['stores'],
+                           can_generate_priority_plan=_can_generate_priority_plan(
+                               session.get('user') or {}
+                           ),
                            msg=msg,
                            msg_type=msg_type)
 
@@ -614,7 +681,17 @@ def tipologias():
 def produtos():
     if request.method == 'POST':
         action = request.form.get('action', '')
-        if action == 'add_produto_past':
+        if action == 'save_minimos_stock':
+            if not _can_configure_stock_minimums(session.get('user') or {}):
+                abort(403)
+            config = get_pastelaria_stock_minimums()
+            try:
+                values = _parse_stock_minimum_matrix(config, request.form)
+                save_pastelaria_stock_minimums(values)
+                flash('Stocks mínimos guardados.', 'success')
+            except ValueError as exc:
+                flash(str(exc), 'warning')
+        elif action == 'add_produto_past':
             tip = request.form.get('novo_tipologia', '')
             sabor = request.form.get('novo_sabor_past', '')
             cob = request.form.get('novo_cob_past', '')
@@ -632,11 +709,29 @@ def produtos():
             else:
                 flash('Nenhum produto selecionado.', 'warning')
         return redirect(url_for('pastelaria.produtos'))
+    minimum_config = get_pastelaria_stock_minimums()
     return render_template('pastelaria/lista_produtos.html',
                            produtos_past=db.get_all_produtos_pastelaria(),
                            tipologias_list=[t['nome'] for t in db.get_all_tipologias_pastelaria()],
                            sabores_list=db.get_sabores_list(),
-                           coberturas_list=[c['nome'] for c in db.get_all_coberturas()])
+                           coberturas_list=[c['nome'] for c in db.get_all_coberturas()],
+                           minimum_config=minimum_config,
+                           can_configure_minimums=_can_configure_stock_minimums(
+                               session.get('user') or {}
+                           ))
+
+
+@pastelaria_bp.route('/plano-prioridade/<int:plan_id>')
+@perm_required('acesso_pastelaria')
+def plano_prioridade(plan_id):
+    plan = get_pastelaria_priority_plan(plan_id=plan_id)
+    if not plan:
+        flash('Plano de produção não encontrado.', 'warning')
+        return redirect(url_for('pastelaria.stock_balcao'))
+    return render_template(
+        'pastelaria/plano_prioridade.html', plan=plan,
+        active_tab='stock_balcao', tabs=_tabs_with_urls(),
+    )
 @pastelaria_bp.route('/gelado-tipologia', methods=['GET', 'POST'])
 @perm_required('acesso_pastelaria')
 def gelado_tipologia():

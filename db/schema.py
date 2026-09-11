@@ -5862,5 +5862,85 @@ def run_migrations_pastelaria_plano():
                 VALUES (%s, %s)
                 ON CONFLICT (nome) DO NOTHING
             """, (nome, ordem))
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pastelaria_stock_minimos (
+                produto_id INTEGER NOT NULL REFERENCES produtos_pastelaria(id) ON DELETE CASCADE,
+                store_id INTEGER NOT NULL REFERENCES stores(id),
+                quantidade_minima INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_minima >= 0),
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (produto_id, store_id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pastelaria_planos_prioridade (
+                id SERIAL PRIMARY KEY,
+                data_contagem DATE NOT NULL,
+                versao INTEGER NOT NULL DEFAULT 1,
+                generated_by VARCHAR(255),
+                generated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute(
+            "ALTER TABLE pastelaria_planos_prioridade "
+            "ADD COLUMN IF NOT EXISTS versao INTEGER NOT NULL DEFAULT 1"
+        )
+        cursor.execute(
+            "ALTER TABLE pastelaria_planos_prioridade "
+            "DROP CONSTRAINT IF EXISTS pastelaria_planos_prioridade_data_contagem_key"
+        )
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_pastelaria_planos_prioridade_data_versao
+            ON pastelaria_planos_prioridade(data_contagem, versao)
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pastelaria_plano_prioridade_linhas (
+                id SERIAL PRIMARY KEY,
+                plano_id INTEGER NOT NULL REFERENCES pastelaria_planos_prioridade(id) ON DELETE CASCADE,
+                produto_id INTEGER REFERENCES produtos_pastelaria(id) ON DELETE SET NULL,
+                produto VARCHAR(500) NOT NULL,
+                stock_minimo_total INTEGER NOT NULL,
+                stock_contado_total INTEGER NOT NULL,
+                quantidade_total INTEGER NOT NULL,
+                percentagem_falta NUMERIC(8,5) NOT NULL,
+                prioridade INTEGER NOT NULL,
+                distribuicao_lojas JSONB NOT NULL DEFAULT '[]'::jsonb,
+                UNIQUE (plano_id, produto_id)
+            )
+        """)
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='pastelaria_stock_minimos_produto_id_fkey'
+                      AND confdeltype <> 'c'
+                ) THEN
+                    ALTER TABLE pastelaria_stock_minimos
+                    DROP CONSTRAINT pastelaria_stock_minimos_produto_id_fkey;
+                    ALTER TABLE pastelaria_stock_minimos
+                    ADD CONSTRAINT pastelaria_stock_minimos_produto_id_fkey
+                    FOREIGN KEY (produto_id) REFERENCES produtos_pastelaria(id)
+                    ON DELETE CASCADE;
+                END IF;
+            END $$;
+        """)
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='pastelaria_plano_prioridade_linhas_produto_id_fkey'
+                      AND confdeltype <> 'n'
+                ) THEN
+                    ALTER TABLE pastelaria_plano_prioridade_linhas
+                    DROP CONSTRAINT pastelaria_plano_prioridade_linhas_produto_id_fkey;
+                    ALTER TABLE pastelaria_plano_prioridade_linhas
+                    ADD CONSTRAINT pastelaria_plano_prioridade_linhas_produto_id_fkey
+                    FOREIGN KEY (produto_id) REFERENCES produtos_pastelaria(id)
+                    ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """)
         conn.commit()
         logger.info("run_migrations_pastelaria_plano: schema ready")

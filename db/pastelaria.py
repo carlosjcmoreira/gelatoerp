@@ -265,6 +265,224 @@ def get_all_produtos_pastelaria() -> list:
         cursor.execute("SELECT id, tipologia, sabor, cobertura, ativo FROM produtos_pastelaria ORDER BY tipologia, sabor")
         return [{'id': row[0], 'tipologia': row[1] or '', 'sabor': row[2] or '', 'cobertura': row[3] or '', 'ativo': row[4]} for row in cursor.fetchall()]
 
+
+def _pastelaria_product_label(row):
+    return ', '.join(
+        str(row.get(key) or '').strip()
+        for key in ('tipologia', 'sabor', 'cobertura')
+        if str(row.get(key) or '').strip()
+    )
+
+
+def get_pastelaria_stock_minimums():
+    """Active catalogue products with the configured minimum for each active sales store."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT id, tipologia, sabor, cobertura
+            FROM produtos_pastelaria WHERE ativo=TRUE
+            ORDER BY tipologia, sabor, cobertura
+        """)
+        products = cursor.fetchall()
+        cursor.execute("""
+            SELECT id, name FROM stores
+            WHERE supports_vendas=TRUE AND is_active=TRUE ORDER BY name
+        """)
+        stores = cursor.fetchall()
+        cursor.execute("""
+            SELECT produto_id, store_id, quantidade_minima
+            FROM pastelaria_stock_minimos
+        """)
+        values = {
+            (row['produto_id'], row['store_id']): row['quantidade_minima']
+            for row in cursor.fetchall()
+        }
+    return {
+        'stores': stores,
+        'products': [{
+            **product,
+            'nome': _pastelaria_product_label(product),
+            'minimums': {
+                store['id']: values.get((product['id'], store['id']))
+                for store in stores
+            },
+        } for product in products],
+    }
+
+
+def save_pastelaria_stock_minimums(values):
+    """Persist validated integer minimums in one transaction."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        for product_id, store_id, quantity in values:
+            if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 0:
+                raise ValueError('Os stocks mínimos devem ser números inteiros não negativos.')
+            cursor.execute("""
+                INSERT INTO pastelaria_stock_minimos
+                    (produto_id, store_id, quantidade_minima, updated_at)
+                SELECT p.id, s.id, %s, NOW()
+                FROM produtos_pastelaria p, stores s
+                WHERE p.id=%s AND p.ativo=TRUE
+                  AND s.id=%s AND s.is_active=TRUE AND s.supports_vendas=TRUE
+                ON CONFLICT (produto_id, store_id) DO UPDATE SET
+                    quantidade_minima=EXCLUDED.quantidade_minima,
+                    updated_at=NOW()
+            """, (quantity, product_id, store_id))
+        conn.commit()
+
+
+def _pastelaria_priority_inputs(cursor, count_date):
+    if count_date.weekday() != 6:
+        raise ValueError('O plano só pode ser gerado a partir de uma contagem de domingo.')
+    cursor.execute("""
+        SELECT id, name FROM stores
+        WHERE supports_vendas=TRUE AND is_active=TRUE ORDER BY name
+    """)
+    stores = cursor.fetchall()
+    cursor.execute("""
+        SELECT id, tipologia, sabor, cobertura
+        FROM produtos_pastelaria WHERE ativo=TRUE
+        ORDER BY tipologia, sabor, cobertura
+    """)
+    products = cursor.fetchall()
+    cursor.execute("""
+        SELECT DISTINCT ON (loja, produto) loja, produto, quantidade
+        FROM contagem_stock
+        WHERE tipo='pastelaria' AND data=%s
+        ORDER BY loja, produto, id DESC
+    """, (count_date,))
+    counts = {(row['loja'], row['produto']): int(row['quantidade']) for row in cursor.fetchall()}
+    cursor.execute("""
+        SELECT produto_id, store_id, quantidade_minima
+        FROM pastelaria_stock_minimos
+    """)
+    minimums = {
+        (row['produto_id'], row['store_id']): int(row['quantidade_minima'])
+        for row in cursor.fetchall()
+    }
+    missing = []
+    missing_minimums = []
+    rows = []
+    for product in products:
+        label = _pastelaria_product_label(product)
+        distribution = []
+        total_minimum = total_count = total_need = 0
+        for store in stores:
+            key = (store['name'], label)
+            minimum_key = (product['id'], store['id'])
+            if minimum_key not in minimums:
+                missing_minimums.append({
+                    'loja': store['name'], 'produto': label,
+                })
+            if key not in counts:
+                missing.append({'loja': store['name'], 'produto': label})
+                continue
+            minimum = minimums.get(minimum_key, 0)
+            counted = counts[key]
+            need = max(minimum - counted, 0)
+            total_minimum += minimum
+            total_count += counted
+            total_need += need
+            distribution.append({
+                'loja': store['name'], 'minimo': minimum,
+                'contado': counted, 'necessidade': need,
+            })
+        if total_need > 0 and len(distribution) == len(stores):
+            rows.append({
+                'produto_id': product['id'], 'produto': label,
+                'stock_minimo_total': total_minimum,
+                'stock_contado_total': total_count,
+                'quantidade_total': total_need,
+                'percentagem_falta': total_need / total_minimum if total_minimum else 0,
+                'distribuicao_lojas': distribution,
+            })
+    rows.sort(key=lambda row: (
+        -row['percentagem_falta'], -row['quantidade_total'],
+        row['produto'].casefold(),
+    ))
+    for index, row in enumerate(rows, 1):
+        row['prioridade'] = index
+    return {
+        'data_contagem': count_date, 'stores': stores, 'missing': missing,
+        'missing_minimums': missing_minimums,
+        'complete': (
+            not missing and not missing_minimums
+            and bool(stores) and bool(products)
+        ),
+        'rows': rows,
+    }
+
+
+def get_pastelaria_priority_status(count_date):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        return _pastelaria_priority_inputs(cursor, count_date)
+
+
+def generate_pastelaria_priority_plan(count_date, actor=None):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f'pastelaria-plan:{count_date.isoformat()}',),
+        )
+        data = _pastelaria_priority_inputs(cursor, count_date)
+        if not data['complete']:
+            raise ValueError(
+                'Faltam contagens ou stocks mínimos para este domingo.'
+            )
+        cursor.execute("""
+            SELECT COALESCE(MAX(versao), 0) + 1 AS next_version
+            FROM pastelaria_planos_prioridade
+            WHERE data_contagem=%s
+        """, (count_date,))
+        version = cursor.fetchone()['next_version']
+        cursor.execute("""
+            INSERT INTO pastelaria_planos_prioridade
+                (data_contagem, versao, generated_by, generated_at)
+            VALUES (%s,%s,%s,NOW())
+            RETURNING id
+        """, (count_date, version, actor))
+        plan_id = cursor.fetchone()['id']
+        for row in data['rows']:
+            cursor.execute("""
+                INSERT INTO pastelaria_plano_prioridade_linhas
+                    (plano_id,produto_id,produto,stock_minimo_total,
+                     stock_contado_total,quantidade_total,percentagem_falta,
+                     prioridade,distribuicao_lojas)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)
+            """, (
+                plan_id, row['produto_id'], row['produto'],
+                row['stock_minimo_total'], row['stock_contado_total'],
+                row['quantidade_total'], row['percentagem_falta'],
+                row['prioridade'], json.dumps(row['distribuicao_lojas']),
+            ))
+        conn.commit()
+        return plan_id
+
+
+def get_pastelaria_priority_plan(plan_id=None, count_date=None):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        if plan_id is not None:
+            cursor.execute(
+                "SELECT * FROM pastelaria_planos_prioridade WHERE id=%s", (plan_id,)
+            )
+        else:
+            cursor.execute("""
+                SELECT * FROM pastelaria_planos_prioridade
+                WHERE data_contagem=%s ORDER BY versao DESC LIMIT 1
+            """, (count_date,))
+        plan = cursor.fetchone()
+        if not plan:
+            return None
+        cursor.execute("""
+            SELECT * FROM pastelaria_plano_prioridade_linhas
+            WHERE plano_id=%s ORDER BY prioridade
+        """, (plan['id'],))
+        plan['rows'] = cursor.fetchall()
+        return plan
+
 def add_produto_pastelaria(tipologia: str, sabor: str = '', cobertura: str = ''):
     with db_connection() as conn:
         cursor = conn.cursor()

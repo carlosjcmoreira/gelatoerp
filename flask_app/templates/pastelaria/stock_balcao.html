@@ -30,8 +30,7 @@
             <div class="col-6">
                 <label class="form-label small">Loja</label>
                 <select class="form-select form-select-sm" name="loja">
-                    <option value="Matosinhos">Matosinhos</option>
-                    <option value="Bolhão">Bolhão</option>
+                    {% for store in stock_stores %}<option value="{{ store.name }}">{{ store.name }}</option>{% endfor %}
                 </select>
             </div>
         </div>
@@ -51,6 +50,35 @@
         </div>
         <button type="submit" class="btn btn-primary btn-sm w-100 mt-2">Registar Contagem</button>
     </form>
+
+    <hr>
+    <div class="card border-primary mb-3">
+        <div class="card-header fw-semibold">Plano prioritário de produção</div>
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <div class="col-sm-6"><label class="form-label small">Domingo da contagem</label><input type="date" name="data_plano" class="form-control form-control-sm" value="{{ plan_date.isoformat() }}" required></div>
+                <div class="col-sm-6"><button class="btn btn-outline-secondary btn-sm w-100">Verificar contagem</button></div>
+            </form>
+            {% if priority_status.error %}
+            <div class="alert alert-warning py-2 small">{{ priority_status.error }}</div>
+            {% elif priority_status.complete %}
+            <div class="alert alert-success py-2 small">Contagem completa. {{ priority_status.rows|length }} produto(s) precisam de produção.</div>
+            {% if can_generate_priority_plan %}<form method="post">
+                <input type="hidden" name="action" value="gerar_plano">
+                <input type="hidden" name="data_plano" value="{{ plan_date.isoformat() }}">
+                <button class="btn btn-primary btn-sm">Gerar plano de produção</button>
+            </form>{% else %}<div class="text-muted small">Apenas Produção ou Gestão pode gerar o plano.</div>{% endif %}
+            {% else %}
+            <div class="alert alert-warning py-2 small mb-2"><strong>Não é possível gerar o plano.</strong> Complete as contagens e configure todos os stocks mínimos.</div>
+            {% if priority_status.missing %}
+            <details><summary class="small">Ver lojas e produtos em falta</summary><ul class="small mt-2">{% for item in priority_status.missing %}<li>{{ item.loja }} — {{ item.produto }}</li>{% endfor %}</ul></details>
+            {% endif %}
+            {% if priority_status.missing_minimums %}
+            <details><summary class="small">Ver stocks mínimos por configurar</summary><ul class="small mt-2">{% for item in priority_status.missing_minimums %}<li>{{ item.loja }} — {{ item.produto }}</li>{% endfor %}</ul></details>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
 
     <hr>
     <h6 class="mb-2">Stock por Produto e Local</h6>

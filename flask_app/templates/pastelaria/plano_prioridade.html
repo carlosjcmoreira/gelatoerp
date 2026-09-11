@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.stock_balcao") %}
+{% block content %}
+<style>
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  body * { visibility: hidden !important; }
+  #priority-print, #priority-print * { visibility: visible !important; }
+  #priority-print { position:absolute; inset:0; width:100%; font-size:9pt; }
+  .no-print { display:none !important; }
+  #priority-print td { height:15mm; }
+}
+</style>
+<div class="container-fluid px-3 py-3">
+  <div class="no-print">{% include "components/tabs.html" %}</div>
+  <div id="priority-print">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+      <div><h5 class="mb-1">Plano prioritário de produção — Pastelaria</h5><div class="small">Contagem de domingo: <strong>{{ plan.data_contagem.strftime('%d/%m/%Y') }}</strong> · Versão {{ plan.versao }} · Gerado em {{ plan.generated_at.strftime('%d/%m/%Y %H:%M') }}</div></div>
+      <button class="btn btn-outline-primary btn-sm no-print" onclick="window.print()">🖨️ Imprimir A4</button>
+    </div>
+    {% if plan.rows %}
+    <div class="table-responsive"><table class="table table-bordered table-sm align-middle">
+      <thead class="table-light"><tr><th style="width:5%">Prioridade</th><th style="width:20%">Produto</th><th style="width:9%">Quantidade total</th><th style="width:22%">Distribuição por loja</th><th style="width:12%">Data de produção</th><th style="width:12%">Produtor</th><th>Comentários</th></tr></thead>
+      <tbody>{% for row in plan.rows %}<tr>
+        <td class="text-center fw-bold">{{ row.prioridade }}</td>
+        <td class="fw-semibold">{{ row.produto }}</td>
+        <td class="text-center fs-5 fw-bold">{{ row.quantidade_total }}</td>
+        <td>{% for item in row.distribuicao_lojas %}{% if item.necessidade %}<div>{{ item.loja }}: {{ item.necessidade }} un.</div>{% endif %}{% endfor %}</td>
+        <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<div class="alert alert-success">Não é necessária produção para repor os stocks mínimos.</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

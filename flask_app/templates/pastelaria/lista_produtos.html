@@ -39,6 +39,32 @@
     <p class="text-muted small">Sem produtos registados.</p>
     {% endif %}
 
+    <div class="card border-primary mb-3">
+        <div class="card-header fw-semibold">Stock mínimo por loja</div>
+        <div class="card-body">
+            <p class="text-muted small">Estes valores são usados na contagem de domingo para ordenar o plano de produção.</p>
+            <form method="post">
+                <input type="hidden" name="action" value="save_minimos_stock">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead><tr><th>Produto</th>{% for store in minimum_config.stores %}<th class="text-center">{{ store.name }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                        {% for product in minimum_config.products %}
+                        <tr>
+                            <td>{{ product.nome }}</td>
+                            {% for store in minimum_config.stores %}
+                            <td><input type="number" class="form-control form-control-sm text-center" name="min_{{ product.id }}_{{ store.id }}" min="0" step="1" value="{% if product.minimums[store.id] is not none %}{{ product.minimums[store.id] }}{% endif %}" placeholder="Por configurar" required {% if not can_configure_minimums %}disabled{% endif %}></td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if can_configure_minimums %}<button class="btn btn-primary btn-sm">Guardar stocks mínimos</button>{% else %}<div class="text-muted small">Apenas a Gestão pode alterar estes valores.</div>{% endif %}
+            </form>
+        </div>
+    </div>
+
     <hr>
 
     <div class="card mb-3">
