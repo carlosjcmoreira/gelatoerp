@@ -813,6 +813,11 @@ def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (today, loja_destino, 'gelado', produto, sabor or produto, '', float(quantidade), 'kg'))
             elif area_origem in ('Pastelaria', 'Confeitaria'):
+                if area_origem == 'Pastelaria' and today.weekday() == 6:
+                    cursor.execute(
+                        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                        (f'pastelaria-count:{today.isoformat()}',),
+                    )
                 cursor.execute("""
                     INSERT INTO contagem_stock (data, loja, produto, quantidade, tipo)
                     VALUES (%s, %s, %s, %s, %s)

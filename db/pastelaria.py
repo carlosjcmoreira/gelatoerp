@@ -95,11 +95,163 @@ def get_confeitaria_stock() -> pd.DataFrame:
 def add_contagem_stock(data: date, loja: str, produto: str, quantidade: int, tipo: str):
     with db_connection() as conn:
         cursor = conn.cursor()
+        if tipo == 'pastelaria' and data.weekday() == 6:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f'pastelaria-count:{data.isoformat()}',),
+            )
         cursor.execute(
             "INSERT INTO contagem_stock (data, loja, produto, quantidade, tipo) VALUES (%s, %s, %s, %s, %s)",
             (data, loja, produto, quantidade, tipo)
         )
         conn.commit()
+
+
+def get_pastelaria_sunday_count_grid(count_date):
+    """Return the active store/product matrix and latest count for a Sunday."""
+    if count_date.weekday() != 6:
+        raise ValueError('Escolha um domingo para preencher a grelha de contagem.')
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f'pastelaria-count:{count_date.isoformat()}',),
+        )
+        cursor.execute("""
+            SELECT id, name FROM stores
+            WHERE supports_vendas=TRUE AND is_active=TRUE ORDER BY name
+        """)
+        stores = cursor.fetchall()
+        cursor.execute("""
+            SELECT id, tipologia, sabor, cobertura
+            FROM produtos_pastelaria WHERE ativo=TRUE
+            ORDER BY tipologia, sabor, cobertura
+        """)
+        products = cursor.fetchall()
+        cursor.execute("""
+            SELECT DISTINCT ON (loja, produto) loja, produto, quantidade
+            FROM contagem_stock
+            WHERE tipo='pastelaria' AND data=%s
+            ORDER BY loja, produto, id DESC
+        """, (count_date,))
+        counts = {
+            (row['loja'], row['produto']): int(row['quantidade'])
+            for row in cursor.fetchall()
+        }
+        cursor.execute("""
+            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, produto), ''))
+                   AS snapshot_token
+            FROM (
+                SELECT DISTINCT ON (loja, produto) id, loja, produto
+                FROM contagem_stock
+                WHERE tipo='pastelaria' AND data=%s
+                ORDER BY loja, produto, id DESC
+            ) latest
+        """, (count_date,))
+        snapshot_token = cursor.fetchone()['snapshot_token']
+    rows = []
+    completed = 0
+    for product in products:
+        label = _pastelaria_product_label(product)
+        values = {}
+        for store in stores:
+            quantity = counts.get((store['name'], label))
+            values[store['id']] = quantity
+            completed += quantity is not None
+        rows.append({**product, 'nome': label, 'counts': values})
+    total = len(stores) * len(products)
+    return {
+        'date': count_date,
+        'stores': stores,
+        'products': rows,
+        'completed': completed,
+        'total': total,
+        'complete': total > 0 and completed == total,
+        'snapshot_token': snapshot_token,
+    }
+
+
+def save_pastelaria_sunday_counts(count_date, values, snapshot_token):
+    """Append one complete Sunday count snapshot in a single transaction."""
+    if count_date.weekday() != 6:
+        raise ValueError('A data da contagem tem de ser um domingo.')
+    normalized = {}
+    snapshot_token = str(snapshot_token or '')
+    if len(snapshot_token) != 32 or any(
+        character not in '0123456789abcdef' for character in snapshot_token
+    ):
+        raise ValueError('A versão da grelha é inválida.') from None
+    for product_id, store_id, quantity in values:
+        if (
+            isinstance(quantity, bool) or not isinstance(quantity, int)
+            or quantity < 0
+        ):
+            raise ValueError('As contagens devem ser números inteiros não negativos.')
+        key = (product_id, store_id)
+        if key in normalized:
+            raise ValueError('A grelha contém células repetidas.')
+        normalized[key] = quantity
+
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f'pastelaria-count:{count_date.isoformat()}',),
+        )
+        cursor.execute("""
+            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, produto), ''))
+                   AS snapshot_token
+            FROM (
+                SELECT DISTINCT ON (loja, produto) id, loja, produto
+                FROM contagem_stock
+                WHERE tipo='pastelaria' AND data=%s
+                ORDER BY loja, produto, id DESC
+            ) latest
+        """, (count_date,))
+        current_token = cursor.fetchone()['snapshot_token']
+        if current_token != snapshot_token:
+            raise ValueError(
+                'Esta grelha foi alterada por outro utilizador. '
+                'Atualize a página antes de guardar.'
+            )
+        cursor.execute("""
+            SELECT id, name FROM stores
+            WHERE supports_vendas=TRUE AND is_active=TRUE ORDER BY name
+        """)
+        stores = cursor.fetchall()
+        cursor.execute("""
+            SELECT id, tipologia, sabor, cobertura
+            FROM produtos_pastelaria WHERE ativo=TRUE
+            ORDER BY tipologia, sabor, cobertura
+        """)
+        products = cursor.fetchall()
+        expected = {
+            (product['id'], store['id'])
+            for product in products for store in stores
+        }
+        if not expected or set(normalized) != expected:
+            raise ValueError(
+                'Preencha todas as contagens da grelha antes de guardar.'
+            )
+        store_names = {store['id']: store['name'] for store in stores}
+        product_names = {
+            product['id']: _pastelaria_product_label(product)
+            for product in products
+        }
+        rows = [
+            (
+                count_date, store_names[store_id], product_names[product_id],
+                quantity, 'pastelaria',
+            )
+            for (product_id, store_id), quantity in normalized.items()
+        ]
+        execute_values(cursor, """
+            INSERT INTO contagem_stock
+                (data, loja, produto, quantidade, tipo)
+            VALUES %s
+        """, rows)
+        conn.commit()
+
 
 def get_contagem_stock_df(tipo: str, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
     query = "SELECT * FROM contagem_stock WHERE tipo = %s"
@@ -142,6 +294,16 @@ def delete_ajuste_producao(ajuste_id: int):
 def delete_contagem_stock(contagem_id: int):
     with db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT data, tipo FROM contagem_stock WHERE id = %s FOR UPDATE",
+            (contagem_id,),
+        )
+        row = cursor.fetchone()
+        if row and row[1] == 'pastelaria' and row[0].weekday() == 6:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f'pastelaria-count:{row[0].isoformat()}',),
+            )
         cursor.execute("DELETE FROM contagem_stock WHERE id = %s", (contagem_id,))
         conn.commit()
 

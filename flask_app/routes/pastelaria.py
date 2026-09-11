@@ -23,6 +23,8 @@ from datetime import date, timedelta
 from db.pastelaria import (
     get_pastelaria_stock_minimums,
     save_pastelaria_stock_minimums,
+    get_pastelaria_sunday_count_grid,
+    save_pastelaria_sunday_counts,
     get_pastelaria_priority_status,
     generate_pastelaria_priority_plan,
     get_pastelaria_priority_plan,
@@ -66,6 +68,20 @@ def _parse_stock_minimum_matrix(config, form):
                 )
             values.append((product['id'], store['id'], int(raw)))
     return values
+
+
+def _parse_sunday_count_matrix(config, form):
+    values = []
+    for product in config['products']:
+        for store in config['stores']:
+            raw = form.get(f"count_{product['id']}_{store['id']}")
+            if raw is None or not raw.strip().isdigit():
+                raise ValueError(
+                    'Preencha todas as contagens com números inteiros não negativos.'
+                )
+            values.append((product['id'], store['id'], int(raw)))
+    return values
+
 
 def _tabs_with_urls():
     from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons
@@ -191,6 +207,28 @@ def stock_balcao():
                 msg = f'Contagem de {quantidade}x {produto} registada!'
                 msg_type = 'success'
 
+        elif action == 'guardar_grelha':
+            try:
+                count_date = date.fromisoformat(
+                    request.form.get('data_grelha', '')
+                )
+                grid_config = get_pastelaria_sunday_count_grid(count_date)
+                values = _parse_sunday_count_matrix(grid_config, request.form)
+                save_pastelaria_sunday_counts(
+                    count_date, values, request.form.get('snapshot_token')
+                )
+                flash(
+                    f'Contagem completa de domingo guardada: '
+                    f'{len(values)} valores.', 'success'
+                )
+                return redirect(url_for(
+                    'pastelaria.stock_balcao',
+                    data_grelha=count_date.isoformat(),
+                    data_plano=count_date.isoformat(),
+                ))
+            except (TypeError, ValueError) as exc:
+                msg, msg_type = str(exc), 'warning'
+
         elif action == 'gerar_plano':
             if not _can_generate_priority_plan(session.get('user') or {}):
                 abort(403)
@@ -245,6 +283,23 @@ def stock_balcao():
         plan_date = date.today()
         priority_status = {'complete': False, 'missing': [], 'rows': [], 'error': str(exc)}
 
+    grid_date_value = (
+        request.form.get('data_grelha') if request.method == 'POST'
+        and request.form.get('action') == 'guardar_grelha'
+        else request.args.get('data_grelha')
+    )
+    try:
+        grid_date = date.fromisoformat(grid_date_value) if grid_date_value else (
+            date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
+        )
+        count_grid = get_pastelaria_sunday_count_grid(grid_date)
+    except (TypeError, ValueError) as exc:
+        grid_date = (
+            date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
+        )
+        count_grid = get_pastelaria_sunday_count_grid(grid_date)
+        count_grid['error'] = str(exc)
+
     return render_template('pastelaria/stock_balcao.html',
                            active_tab='stock_balcao',
                            tabs=_tabs_with_urls(),
@@ -255,6 +310,8 @@ def stock_balcao():
                            today=date.today().isoformat(),
                            plan_date=plan_date,
                            priority_status=priority_status,
+                           grid_date=grid_date,
+                           count_grid=count_grid,
                            stock_stores=stock_config['stores'],
                            can_generate_priority_plan=_can_generate_priority_plan(
                                session.get('user') or {}

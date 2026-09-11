@@ -18,7 +18,68 @@
     </div>
     {% endif %}
 
-    <h6 class="mb-2">Registar Contagem de Stock</h6>
+    <div class="card border-primary mb-3">
+        <div class="card-header">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <span class="fw-semibold">Contagem completa de domingo</span>
+                <span id="grid-progress" class="badge bg-secondary">
+                    {{ count_grid.completed }}/{{ count_grid.total }} preenchidos
+                </span>
+            </div>
+        </div>
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <div class="col-sm-6">
+                    <label class="form-label small">Domingo da contagem</label>
+                    <input type="date" name="data_grelha" class="form-control form-control-sm"
+                           value="{{ grid_date.isoformat() }}" required>
+                </div>
+                <div class="col-sm-6">
+                    <button class="btn btn-outline-secondary btn-sm w-100">Abrir grelha</button>
+                </div>
+            </form>
+            {% if count_grid.error %}
+            <div class="alert alert-warning py-2 small">{{ count_grid.error }}</div>
+            {% endif %}
+            <form method="post" id="sunday-count-form">
+                <input type="hidden" name="action" value="guardar_grelha">
+                <input type="hidden" name="data_grelha" value="{{ grid_date.isoformat() }}">
+                <input type="hidden" name="snapshot_token" value="{{ count_grid.snapshot_token }}">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-2">
+                        <thead><tr><th>Produto</th>{% for store in count_grid.stores %}<th class="text-center">{{ store.name }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                        {% for product in count_grid.products %}
+                            <tr>
+                                <th class="fw-normal">{{ product.nome }}</th>
+                                {% for store in count_grid.stores %}
+                                {% set quantity = product.counts[store.id] %}
+                                <td>
+                                    <input type="number"
+                                           class="form-control form-control-sm text-center sunday-count-input{% if quantity is none %} border-warning{% endif %}"
+                                           name="count_{{ product.id }}_{{ store.id }}"
+                                           value="{{ '' if quantity is none else quantity }}"
+                                           min="0" step="1" required
+                                           aria-label="{{ product.nome }} — {{ store.name }}">
+                                </td>
+                                {% endfor %}
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div id="grid-missing" class="small text-warning mb-2"></div>
+                <button type="submit" id="save-grid" class="btn btn-primary btn-sm w-100">
+                    Guardar contagem completa
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <details class="mb-3">
+        <summary class="small fw-semibold">Registar apenas um produto</summary>
+        <div class="pt-2">
+    <h6 class="mb-2">Registo individual</h6>
 
     <form method="POST" action="{{ url_for('pastelaria.stock_balcao') }}">
         <input type="hidden" name="action" value="registar">
@@ -50,6 +111,8 @@
         </div>
         <button type="submit" class="btn btn-primary btn-sm w-100 mt-2">Registar Contagem</button>
     </form>
+        </div>
+    </details>
 
     <hr>
     <div class="card border-primary mb-3">
@@ -162,4 +225,29 @@
     </form>
     {% endif %}
 </div>
+<script>
+(() => {
+    const inputs = [...document.querySelectorAll('.sunday-count-input')];
+    const progress = document.getElementById('grid-progress');
+    const missing = document.getElementById('grid-missing');
+    const save = document.getElementById('save-grid');
+    function updateProgress() {
+        const incomplete = inputs.filter(input =>
+            input.value.trim() === '' || !input.validity.valid
+        );
+        const done = inputs.length - incomplete.length;
+        progress.textContent = `${done}/${inputs.length} preenchidos`;
+        progress.className = `badge ${incomplete.length ? 'bg-warning text-dark' : 'bg-success'}`;
+        missing.textContent = incomplete.length
+            ? `Faltam ${incomplete.length} campo(s). Os campos em falta estão assinalados.`
+            : 'Grelha completa e pronta a guardar.';
+        incomplete.forEach(input => input.classList.add('border-warning'));
+        inputs.filter(input => !incomplete.includes(input))
+            .forEach(input => input.classList.remove('border-warning'));
+        save.disabled = inputs.length === 0 || incomplete.length > 0;
+    }
+    inputs.forEach(input => input.addEventListener('input', updateProgress));
+    updateProgress();
+})();
+</script>
 {% endblock %}

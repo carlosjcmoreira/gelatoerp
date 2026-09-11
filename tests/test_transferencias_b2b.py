@@ -133,6 +133,35 @@ class TransferenciasB2BTests(unittest.TestCase):
         self.assertEqual(len(cursor.executions), 1)
         self.assertEqual(connection.commits, 0)
 
+    def test_sunday_pastelaria_receipt_uses_count_date_lock(self):
+        cursor = FakeCursor(fetchone_values=[
+            ("Pastelaria", "Palito", None, 5, "und", "Bolhão", "loja")
+        ])
+        connection = FakeConnection(cursor)
+
+        with (
+            patch.object(plano, "db_connection", connection_factory(connection)),
+            patch.object(plano, "date") as mocked_date,
+        ):
+            mocked_date.today.return_value = date(2026, 9, 6)
+            confirmed = plano.confirmar_ordem_transferencia(46, "operador")
+
+        self.assertTrue(confirmed)
+        statements = [query for query, _ in cursor.executions]
+        lock_index = next(
+            index for index, query in enumerate(statements)
+            if 'pg_advisory_xact_lock' in query
+        )
+        count_index = next(
+            index for index, query in enumerate(statements)
+            if 'INSERT INTO contagem_stock' in query
+        )
+        self.assertLess(lock_index, count_index)
+        self.assertEqual(
+            cursor.executions[lock_index][1],
+            ('pastelaria-count:2026-09-06',),
+        )
+
     def test_order_reader_exposes_destination_type_and_name(self):
         row = (
             46,
