@@ -107,7 +107,7 @@ def add_contagem_stock(data: date, loja: str, produto: str, quantidade: int, tip
         conn.commit()
 
 
-def get_pastelaria_sunday_count_grid(count_date):
+def get_pastelaria_sunday_count_grid(count_date, store_id=None):
     """Return the active store/product matrix and latest count for a Sunday."""
     if count_date.weekday() != 6:
         raise ValueError('Escolha um domingo para preencher a grelha de contagem.')
@@ -117,10 +117,12 @@ def get_pastelaria_sunday_count_grid(count_date):
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             (f'pastelaria-count:{count_date.isoformat()}',),
         )
-        cursor.execute("""
+        store_filter = " AND id=%s" if store_id is not None else ""
+        cursor.execute(f"""
             SELECT id, name FROM stores
-            WHERE supports_vendas=TRUE AND is_active=TRUE ORDER BY name
-        """)
+            WHERE supports_vendas=TRUE AND is_active=TRUE{store_filter}
+            ORDER BY name
+        """, (store_id,) if store_id is not None else None)
         stores = cursor.fetchall()
         cursor.execute("""
             SELECT id, tipologia, sabor, cobertura
@@ -138,16 +140,21 @@ def get_pastelaria_sunday_count_grid(count_date):
             (row['loja'], row['produto']): int(row['quantidade'])
             for row in cursor.fetchall()
         }
-        cursor.execute("""
+        token_filter = """
+            AND loja=(SELECT name FROM stores
+                      WHERE id=%s AND supports_vendas=TRUE AND is_active=TRUE)
+        """ if store_id is not None else ""
+        cursor.execute(f"""
             SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, produto), ''))
                    AS snapshot_token
             FROM (
                 SELECT DISTINCT ON (loja, produto) id, loja, produto
                 FROM contagem_stock
                 WHERE tipo='pastelaria' AND data=%s
+                {token_filter}
                 ORDER BY loja, produto, id DESC
             ) latest
-        """, (count_date,))
+        """, (count_date, store_id) if store_id is not None else (count_date,))
         snapshot_token = cursor.fetchone()['snapshot_token']
     rows = []
     completed = 0
@@ -171,7 +178,9 @@ def get_pastelaria_sunday_count_grid(count_date):
     }
 
 
-def save_pastelaria_sunday_counts(count_date, values, snapshot_token):
+def save_pastelaria_sunday_counts(
+    count_date, values, snapshot_token, store_id=None
+):
     """Append one complete Sunday count snapshot in a single transaction."""
     if count_date.weekday() != 6:
         raise ValueError('A data da contagem tem de ser um domingo.')
@@ -181,13 +190,13 @@ def save_pastelaria_sunday_counts(count_date, values, snapshot_token):
         character not in '0123456789abcdef' for character in snapshot_token
     ):
         raise ValueError('A versão da grelha é inválida.') from None
-    for product_id, store_id, quantity in values:
+    for product_id, value_store_id, quantity in values:
         if (
             isinstance(quantity, bool) or not isinstance(quantity, int)
             or quantity < 0
         ):
             raise ValueError('As contagens devem ser números inteiros não negativos.')
-        key = (product_id, store_id)
+        key = (product_id, value_store_id)
         if key in normalized:
             raise ValueError('A grelha contém células repetidas.')
         normalized[key] = quantity
@@ -198,26 +207,33 @@ def save_pastelaria_sunday_counts(count_date, values, snapshot_token):
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             (f'pastelaria-count:{count_date.isoformat()}',),
         )
-        cursor.execute("""
+        token_filter = """
+            AND loja=(SELECT name FROM stores
+                      WHERE id=%s AND supports_vendas=TRUE AND is_active=TRUE)
+        """ if store_id is not None else ""
+        cursor.execute(f"""
             SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, produto), ''))
                    AS snapshot_token
             FROM (
                 SELECT DISTINCT ON (loja, produto) id, loja, produto
                 FROM contagem_stock
                 WHERE tipo='pastelaria' AND data=%s
+                {token_filter}
                 ORDER BY loja, produto, id DESC
             ) latest
-        """, (count_date,))
+        """, (count_date, store_id) if store_id is not None else (count_date,))
         current_token = cursor.fetchone()['snapshot_token']
         if current_token != snapshot_token:
             raise ValueError(
                 'Esta grelha foi alterada por outro utilizador. '
                 'Atualize a página antes de guardar.'
             )
-        cursor.execute("""
+        store_filter = " AND id=%s" if store_id is not None else ""
+        cursor.execute(f"""
             SELECT id, name FROM stores
-            WHERE supports_vendas=TRUE AND is_active=TRUE ORDER BY name
-        """)
+            WHERE supports_vendas=TRUE AND is_active=TRUE{store_filter}
+            ORDER BY name
+        """, (store_id,) if store_id is not None else None)
         stores = cursor.fetchall()
         cursor.execute("""
             SELECT id, tipologia, sabor, cobertura
@@ -644,6 +660,22 @@ def get_pastelaria_priority_plan(plan_id=None, count_date=None):
         """, (plan['id'],))
         plan['rows'] = cursor.fetchall()
         return plan
+
+
+def list_pastelaria_priority_plans(limit=100):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT p.id, p.data_contagem, p.versao, p.generated_by,
+                   p.generated_at, COUNT(l.id) AS line_count
+            FROM pastelaria_planos_prioridade p
+            LEFT JOIN pastelaria_plano_prioridade_linhas l
+              ON l.plano_id=p.id
+            GROUP BY p.id
+            ORDER BY p.data_contagem DESC, p.versao DESC
+            LIMIT %s
+        """, (limit,))
+        return cursor.fetchall()
 
 def add_produto_pastelaria(tipologia: str, sabor: str = '', cobertura: str = ''):
     with db_connection() as conn:

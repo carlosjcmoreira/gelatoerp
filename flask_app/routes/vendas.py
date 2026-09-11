@@ -24,6 +24,9 @@ import flask_app.services.vendas as vendas_svc
 from flask_app.services import ServiceError
 from flask_app.utils.finance import parse_date as _shared_parse_date
 from db.plano import get_ordem_transferencia_by_id, criar_transferencia_entre_lojas, get_latest_pesagem_por_sabor, get_effective_stock_por_sabor
+from db.pastelaria import (
+    get_pastelaria_sunday_count_grid, save_pastelaria_sunday_counts,
+)
 
 vendas_bp = Blueprint('vendas', __name__)
 
@@ -35,6 +38,7 @@ TAB_DEFS = [
     {'id': 'pesagem', 'label': 'Pesagem Fim de Dia', 'icon': '⚖️', 'endpoint': 'vendas.pesagem'},
     {'id': 'fecho_caixa', 'label': 'Fecho de Caixa', 'icon': '💵', 'endpoint': 'vendas.fecho_caixa'},
     {'id': 'sabores_ativos', 'label': 'Sabores Ativos', 'icon': '✅', 'endpoint': 'vendas.sabores_ativos'},
+    {'id': 'contagem_pastelaria', 'label': 'Contagem Pastelaria', 'icon': '🧁', 'endpoint': 'vendas.contagem_pastelaria'},
     {'id': 'fecho_historico', 'label': 'Histórico Caixa', 'icon': '📋', 'endpoint': 'vendas.fecho_historico', 'gestor_only': True},
 ]
 
@@ -167,6 +171,67 @@ def _user_owns_loja(loja_nome):
         if store['name'] == loja_nome and store['id'] in vendas_store_ids:
             return True
     return False
+
+
+def _previous_sunday(value=None):
+    try:
+        selected = date.fromisoformat(str(value)) if value else date.today()
+    except ValueError:
+        selected = date.today()
+    return selected - timedelta(days=(selected.weekday() + 1) % 7)
+
+
+@vendas_bp.route('/contagem-pastelaria', methods=['GET', 'POST'])
+@login_required
+def contagem_pastelaria():
+    if not _check_vendas_access():
+        return redirect(url_for('home.index'))
+    loja_id, loja_nome = _get_user_loja()
+    if not loja_id:
+        flash('Não foi possível identificar a loja.', 'warning')
+        return redirect(url_for('vendas.index'))
+    selected_date = _previous_sunday(
+        request.form.get('data') if request.method == 'POST'
+        else request.args.get('data')
+    )
+    submitted = {}
+    error = None
+    if request.method == 'POST':
+        grid = get_pastelaria_sunday_count_grid(selected_date, loja_id)
+        try:
+            values = []
+            for product in grid['products']:
+                key = f"count_{product['id']}"
+                raw = request.form.get(key)
+                submitted[product['id']] = raw
+                if raw is None or not raw.strip().isdigit():
+                    raise ValueError(
+                        'Preencha todos os produtos com quantidades inteiras.'
+                    )
+                values.append((product['id'], loja_id, int(raw)))
+            save_pastelaria_sunday_counts(
+                selected_date, values, request.form.get('snapshot_token'),
+                store_id=loja_id,
+            )
+            flash(f'Contagem de {loja_nome} guardada.', 'success')
+            return redirect(url_for(
+                'vendas.contagem_pastelaria',
+                loja_id=loja_id, data=selected_date.isoformat(),
+            ))
+        except ValueError as exc:
+            error = str(exc)
+    grid = get_pastelaria_sunday_count_grid(selected_date, loja_id)
+    if submitted:
+        for product in grid['products']:
+            raw = submitted.get(product['id'])
+            if raw is not None and raw.strip().isdigit():
+                product['counts'][loja_id] = int(raw)
+    return render_template(
+        'vendas/contagem_pastelaria.html',
+        tabs=_build_tabs('contagem_pastelaria', loja_id),
+        loja_id=loja_id, loja_nome=loja_nome, grid=grid,
+        selected_date=selected_date, error=error,
+    )
 
 
 @vendas_bp.route('/')

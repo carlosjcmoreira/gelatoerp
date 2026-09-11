@@ -292,23 +292,196 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             }
         with (
             patch(
-                'flask_app.routes.pastelaria.get_produtos_pastelaria',
-                return_value=['Palito'],
+                'flask_app.routes.pastelaria.get_pastelaria_priority_status',
+                return_value={
+                    'complete': True, 'rows': [], 'missing': [],
+                    'missing_minimums': [],
+                },
             ),
             patch(
-                'flask_app.routes.pastelaria.get_pastelaria_stock_minimums',
-                return_value=config,
+                'flask_app.routes.pastelaria.list_pastelaria_priority_plans',
+                return_value=[],
             ),
             patch(
                 'flask_app.routes.pastelaria.generate_pastelaria_priority_plan'
             ) as generate,
         ):
             response = client.post(
-                '/pastelaria/stock-balcao',
-                data={'action': 'gerar_plano', 'data_plano': '2026-09-06'},
+                '/pastelaria/planear',
+                data={'domingo': '2026-09-06'},
             )
         self.assertEqual(response.status_code, 403)
         generate.assert_not_called()
+
+    def test_store_scoped_grid_only_requires_the_selected_store(self):
+        cursor = _Cursor([
+            [{'id': 2, 'name': 'Matosinhos'}],
+            [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
+            [{'loja': 'Matosinhos', 'produto': 'Palito', 'quantidade': 4}],
+            [{'snapshot_token': self.TOKEN_81}],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            grid = pastelaria.get_pastelaria_sunday_count_grid(
+                date(2026, 9, 6), store_id=2,
+            )
+        self.assertEqual([store['name'] for store in grid['stores']], ['Matosinhos'])
+        self.assertEqual(grid['total'], 1)
+        self.assertTrue(grid['complete'])
+        self.assertTrue(any('id=%s' in query for query, _ in cursor.queries))
+
+    def test_unscoped_save_does_not_inherit_last_cell_store(self):
+        cursor = _Cursor([
+            [{'snapshot_token': self.TOKEN_81}],
+            [{'id': 1, 'name': 'Bolhão'}, {'id': 2, 'name': 'Matosinhos'}],
+            [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
+        ])
+        with (
+            patch('db.pastelaria.db_connection', return_value=_Connection(cursor)),
+            patch('db.pastelaria.execute_values'),
+        ):
+            pastelaria.save_pastelaria_sunday_counts(
+                date(2026, 9, 6),
+                [(10, 1, 3), (10, 2, 4)],
+                self.TOKEN_81,
+            )
+        token_params = cursor.queries[1][1]
+        stores_params = cursor.queries[2][1]
+        self.assertEqual(token_params, (date(2026, 9, 6),))
+        self.assertIsNone(stores_params)
+
+    def test_invalid_plan_post_never_generates_fallback_sunday(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'gestor', 'role': 'gestao',
+                'acesso_pastelaria': True, 'acesso_gestor': True,
+            }
+        fallback = {
+            'complete': False, 'rows': [], 'missing': [],
+            'missing_minimums': [],
+        }
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_priority_status',
+                side_effect=[
+                    ValueError('O plano só pode ser gerado a partir de domingo.'),
+                    fallback,
+                ],
+            ),
+            patch(
+                'flask_app.routes.pastelaria.list_pastelaria_priority_plans',
+                return_value=[],
+            ),
+            patch(
+                'flask_app.routes.pastelaria.generate_pastelaria_priority_plan'
+            ) as generate,
+        ):
+            response = client.post(
+                '/pastelaria/planear', data={'domingo': '2026-09-07'}
+            )
+        self.assertEqual(response.status_code, 200)
+        generate.assert_not_called()
+
+    def test_store_user_cannot_switch_pastelaria_count_to_another_store(self):
+        from flask_app.routes.vendas import vendas_bp
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(vendas_bp, url_prefix='/vendas')
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'bolhao', 'role': 'vendas',
+                'vendas_store_ids': [1],
+            }
+        store_rows = {
+            1: {'id': 1, 'name': 'Bolhão', 'store_type': 'loja',
+                'requires_eod_weighing': True},
+            2: {'id': 2, 'name': 'Matosinhos', 'store_type': 'loja',
+                'requires_eod_weighing': True},
+        }
+        grid = {
+            'products': [], 'stores': [store_rows[1]], 'completed': 0,
+            'total': 0, 'complete': False, 'snapshot_token': self.TOKEN_81,
+        }
+        with (
+            patch(
+                'flask_app.routes.vendas.get_store_by_id',
+                side_effect=lambda store_id: store_rows.get(store_id),
+            ),
+            patch(
+                'flask_app.routes.vendas.get_pastelaria_sunday_count_grid',
+                return_value=grid,
+            ) as get_grid,
+            patch(
+                'flask_app.routes.vendas._build_tabs', return_value=[]
+            ),
+            patch(
+                'flask_app.routes.vendas.render_template',
+                side_effect=lambda _name, **context: context['loja_nome'],
+            ),
+        ):
+            response = client.get(
+                '/vendas/contagem-pastelaria?loja_id=2&data=2026-09-06'
+            )
+        self.assertEqual(response.get_data(as_text=True), 'Bolhão')
+        get_grid.assert_called_once_with(date(2026, 9, 6), 1)
+
+    def test_count_conflict_keeps_store_values_and_stock_view_is_read_only(self):
+        from flask_app.routes.vendas import vendas_bp
+        from flask_app.routes.pastelaria import pastelaria_bp
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(vendas_bp, url_prefix='/vendas')
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'bolhao', 'role': 'vendas',
+                'vendas_store_ids': [1],
+            }
+        store = {
+            'id': 1, 'name': 'Bolhão', 'store_type': 'loja',
+            'requires_eod_weighing': True,
+        }
+        def fresh_grid():
+            return {
+                'products': [{
+                    'id': 10, 'nome': 'Palito', 'counts': {1: 2},
+                }],
+                'stores': [store], 'completed': 1, 'total': 1,
+                'complete': True, 'snapshot_token': self.TOKEN_82,
+            }
+        rendered = {}
+        def capture(_name, **context):
+            rendered.update(context)
+            return str(context['grid']['products'][0]['counts'][1])
+        with (
+            patch('flask_app.routes.vendas.get_store_by_id', return_value=store),
+            patch(
+                'flask_app.routes.vendas.get_pastelaria_sunday_count_grid',
+                side_effect=[fresh_grid(), fresh_grid()],
+            ),
+            patch(
+                'flask_app.routes.vendas.save_pastelaria_sunday_counts',
+                side_effect=ValueError('alterada por outro utilizador'),
+            ),
+            patch('flask_app.routes.vendas._build_tabs', return_value=[]),
+            patch('flask_app.routes.vendas.render_template', side_effect=capture),
+        ):
+            response = client.post('/vendas/contagem-pastelaria', data={
+                '_loja_id': '2', 'data': '2026-09-06',
+                'snapshot_token': self.TOKEN_81, 'count_10': '7',
+            })
+        self.assertEqual(response.get_data(as_text=True), '7')
+        self.assertIn('alterada por outro utilizador', rendered['error'])
+        self.assertEqual(client.post('/pastelaria/stock-balcao').status_code, 405)
 
     def test_print_template_has_calculated_and_handwritten_columns(self):
         template = Path(

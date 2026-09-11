@@ -28,6 +28,7 @@ from db.pastelaria import (
     get_pastelaria_priority_status,
     generate_pastelaria_priority_plan,
     get_pastelaria_priority_plan,
+    list_pastelaria_priority_plans,
 )
 
 pastelaria_bp = Blueprint('pastelaria', __name__)
@@ -175,93 +176,36 @@ def index():
                            menu_title=f'🍰 {custom_mod}' if custom_mod else '🍰 Produção Pastelaria')
 
 
-@pastelaria_bp.route('/stock-balcao', methods=['GET', 'POST'])
+@pastelaria_bp.route('/stock-balcao')
 @perm_required('acesso_pastelaria')
 def stock_balcao():
-    produtos_stock = get_produtos_pastelaria() or []
     stock_config = get_pastelaria_stock_minimums()
-    valid_store_names = {store['name'] for store in stock_config['stores']}
-
-    msg = None
-    msg_type = None
-
-    if request.method == 'POST':
-        action = request.form.get('action', '')
-
-        if action == 'registar':
-            data_contagem = request.form.get('data_contagem', '')
-            loja = request.form.get('loja', 'Matosinhos')
-            produto = request.form.get('produto', '')
-            raw_quantity = request.form.get('quantidade', '')
-            try:
-                count_date = date.fromisoformat(data_contagem)
-                if loja not in valid_store_names or produto not in produtos_stock:
-                    raise ValueError
-                if not raw_quantity.strip().isdigit():
-                    raise ValueError
-                quantidade = int(raw_quantity)
-            except (TypeError, ValueError):
-                msg, msg_type = 'Data, loja, produto ou quantidade inválidos.', 'warning'
-            else:
-                add_contagem_stock(count_date, loja, produto, quantidade, AREA)
-                msg = f'Contagem de {quantidade}x {produto} registada!'
-                msg_type = 'success'
-
-        elif action == 'guardar_grelha':
-            try:
-                count_date = date.fromisoformat(
-                    request.form.get('data_grelha', '')
-                )
-                grid_config = get_pastelaria_sunday_count_grid(count_date)
-                values = _parse_sunday_count_matrix(grid_config, request.form)
-                save_pastelaria_sunday_counts(
-                    count_date, values, request.form.get('snapshot_token')
-                )
-                flash(
-                    f'Contagem completa de domingo guardada: '
-                    f'{len(values)} valores.', 'success'
-                )
-                return redirect(url_for(
-                    'pastelaria.stock_balcao',
-                    data_grelha=count_date.isoformat(),
-                    data_plano=count_date.isoformat(),
-                ))
-            except (TypeError, ValueError) as exc:
-                msg, msg_type = str(exc), 'warning'
-
-        elif action == 'gerar_plano':
-            if not _can_generate_priority_plan(session.get('user') or {}):
-                abort(403)
-            try:
-                count_date = date.fromisoformat(request.form.get('data_plano', ''))
-                plan_id = generate_pastelaria_priority_plan(
-                    count_date, (session.get('user') or {}).get('username'),
-                )
-                return redirect(url_for('pastelaria.plano_prioridade', plan_id=plan_id))
-            except (TypeError, ValueError) as exc:
-                msg, msg_type = str(exc), 'warning'
-        elif action == 'eliminar':
-            id_del = request.form.get('id_delete', '0')
-            try:
-                delete_contagem_stock(int(id_del))
-                msg = 'Contagem eliminada!'
-                msg_type = 'success'
-            except (ValueError, Exception):
-                msg = 'Erro ao eliminar contagem.'
-                msg_type = 'danger'
-
     ultimo_stock = get_ultimo_stock_balcao(AREA)
-
     stock_matrix = {}
     for s in ultimo_stock:
         prod = s['produto']
         if prod not in stock_matrix:
-            stock_matrix[prod] = {'produto': prod, 'Bolhão': 0, 'Matosinhos': 0, 'data_bolhao': None, 'data_matosinhos': None}
-        stock_matrix[prod][s['loja']] = s['quantidade']
-        stock_matrix[prod][f"data_{s['loja'].lower()}"] = s['data']
+            stock_matrix[prod] = {'produto': prod, 'stores': {}}
+        stock_matrix[prod]['stores'][s['loja']] = {
+            'quantidade': s['quantidade'], 'data': s['data'],
+        }
     stock_matrix_list = sorted(stock_matrix.values(), key=lambda x: x['produto'])
 
-    contagens = get_contagem_stock_df(AREA)
+    try:
+        history_start = date.fromisoformat(request.args.get('inicio', ''))
+    except ValueError:
+        history_start = date.today() - timedelta(days=90)
+    try:
+        history_end = date.fromisoformat(request.args.get('fim', ''))
+    except ValueError:
+        history_end = date.today()
+    selected_store = request.args.get('loja', '').strip()
+    valid_stores = {store['name'] for store in stock_config['stores']}
+    if selected_store not in valid_stores:
+        selected_store = ''
+    contagens = get_contagem_stock_df(AREA, history_start, history_end)
+    if selected_store and not contagens.empty:
+        contagens = contagens[contagens['loja'] == selected_store]
     contagens_list = []
     if not contagens.empty:
         for _, row in contagens.iterrows():
@@ -273,189 +217,74 @@ def stock_balcao():
                 'quantidade': int(row['quantidade']),
             })
 
-    plan_date_value = request.args.get('data_plano')
+    sunday_value = request.args.get('domingo')
     try:
-        plan_date = date.fromisoformat(plan_date_value) if plan_date_value else (
+        sunday_date = date.fromisoformat(sunday_value) if sunday_value else (
             date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
         )
-        priority_status = get_pastelaria_priority_status(plan_date)
+        count_grid = get_pastelaria_sunday_count_grid(sunday_date)
     except ValueError as exc:
-        plan_date = date.today()
-        priority_status = {'complete': False, 'missing': [], 'rows': [], 'error': str(exc)}
-
-    grid_date_value = (
-        request.form.get('data_grelha') if request.method == 'POST'
-        and request.form.get('action') == 'guardar_grelha'
-        else request.args.get('data_grelha')
-    )
-    try:
-        grid_date = date.fromisoformat(grid_date_value) if grid_date_value else (
+        sunday_date = (
             date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
         )
-        count_grid = get_pastelaria_sunday_count_grid(grid_date)
-    except (TypeError, ValueError) as exc:
-        grid_date = (
-            date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
-        )
-        count_grid = get_pastelaria_sunday_count_grid(grid_date)
+        count_grid = get_pastelaria_sunday_count_grid(sunday_date)
         count_grid['error'] = str(exc)
 
     return render_template('pastelaria/stock_balcao.html',
                            active_tab='stock_balcao',
                            tabs=_tabs_with_urls(),
-                           produtos=produtos_stock,
-                           ultimo_stock=ultimo_stock,
                            stock_matrix=stock_matrix_list,
                            contagens=contagens_list,
-                           today=date.today().isoformat(),
-                           plan_date=plan_date,
-                           priority_status=priority_status,
-                           grid_date=grid_date,
                            count_grid=count_grid,
+                           sunday_date=sunday_date,
                            stock_stores=stock_config['stores'],
-                           can_generate_priority_plan=_can_generate_priority_plan(
-                               session.get('user') or {}
-                           ),
-                           msg=msg,
-                           msg_type=msg_type)
+                           history_start=history_start,
+                           history_end=history_end,
+                           selected_store=selected_store)
 
 
 @pastelaria_bp.route('/planear', methods=['GET', 'POST'])
 @perm_required('acesso_pastelaria')
 def planear():
-    produtos = get_produtos_pastelaria() or []
-    produtos_normais = [p for p in produtos if p.strip().casefold() != 'bolo']
-    week_start = _week_start(request.values.get('week_start'))
-    week_days = _week_days(week_start)
     msg = None
     msg_type = None
-
+    valid_selected_date = True
+    selected_value = request.values.get('domingo')
+    try:
+        selected_date = date.fromisoformat(selected_value) if selected_value else (
+            date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
+        )
+        status = get_pastelaria_priority_status(selected_date)
+    except (TypeError, ValueError) as exc:
+        valid_selected_date = False
+        selected_date = date.today() - timedelta(
+            days=(date.today().weekday() + 1) % 7
+        )
+        status = get_pastelaria_priority_status(selected_date)
+        status['error'] = str(exc)
     if request.method == 'POST':
-        action = request.form.get('action', '')
-
-        if action == 'save_plano':
-            count = 0
-            for day in week_days:
-                day_key = day.isoformat()
-                for index, produto in enumerate(produtos_normais):
-                    est_bol = _parse_int(
-                        request.form.get(f'est_bol_{day_key}_{index}', '0')
-                    )
-                    est_mat = _parse_int(
-                        request.form.get(f'est_mat_{day_key}_{index}', '0')
-                    )
-                    est_total = est_bol + est_mat
-                    if est_total > 0:
-                        upsert_plano_area(
-                            AREA, day, produto, est_total,
-                            estimada_bolhao=est_bol,
-                            estimada_matosinhos=est_mat,
-                            nota=request.form.get(f'nota_{day_key}_{index}', ''),
-                        )
-                        marcar_produto_no_plano(AREA, day, produto)
-                        count += 1
-            if count > 0:
-                msg = f'Plano semanal guardado com {count} artigo(s)!'
-                msg_type = 'success'
-            else:
-                msg = 'Nenhuma quantidade definida.'
-                msg_type = 'warning'
-
-        elif action == 'save_bolo':
-            bolo_data_str = request.form.get('bolo_data', '')
+        if not _can_generate_priority_plan(session.get('user') or {}):
+            abort(403)
+        if valid_selected_date:
             try:
-                bolo_data = date.fromisoformat(bolo_data_str)
-            except ValueError:
-                bolo_data = None
-            if bolo_data not in week_days:
-                msg = 'Escolha um dia dentro da semana apresentada.'
-                msg_type = 'warning'
-            else:
-                config, error = validate_bolo_configuration(
-                    request.form.get('bolo_tamanho'),
-                    [request.form.get(f'bolo_sabor_{index}', '') for index in range(1, 4)],
-                    request.form.get('bolo_cobertura', ''),
-                    db.get_bolo_tamanhos(),
-                    db.get_sabores_list(),
-                    [c['nome'] for c in db.get_all_coberturas() if c['ativo']],
+                plan_id = generate_pastelaria_priority_plan(
+                    selected_date, (session.get('user') or {}).get('username'),
                 )
-                bolo_bol = _parse_int(request.form.get('bolo_qtd_bolhao', '0'))
-                bolo_mat = _parse_int(request.form.get('bolo_qtd_matosinhos', '0'))
-                if error:
-                    msg, msg_type = error, 'warning'
-                elif bolo_bol + bolo_mat <= 0:
-                    msg, msg_type = 'Indique uma quantidade de Bolo para pelo menos uma loja.', 'warning'
-                else:
-                    produto = db.build_bolo_product_label(
-                        config['tamanho'], config['sabores'], config['cobertura']
-                    )
-                    upsert_plano_area(
-                        AREA, bolo_data, produto, bolo_bol + bolo_mat,
-                        estimada_bolhao=bolo_bol,
-                        estimada_matosinhos=bolo_mat,
-                        item_tipo='bolo',
-                        bolo_tamanho=config['tamanho'],
-                        bolo_sabor_1=config['sabores'][0],
-                        bolo_sabor_2=config['sabores'][1] if len(config['sabores']) > 1 else None,
-                        bolo_sabor_3=config['sabores'][2] if len(config['sabores']) > 2 else None,
-                        bolo_cobertura=config['cobertura'] or None,
-                        nota=request.form.get('bolo_nota', ''),
-                    )
-                    marcar_produto_no_plano(AREA, bolo_data, produto)
-                    msg = f'Bolo adicionado ao plano de {bolo_data.strftime("%d/%m")}.'
-                    msg_type = 'success'
-
-        elif action == 'remover_produto':
-            data_str = request.form.get('data', '')
-            produto = request.form.get('produto', '')
-            try:
-                item_date = date.fromisoformat(data_str)
-            except ValueError:
-                item_date = None
-            if produto and item_date in week_days:
-                remover_produto_do_plano(AREA, item_date, produto)
-                msg = f'{produto} removido do plano.'
-                msg_type = 'success'
-
-    plano_rows = get_plano_intervalo_area(AREA, week_start, week_days[-1])
-    rows_by_day = {day: [] for day in week_days}
-    for row in plano_rows:
-        rows_by_day.setdefault(row['data'], []).append(row)
-    days = []
-    day_labels = ('Segunda-feira', 'Terça-feira', 'Quarta-feira',
-                  'Quinta-feira', 'Sexta-feira', 'Sábado', 'Domingo')
-    for day in week_days:
-        rows = rows_by_day.get(day, [])
-        rows_by_product = {row['produto']: row for row in rows}
-        standard_rows = []
-        for produto in produtos_normais:
-            row = rows_by_product.get(produto, {})
-            standard_rows.append({
-                'nome': produto,
-                'estimado_bolhao': row.get('estimado_bolhao', 0),
-                'estimado_matosinhos': row.get('estimado_matosinhos', 0),
-                'estimado': row.get('estimado', 0),
-                'nota': row.get('nota', ''),
-            })
-        days.append({
-            'date': day,
-            'iso': day.isoformat(),
-            'label': day_labels[day.weekday()],
-            'rows': rows,
-            'standard_rows': standard_rows,
-            'bolo_rows': [row for row in rows if row.get('item_tipo') == 'bolo'],
-        })
+                return redirect(url_for(
+                    'pastelaria.plano_prioridade', plan_id=plan_id
+                ))
+            except ValueError as exc:
+                msg, msg_type = str(exc), 'warning'
 
     return render_template('pastelaria/planear.html',
                            active_tab='planear',
                            tabs=_tabs_with_urls(),
-                           days=days,
-                           week_start=week_start,
-                           previous_week=(week_start - timedelta(days=7)).isoformat(),
-                           next_week=(week_start + timedelta(days=7)).isoformat(),
-                           bolo_tamanhos=db.get_bolo_tamanhos(),
-                           bolo_sabores=db.get_sabores_list(),
-                           bolo_coberturas=[c for c in db.get_all_coberturas() if c['ativo']],
+                           selected_date=selected_date,
+                           priority_status=status,
+                           plans=list_pastelaria_priority_plans(),
+                           can_generate=_can_generate_priority_plan(
+                               session.get('user') or {}
+                           ),
                            msg=msg,
                            msg_type=msg_type)
 

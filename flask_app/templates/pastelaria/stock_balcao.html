@@ -1,253 +1,39 @@
 {% extends "base.html" %}
 {% set back_url = url_for("pastelaria.index") %}
-
 {% block content %}
 <div class="container-fluid px-3 py-3">
-    {% include "components/tabs.html" %}
-    <h5 class="mb-1">📦 Visão de Stock</h5>
-    <p class="text-muted small mb-2">Contagens manuais de stock por produto e loja</p>
-    <div class="alert alert-light border py-2 px-3 mb-3 small">
-        Os valores aqui registados são <strong>contagens manuais</strong> feitas fisicamente no balcão de cada loja.
-        O stock disponível para enviar (produção) é diferente — consulta a aba <strong>Transferir para Loja</strong>.
+  {% include "components/tabs.html" %}
+  <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+    <div><h5 class="mb-1">📦 Visão de Stock</h5><p class="text-muted small mb-0">Consulta das contagens recebidas das lojas.</p></div>
+    <a href="{{ url_for('pastelaria.planear', domingo=sunday_date.isoformat()) }}" class="btn btn-primary btn-sm">Planear produção</a>
+  </div>
+  <div class="alert alert-light border small">As contagens são preenchidas no módulo <strong>Vendas</strong> de cada loja. Esta página não altera os valores.</div>
+
+  <form method="get" class="card card-body mb-3">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-3"><label class="form-label small">Domingo</label><input type="date" name="domingo" value="{{ sunday_date.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-md-3"><label class="form-label small">Loja no histórico</label><select name="loja" class="form-select form-select-sm"><option value="">Todas</option>{% for store in stock_stores %}<option value="{{ store.name }}" {% if selected_store==store.name %}selected{% endif %}>{{ store.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label small">Desde</label><input type="date" name="inicio" value="{{ history_start.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-md-2"><label class="form-label small">Até</label><input type="date" name="fim" value="{{ history_end.isoformat() }}" class="form-control form-control-sm"></div>
+      <div class="col-md-2"><button class="btn btn-outline-secondary btn-sm w-100">Atualizar</button></div>
     </div>
+  </form>
 
-    {% if msg %}
-    <div class="alert alert-{{ msg_type }} alert-dismissible fade show" role="alert">
-        {{ msg }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    </div>
-    {% endif %}
+  <div class="card mb-3"><div class="card-header fw-semibold">Estado da contagem de {{ sunday_date.strftime('%d/%m/%Y') }}</div><div class="card-body">
+    {% if count_grid.error %}<div class="alert alert-warning small">{{ count_grid.error }}</div>{% endif %}
+    <div class="row g-2">{% for store in count_grid.stores %}{% set ns=namespace(done=0) %}{% for product in count_grid.products %}{% if product.counts[store.id] is not none %}{% set ns.done=ns.done+1 %}{% endif %}{% endfor %}
+      <div class="col-sm-6"><div class="border rounded p-2 d-flex justify-content-between"><strong>{{ store.name }}</strong><span class="badge {% if ns.done==count_grid.products|length and ns.done>0 %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ ns.done }}/{{ count_grid.products|length }}</span></div></div>
+    {% endfor %}</div>
+  </div></div>
 
-    <div class="card border-primary mb-3">
-        <div class="card-header">
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <span class="fw-semibold">Contagem completa de domingo</span>
-                <span id="grid-progress" class="badge bg-secondary">
-                    {{ count_grid.completed }}/{{ count_grid.total }} preenchidos
-                </span>
-            </div>
-        </div>
-        <div class="card-body">
-            <form method="get" class="row g-2 align-items-end mb-3">
-                <div class="col-sm-6">
-                    <label class="form-label small">Domingo da contagem</label>
-                    <input type="date" name="data_grelha" class="form-control form-control-sm"
-                           value="{{ grid_date.isoformat() }}" required>
-                </div>
-                <div class="col-sm-6">
-                    <button class="btn btn-outline-secondary btn-sm w-100">Abrir grelha</button>
-                </div>
-            </form>
-            {% if count_grid.error %}
-            <div class="alert alert-warning py-2 small">{{ count_grid.error }}</div>
-            {% endif %}
-            <form method="post" id="sunday-count-form">
-                <input type="hidden" name="action" value="guardar_grelha">
-                <input type="hidden" name="data_grelha" value="{{ grid_date.isoformat() }}">
-                <input type="hidden" name="snapshot_token" value="{{ count_grid.snapshot_token }}">
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-2">
-                        <thead><tr><th>Produto</th>{% for store in count_grid.stores %}<th class="text-center">{{ store.name }}</th>{% endfor %}</tr></thead>
-                        <tbody>
-                        {% for product in count_grid.products %}
-                            <tr>
-                                <th class="fw-normal">{{ product.nome }}</th>
-                                {% for store in count_grid.stores %}
-                                {% set quantity = product.counts[store.id] %}
-                                <td>
-                                    <input type="number"
-                                           class="form-control form-control-sm text-center sunday-count-input{% if quantity is none %} border-warning{% endif %}"
-                                           name="count_{{ product.id }}_{{ store.id }}"
-                                           value="{{ '' if quantity is none else quantity }}"
-                                           min="0" step="1" required
-                                           aria-label="{{ product.nome }} — {{ store.name }}">
-                                </td>
-                                {% endfor %}
-                            </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                <div id="grid-missing" class="small text-warning mb-2"></div>
-                <button type="submit" id="save-grid" class="btn btn-primary btn-sm w-100">
-                    Guardar contagem completa
-                </button>
-            </form>
-        </div>
-    </div>
+  <h6>Stock atual por produto e loja</h6>
+  <div class="table-responsive mb-4"><table class="table table-sm table-striped align-middle"><thead><tr><th>Produto</th>{% for store in stock_stores %}<th class="text-center">{{ store.name }}</th>{% endfor %}</tr></thead><tbody>
+    {% for row in stock_matrix %}<tr><td>{{ row.produto }}</td>{% for store in stock_stores %}{% set value=row.stores.get(store.name) %}<td class="text-center"><strong>{{ value.quantidade if value else '—' }}</strong>{% if value and value.data %}<br><small class="text-muted">{{ value.data.strftime('%d/%m/%Y') }}</small>{% endif %}</td>{% endfor %}</tr>{% else %}<tr><td colspan="{{ stock_stores|length + 1 }}" class="text-muted text-center">Sem stock registado.</td></tr>{% endfor %}
+  </tbody></table></div>
 
-    <details class="mb-3">
-        <summary class="small fw-semibold">Registar apenas um produto</summary>
-        <div class="pt-2">
-    <h6 class="mb-2">Registo individual</h6>
-
-    <form method="POST" action="{{ url_for('pastelaria.stock_balcao') }}">
-        <input type="hidden" name="action" value="registar">
-        <div class="row g-2 mb-2">
-            <div class="col-6">
-                <label class="form-label small">Data da Contagem</label>
-                <input type="date" class="form-control form-control-sm" name="data_contagem" value="{{ today }}" required>
-            </div>
-            <div class="col-6">
-                <label class="form-label small">Loja</label>
-                <select class="form-select form-select-sm" name="loja">
-                    {% for store in stock_stores %}<option value="{{ store.name }}">{{ store.name }}</option>{% endfor %}
-                </select>
-            </div>
-        </div>
-        <div class="row g-2 mb-2">
-            <div class="col-6">
-                <label class="form-label small">Produto</label>
-                <select class="form-select form-select-sm" name="produto" required>
-                    {% for p in produtos %}
-                    <option value="{{ p }}">{{ p }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-6">
-                <label class="form-label small">Quantidade (unidades)</label>
-                <input type="number" class="form-control form-control-sm" name="quantidade" value="0" min="0" step="1" required>
-            </div>
-        </div>
-        <button type="submit" class="btn btn-primary btn-sm w-100 mt-2">Registar Contagem</button>
-    </form>
-        </div>
-    </details>
-
-    <hr>
-    <div class="card border-primary mb-3">
-        <div class="card-header fw-semibold">Plano prioritário de produção</div>
-        <div class="card-body">
-            <form method="get" class="row g-2 align-items-end mb-3">
-                <div class="col-sm-6"><label class="form-label small">Domingo da contagem</label><input type="date" name="data_plano" class="form-control form-control-sm" value="{{ plan_date.isoformat() }}" required></div>
-                <div class="col-sm-6"><button class="btn btn-outline-secondary btn-sm w-100">Verificar contagem</button></div>
-            </form>
-            {% if priority_status.error %}
-            <div class="alert alert-warning py-2 small">{{ priority_status.error }}</div>
-            {% elif priority_status.complete %}
-            <div class="alert alert-success py-2 small">Contagem completa. {{ priority_status.rows|length }} produto(s) precisam de produção.</div>
-            {% if can_generate_priority_plan %}<form method="post">
-                <input type="hidden" name="action" value="gerar_plano">
-                <input type="hidden" name="data_plano" value="{{ plan_date.isoformat() }}">
-                <button class="btn btn-primary btn-sm">Gerar plano de produção</button>
-            </form>{% else %}<div class="text-muted small">Apenas Produção ou Gestão pode gerar o plano.</div>{% endif %}
-            {% else %}
-            <div class="alert alert-warning py-2 small mb-2"><strong>Não é possível gerar o plano.</strong> Complete as contagens e configure todos os stocks mínimos.</div>
-            {% if priority_status.missing %}
-            <details><summary class="small">Ver lojas e produtos em falta</summary><ul class="small mt-2">{% for item in priority_status.missing %}<li>{{ item.loja }} — {{ item.produto }}</li>{% endfor %}</ul></details>
-            {% endif %}
-            {% if priority_status.missing_minimums %}
-            <details><summary class="small">Ver stocks mínimos por configurar</summary><ul class="small mt-2">{% for item in priority_status.missing_minimums %}<li>{{ item.loja }} — {{ item.produto }}</li>{% endfor %}</ul></details>
-            {% endif %}
-            {% endif %}
-        </div>
-    </div>
-
-    <hr>
-    <h6 class="mb-2">Stock por Produto e Local</h6>
-
-    {% if stock_matrix %}
-    <div class="table-responsive mb-3">
-        <table class="table table-sm table-striped align-middle">
-            <thead>
-                <tr>
-                    <th>Produto</th>
-                    <th class="text-center">Bolhão</th>
-                    <th class="text-center">Matosinhos</th>
-                    <th class="text-center">Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in stock_matrix %}
-                <tr>
-                    <td>{{ row.produto }}</td>
-                    <td class="text-center">
-                        <span class="fw-bold">{{ row['Bolhão'] }}</span>
-                        {% if row.data_bolhao %}
-                        <br><small class="text-muted">{{ row.data_bolhao.strftime('%d/%m') }}</small>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">
-                        <span class="fw-bold">{{ row['Matosinhos'] }}</span>
-                        {% if row.data_matosinhos %}
-                        <br><small class="text-muted">{{ row.data_matosinhos.strftime('%d/%m') }}</small>
-                        {% endif %}
-                    </td>
-                    <td class="text-center fw-bold">{{ row['Bolhão'] + row['Matosinhos'] }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% else %}
-    <div class="alert alert-info mb-3">Sem stock registado.</div>
-    {% endif %}
-
-    {% if contagens %}
-    <hr>
-    <h6>Histórico de Contagens</h6>
-    <div class="table-responsive">
-        <table class="table table-sm table-striped">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Data</th>
-                    <th>Loja</th>
-                    <th>Produto</th>
-                    <th>Qtd</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in contagens %}
-                <tr>
-                    <td>{{ row.id }}</td>
-                    <td>{{ row.data }}</td>
-                    <td>{{ row.loja }}</td>
-                    <td>{{ row.produto }}</td>
-                    <td>{{ row.quantidade }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <form method="POST" action="{{ url_for('pastelaria.stock_balcao') }}" class="mt-2">
-        <input type="hidden" name="action" value="eliminar">
-        <div class="row g-2 align-items-end">
-            <div class="col-auto">
-                <label class="form-label small">ID a eliminar</label>
-                <input type="number" class="form-control form-control-sm" name="id_delete" min="1" step="1" required style="width:100px">
-            </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
-            </div>
-        </div>
-    </form>
-    {% endif %}
+  <h6>Histórico de contagens</h6>
+  <div class="table-responsive"><table class="table table-sm table-striped"><thead><tr><th>Data</th><th>Loja</th><th>Produto</th><th>Quantidade</th></tr></thead><tbody>
+    {% for row in contagens %}<tr><td>{{ row.data }}</td><td>{{ row.loja }}</td><td>{{ row.produto }}</td><td>{{ row.quantidade }}</td></tr>{% else %}<tr><td colspan="4" class="text-muted text-center">Sem contagens no período.</td></tr>{% endfor %}
+  </tbody></table></div>
 </div>
-<script>
-(() => {
-    const inputs = [...document.querySelectorAll('.sunday-count-input')];
-    const progress = document.getElementById('grid-progress');
-    const missing = document.getElementById('grid-missing');
-    const save = document.getElementById('save-grid');
-    function updateProgress() {
-        const incomplete = inputs.filter(input =>
-            input.value.trim() === '' || !input.validity.valid
-        );
-        const done = inputs.length - incomplete.length;
-        progress.textContent = `${done}/${inputs.length} preenchidos`;
-        progress.className = `badge ${incomplete.length ? 'bg-warning text-dark' : 'bg-success'}`;
-        missing.textContent = incomplete.length
-            ? `Faltam ${incomplete.length} campo(s). Os campos em falta estão assinalados.`
-            : 'Grelha completa e pronta a guardar.';
-        incomplete.forEach(input => input.classList.add('border-warning'));
-        inputs.filter(input => !incomplete.includes(input))
-            .forEach(input => input.classList.remove('border-warning'));
-        save.disabled = inputs.length === 0 || incomplete.length > 0;
-    }
-    inputs.forEach(input => input.addEventListener('input', updateProgress));
-    updateProgress();
-})();
-</script>
 {% endblock %}
