@@ -31,12 +31,12 @@ def _address_key(address: str) -> str:
     return " ".join((address or "").casefold().split())[:500]
 
 
-def resolve_event_address(address: str) -> dict:
+def resolve_event_address(address: str, *, force_refresh: bool = False) -> dict:
     """Resolve an address and round-trip road distance without blocking on failure."""
     key = _address_key(address)
     if len(key) < 8:
         return {"failed": True, "manual_review": True, "reason": "address_too_short"}
-    cached = event_db.get_portal_geocode_cache(key)
+    cached = None if force_refresh else event_db.get_portal_geocode_cache(key)
     if cached:
         return {
             "latitude": cached.get("latitude"),
@@ -88,6 +88,43 @@ def resolve_event_address(address: str) -> dict:
         pass
     event_db.save_portal_geocode_cache(key, result)
     return result
+
+
+def validate_historical_event_venues(*, retry_failed=False, actor=None,
+                                     batch_size=3, request_interval=1.1,
+                                     sleep=time.sleep) -> dict:
+    """Validate one resumable, rate-limited batch of consolidated venues."""
+    with event_db.event_venue_geocode_batch_lock() as acquired:
+        if not acquired:
+            return {
+                "processed": 0, "succeeded": 0, "failed": 0, "busy": True,
+            }
+        venues = event_db.get_event_venues_for_geocoding(
+            limit=max(1, min(int(batch_size), 10)),
+            retry_failed=bool(retry_failed),
+        )
+        succeeded = failed = 0
+        for index, venue in enumerate(venues):
+            if index:
+                sleep(request_interval)
+            result = resolve_event_address(
+                venue["address"], force_refresh=bool(retry_failed),
+            )
+            saved = event_db.save_event_venue_geocode_result(
+                venue["id"], venue["address_key"], result, actor=actor,
+            )
+            if not saved:
+                continue
+            if result.get("failed"):
+                failed += 1
+            else:
+                succeeded += 1
+        return {
+            "processed": succeeded + failed,
+            "succeeded": succeeded,
+            "failed": failed,
+            "busy": False,
+        }
 
 
 def resolve_event_coordinates(address: str, latitude, longitude) -> dict:

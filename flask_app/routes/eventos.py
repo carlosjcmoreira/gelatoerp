@@ -15,7 +15,7 @@ from flask_app.analytics import queue_analytics_event
 from flask_app.services.event_portal import (
     cleanup_expired_portal_proofs, resolve_event_address, resolve_event_coordinates,
     save_private_portal_proof,
-    validate_portal_proof, suggest_event_addresses,
+    validate_portal_proof, suggest_event_addresses, validate_historical_event_venues,
 )
 from flask_app.services.event_portal_brand import (
     default_portal_brand, validate_brand_form,
@@ -1007,6 +1007,22 @@ def locais():
             flash(str(exc), 'error')
             return redirect(url_for('eventos.locais'))
         action = request.form.get('action')
+        if action in ('validate_pending_venues', 'retry_failed_venues'):
+            result = validate_historical_event_venues(
+                retry_failed=action == 'retry_failed_venues',
+                actor=_current_actor(),
+            )
+            if result.get('busy'):
+                flash('Já existe um lote de validação em curso. Tente novamente dentro de momentos.', 'info')
+            elif result['processed']:
+                flash(
+                    f"Lote concluído: {result['succeeded']} "
+                    f"validado(s) e {result['failed']} com falha.",
+                    'success' if not result['failed'] else 'warning',
+                )
+            else:
+                flash('Não existem locais neste estado para validar.', 'info')
+            return redirect(url_for('eventos.locais'))
         if action == 'link_incomplete_occurrence':
             try:
                 db.link_incomplete_event_occurrence_to_venue(
@@ -1055,6 +1071,7 @@ def locais():
     return render_template(
         'eventos/locais.html', venues=db.get_event_venues(search_q or None),
         incomplete_occurrences=db.get_incomplete_venue_occurrences(),
+        geocode_status=db.get_event_venue_geocode_status(),
         search_q=search_q, tabs=_get_tabs(), active_tab='locais',
         csrf_token=_locations_csrf_token(),
     )

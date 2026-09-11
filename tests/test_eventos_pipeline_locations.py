@@ -1,12 +1,14 @@
 """Contracts for configurable pipeline views and consolidated event venues."""
 
 import unittest
+from contextlib import nullcontext
 from unittest.mock import MagicMock, patch
 
 from flask import Blueprint, Flask
 
 from db import eventos, schema
 from flask_app.routes.eventos import eventos_bp
+from flask_app.services import event_portal
 
 
 class _Cursor:
@@ -122,11 +124,27 @@ class PipelineLocationContracts(unittest.TestCase):
         with patch('flask_app.routes.eventos.db.get_event_venues', return_value=[]), \
              patch('flask_app.routes.eventos.db.get_incomplete_venue_occurrences',
                    return_value=queue), \
+             patch('flask_app.routes.eventos.db.get_event_venue_geocode_status',
+                   return_value={'validated': 0, 'pending': 0, 'failed': 0, 'total': 0}), \
              patch('flask_app.routes.eventos._get_tabs', return_value=[]), \
              patch('flask_app.routes.eventos.render_template', return_value='ok') as render:
             response = self.client.get('/eventos/locais')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(render.call_args.kwargs['incomplete_occurrences'], queue)
+
+    def test_manager_can_run_and_retry_resumable_geocode_batches(self):
+        with self.client.session_transaction() as session:
+            session['event_locations_csrf'] = 'location-token'
+        with patch(
+            'flask_app.routes.eventos.validate_historical_event_venues',
+            return_value={'processed': 2, 'succeeded': 1, 'failed': 1, 'busy': False},
+        ) as validate:
+            response = self.client.post('/eventos/locais', data={
+                'csrf_token': 'location-token',
+                'action': 'retry_failed_venues',
+            })
+        self.assertEqual(response.status_code, 302)
+        validate.assert_called_once_with(retry_failed=True, actor='eventos')
 
     def test_incomplete_location_actions_use_explicit_audited_operations(self):
         with self.client.session_transaction() as session:
@@ -312,6 +330,58 @@ class PipelineLocationContracts(unittest.TestCase):
             if 'UPDATE event_venues SET' in query
         )
         self.assertEqual(update_params[-5:-1], (None, None, None, False))
+
+    def test_batch_geocoding_is_limited_and_retry_bypasses_failed_cache(self):
+        venues = [
+            {'id': 1, 'address': 'Rua Um 1, Porto', 'address_key': 'rua um 1, porto'},
+            {'id': 2, 'address': 'Rua Dois 2, Porto', 'address_key': 'rua dois 2, porto'},
+        ]
+        results = [
+            {'latitude': 41.1, 'longitude': -8.6, 'provider': 'nominatim', 'failed': False},
+            {'failed': True, 'reason': 'not_found'},
+        ]
+        with patch.object(event_portal.event_db, 'get_event_venues_for_geocoding',
+                          return_value=venues) as select, \
+             patch.object(event_portal.event_db, 'event_venue_geocode_batch_lock',
+                          return_value=nullcontext(True)), \
+             patch.object(event_portal, 'resolve_event_address',
+                          side_effect=results) as resolve, \
+             patch.object(event_portal.event_db, 'save_event_venue_geocode_result',
+                          return_value=True) as save:
+            outcome = event_portal.validate_historical_event_venues(
+                retry_failed=True, actor='gestor', batch_size=2,
+                request_interval=0, sleep=lambda _: None,
+            )
+        self.assertEqual(outcome, {
+            'processed': 2, 'succeeded': 1, 'failed': 1, 'busy': False,
+        })
+        select.assert_called_once_with(limit=2, retry_failed=True)
+        self.assertTrue(resolve.call_args_list[0].kwargs['force_refresh'])
+        self.assertEqual(save.call_count, 2)
+
+    def test_concurrent_batch_does_not_call_mapping_provider(self):
+        with patch.object(event_portal.event_db, 'event_venue_geocode_batch_lock',
+                          return_value=nullcontext(False)), \
+             patch.object(event_portal, 'resolve_event_address') as resolve:
+            outcome = event_portal.validate_historical_event_venues()
+        self.assertTrue(outcome['busy'])
+        self.assertEqual(outcome['processed'], 0)
+        resolve.assert_not_called()
+
+    def test_failed_geocode_clears_coordinates_and_is_audited(self):
+        cursor = _Cursor([{'id': 3}])
+        connection = _Connection(cursor)
+        with patch('db.eventos.db_connection', return_value=connection):
+            saved = eventos.save_event_venue_geocode_result(
+                3, 'rua principal', {'failed': True, 'reason': 'not_found'},
+                actor='gestor',
+            )
+        self.assertTrue(saved)
+        update_params = cursor.queries[0][1]
+        self.assertEqual(update_params[:4], (None, None, None, True))
+        statements = '\n'.join(query for query, _ in cursor.queries)
+        self.assertIn('address_key=%s', statements)
+        self.assertIn('geocode_failed', statements)
 
     def test_location_migration_is_additive_and_keeps_occurrence_text(self):
         cursor = _Cursor([(True,)])

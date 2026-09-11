@@ -164,6 +164,9 @@ def _configure_eventos_data():
     eventos_routes.db.get_event_history = lambda _event_id: []
     eventos_routes.db.get_event_primary_venue = lambda _event_id: VENUE
     eventos_routes.db.get_event_venues = lambda _search=None: [VENUE]
+    eventos_routes.db.get_event_venue_geocode_status = lambda: {
+        "validated": 1, "pending": 0, "failed": 0, "total": 1,
+    }
     eventos_routes.db.get_incomplete_venue_occurrences = _incomplete_occurrences
     eventos_routes.db.link_incomplete_event_occurrence_to_venue = (
         _link_incomplete_occurrence

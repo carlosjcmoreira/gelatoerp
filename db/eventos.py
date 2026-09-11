@@ -10,6 +10,7 @@ import secrets
 import re
 from decimal import Decimal, InvalidOperation
 import time
+from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -1860,6 +1861,108 @@ def get_event_venues(search=None):
             ORDER BY v.name, v.address
         """, params)
         return cursor.fetchall()
+
+
+def get_event_venue_geocode_status():
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT COUNT(*) FILTER (
+                       WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                         AND NOT geocode_failed
+                   ) AS validated,
+                   COUNT(*) FILTER (
+                       WHERE (latitude IS NULL OR longitude IS NULL)
+                         AND NOT geocode_failed
+                   ) AS pending,
+                   COUNT(*) FILTER (WHERE geocode_failed) AS failed,
+                   COUNT(*) AS total
+            FROM event_venues
+        """)
+        return cursor.fetchone() or {
+            'validated': 0, 'pending': 0, 'failed': 0, 'total': 0,
+        }
+
+
+@contextmanager
+def event_venue_geocode_batch_lock():
+    """Allow only one geocoding batch across all web workers."""
+    conn = get_connection()
+    acquired = False
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_try_advisory_lock(hashtextextended(%s, 0))",
+            ('event_venue_geocode_batch',),
+        )
+        acquired = bool(cursor.fetchone()[0])
+        yield acquired
+    finally:
+        if acquired:
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(hashtextextended(%s, 0))",
+                    ('event_venue_geocode_batch',),
+                )
+            except Exception:
+                logger.exception('Failed to release event venue geocode lock')
+        release_connection(conn)
+
+
+def get_event_venues_for_geocoding(limit=3, retry_failed=False):
+    """Return a stable small batch; successful venues are never selected again."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT id, address, address_key
+            FROM event_venues
+            WHERE latitude IS NULL AND longitude IS NULL
+              AND geocode_failed=%s
+            ORDER BY updated_at, id
+            LIMIT %s
+        """, (bool(retry_failed), max(1, min(int(limit), 10))))
+        return cursor.fetchall()
+
+
+def save_event_venue_geocode_result(venue_id, expected_address_key, result, actor=None):
+    """Persist a lookup only if the venue address has not changed meanwhile."""
+    failed = bool(result.get('failed'))
+    latitude = None if failed else result.get('latitude')
+    longitude = None if failed else result.get('longitude')
+    provider = result.get('provider')
+    if not failed:
+        try:
+            latitude, longitude = Decimal(str(latitude)), Decimal(str(longitude))
+        except (InvalidOperation, ValueError, TypeError):
+            failed, latitude, longitude = True, None, None
+        if not failed and not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            failed, latitude, longitude = True, None, None
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            UPDATE event_venues
+            SET latitude=%s, longitude=%s, geocode_provider=%s,
+                geocode_failed=%s, updated_at=NOW()
+            WHERE id=%s AND address_key=%s
+            RETURNING id
+        """, (
+            latitude, longitude, provider, failed, venue_id, expected_address_key,
+        ))
+        row = cursor.fetchone()
+        if not row:
+            conn.rollback()
+            return False
+        cursor.execute("""
+            INSERT INTO event_venue_history (venue_id, actor, action, details)
+            VALUES (%s,%s,%s,%s::jsonb)
+        """, (
+            venue_id, actor,
+            'geocode_failed' if failed else 'geocode_validated',
+            json.dumps({'provider': provider, 'reason': result.get('reason')}),
+        ))
+        conn.commit()
+        return True
 
 
 def get_event_venue(venue_id):

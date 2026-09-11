@@ -13,3 +13,4 @@
 - [Photon language parameter](photon-language-parameter.md) — Photon rejects `lang=pt`; omit the language parameter for Portuguese address suggestions.
 - [Event location consolidation](event-location-consolidation.md) — only exact name-and-address matches auto-link; ambiguous historic locations require audited human confirmation.
 - [Shared Events portal access](shared-events-portal-access.md) — access intentionally uses email plus one brand code for that email’s full history; retain the session and audit safeguards.
+- [Map provider rate limits](map-provider-rate-limits.md) — batch geocoding must serialize across all web workers, not only delay calls within one request.

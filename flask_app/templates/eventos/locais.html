@@ -10,6 +10,39 @@
     <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#newVenue">+ Novo local</button>
   </div>
 
+  <div class="card shadow-sm mb-3">
+    <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+      <div>
+        <div class="fw-semibold">Validação de moradas para mapas</div>
+        <div class="small text-muted">
+          {{ geocode_status.validated }} de {{ geocode_status.total }} validadas ·
+          {{ geocode_status.pending }} pendentes · {{ geocode_status.failed }} com falha
+        </div>
+        {% if geocode_status.total %}
+        <div class="progress mt-2" style="height: 6px; max-width: 420px;" role="progressbar" aria-label="Progresso da validação">
+          <div class="progress-bar" style="width: {{ (100 * geocode_status.validated / geocode_status.total)|round|int }}%"></div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="d-flex gap-2">
+        {% if geocode_status.pending %}
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="validate_pending_venues">
+          <button class="btn btn-sm btn-primary">Validar próximo lote</button>
+        </form>
+        {% endif %}
+        {% if geocode_status.failed %}
+        <form method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="retry_failed_venues">
+          <button class="btn btn-sm btn-outline-warning">Repetir falhas</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
   {% if incomplete_occurrences %}
   <div class="card shadow-sm border-warning mb-3">
     <div class="card-header small fw-semibold d-flex justify-content-between">
@@ -61,7 +94,7 @@
     <tbody>{% for v in venues %}<tr>
       <td><a class="fw-semibold text-decoration-none" href="{{ url_for('eventos.local_detail', venue_id=v.id) }}">{{ v.name }}</a></td>
       <td>{{ v.address }}</td>
-      <td>{% if v.latitude is not none and v.longitude is not none and not v.geocode_failed %}<span class="badge text-bg-success">Morada validada</span>{% else %}<span class="badge text-bg-warning">Por validar</span>{% endif %}</td>
+      <td>{% if v.latitude is not none and v.longitude is not none and not v.geocode_failed %}<span class="badge text-bg-success">Morada validada</span>{% elif v.geocode_failed %}<span class="badge text-bg-danger">Falhou</span>{% else %}<span class="badge text-bg-warning">Por validar</span>{% endif %}</td>
       <td>{{ v.contact_name or '—' }}</td><td>{{ v.contact_phone or '—' }}{% if v.contact_email %}<div>{{ v.contact_email }}</div>{% endif %}</td>
       <td class="text-center">{{ v.event_count }}</td><td>{{ v.last_event_date.strftime('%d/%m/%Y') if v.last_event_date else '—' }}</td>
     </tr>{% else %}<tr><td colspan="7" class="text-center text-muted py-5">Ainda não há locais consolidados.</td></tr>{% endfor %}</tbody>
