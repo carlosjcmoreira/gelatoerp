@@ -11,7 +11,6 @@
     <p class="mb-0 text-muted">{{ event.event_type }} · Cliente {{ 'Empresa' if event.customer_type == 'empresa' else 'Particular' }}</p>
     <p class="mb-0">{{ event.company_name or event.client_name }}{% if event.nif %} · NIF {{ event.nif }}{% endif %}</p>
   </div><span class="badge text-bg-{{ status_colors.get(event.status,'secondary') }}">{{ status_labels.get(event.status,event.status) }}</span></div></header>
-  {% if access_code_once %}<div class="alert alert-warning"><strong>Guarde este código:</strong> <code>{{ access_code_once }}</code></div>{% endif %}
   {% if event.short_notice_warning %}<div class="alert alert-warning">{{ event.short_notice_warning }}</div>{% endif %}
   {% if event.customer_type == 'empresa' or not event.quote_items_public %}
     <div class="alert alert-info"><strong>Obrigado pelo seu pedido.</strong> {{ event.public_message or 'A nossa equipa irá contactar pessoalmente para preparar uma proposta.' }}</div>
@@ -34,5 +33,38 @@
       {% if event.status == 'enviado' %}<form class="mt-2" method="post" action="{{ url_for('eventos.portal_accept_quote',event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="quote_revision" value="{{ event.quote_revision }}"><button class="btn portal-button w-100">Aceitar orçamento</button></form>{% endif %}
     </div></section></div></div>
   {% endif %}
+   {% if event.occurrences_logistics %}
+   <section class="card shadow-sm mt-4">
+     <div class="card-body">
+       <h2 class="h5">Acessos e contacto do local</h2>
+       <p class="small text-muted">Para confirmar a operação, pedimos os acessos para descarregar e montar o material entre 30 e 15 dias antes de cada data.</p>
+       {% for occurrence in event.occurrences_logistics %}
+       <div class="border rounded p-3 mb-3">
+         <div class="d-flex justify-content-between gap-2">
+           <div><strong>{{ occurrence.event_date.strftime('%d/%m/%Y') if occurrence.event_date else 'Data a confirmar' }}</strong><div class="small text-muted">{{ occurrence.venue or 'Local a confirmar' }}{% if occurrence.venue_address %} · {{ occurrence.venue_address }}{% endif %}</div></div>
+           {% if occurrence.logistics_status == 'due' %}<span class="badge text-bg-warning align-self-start">Informação necessária</span>{% elif occurrence.logistics_status == 'overdue' %}<span class="badge text-bg-danger align-self-start">Confirmação pendente</span>{% elif occurrence.logistics_status == 'ready' %}<span class="badge text-bg-success align-self-start">Acessos recebidos</span>{% endif %}
+         </div>
+         {% if occurrence.logistics_status == 'upcoming' %}<p class="small text-muted mt-2 mb-0">Poderá completar os acessos quando a data estiver a 30 dias.</p>{% elif occurrence.logistics_status == 'due' %}<p class="small text-warning-emphasis mt-2 mb-0">Preencha esta informação até 15 dias antes do evento para a equipa confirmar a operação.</p>{% elif occurrence.logistics_status == 'overdue' %}<p class="small text-danger mt-2 mb-0">Esta informação ainda é necessária para a equipa confirmar a operação.</p>{% endif %}
+         <form method="post" action="{{ url_for('eventos.portal_update_logistics', event_id=event.id) }}" class="row g-2 mt-2 portal-logistics-form">
+           <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="occurrence_id" value="{{ occurrence.id }}">
+           <div class="col-md-4"><label class="form-label small">Responsável pelo local</label><select class="form-select form-select-sm" name="venue_contact_is_client" data-venue-contact-role><option value="client" {% if occurrence.venue_contact_is_client is not false %}selected{% endif %}>Sou eu / contacto do pedido</option><option value="other" {% if occurrence.venue_contact_is_client is false %}selected{% endif %}>Outra pessoa no local</option></select></div>
+           <div class="col-md-4 venue-contact-details" {% if occurrence.venue_contact_is_client is not false %}hidden{% endif %}><label class="form-label small">Nome do responsável *</label><input class="form-control form-control-sm" name="venue_contact_name" maxlength="255" value="{{ occurrence.venue_contact_name or '' }}" {% if occurrence.venue_contact_is_client is false %}required{% endif %}></div>
+           <div class="col-md-4 venue-contact-details" {% if occurrence.venue_contact_is_client is not false %}hidden{% endif %}><label class="form-label small">Telefone do responsável *</label><input class="form-control form-control-sm" type="tel" name="venue_contact_phone" inputmode="tel" placeholder="+351 912 345 678" value="{{ occurrence.venue_contact_phone or '' }}" {% if occurrence.venue_contact_is_client is false %}required{% endif %}></div>
+           <div class="col-12"><label class="form-label small">Acessos para descarregar e montar</label><textarea class="form-control form-control-sm" name="access_instructions" rows="3" maxlength="2000" {% if occurrence.logistics_needs_action %}required{% endif %} placeholder="Entrada de cargas, piso, elevador, estacionamento e indicações úteis">{{ occurrence.access_instructions or '' }}</textarea></div>
+           <div class="col-12"><button class="btn btn-sm portal-button">Guardar informação do local</button></div>
+         </form>
+       </div>
+       {% endfor %}
+       {% if brand.support_phone %}<p class="small text-muted mb-0">Precisa de ajuda? Ligue para <a href="tel:{{ brand.support_phone }}">{{ brand.support_phone }}</a>.</p>{% endif %}
+     </div>
+   </section>
+   {% endif %}
 </main>
+ <script>
+ document.querySelectorAll('.portal-logistics-form').forEach(function(form){
+   var role=form.querySelector('[data-venue-contact-role]');
+   function toggle(){var other=role.value==='other';form.querySelectorAll('.venue-contact-details').forEach(function(field){field.hidden=!other;field.querySelector('input').required=other;});}
+   role.addEventListener('change',toggle);toggle();
+ });
+ </script>
 {% endblock %}

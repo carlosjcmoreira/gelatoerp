@@ -1,5 +1,4 @@
 import io
-import base64
 import os
 import sys
 import hashlib
@@ -167,7 +166,9 @@ def _portal_submitted_occurrences(form):
     keys = (
         'occurrence_date[]', 'occurrence_start[]', 'occurrence_venue[]',
         'occurrence_address[]', 'occurrence_address_normalized[]',
-        'occurrence_address_token[]',
+        'occurrence_address_token[]', 'occurrence_contact_is_client[]',
+        'occurrence_contact_name[]', 'occurrence_contact_phone[]',
+        'occurrence_access_instructions[]',
     )
     values = {key: form.getlist(key) for key in keys}
     count = max([len(items) for items in values.values()] + [1])
@@ -185,6 +186,14 @@ def _portal_submitted_occurrences(form):
             if index < len(values['occurrence_address_normalized[]']) else '',
             'address_token': values['occurrence_address_token[]'][index]
             if index < len(values['occurrence_address_token[]']) else '',
+            'contact_is_client': values['occurrence_contact_is_client[]'][index]
+            if index < len(values['occurrence_contact_is_client[]']) else 'client',
+            'contact_name': values['occurrence_contact_name[]'][index]
+            if index < len(values['occurrence_contact_name[]']) else '',
+            'contact_phone': values['occurrence_contact_phone[]'][index]
+            if index < len(values['occurrence_contact_phone[]']) else '',
+            'access_instructions': values['occurrence_access_instructions[]'][index]
+            if index < len(values['occurrence_access_instructions[]']) else '',
         }
         for index in range(count)
     ]
@@ -338,16 +347,6 @@ def _valid_submission_identifier(raw):
     return token
 
 
-def _submission_access_code(submission_identifier):
-    payload = _submission_serializer().loads(submission_identifier)
-    digest = hmac.new(
-        str(current_app.secret_key).encode('utf-8'),
-        str(payload['nonce']).encode('utf-8'),
-        hashlib.sha256,
-    ).digest()
-    return base64.urlsafe_b64encode(digest[:9]).decode('ascii').rstrip('=')
-
-
 def _portal_end_time(start, duration_minutes):
     if not start:
         return None
@@ -445,6 +444,10 @@ def portal_request():
             addresses = request.form.getlist('occurrence_address[]')
             normalized_addresses = request.form.getlist('occurrence_address_normalized[]')
             address_tokens = request.form.getlist('occurrence_address_token[]')
+            venue_contact_roles = request.form.getlist('occurrence_contact_is_client[]')
+            venue_contact_names = request.form.getlist('occurrence_contact_name[]')
+            venue_contact_phones = request.form.getlist('occurrence_contact_phone[]')
+            access_instructions = request.form.getlist('occurrence_access_instructions[]')
             occurrences = []
             for index, raw_date in enumerate(dates):
                 if not raw_date:
@@ -479,6 +482,12 @@ def portal_request():
                 else:
                     location = resolve_event_address(address)
                 duration = request.form.get('duration_minutes', '180')
+                venue_contact_is_client = (
+                    venue_contact_roles[index] if index < len(venue_contact_roles) else 'client'
+                ) == 'client'
+                venue_contact_phone = (
+                    venue_contact_phones[index] if index < len(venue_contact_phones) else ''
+                ).strip()
                 occurrences.append({
                     'event_date': event_date,
                     'service_start_time': start_times[index] if index < len(start_times) else None,
@@ -495,6 +504,17 @@ def portal_request():
                         'Geocoding pendente de revisão manual.'
                         if location.get('manual_review') else None
                     ),
+                    'venue_contact_is_client': venue_contact_is_client,
+                    'venue_contact_name': (
+                        venue_contact_names[index] if index < len(venue_contact_names) else ''
+                    ).strip(),
+                    'venue_contact_phone': (
+                        None if venue_contact_is_client
+                        else _valid_phone(venue_contact_phone)
+                    ),
+                    'access_instructions': (
+                        access_instructions[index] if index < len(access_instructions) else ''
+                    ).strip(),
                     # The public form may hide this control, but its policy
                     # default is still an explicit service choice.
                     'service_mode': (
@@ -525,16 +545,12 @@ def portal_request():
                  'min_advance_days': brand.get('min_advance_days', 0),
                  'short_notice_warning': brand.get('short_notice_warning'),
                 'submission_identifier': submission_identifier,
-                'access_code': _submission_access_code(submission_identifier),
             })
             email = db.normalize_portal_email(request.form.get('client_email'))
-            access_code = result.get('access_code')
             session['event_portal_email'] = email
             session['event_portal_verified'] = True
             session['event_portal_access_until'] = time.time() + 30 * 60
             session['event_portal_event_id'] = result['event_id']
-            if access_code:
-                session['event_portal_access_code_once'] = access_code
             if result.get('replayed'):
                 flash('Este pedido já tinha sido recebido. Mostramos abaixo o pedido original.', 'success')
                 return redirect(url_for('eventos.portal_event', event_id=result['event_id']))
@@ -587,10 +603,7 @@ def portal_request():
                 )
             if result.get('short_notice_warning'):
                 flash(result['short_notice_warning'], 'warning')
-            if access_code:
-                flash('Recebemos o seu pedido. Guarde o código de consulta mostrado abaixo.', 'success')
-                return redirect(url_for('eventos.portal_event', event_id=result['event_id']))
-            flash('Recebemos o seu pedido. Guarde o código de consulta mostrado abaixo.', 'success')
+            flash('Recebemos o seu pedido. A equipa entrará em contacto para confirmar os próximos passos.', 'success')
             return redirect(url_for('eventos.portal_event', event_id=result['event_id']))
         except ValueError as exc:
             flash(str(exc), 'error')
@@ -625,15 +638,15 @@ def portal_access():
         try:
             _require_portal_csrf()
             email = db.normalize_portal_email(request.form.get('email'))
-            event_id = db.verify_portal_request_access(email, request.form.get('access_code'))
-            if not event_id:
+            _portal_rate_limit('access_login', 10)
+            if not db.verify_portal_email_access(email, request.form.get('access_code')):
                 raise ValueError('O email ou o código de consulta não estão corretos.')
             session['event_portal_email'] = email
             session['event_portal_verified'] = True
             session['event_portal_access_until'] = time.time() + 30 * 60
-            session['event_portal_event_id'] = event_id
+            session.pop('event_portal_event_id', None)
             db.record_portal_access(
-                email, 'email_access_started', event_id, _portal_ip_fingerprint()
+                email, 'email_access_started', ip_fingerprint=_portal_ip_fingerprint()
             )
             return redirect(url_for('eventos.portal_events'))
         except ValueError as exc:
@@ -668,7 +681,9 @@ def portal_events():
         return redirect(url_for('eventos.portal_access'))
     event_id = _portal_event_id()
     event = db.get_portal_event_for_email(event_id, email) if event_id else None
-    events = [event] if event else []
+    events = [event] if event else (
+        db.get_portal_events_for_email(email) if event_id is None else []
+    )
     brand = (
         db.get_portal_brand_config(event.get('brand_store_id'))
         if event and event.get('brand_store_id')
@@ -687,8 +702,9 @@ def portal_event(event_id):
     email = _portal_login_required()
     if not email:
         return redirect(url_for('eventos.portal_access'))
-    if event_id != _portal_event_id():
-        flash('Este código só permite consultar o pedido associado.', 'error')
+    scoped_event_id = _portal_event_id()
+    if scoped_event_id is not None and event_id != scoped_event_id:
+        flash('Esta ligação temporária só permite consultar o pedido que acabou de criar.', 'error')
         return redirect(url_for('eventos.portal_events'))
     event = db.get_portal_event_for_email(event_id, email)
     if not event:
@@ -698,9 +714,37 @@ def portal_event(event_id):
     return render_template(
         'eventos/portal_event.html', event=event, csrf_token=_portal_csrf_token(),
         status_labels=STATUS_LABELS, status_colors=STATUS_COLORS,
-        access_code_once=session.pop('event_portal_access_code_once', None),
         brand=event.get('portal_brand') or db.get_default_portal_brand(),
     )
+
+
+@eventos_bp.route('/portal-eventos/pedido/<int:event_id>/logistica', methods=['POST'])
+def portal_update_logistics(event_id):
+    email = _portal_login_required()
+    if not email:
+        return redirect(url_for('eventos.portal_access'))
+    scoped_event_id = _portal_event_id()
+    if scoped_event_id is not None and event_id != scoped_event_id:
+        flash('Esta ligação temporária só permite alterar o pedido que acabou de criar.', 'error')
+        return redirect(url_for('eventos.portal_events'))
+    try:
+        _require_portal_csrf()
+        is_client = request.form.get('venue_contact_is_client') == 'client'
+        db.update_portal_occurrence_logistics(event_id, int(request.form.get('occurrence_id', '')), email, {
+            'venue_contact_is_client': is_client,
+            'venue_contact_name': request.form.get('venue_contact_name', '').strip(),
+            'venue_contact_phone': (
+                None if is_client else _valid_phone(request.form.get('venue_contact_phone', ''))
+            ),
+            'access_instructions': request.form.get('access_instructions', '').strip(),
+        })
+        db.record_portal_access(
+            email, 'portal_logistics_updated', event_id, _portal_ip_fingerprint()
+        )
+        flash('Informação logística atualizada.', 'success')
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) or 'Não foi possível atualizar a informação logística.', 'error')
+    return redirect(url_for('eventos.portal_event', event_id=event_id))
 
 
 @eventos_bp.route('/portal-eventos/pedido/<int:event_id>/pdf')
@@ -708,7 +752,7 @@ def portal_quote_pdf(event_id):
     email = _portal_login_required()
     if not email:
         return redirect(url_for('eventos.portal_access'))
-    if event_id != _portal_event_id():
+    if _portal_event_id() is not None and event_id != _portal_event_id():
         return ('Pedido não encontrado.', 404)
     event = db.get_portal_event_for_email(event_id, email)
     if not event or event.get('customer_type') == 'empresa' or not event.get('quote_items_public'):
@@ -725,7 +769,7 @@ def portal_accept_quote(event_id):
     email = _portal_login_required()
     if not email:
         return redirect(url_for('eventos.portal_access'))
-    if event_id != _portal_event_id():
+    if _portal_event_id() is not None and event_id != _portal_event_id():
         flash('Este código não permite alterar esse pedido.', 'error')
         return redirect(url_for('eventos.portal_events'))
     try:
@@ -747,7 +791,7 @@ def portal_upload_proof(event_id):
         return redirect(url_for('eventos.portal_access'))
     try:
         _require_portal_csrf()
-        if event_id != _portal_event_id():
+        if _portal_event_id() is not None and event_id != _portal_event_id():
             raise ValueError('Este código não permite alterar esse pedido.')
         db.assert_portal_event_access(event_id, email)
         validated = validate_portal_proof(request.files.get('proof_file'))

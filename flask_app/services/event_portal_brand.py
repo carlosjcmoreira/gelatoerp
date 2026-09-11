@@ -42,6 +42,7 @@ DEFAULT_PORTAL_BRAND = {
     "contact_text": (
         "Deixe-nos os seus contactos para podermos responder ao pedido."
     ),
+    "support_phone": None,
     "min_advance_days": 0,
     "short_notice_warning": "Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.",
     "field_labels": {},
@@ -89,6 +90,7 @@ def validate_brand_form(form):
             form.get("confirmation_message"), result["confirmation_message"], 500
         ),
         "contact_text": _text(form.get("contact_text"), result["contact_text"], 300),
+        "support_phone": _support_phone(form.get("support_phone")),
     })
     raw_days = form.get("min_advance_days", result["min_advance_days"])
     try:
@@ -107,6 +109,14 @@ def validate_brand_form(form):
     warning = _text(raw_warning, result["short_notice_warning"], 500)
     result["min_advance_days"] = days
     result["short_notice_warning"] = warning
+    access_code = str(form.get("portal_access_code") or "").strip()
+    if access_code and not re.fullmatch(r"[A-Za-z0-9_-]{4,32}", access_code):
+        raise ValueError(
+            "O código de consulta deve ter entre 4 e 32 letras, números, hífen ou sublinhado."
+        )
+    # A blank field deliberately means "keep the existing code"; it is never
+    # prefilled or returned to a browser.
+    result["portal_access_code"] = access_code or None
     if not result["brand_name"] or not result["form_title"]:
         raise ValueError("Indique o nome da marca e o título do formulário.")
 
@@ -150,6 +160,19 @@ def _color(value, default):
     if not _HEX_COLOR.fullmatch(value):
         raise ValueError("As cores devem estar no formato hexadecimal, por exemplo #167C70.")
     return value.upper()
+
+
+def _support_phone(value):
+    """Normalize an optional support phone without accepting display markup."""
+    value = str(value or "").strip()
+    if not value:
+        return None
+    if not value.startswith("+"):
+        raise ValueError("O telefone de apoio deve incluir o indicativo internacional.")
+    digits = "".join(char for char in value if char.isdigit())
+    if len(digits) < 7 or len(digits) > 15:
+        raise ValueError("Indique um telefone de apoio válido.")
+    return "+" + digits
 
 
 def validate_portal_logo(upload, max_bytes=MAX_LOGO_BYTES):

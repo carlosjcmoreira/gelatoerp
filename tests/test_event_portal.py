@@ -157,34 +157,36 @@ class PortalAccessRouteTests(unittest.TestCase):
         with client.session_transaction() as session:
             return session['event_portal_csrf']
 
-    def test_verified_code_access_opens_only_the_matching_request(self):
+    def test_configured_code_access_opens_all_requests_for_the_email(self):
         portal_event = {
             'id': 42, 'event_name': 'Festa', 'event_type': 'privado',
             'next_date': None, 'occurrence_count': 1, 'status': 'novos',
         }
         with self.app.test_client() as client, \
              patch('flask_app.routes.eventos.db.record_portal_access'), \
-             patch('flask_app.routes.eventos.db.verify_portal_request_access', return_value=42) as verify_access, \
-              patch('flask_app.routes.eventos.db.get_portal_event_for_email', return_value=portal_event) as get_event, \
+              patch('flask_app.routes.eventos.db.consume_portal_rate_limit', return_value=True), \
+              patch('flask_app.routes.eventos.db.verify_portal_email_access', return_value=True) as verify_access, \
+               patch('flask_app.routes.eventos.db.get_portal_events_for_email', return_value=[portal_event]) as get_events, \
               patch('flask_app.routes.eventos.db.get_default_portal_brand', return_value={}):
             client.get('/eventos/portal-eventos')
             response = client.post(
                 '/eventos/portal-eventos',
                 data={
                     'csrf_token': self._csrf(client), 'email': 'Cliente@Example.com',
-                    'access_code': 'private-code',
+                    'access_code': 'configured-code',
                 },
             )
             self.assertEqual(response.status_code, 302)
             response = client.get('/eventos/portal-eventos/pedidos')
 
         self.assertEqual(response.status_code, 200)
-        verify_access.assert_called_once_with('cliente@example.com', 'private-code')
-        get_event.assert_called_once_with(42, 'cliente@example.com')
+        verify_access.assert_called_once_with('cliente@example.com', 'configured-code')
+        get_events.assert_called_once_with('cliente@example.com')
 
     def test_unverified_email_cannot_start_a_portal_session(self):
         with self.app.test_client() as client, \
-             patch('flask_app.routes.eventos.db.verify_portal_request_access', return_value=None), \
+              patch('flask_app.routes.eventos.db.consume_portal_rate_limit', return_value=True), \
+              patch('flask_app.routes.eventos.db.verify_portal_email_access', return_value=False), \
               patch('flask_app.routes.eventos.db.record_portal_access') as record_access, \
               patch('flask_app.routes.eventos.db.get_default_portal_brand', return_value={}):
             client.get('/eventos/portal-eventos')
@@ -202,31 +204,64 @@ class PortalAccessRouteTests(unittest.TestCase):
         self.assertIsNone(verified)
         record_access.assert_not_called()
 
-    def test_portal_event_cannot_be_read_without_matching_email_session(self):
+    def test_portal_event_requires_a_session_with_the_same_email(self):
         with self.app.test_client() as client, \
              patch('flask_app.routes.eventos.db.get_portal_event_for_email', return_value=None) as get_event:
             with client.session_transaction() as session:
                 session['event_portal_email'] = 'owner@example.com'
                 session['event_portal_access_until'] = 9999999999
                 session['event_portal_verified'] = True
-                session['event_portal_event_id'] = 12
             response = client.get('/eventos/portal-eventos/pedido/12')
 
         self.assertEqual(response.status_code, 302)
         get_event.assert_called_once_with(12, 'owner@example.com')
 
-    def test_code_for_one_request_cannot_open_another_request_with_same_email(self):
+    def test_shared_code_session_can_open_another_request_with_same_email(self):
         with self.app.test_client() as client, \
-             patch('flask_app.routes.eventos.db.get_portal_event_for_email') as get_event:
+              patch('flask_app.routes.eventos.db.get_portal_event_for_email', return_value={
+                  'id': 99, 'status': 'novos', 'portal_brand': {},
+                  'occurrences_logistics': [],
+              }) as get_event, \
+              patch('flask_app.routes.eventos.db.record_portal_access'), \
+              patch('flask_app.routes.eventos.db.get_default_portal_brand', return_value={}):
             with client.session_transaction() as session:
                 session['event_portal_email'] = 'owner@example.com'
                 session['event_portal_access_until'] = 9999999999
                 session['event_portal_verified'] = True
-                session['event_portal_event_id'] = 12
             response = client.get('/eventos/portal-eventos/pedido/99')
 
+        self.assertEqual(response.status_code, 200)
+        get_event.assert_called_once_with(99, 'owner@example.com')
+
+    def test_verified_customer_can_update_one_occurrence_logistics(self):
+        with self.app.test_client() as client, \
+              patch('flask_app.routes.eventos.db.get_default_portal_brand', return_value={}), \
+              patch('flask_app.routes.eventos.db.update_portal_occurrence_logistics',
+                    return_value={'state': 'ready'}) as update_logistics, \
+              patch('flask_app.routes.eventos.db.record_portal_access'):
+            client.get('/eventos/portal-eventos')
+            with client.session_transaction() as session:
+                session['event_portal_email'] = 'owner@example.com'
+                session['event_portal_access_until'] = 9999999999
+                session['event_portal_verified'] = True
+            response = client.post(
+                '/eventos/portal-eventos/pedido/99/logistica',
+                data={
+                    'csrf_token': self._csrf(client), 'occurrence_id': '17',
+                    'venue_contact_is_client': 'other',
+                    'venue_contact_name': 'Responsável do local',
+                    'venue_contact_phone': '+351 912 345 678',
+                    'access_instructions': 'Entrada de cargas pela garagem.',
+                },
+            )
+
         self.assertEqual(response.status_code, 302)
-        get_event.assert_not_called()
+        update_logistics.assert_called_once_with(99, 17, 'owner@example.com', {
+            'venue_contact_is_client': False,
+            'venue_contact_name': 'Responsável do local',
+            'venue_contact_phone': '+351912345678',
+            'access_instructions': 'Entrada de cargas pela garagem.',
+        })
 
     def test_post_without_csrf_does_not_start_email_access(self):
         with self.app.test_client() as client, \
@@ -240,7 +275,8 @@ class PortalAccessRouteTests(unittest.TestCase):
     def test_availability_endpoint_returns_only_coarse_status_for_one_date(self):
         with self.app.test_client() as client, \
              patch('flask_app.routes.eventos.db.consume_portal_rate_limit', return_value=True), \
-             patch('flask_app.routes.eventos.db.get_portal_date_status', return_value='limited'):
+              patch('flask_app.routes.eventos.db.get_portal_date_status', return_value='limited'), \
+              patch('flask_app.routes.eventos.db.get_default_portal_brand', return_value={}):
             client.get('/eventos/portal-eventos')
             response = client.get(
                 '/eventos/pedido-evento/disponibilidade?date=2027-09-12',

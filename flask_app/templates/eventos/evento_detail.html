@@ -24,6 +24,12 @@
         <strong>❌ Perdido</strong> — {{ event.loss_reason }}
     </div>
     {% endif %}
+    {% if event.manual_review_labels %}
+    <div class="alert alert-info py-2 small">
+        <strong>Revisão manual da proposta:</strong>
+        {% for reason in event.manual_review_labels %}<span class="badge text-bg-info border ms-1">{{ reason }}</span>{% endfor %}
+    </div>
+    {% endif %}
 
     <div class="card shadow-sm mb-3">
         <div class="card-header fw-semibold small">🔄 Alterar Estado</div>
@@ -264,6 +270,8 @@
                     </div>
                     <span class="badge bg-secondary">{{ occurrence.service_mode }}</span>
                 </div>
+                {% if occurrence.logistics_needs_action %}<div class="alert alert-warning small py-2 mb-2">Acessos para descarregar e montar ainda pendentes para esta data.</div>{% endif %}
+                <div class="small mb-2"><strong>Responsável pelo local:</strong> {% if occurrence.venue_contact_is_client is true %}contacto do pedido{% elif occurrence.venue_contact_name %}{{ occurrence.venue_contact_name }}{% if occurrence.venue_contact_phone %} · {{ occurrence.venue_contact_phone }}{% endif %}{% else %}<span class="text-muted">por indicar</span>{% endif %}<br><strong>Acessos:</strong> {{ occurrence.access_instructions or 'por indicar' }}</div>
                 <details class="mb-2">
                     <summary class="small text-primary">Editar ocorrência</summary>
                     <form method="post" class="row g-2 mt-1">

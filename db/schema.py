@@ -5,6 +5,7 @@ import logging
 from db.connection import db_connection, logger, hash_password
 import json
 import os
+from werkzeug.security import generate_password_hash
 
 
 _LOCK_STOCK_PRODUCAO_LOJAS = 202612
@@ -101,6 +102,10 @@ def run_migrations_eventos_v2_foundation():
                     service_end_time TIME,
                     expected_duration_minutes INTEGER,
                     logistics_notes TEXT,
+                    access_instructions TEXT,
+                    venue_contact_is_client BOOLEAN,
+                    venue_contact_name VARCHAR(255),
+                    venue_contact_phone VARCHAR(32),
                     service_mode VARCHAR(30) NOT NULL DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -201,6 +206,21 @@ def run_migrations_eventos_v2_foundation():
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_date "
                 "ON event_occurrences(event_date)"
+            )
+            cursor.execute(
+                "ALTER TABLE event_occurrences ADD COLUMN IF NOT EXISTS access_instructions TEXT"
+            )
+            cursor.execute(
+                "ALTER TABLE event_occurrences "
+                "ADD COLUMN IF NOT EXISTS venue_contact_is_client BOOLEAN"
+            )
+            cursor.execute(
+                "ALTER TABLE event_occurrences "
+                "ADD COLUMN IF NOT EXISTS venue_contact_name VARCHAR(255)"
+            )
+            cursor.execute(
+                "ALTER TABLE event_occurrences "
+                "ADD COLUMN IF NOT EXISTS venue_contact_phone VARCHAR(32)"
             )
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_event_resource_reservations_resource "
@@ -666,6 +686,7 @@ def run_migrations_eventos_customer_portal():
                     estimated_vat_eur NUMERIC(12,2),
                     estimated_total_eur NUMERIC(12,2),
                     public_message TEXT,
+                    manual_review_reasons JSONB NOT NULL DEFAULT '[]'::jsonb,
                      short_notice_warning TEXT,
                     logistics_message TEXT,
                     sent_quote_version_id BIGINT REFERENCES event_quote_versions(id) ON DELETE RESTRICT,
@@ -702,6 +723,8 @@ def run_migrations_eventos_customer_portal():
                     form_intro TEXT NOT NULL DEFAULT '',
                     confirmation_message TEXT NOT NULL DEFAULT '',
                     contact_text TEXT NOT NULL DEFAULT '',
+                    support_phone VARCHAR(32),
+                    portal_access_code_hash TEXT,
                      min_advance_days INTEGER NOT NULL DEFAULT 0,
                      short_notice_warning TEXT NOT NULL DEFAULT 'Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.',
                     field_labels JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -729,10 +752,36 @@ def run_migrations_eventos_customer_portal():
                 ADD COLUMN IF NOT EXISTS access_code_hash VARCHAR(128)
             """)
             cursor.execute("ALTER TABLE event_portal_requests ADD COLUMN IF NOT EXISTS short_notice_warning TEXT")
+            cursor.execute(
+                "ALTER TABLE event_portal_requests "
+                "ADD COLUMN IF NOT EXISTS manual_review_reasons JSONB NOT NULL DEFAULT '[]'::jsonb"
+            )
             cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS min_advance_days INTEGER NOT NULL DEFAULT 0")
             cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS short_notice_warning TEXT NOT NULL DEFAULT 'Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.'")
             cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS logo_data BYTEA")
             cursor.execute("ALTER TABLE event_portal_brand_configs ADD COLUMN IF NOT EXISTS logo_content_type VARCHAR(100)")
+            cursor.execute(
+                "ALTER TABLE event_portal_brand_configs "
+                "ADD COLUMN IF NOT EXISTS support_phone VARCHAR(32)"
+            )
+            cursor.execute(
+                "ALTER TABLE event_portal_brand_configs "
+                "ADD COLUMN IF NOT EXISTS portal_access_code_hash TEXT"
+            )
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM event_portal_brand_configs
+                    WHERE portal_access_code_hash IS NULL
+                       OR BTRIM(portal_access_code_hash) = ''
+                )
+            """)
+            if (cursor.fetchone() or (False,))[0]:
+                cursor.execute("""
+                    UPDATE event_portal_brand_configs
+                    SET portal_access_code_hash = %s
+                    WHERE portal_access_code_hash IS NULL
+                       OR BTRIM(portal_access_code_hash) = ''
+                """, (generate_password_hash('080522'),))
             cursor.execute("""
                 ALTER TABLE event_portal_requests
                 ADD COLUMN IF NOT EXISTS sent_quote_version_id BIGINT

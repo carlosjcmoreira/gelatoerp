@@ -19,6 +19,7 @@ from flask_app.services.event_portal_brand import (
     default_portal_brand, save_public_portal_logo, validate_brand_form,
     validate_portal_logo,
 )
+from werkzeug.security import check_password_hash
 
 
 def _app():
@@ -100,6 +101,23 @@ class BrandValidationTests(unittest.TestCase):
                 validate_brand_form({"min_advance_days": value, "short_notice_warning": "Aviso"})
         with self.assertRaises(ValueError):
             validate_brand_form({"min_advance_days": "1", "short_notice_warning": ""})
+
+    def test_support_phone_and_history_code_are_validated_without_echoing_a_code(self):
+        values = validate_brand_form({
+            "support_phone": "+351 912 345 678",
+            "portal_access_code": "novo-codigo_2026",
+        })
+        self.assertEqual(values["support_phone"], "+351912345678")
+        self.assertEqual(values["portal_access_code"], "novo-codigo_2026")
+        with self.assertRaisesRegex(ValueError, "indicativo internacional"):
+            validate_brand_form({"support_phone": "912 345 678"})
+        with self.assertRaisesRegex(ValueError, "código de consulta"):
+            validate_brand_form({"portal_access_code": "abc"})
+        editor = (
+            Path(__file__).parent.parent / "flask_app" / "templates" /
+            "eventos" / "configuracao.html"
+        ).read_text()
+        self.assertNotIn("080522", editor)
 
     def test_invalid_colour_is_rejected_and_privacy_is_not_configurable(self):
         with self.assertRaisesRegex(ValueError, "hexadecimal"):
@@ -216,6 +234,27 @@ class BrandPersistenceTests(unittest.TestCase):
         self.assertIn("logo_data", insert.args[0])
         self.assertEqual(insert.args[1][3], b"durable-logo")
         self.assertEqual(insert.args[1][4], "image/png")
+
+    def test_unified_save_hashes_a_replaced_history_code(self):
+        from unittest.mock import MagicMock
+
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (7, None)
+        cursor.fetchall.return_value = []
+        connection = _Connection(cursor)
+        values = validate_brand_form({
+            "brand_name": "Gelato Norte",
+            "portal_access_code": "novo-codigo",
+        })
+        with patch("db.eventos.db_connection", return_value=connection):
+            eventos.save_event_configuration(values, "asset.png", [], [], [], "team")
+
+        insert = next(
+            call for call in cursor.execute.call_args_list
+            if "INSERT INTO event_portal_brand_configs" in call.args[0]
+        )
+        self.assertNotIn("novo-codigo", insert.args[1])
+        self.assertTrue(check_password_hash(insert.args[1][16], "novo-codigo"))
 
     def test_brand_save_checks_fresh_store_status_inside_transaction(self):
         cursor = _Cursor([(False,)])
@@ -366,11 +405,14 @@ class BrandRouteTests(unittest.TestCase):
         with self.app.test_client() as client, \
              patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=brand), \
              patch("flask_app.routes.eventos.db.get_portal_unavailable_dates", return_value=[]):
-            response = client.get("/eventos/pedido-evento")
-            self.assertIn("Gelato da Praia", response.get_data(as_text=True))
+            page = client.get("/eventos/pedido-evento").get_data(as_text=True)
+            self.assertIn("Gelato da Praia", page)
             csrf = client.session_transaction()
             with csrf as session:
                 token = session["event_portal_csrf"]
+            submission_identifier = __import__("re").search(
+                r'name="submission_identifier" value="([^"]+)"', page
+            ).group(1)
             with patch("flask_app.routes.eventos.resolve_event_address", return_value={}), \
                  patch("flask_app.routes.eventos.db.create_portal_event_request", return_value={"event_id": 4, "access_code": "code"} ) as create_request, \
                  patch("flask_app.routes.eventos.db.get_event_resources", return_value=[]), \
@@ -384,7 +426,7 @@ class BrandRouteTests(unittest.TestCase):
                     "occurrence_venue[]": "Jardim", "occurrence_address[]": "Rua da Praia 1",
                     "client_name": "Cliente", "client_email": "cliente@example.com",
                     "client_phone": "+351 912345678", "privacy_accepted": "1",
-                    "brand_store_id": "999",
+                     "brand_store_id": "999", "submission_identifier": submission_identifier,
                 })
 
         self.assertEqual(response.status_code, 302)

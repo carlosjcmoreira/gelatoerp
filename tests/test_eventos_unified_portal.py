@@ -109,6 +109,103 @@ class CustomerAndSheetContracts(unittest.TestCase):
             "empresa", [{"estimated_km": Decimal("5.2")}]
         ))
 
+    def test_auto_quote_requires_one_local_non_catering_date_with_enough_notice(self):
+        occurrence = {"event_date": date.today() + timedelta(days=31), "estimated_km": Decimal("201")}
+        reasons = event_db.portal_auto_quote_reasons(
+            "empresa", [occurrence, occurrence], short_notice=True,
+            catering_requested=True,
+        )
+        self.assertEqual(reasons, [
+            "customer_type", "multiple_dates", "short_notice", "catering",
+            "distance_over_limit",
+        ])
+        self.assertFalse(event_db._portal_auto_quote_eligible(
+            "particular", [occurrence],
+        ))
+        self.assertTrue(event_db._portal_auto_quote_eligible(
+            "particular", [{"event_date": date.today() + timedelta(days=31),
+                            "estimated_km": Decimal("200")}],
+        ))
+
+    def test_logistics_window_marks_missing_accesses_between_30_and_15_days(self):
+        today = date(2026, 9, 11)
+        self.assertEqual(
+            event_db.portal_logistics_status(today + timedelta(days=31), None, today=today),
+            {"state": "upcoming", "needs_action": False, "days_until": 31},
+        )
+        self.assertEqual(
+            event_db.portal_logistics_status(today + timedelta(days=15), None, today=today),
+            {"state": "due", "needs_action": True, "days_until": 15},
+        )
+        self.assertEqual(
+            event_db.portal_logistics_status(today + timedelta(days=14), None, today=today),
+            {"state": "overdue", "needs_action": True, "days_until": 14},
+        )
+        self.assertEqual(
+            event_db.portal_logistics_status(today + timedelta(days=14), "Entrada de cargas", today=today),
+            {"state": "ready", "needs_action": False, "days_until": 14},
+        )
+
+    def _create_portal_request_with_pricing_rows(self, pricing_rows):
+        connection = MagicMock()
+        context = MagicMock()
+        context.__enter__.return_value = connection
+        cursor = connection.cursor.return_value
+        cursor.fetchone.side_effect = [None, (77,)]
+        cursor.fetchall.return_value = pricing_rows
+        data = {
+            "client_name": "Cliente",
+            "client_email": "cliente@example.com",
+            "customer_type": "particular",
+            "privacy_accepted": True,
+            "estimated_guests": 20,
+            "servings_per_guest": 1,
+            "flavours": [1],
+            "submission_identifier": "a" * 24,
+            "occurrences": [{
+                "event_date": date.today() + timedelta(days=31),
+                "estimated_km": Decimal("5"),
+                "service_mode": "niva_serves",
+            }],
+        }
+        with patch("db.eventos.validate_portal_flavours", return_value=["Baunilha"]), \
+             patch("db.eventos.calculate_portal_flavours", return_value={
+                 "guests": 20, "scoops": 1, "grams_per_guest": 70,
+                 "flavours": [{"name": "Baunilha", "kg": "2.00"}],
+                 "total_kg": Decimal("2.00"),
+             }), patch("db.eventos.db_connection", return_value=context):
+            result = event_db.create_portal_event_request(data)
+        request_insert = next(
+            call for call in cursor.execute.call_args_list
+            if "INSERT INTO event_portal_requests" in call.args[0]
+        )
+        return result, request_insert.args[1], cursor.execute.call_args_list
+
+    def test_missing_pricing_configuration_creates_a_manual_request(self):
+        result, params, calls = self._create_portal_request_with_pricing_rows([])
+
+        self.assertFalse(result["estimate_eligible"])
+        self.assertIn("pricing_configuration", __import__("json").loads(params[14]))
+        self.assertFalse(any(
+            "INSERT INTO quote_items" in call.args[0]
+            for call in calls
+        ))
+
+    def test_unvalidated_iva_creates_a_manual_request(self):
+        pricing_rows = [
+            ("gelado_kg", Decimal("20"), Decimal("0.13"), False),
+            ("deslocacao_km", Decimal("1"), None, True),
+            ("servico_fixo", Decimal("10"), Decimal("0.13"), False),
+        ]
+        result, params, calls = self._create_portal_request_with_pricing_rows(pricing_rows)
+
+        self.assertFalse(result["estimate_eligible"])
+        self.assertIn("tax_review", __import__("json").loads(params[14]))
+        self.assertFalse(any(
+            "INSERT INTO quote_items" in call.args[0]
+            for call in calls
+        ))
+
     def test_primary_occurrence_updates_replace_existing_values(self):
         cursor = MagicMock()
         cursor.fetchone.return_value = {"id": 10}
@@ -126,7 +223,10 @@ class CustomerAndSheetContracts(unittest.TestCase):
         ):
             event_db._upsert_primary_occurrence(cursor, 5, data)
 
-        upsert_sql = cursor.execute.call_args_list[-1].args[0]
+        upsert_sql = next(
+            call.args[0] for call in cursor.execute.call_args_list
+            if "ON CONFLICT (event_id, occurrence_number)" in call.args[0]
+        )
         self.assertIn("event_date = EXCLUDED.event_date", upsert_sql)
         self.assertIn("venue = EXCLUDED.venue", upsert_sql)
         self.assertNotIn("COALESCE(event_occurrences.event_date", upsert_sql)
@@ -494,12 +594,8 @@ class PortalSubmissionRecoveryContracts(unittest.TestCase):
         self.assertNotEqual(first_identifier, second_identifier)
 
     def test_double_click_and_network_retry_redirect_to_original_event(self):
-        created = {
-            "event_id": 44, "access_code": "first-code", "replayed": False,
-        }
-        replayed = {
-            "event_id": 44, "access_code": "first-code", "replayed": True,
-        }
+        created = {"event_id": 44, "replayed": False}
+        replayed = {"event_id": 44, "replayed": True}
         with self.app.test_client() as client, \
              patch("flask_app.routes.eventos.db.get_default_portal_brand", return_value=self._brand()), \
              patch("flask_app.routes.eventos.db.get_event_resources", return_value=[]), \
@@ -525,7 +621,8 @@ class PortalSubmissionRecoveryContracts(unittest.TestCase):
         self.assertTrue(retry.location.endswith("/eventos/portal-eventos/pedido/44"))
         analytics.assert_called_once()
         with client.session_transaction() as session:
-            self.assertEqual(session["event_portal_access_code_once"], "first-code")
+            self.assertEqual(session["event_portal_event_id"], 44)
+            self.assertNotIn("event_portal_access_code_once", session)
 
     def test_submission_identifier_cannot_be_replayed_from_another_session(self):
         with self.app.test_client() as first_client, \

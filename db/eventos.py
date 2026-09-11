@@ -5,11 +5,13 @@ import logging
 from db.connection import db_connection, get_connection, release_connection, logger
 import json
 import hashlib
+import hmac
 import secrets
 import re
 from decimal import Decimal, InvalidOperation
 import time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 EVENT_STATUS_ORDER = (
@@ -68,6 +70,9 @@ EVENT_SERVICE_MODES = (
     'catering',
 )
 
+DEFAULT_PORTAL_ACCESS_CODE = '080522'
+MAX_PORTAL_AUTO_QUOTE_KM = Decimal('200')
+
 _PORTAL_BRAND_DEFAULTS = {
     'brand_name': 'Scoopy',
     'logo_filename': None,
@@ -85,6 +90,7 @@ _PORTAL_BRAND_DEFAULTS = {
         'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.'
     ),
     'contact_text': 'Deixe-nos os seus contactos para podermos responder ao pedido.',
+    'support_phone': None,
     'min_advance_days': 0,
     'short_notice_warning': 'Atenção: esta data está próxima e poderá não ser possível garantir a disponibilidade.',
     'field_labels': {},
@@ -353,7 +359,15 @@ def get_event_occurrences(event_id):
             """,
             (event_id,),
         )
-        return cursor.fetchall()
+        occurrences = cursor.fetchall()
+        for occurrence in occurrences:
+            logistics = portal_logistics_status(
+                occurrence.get('event_date'), occurrence.get('access_instructions'),
+            )
+            occurrence['logistics_status'] = logistics['state']
+            occurrence['logistics_needs_action'] = logistics['needs_action']
+            occurrence['logistics_days_until'] = logistics.get('days_until')
+        return occurrences
 
 
 def add_event_occurrence(event_id, data, actor=None):
@@ -374,9 +388,11 @@ def add_event_occurrence(event_id, data, actor=None):
             INSERT INTO event_occurrences (
                 event_id, occurrence_number, event_date, venue, venue_address,
                 latitude, longitude, estimated_km, service_start_time,
-                service_end_time, expected_duration_minutes, logistics_notes, service_mode
+                service_end_time, expected_duration_minutes, logistics_notes,
+                access_instructions, venue_contact_is_client, venue_contact_name,
+                venue_contact_phone, service_mode
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                 COALESCE(%s, 'pending')
             ) RETURNING id
             """,
@@ -385,7 +401,9 @@ def add_event_occurrence(event_id, data, actor=None):
                 data.get('venue_address'), data.get('latitude'), data.get('longitude'),
                 data.get('estimated_km'), data.get('service_start_time'),
                 data.get('service_end_time'), data.get('expected_duration_minutes'),
-                data.get('logistics_notes'), service_mode,
+                data.get('logistics_notes'), data.get('access_instructions'),
+                data.get('venue_contact_is_client'), data.get('venue_contact_name'),
+                data.get('venue_contact_phone'), service_mode,
             ),
         )
         occurrence_id = cursor.fetchone()['id']
@@ -432,6 +450,8 @@ def update_event_occurrence(occurrence_id, data, actor=None, risk_acknowledged=F
                 latitude = %s, longitude = %s, estimated_km = %s,
                 service_start_time = %s, service_end_time = %s,
                 expected_duration_minutes = %s, logistics_notes = %s,
+                access_instructions = %s, venue_contact_is_client = %s,
+                venue_contact_name = %s, venue_contact_phone = %s,
                 service_mode = COALESCE(%s, service_mode), updated_at = NOW()
             WHERE id = %s
             """,
@@ -440,6 +460,8 @@ def update_event_occurrence(occurrence_id, data, actor=None, risk_acknowledged=F
                 merged('latitude'), merged('longitude'), merged('estimated_km'),
                 service_start_time, service_end_time,
                 merged('expected_duration_minutes'), merged('logistics_notes'),
+                merged('access_instructions'), merged('venue_contact_is_client'),
+                merged('venue_contact_name'), merged('venue_contact_phone'),
                 merged('service_mode'), occurrence_id,
             ),
         )
@@ -1716,11 +1738,30 @@ def get_events(status=None, search=None, client=None, event_type=None,
         cursor.execute(f"""
             SELECT e.*, COALESCE((
                 SELECT SUM(COALESCE(total_gross,total)) FROM quote_items WHERE event_id=e.id
-            ), 0) AS quote_total
+            ), 0) AS quote_total,
+            COALESCE((
+                SELECT COUNT(*)
+                FROM event_occurrences eo
+                WHERE eo.event_id=e.id
+                  AND e.source='customer_portal'
+                  AND eo.event_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30
+                  AND NULLIF(BTRIM(eo.access_instructions), '') IS NULL
+            ), 0) AS pending_logistics_count,
+            COALESCE((
+                SELECT p.manual_review_reasons
+                FROM event_portal_requests p
+                WHERE p.event_id=e.id
+                ORDER BY p.id DESC LIMIT 1
+            ), '[]'::jsonb) AS manual_review_reasons
             FROM events e {where}
             ORDER BY {ordering} {direction} NULLS LAST, e.created_at DESC
         """, params)
-        return cursor.fetchall()
+        events = cursor.fetchall()
+        for event in events:
+            event['manual_review_labels'] = portal_manual_review_labels(
+                event.get('manual_review_reasons')
+            )
+        return events
 
 
 def get_pipeline_view_preferences(user_key):
@@ -2156,10 +2197,21 @@ def get_event(event_id):
                     FROM quote_items qi
                     JOIN artigos_evento ae ON ae.codigo = qi.artigo_codigo
                     WHERE qi.event_id=e.id AND ae.cost_tier='low'
-                ), 0) as quote_low_cost
+                ), 0) as quote_low_cost,
+                COALESCE((
+                    SELECT p.manual_review_reasons
+                    FROM event_portal_requests p
+                    WHERE p.event_id=e.id
+                    ORDER BY p.id DESC LIMIT 1
+                ), '[]'::jsonb) AS manual_review_reasons
             FROM events e WHERE e.id=%s
         """, (event_id,))
-        return cursor.fetchone()
+        event = cursor.fetchone()
+        if event:
+            event['manual_review_labels'] = portal_manual_review_labels(
+                event.get('manual_review_reasons')
+            )
+        return event
 
 def create_event(data: dict, actor=None):
     data.setdefault('event_end_time', None)
@@ -2795,7 +2847,7 @@ def get_portal_brand_config(store_id):
             SELECT id, store_id, brand_name, logo_filename, primary_color, accent_color,
                    background_color, text_color, button_color, button_text_color,
                    form_title, form_intro, confirmation_message, contact_text,
-                   field_labels, visible_fields, min_advance_days, short_notice_warning,
+                   support_phone, field_labels, visible_fields, min_advance_days, short_notice_warning,
                    is_default, (logo_data IS NOT NULL) AS logo_is_durable
             FROM event_portal_brand_configs
             WHERE store_id = %s
@@ -2810,7 +2862,7 @@ def get_portal_brand_configs():
             SELECT id, store_id, brand_name, logo_filename, primary_color, accent_color,
                    background_color, text_color, button_color, button_text_color,
                    form_title, form_intro, confirmation_message, contact_text,
-                   field_labels, visible_fields, min_advance_days, short_notice_warning,
+                   support_phone, field_labels, visible_fields, min_advance_days, short_notice_warning,
                    is_default, (logo_data IS NOT NULL) AS logo_is_durable
             FROM event_portal_brand_configs
             ORDER BY store_id
@@ -2825,7 +2877,7 @@ def get_default_portal_brand():
             SELECT c.id, c.store_id, c.brand_name, c.logo_filename, c.primary_color,
                    c.accent_color, c.background_color, c.text_color, c.button_color,
                    c.button_text_color, c.form_title, c.form_intro,
-                   c.confirmation_message, c.contact_text, c.field_labels,
+                    c.confirmation_message, c.contact_text, c.support_phone, c.field_labels,
                      c.visible_fields, c.min_advance_days, c.short_notice_warning,
                      c.is_default, c.updated_at,
                      (c.logo_data IS NOT NULL) AS logo_is_durable
@@ -2972,7 +3024,7 @@ def save_event_configuration(values, logo_filename, resources, pricing, flavour_
     with db_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute("""SELECT s.id FROM stores s LEFT JOIN event_portal_brand_configs c
+            cursor.execute("""SELECT s.id, c.portal_access_code_hash FROM stores s LEFT JOIN event_portal_brand_configs c
                 ON c.store_id=s.id WHERE s.is_active=TRUE
                 ORDER BY COALESCE(c.is_default,FALSE) DESC, c.updated_at DESC NULLS LAST, s.id
                 LIMIT 1 FOR UPDATE OF s""")
@@ -2980,13 +3032,23 @@ def save_event_configuration(values, logo_filename, resources, pricing, flavour_
             if not row:
                 raise ValueError('Não existe uma loja ativa para associar o formulário público.')
             store_id = row[0]
+            submitted_access_code = values.get('portal_access_code')
+            access_code_hash = (
+                generate_password_hash(submitted_access_code)
+                if submitted_access_code
+                else (
+                    row[1] if len(row) > 1 and row[1]
+                    else generate_password_hash(DEFAULT_PORTAL_ACCESS_CODE)
+                )
+            )
             cursor.execute("UPDATE event_portal_brand_configs SET is_default=FALSE, updated_at=NOW() WHERE is_default=TRUE")
             cursor.execute("""INSERT INTO event_portal_brand_configs
                 (store_id,brand_name,logo_filename,logo_data,logo_content_type,
                  primary_color,accent_color,background_color,
                  text_color,button_color,button_text_color,form_title,form_intro,
-                 confirmation_message,contact_text,field_labels,visible_fields,min_advance_days,short_notice_warning,is_default)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
+                  confirmation_message,contact_text,support_phone,portal_access_code_hash,
+                  field_labels,visible_fields,min_advance_days,short_notice_warning,is_default)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
                 ON CONFLICT (store_id) DO UPDATE SET brand_name=EXCLUDED.brand_name,
                  logo_filename=EXCLUDED.logo_filename,primary_color=EXCLUDED.primary_color,
                  logo_data=CASE
@@ -3001,7 +3063,8 @@ def save_event_configuration(values, logo_filename, resources, pricing, flavour_
                  text_color=EXCLUDED.text_color,button_color=EXCLUDED.button_color,
                  button_text_color=EXCLUDED.button_text_color,form_title=EXCLUDED.form_title,
                  form_intro=EXCLUDED.form_intro,confirmation_message=EXCLUDED.confirmation_message,
-                 contact_text=EXCLUDED.contact_text,field_labels=EXCLUDED.field_labels,
+                  contact_text=EXCLUDED.contact_text,support_phone=EXCLUDED.support_phone,
+                  portal_access_code_hash=EXCLUDED.portal_access_code_hash,field_labels=EXCLUDED.field_labels,
                  visible_fields=EXCLUDED.visible_fields,min_advance_days=EXCLUDED.min_advance_days,
                  short_notice_warning=EXCLUDED.short_notice_warning,is_default=TRUE,updated_at=NOW()""",
                 (store_id, values['brand_name'], logo_filename,
@@ -3010,7 +3073,8 @@ def save_event_configuration(values, logo_filename, resources, pricing, flavour_
                  values['primary_color'],
                  values['accent_color'], values['background_color'], values['text_color'],
                  values['button_color'], values['button_text_color'], values['form_title'],
-                 values['form_intro'], values['confirmation_message'], values['contact_text'],
+                  values['form_intro'], values['confirmation_message'], values['contact_text'],
+                  values['support_phone'], access_code_hash,
                  json.dumps(values['field_labels'], ensure_ascii=False),
                  json.dumps(values['visible_fields'], ensure_ascii=False),
                  values['min_advance_days'], values['short_notice_warning']))
@@ -3238,12 +3302,149 @@ def _restore_proposal_occurrences(occurrences):
     return restored_occurrences
 
 
-def _portal_auto_quote_eligible(customer_type, occurrences):
-    """Only price Particular requests when every trip distance is known."""
-    return (
-        customer_type == 'particular'
-        and all(occurrence.get('estimated_km') is not None for occurrence in occurrences)
+def portal_auto_quote_reasons(customer_type, occurrences, *, short_notice=False,
+                              catering_requested=False,
+                              max_round_trip_km=MAX_PORTAL_AUTO_QUOTE_KM):
+    """Return deterministic, customer-safe reasons for manual quote review."""
+    reasons = []
+    occurrences = list(occurrences or [])
+    if customer_type != 'particular':
+        reasons.append('customer_type')
+    if not occurrences:
+        reasons.append('missing_occurrence')
+    elif len(occurrences) > 1:
+        reasons.append('multiple_dates')
+    if short_notice:
+        reasons.append('short_notice')
+    if catering_requested or any(
+        occurrence.get('service_mode') == 'catering' for occurrence in occurrences
+    ):
+        reasons.append('catering')
+
+    try:
+        limit = Decimal(str(max_round_trip_km))
+    except (InvalidOperation, ValueError, TypeError):
+        raise ValueError('O limite de deslocação para orçamento automático é inválido.')
+    for occurrence in occurrences:
+        try:
+            kilometres = Decimal(str(occurrence.get('estimated_km')))
+        except (InvalidOperation, ValueError, TypeError):
+            kilometres = None
+        if kilometres is None or not kilometres.is_finite() or kilometres < 0:
+            if 'route_unknown' not in reasons:
+                reasons.append('route_unknown')
+        elif kilometres > limit and 'distance_over_limit' not in reasons:
+            reasons.append('distance_over_limit')
+    return reasons
+
+
+def _portal_auto_quote_eligible(customer_type, occurrences, *, short_notice=False,
+                                catering_requested=False,
+                                max_round_trip_km=MAX_PORTAL_AUTO_QUOTE_KM):
+    """Only price simple portal requests with a known, local logistics route."""
+    return not portal_auto_quote_reasons(
+        customer_type, occurrences, short_notice=short_notice,
+        catering_requested=catering_requested,
+        max_round_trip_km=max_round_trip_km,
     )
+
+
+def portal_manual_quote_message(customer_type, reasons):
+    """Use a clear client-facing response without exposing internal rule names."""
+    if customer_type == 'empresa':
+        return (
+            'Recebemos o pedido da empresa. A nossa equipa irá contactar '
+            'pessoalmente para preparar a proposta.'
+        )
+    if 'multiple_dates' in reasons:
+        detail = 'O pedido inclui várias datas e precisa de confirmação operacional.'
+    elif 'distance_over_limit' in reasons:
+        detail = 'A deslocação ao local precisa de confirmação logística.'
+    elif 'short_notice' in reasons:
+        detail = 'A data está próxima e precisa de confirmação de disponibilidade.'
+    elif 'catering' in reasons:
+        detail = 'O serviço de catering precisa de confirmação pela equipa.'
+    elif 'pricing_configuration' in reasons or 'tax_review' in reasons:
+        detail = 'O pedido precisa de confirmação comercial pela equipa.'
+    else:
+        detail = 'A deslocação ou a logística do local precisa de confirmação.'
+    return f'{detail} A nossa equipa irá contactar para preparar a proposta.'
+
+
+_PORTAL_MANUAL_REVIEW_LABELS = {
+    'customer_type': 'Pedido empresarial',
+    'multiple_dates': 'Várias datas',
+    'short_notice': 'Data com antecedência curta',
+    'catering': 'Serviço de catering',
+    'route_unknown': 'Deslocação por confirmar',
+    'distance_over_limit': 'Deslocação acima de 200 km',
+    'pricing_configuration': 'Preços por validar',
+    'tax_review': 'IVA por validar',
+}
+
+
+def portal_manual_review_labels(reasons):
+    """Translate persisted review flags for operational users."""
+    if isinstance(reasons, str):
+        try:
+            reasons = json.loads(reasons)
+        except ValueError:
+            reasons = []
+    return [
+        _PORTAL_MANUAL_REVIEW_LABELS.get(reason, 'Revisão manual necessária')
+        for reason in reasons or []
+    ]
+
+
+def portal_logistics_status(event_date, access_instructions, *, today=None):
+    """Describe when access instructions are operationally due for one occurrence."""
+    today = today or date.today()
+    if isinstance(event_date, str):
+        try:
+            event_date = date.fromisoformat(event_date[:10])
+        except ValueError:
+            event_date = None
+    if not event_date:
+        return {'state': 'unknown', 'needs_action': False}
+    days_until = (event_date - today).days
+    has_instructions = bool(str(access_instructions or '').strip())
+    if days_until > 30:
+        state = 'upcoming'
+    elif days_until >= 15:
+        state = 'ready' if has_instructions else 'due'
+    elif days_until >= 0:
+        state = 'ready' if has_instructions else 'overdue'
+    else:
+        state = 'past'
+    return {
+        'state': state,
+        'needs_action': state in ('due', 'overdue'),
+        'days_until': days_until,
+    }
+
+
+def normalize_portal_access_instructions(value):
+    value = str(value or '').strip()
+    if len(value) > 2000:
+        raise ValueError('As instruções de acesso não podem exceder 2000 caracteres.')
+    return value or None
+
+
+def normalize_portal_venue_contact(is_client, name=None, phone=None):
+    """Validate one venue contact without duplicating the customer contact."""
+    if is_client:
+        return True, None, None
+    name = str(name or '').strip()
+    phone = str(phone or '').strip()
+    if not name:
+        raise ValueError('Indique o nome do responsável pelo local.')
+    if len(name) > 255:
+        raise ValueError('O nome do responsável pelo local é demasiado longo.')
+    if not re.fullmatch(r'\+[1-9][0-9]{6,14}', phone):
+        raise ValueError(
+            'Indique o telefone do responsável pelo local com indicativo internacional.'
+        )
+    return False, name, phone
 
 
 def portal_short_notice_warning(occurrences, min_advance_days, warning):
@@ -3297,7 +3498,24 @@ def create_portal_event_request(data):
                 'Indique um tipo de serviço válido para todas as ocorrências '
                 f'({", ".join(invalid_modes)}).'
             )
-    estimate_eligible = _portal_auto_quote_eligible(customer_type, occurrences)
+    for occurrence in occurrences:
+        is_client, contact_name, contact_phone = normalize_portal_venue_contact(
+            True if occurrence.get('venue_contact_is_client') is None
+            else bool(occurrence.get('venue_contact_is_client')),
+            occurrence.get('venue_contact_name'),
+            occurrence.get('venue_contact_phone'),
+        )
+        occurrence['venue_contact_is_client'] = is_client
+        occurrence['venue_contact_name'] = contact_name
+        occurrence['venue_contact_phone'] = contact_phone
+        occurrence['access_instructions'] = normalize_portal_access_instructions(
+            occurrence.get('access_instructions')
+        )
+    manual_review_reasons = portal_auto_quote_reasons(
+        customer_type, occurrences, short_notice=short_notice,
+        catering_requested=catering,
+    )
+    estimate_eligible = not manual_review_reasons
 
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -3325,7 +3543,6 @@ def create_portal_event_request(data):
                 'estimated_vat_eur': existing[3],
                 'estimated_total_eur': existing[4],
                 'short_notice_warning': existing[5],
-                'access_code': str(data.get('access_code') or '').strip() or None,
                 'replayed': True,
             }
         resource_codes = list(dict.fromkeys(data.get('resource_preferences') or []))
@@ -3356,8 +3573,52 @@ def create_portal_event_request(data):
                     'public_customer_requirements': row[6],
                 } for row in resource_rows
             }
-        access_code = str(data.get('access_code') or '').strip() or secrets.token_urlsafe(9)
-        access_code_hash = hashlib.sha256(access_code.encode('utf-8')).hexdigest()
+        # Check price and IVA readiness before creating any commercial records.
+        # If configuration needs attention, retain the request for team review
+        # rather than rejecting a customer submission.
+        resource_keys = {
+            'carrinha': 'carrinha_fixa',
+            'carrinho': 'carrinho_fixo',
+            'arca': 'arca_fixa',
+        }
+        auto_quote_pricing_keys = None
+        auto_quote_settings = None
+        if estimate_eligible:
+            unsupported = [code for code in resource_codes if code not in resource_keys]
+            if unsupported:
+                manual_review_reasons.append('pricing_configuration')
+                estimate_eligible = False
+            else:
+                pricing_keys = ['gelado_kg', 'deslocacao_km']
+                if any(o.get('service_mode') == 'niva_serves' for o in occurrences):
+                    pricing_keys.append('servico_fixo')
+                pricing_keys.extend(resource_keys[code] for code in resource_codes)
+                cursor.execute(
+                    "SELECT key,value_gross,taxa_iva,requires_tax_review "
+                    "FROM event_pricing_settings WHERE key=ANY(%s) AND active=TRUE "
+                    "FOR SHARE",
+                    (list(dict.fromkeys(pricing_keys)),),
+                )
+                pricing_settings = {row[0]: row for row in cursor.fetchall()}
+                missing = [
+                    key for key in dict.fromkeys(pricing_keys)
+                    if key not in pricing_settings
+                ]
+                tax_unvalidated = [
+                    key for key in dict.fromkeys(pricing_keys)
+                    if key in pricing_settings and (
+                        pricing_settings[key][2] is None or pricing_settings[key][3]
+                    )
+                ]
+                if missing:
+                    manual_review_reasons.append('pricing_configuration')
+                    estimate_eligible = False
+                if tax_unvalidated:
+                    manual_review_reasons.append('tax_review')
+                    estimate_eligible = False
+                if estimate_eligible:
+                    auto_quote_pricing_keys = list(dict.fromkeys(pricing_keys))
+                    auto_quote_settings = pricing_settings
         first = occurrences[0]
         cursor.execute("""
             INSERT INTO events (
@@ -3383,43 +3644,25 @@ def create_portal_event_request(data):
                 INSERT INTO event_occurrences (
                     event_id, occurrence_number, event_date, venue, venue_address,
                     latitude, longitude, estimated_km, service_start_time,
-                    service_end_time, expected_duration_minutes, logistics_notes, service_mode
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    service_end_time, expected_duration_minutes, logistics_notes,
+                    access_instructions, venue_contact_is_client, venue_contact_name,
+                    venue_contact_phone, service_mode
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 event_id, number, occurrence.get('event_date'), occurrence.get('venue'),
                 occurrence.get('venue_address'), occurrence.get('latitude'),
                 occurrence.get('longitude'), occurrence.get('estimated_km'),
                 occurrence.get('service_start_time'), occurrence.get('service_end_time'),
                 occurrence.get('expected_duration_minutes'),
-                occurrence.get('logistics_notes'), occurrence.get('service_mode', 'pending'),
+                occurrence.get('logistics_notes'), occurrence.get('access_instructions'),
+                occurrence.get('venue_contact_is_client'), occurrence.get('venue_contact_name'),
+                occurrence.get('venue_contact_phone'), occurrence.get('service_mode', 'pending'),
             ))
 
         estimate_base = estimate_vat = estimate_total = None
         if estimate_eligible:
-            keys = ['gelado_kg']
-            if any(o.get('service_mode') == 'niva_serves' for o in occurrences):
-                keys.append('servico_fixo')
-            keys.append('deslocacao_km')
-            resource_keys = {'carrinha': 'carrinha_fixa', 'carrinho': 'carrinho_fixo', 'arca': 'arca_fixa'}
-            unsupported = [code for code in resource_codes if code not in resource_keys]
-            if unsupported:
-                raise ValueError('Recurso selecionado sem mapeamento de preço: ' + ', '.join(unsupported))
-            keys += [resource_keys[c] for c in resource_codes if c in resource_keys]
-            cursor.execute("SELECT key,value_gross,taxa_iva,requires_tax_review FROM event_pricing_settings "
-                           "WHERE key=ANY(%s) AND active=TRUE", (list(dict.fromkeys(keys)),))
-            settings = {r[0]: r for r in cursor.fetchall()}
-            missing = [key for key in dict.fromkeys(keys) if key not in settings]
-            if missing:
-                raise ValueError("Configuração de preços em falta ou inativa: " + ", ".join(missing))
-            tax_unvalidated = [
-                key for key in dict.fromkeys(keys)
-                if settings[key][2] is None or settings[key][3]
-            ]
-            if tax_unvalidated:
-                raise ValueError(
-                    "Não é possível emitir proposta automática: valide o IVA destas "
-                    "configurações: " + ", ".join(tax_unvalidated)
-                )
+            keys = auto_quote_pricing_keys
+            settings = auto_quote_settings
             lines = []
             def make_line(key, label, quantity):
                 row = settings[key]
@@ -3488,21 +3731,19 @@ def create_portal_event_request(data):
                 event_id, email_normalized, access_code_hash, marketing_consent, referral_source,
                 servings_per_guest, flavours, resource_preferences, catering_requested,
                 estimate_eligible, estimated_base_eur, estimated_vat_eur, estimated_total_eur,
-                public_message, short_notice_warning, brand_store_id,
+                public_message, short_notice_warning, manual_review_reasons, brand_store_id,
                 resource_requirements_snapshot, submission_identifier
-            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+            ) VALUES (%s, %s, NULL, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb, %s)
         """, (
-            event_id, email, access_code_hash, bool(data.get('marketing_consent')), data.get('referral_source'),
+            event_id, email, bool(data.get('marketing_consent')), data.get('referral_source'),
             flavour_plan['scoops'], json.dumps(flavour_plan['flavours'], ensure_ascii=False),
             json.dumps(resource_codes, ensure_ascii=False),
             catering, estimate_eligible, estimate_base, estimate_vat, estimate_total,
-            (('Recebemos o pedido da empresa. A nossa equipa irá contactar pessoalmente para preparar uma proposta.')
-             if customer_type == 'empresa' else
-             ('Recebemos o seu pedido. Não foi possível calcular automaticamente a deslocação; a nossa equipa irá contactar para preparar a proposta.'
-              if not estimate_eligible else
-              data.get('confirmation_message') or
-              'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.')),
-             short_notice_warning if short_notice else None, data.get('brand_store_id'),
+            (portal_manual_quote_message(customer_type, manual_review_reasons)
+             if not estimate_eligible else data.get('confirmation_message') or
+             'Recebemos o seu pedido. A equipa irá confirmar disponibilidade e logística.'),
+             short_notice_warning if short_notice else None,
+             json.dumps(manual_review_reasons, ensure_ascii=False), data.get('brand_store_id'),
             json.dumps(resource_requirements_snapshot, ensure_ascii=False),
             submission_identifier,
         ))
@@ -3515,6 +3756,7 @@ def create_portal_event_request(data):
             details={
                 'occurrence_count': len(occurrences),
                 'estimate_eligible': estimate_eligible,
+                'manual_review_reasons': manual_review_reasons,
                 'resource_preferences': data.get('resource_preferences') or [],
             },
         )
@@ -3526,7 +3768,6 @@ def create_portal_event_request(data):
             'estimated_vat_eur': estimate_vat,
             'estimated_total_eur': estimate_total,
             'flavour_plan': flavour_plan,
-            'access_code': access_code,
             'short_notice_warning': short_notice_warning if short_notice else None,
             'replayed': False,
         }
@@ -3560,6 +3801,39 @@ def verify_portal_request_access(email, access_code):
         return row[0] if row else None
 
 
+def verify_portal_email_access(email, access_code):
+    """Verify the configured public code before exposing one email's history."""
+    normalized = normalize_portal_email(email)
+    supplied = str(access_code or '').strip()
+    if not supplied:
+        return False
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM event_portal_requests WHERE email_normalized=%s LIMIT 1",
+            (normalized,),
+        )
+        if not cursor.fetchone():
+            return False
+        cursor.execute("""
+            SELECT c.portal_access_code_hash
+            FROM event_portal_brand_configs c
+            JOIN stores s ON s.id=c.store_id
+            WHERE s.is_active=TRUE
+            ORDER BY c.is_default DESC, c.updated_at DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+    stored_hash = row[0] if row else None
+    if not stored_hash:
+        return hmac.compare_digest(supplied, DEFAULT_PORTAL_ACCESS_CODE)
+    try:
+        return check_password_hash(stored_hash, supplied)
+    except ValueError:
+        logger.warning('Invalid configured Events portal access-code hash.')
+        return False
+
+
 def get_portal_events_for_email(email):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -3567,6 +3841,7 @@ def get_portal_events_for_email(email):
             SELECT e.id, e.event_name, e.event_type, e.status, e.created_at,
                      p.brand_store_id, p.resource_requirements_snapshot,
                    p.estimate_eligible, p.estimated_total_eur, p.public_message,
+                    p.manual_review_reasons,
                    (SELECT MIN(eo.event_date) FROM event_occurrences eo WHERE eo.event_id = e.id) AS next_date,
                    (SELECT COUNT(*) FROM event_occurrences eo WHERE eo.event_id = e.id) AS occurrence_count
             FROM event_portal_requests p
@@ -3584,7 +3859,8 @@ def get_portal_event_for_email(event_id, email):
             SELECT e.*, p.marketing_consent, p.referral_source, p.servings_per_guest,
                    p.flavours, p.resource_preferences, p.catering_requested,
                    p.estimate_eligible, p.estimated_base_eur, p.estimated_vat_eur,
-                     p.estimated_total_eur, p.public_message, p.short_notice_warning, p.logistics_message,
+                      p.estimated_total_eur, p.public_message, p.short_notice_warning, p.logistics_message,
+                     p.manual_review_reasons,
                     p.brand_store_id, p.resource_requirements_snapshot,
                     p.sent_quote_version_id, p.accepted_quote_revision, p.quote_accepted_at,
                    (SELECT MIN(eo.event_date) FROM event_occurrences eo
@@ -3657,6 +3933,7 @@ def get_portal_event_for_email(event_id, email):
             event['quote_totals'] = {'total_net': None, 'total_vat': None, 'total_gross': Decimal('0')}
         if 'occurrences_public' not in event:
             event['occurrences_public'] = get_event_occurrences(event_id)
+        event['occurrences_logistics'] = get_event_occurrences(event_id)
         cursor.execute("""
             SELECT original_filename, purpose, created_at
             FROM event_portal_files
@@ -3665,6 +3942,55 @@ def get_portal_event_for_email(event_id, email):
         """, (event_id,))
         event['proofs'] = cursor.fetchall()
         return event
+
+
+def update_portal_occurrence_logistics(event_id, occurrence_id, email, data):
+    """Let a verified customer update their venue contact and access instructions."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT eo.*
+            FROM event_occurrences eo
+            JOIN event_portal_requests p ON p.event_id=eo.event_id
+            WHERE eo.id=%s AND eo.event_id=%s AND p.email_normalized=%s
+            FOR UPDATE
+        """, (occurrence_id, event_id, normalize_portal_email(email)))
+        occurrence = cursor.fetchone()
+        if not occurrence:
+            raise ValueError('Ocorrência não encontrada.')
+        is_client, contact_name, contact_phone = normalize_portal_venue_contact(
+            bool(data.get('venue_contact_is_client')),
+            data.get('venue_contact_name'), data.get('venue_contact_phone'),
+        )
+        access_instructions = normalize_portal_access_instructions(
+            data.get('access_instructions')
+        )
+        logistics = portal_logistics_status(
+            occurrence.get('event_date'), access_instructions,
+        )
+        if logistics['needs_action'] and not access_instructions:
+            raise ValueError(
+                'Indique os acessos para descarregar e montar o material antes da confirmação.'
+            )
+        cursor.execute("""
+            UPDATE event_occurrences
+            SET venue_contact_is_client=%s, venue_contact_name=%s,
+                venue_contact_phone=%s, access_instructions=%s, updated_at=NOW()
+            WHERE id=%s
+        """, (
+            is_client, contact_name, contact_phone, access_instructions, occurrence_id,
+        ))
+        _insert_event_history(
+            cursor, event_id, 'portal_logistics_updated',
+            actor=f'portal:{normalize_portal_email(email)}',
+            details={
+                'occurrence_id': occurrence_id,
+                'access_instructions_supplied': bool(access_instructions),
+                'venue_contact_is_client': is_client,
+            },
+        )
+        conn.commit()
+        return portal_logistics_status(occurrence.get('event_date'), access_instructions)
 
 
 def accept_portal_quote(event_id, email, presented_revision):
