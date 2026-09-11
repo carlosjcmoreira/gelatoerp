@@ -1,49 +1,73 @@
 {% extends "base.html" %}
 {% set back_url = url_for("eventos.index") %}
+{% block head %}
+<style>
+  .pipeline-table th [data-sort] { color:inherit; border:0; background:transparent; padding:0; font-weight:600; white-space:nowrap }
+  .pipeline-table tbody tr { cursor:pointer }
+  .pipeline-table tbody tr:focus { outline:2px solid var(--bs-primary); outline-offset:-2px }
+  .column-picker { min-width:220px; max-height:60vh; overflow:auto }
+  .column-picker [draggable] { cursor:grab }
+  .pipeline-filters .collapse:not(.show) { display:none }
+</style>
+{% endblock %}
 {% block content %}
+{% set default_columns = ['event','client','date','type','venue','guests','source','status','budget'] %}
 <div class="container-fluid px-3 pt-3 pb-5">
   <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
     <div><h5 class="fw-bold mb-0">📋 Pipeline de Eventos</h5><small class="text-muted">{{ events|length }} resultado(s)</small></div>
-     <div class="d-flex gap-2">
-       <form method="post" action="{{ url_for('eventos.sync_sheets') }}" data-no-loading>
-         <button type="submit" class="btn btn-sm btn-outline-success" {% if sync_run and sync_run.status in ['queued', 'running'] %}disabled{% endif %}>🔄 Sincronizar Google Sheets</button>
-       </form>
-       <a href="{{ url_for('eventos.calendario') }}" class="btn btn-sm btn-outline-secondary">🗓️ Calendário</a>
-       <a href="{{ url_for('eventos.novo_evento') }}" class="btn btn-sm btn-primary">+ Novo Evento</a>
-     </div>
+    <div class="d-flex gap-2"><a href="{{ url_for('eventos.locais') }}" class="btn btn-sm btn-outline-secondary">📍 Locais</a><a href="{{ url_for('eventos.calendario') }}" class="btn btn-sm btn-outline-secondary">🗓️ Calendário</a><a href="{{ url_for('eventos.novo_evento') }}" class="btn btn-sm btn-primary">+ Novo Evento</a></div>
   </div>
-   {% if sync_run %}
-   <div class="alert {% if sync_run.status == 'failed' %}alert-danger{% elif sync_run.status == 'succeeded' %}alert-success{% else %}alert-info{% endif %} py-2 small">
-     <strong>{% if sync_run.status in ['queued', 'running'] %}Sincronização em curso{% elif sync_run.status == 'succeeded' %}Última sincronização concluída{% else %}A última sincronização falhou{% endif %}</strong>
-     <span class="ms-2">{{ sync_run.inserted or 0 }} novas · {{ sync_run.updated or 0 }} atualizadas · {{ sync_run.errors or 0 }} erros</span>
-     {% if sync_run.status in ['queued', 'running'] %}<span class="ms-2 text-muted">Pode continuar a trabalhar; o pipeline será atualizado.</span>{% endif %}
-   </div>
-   {% endif %}
+  {% if sync_run %}<div class="alert {% if sync_run.status == 'failed' %}alert-danger{% elif sync_run.status == 'succeeded' %}alert-success{% else %}alert-info{% endif %} py-2 small"><strong>{% if sync_run.status in ['queued', 'running'] %}Sincronização em curso{% elif sync_run.status == 'succeeded' %}Última sincronização concluída{% else %}A última sincronização falhou{% endif %}</strong><span class="ms-2">{{ sync_run.inserted or 0 }} novas · {{ sync_run.updated or 0 }} atualizadas · {{ sync_run.errors or 0 }} erros</span></div>{% endif %}
   <div class="d-flex flex-wrap gap-1 mb-3">
     <a href="{{ url_for('eventos.pipeline') }}" class="btn btn-sm {{ 'btn-dark' if not status_filter else 'btn-outline-secondary' }}">Todos</a>
     {% for s in all_statuses %}<a href="{{ url_for('eventos.pipeline', status=s) }}" class="btn btn-sm {{ 'btn-' ~ status_colors[s] if status_filter==s else 'btn-outline-' ~ status_colors[s] }}">{{ status_labels[s] }}</a>{% endfor %}
   </div>
-  <form class="card card-body shadow-sm mb-3" method="get">
+  <form class="card card-body shadow-sm mb-3 pipeline-filters" method="get" id="pipeline-filter-form">
     {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
-    <div class="row g-2">
-      <div class="col-12 col-md-3"><label class="form-label small mb-1">Pesquisar</label><input name="q" value="{{ filters.search }}" class="form-control form-control-sm" placeholder="Evento, cliente ou email"></div>
-      <div class="col-6 col-md-2"><label class="form-label small mb-1">Cliente</label><input name="client" value="{{ filters.client }}" class="form-control form-control-sm"></div>
+    <input type="hidden" name="sort" value="{{ sort_by }}"><input type="hidden" name="direction" value="{{ sort_direction }}">
+    <div class="d-flex gap-2 align-items-end flex-wrap">
+      <div class="flex-grow-1" style="min-width:220px"><label class="form-label small mb-1">Pesquisar</label><input name="q" value="{{ filters.search }}" class="form-control form-control-sm" placeholder="Evento, cliente ou email" autocomplete="off"></div>
+      <button class="btn btn-sm btn-primary">Pesquisar</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#more-pipeline-filters" aria-expanded="false">Mais filtros</button>
+      <details class="position-relative"><summary class="btn btn-sm btn-outline-secondary">Colunas</summary><div class="column-picker position-absolute end-0 mt-1 bg-body border shadow rounded p-2 z-3" id="column-picker"></div></details>
+    </div>
+    <div class="collapse mt-3" id="more-pipeline-filters"><div class="row g-2">
+      <div class="col-6 col-md-3"><label class="form-label small mb-1">Cliente</label><input name="client" value="{{ filters.client }}" class="form-control form-control-sm"></div>
       <div class="col-6 col-md-2"><label class="form-label small mb-1">Tipo</label><input name="event_type" value="{{ filters.event_type }}" class="form-control form-control-sm"></div>
       <div class="col-6 col-md-2"><label class="form-label small mb-1">De</label><input type="date" name="date_from" value="{{ filters.date_from or '' }}" class="form-control form-control-sm"></div>
       <div class="col-6 col-md-2"><label class="form-label small mb-1">Até</label><input type="date" name="date_to" value="{{ filters.date_to or '' }}" class="form-control form-control-sm"></div>
       <div class="col-8 col-md-2"><label class="form-label small mb-1">Meio</label><select name="resource_id" class="form-select form-select-sm"><option value="">Todos</option>{% for r in resources %}<option value="{{ r.id }}" {{ 'selected' if filters.resource_id==r.id }}>{{ r.name }}</option>{% endfor %}</select></div>
-      <div class="col-4 col-md-1 d-flex align-items-end"><button class="btn btn-sm btn-primary w-100">Filtrar</button></div>
-    </div>
+      <div class="col-4 col-md-1 d-flex align-items-end"><a href="{{ url_for('eventos.pipeline', status=status_filter) }}" class="btn btn-sm btn-outline-secondary w-100">Limpar</a></div>
+    </div></div>
   </form>
-  <div class="card shadow-sm"><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0 small">
-    <thead class="table-light"><tr><th>Evento / cliente</th><th>Data</th><th>Tipo</th><th>Origem</th><th>Estado</th><th class="text-end">Orçamento</th><th></th></tr></thead>
-    <tbody>{% for ev in events %}<tr>
-       <td><strong>{{ ev.event_name or '(sem nome)' }}</strong><div class="text-muted">{{ ev.client_name or 'Cliente a definir' }}</div><div class="small">{{ ev.customer_type or '—' }}{% if ev.company_name %} · {{ ev.company_name }}{% endif %}</div></td>
-      <td>{{ ev.event_date.strftime('%d/%m/%Y') if ev.event_date else 'A definir' }}<div class="text-muted">{{ ev.event_time or '' }}</div></td>
-      <td>{{ ev.event_type or '—' }}</td><td><span class="badge text-bg-light border">{{ ev.source or 'manual' }}</span></td>
-      <td><span class="badge bg-{{ status_colors.get(ev.status, 'secondary') }}">{{ status_labels.get(ev.status, ev.status) }}</span></td>
-      <td class="text-end">{{ "%.2f"|format(ev.quote_total or 0) }} €</td><td class="text-end"><a href="{{ url_for('eventos.evento_detail', event_id=ev.id) }}" class="btn btn-xs btn-outline-primary py-0">Abrir</a></td>
-    </tr>{% else %}<tr><td colspan="7" class="text-center text-muted py-5">Nenhum evento encontrado com estes filtros.</td></tr>{% endfor %}</tbody>
+  <div class="card shadow-sm"><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0 small pipeline-table" id="pipeline-table">
+    <thead class="table-light"><tr>
+      {% for key,label in [('event','Evento'),('client','Cliente'),('date','Data'),('type','Tipo'),('venue','Local'),('guests','Pessoas'),('source','Origem'),('status','Estado'),('budget','Orçamento'),('email','Email'),('phone','Telefone')] %}
+      <th data-column="{{ key }}" class="{{ 'text-end' if key == 'budget' else '' }}"><button type="button" data-sort="{{ key }}">{{ label }}{% if sort_by == key %} {{ '↓' if sort_direction == 'desc' else '↑' }}{% endif %}</button></th>{% endfor %}
+    </tr></thead>
+    <tbody>{% for ev in events %}<tr data-panel-url="{{ url_for('eventos.event_panel', event_id=ev.id) }}" tabindex="0" aria-label="Abrir detalhe de {{ ev.event_name or ev.client_name or 'evento' }}">
+      <td data-column="event"><strong>{{ ev.event_name or '(sem nome)' }}</strong></td><td data-column="client">{{ ev.client_name or 'Cliente a definir' }}{% if ev.company_name %}<div class="text-muted">{{ ev.company_name }}</div>{% endif %}</td>
+      <td data-column="date">{{ ev.event_date.strftime('%d/%m/%Y') if ev.event_date else 'A definir' }}<div class="text-muted">{{ ev.event_time or '' }}</div></td><td data-column="type">{{ ev.event_type or '—' }}</td>
+      <td data-column="venue">{{ ev.venue or '—' }}<div class="text-muted">{{ ev.venue_address or '' }}</div></td><td data-column="guests">{{ ev.estimated_guests or '—' }}</td>
+      <td data-column="source"><span class="badge text-bg-light border">{{ ev.source or 'manual' }}</span></td><td data-column="status"><span class="badge bg-{{ status_colors.get(ev.status, 'secondary') }}">{{ status_labels.get(ev.status, ev.status) }}</span></td>
+      <td data-column="budget" class="text-end">{{ "%.2f"|format(ev.quote_total or 0) }} €</td><td data-column="email">{{ ev.client_email or '—' }}</td><td data-column="phone">{{ ev.client_phone or '—' }}</td>
+    </tr>{% else %}<tr><td colspan="11" class="text-center text-muted py-5">Nenhum evento encontrado com estes filtros.</td></tr>{% endfor %}</tbody>
   </table></div></div>
 </div>
+<div class="offcanvas offcanvas-end" tabindex="-1" id="event-panel" style="width:min(560px,100vw)"><div class="offcanvas-header py-2 border-bottom"><h6 class="offcanvas-title mb-0 fw-semibold">Detalhe do evento</h6><button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button></div><div class="offcanvas-body p-0" id="event-panel-body"><div class="p-4 text-muted small">Selecione um evento.</div></div></div>
+<script>
+(() => {
+ const labels={event:'Evento',client:'Cliente',date:'Data',type:'Tipo',venue:'Local',guests:'Pessoas',source:'Origem',status:'Estado',budget:'Orçamento',email:'Email',phone:'Telefone'};
+ const defaults={{ default_columns|tojson }}, saved={{ (pipeline_preferences or default_columns)|tojson }}, all={{ pipeline_columns|tojson }}, table=document.getElementById('pipeline-table'), picker=document.getElementById('column-picker');
+ let columns=[...saved.filter(x=>all.includes(x)),...all.filter(x=>!saved.includes(x))], visible=new Set(saved.filter(x=>all.includes(x)));
+ function paint(){table.querySelectorAll('[data-column]').forEach(el=>el.hidden=!visible.has(el.dataset.column));picker.innerHTML='';columns.forEach(key=>{const label=document.createElement('label');label.className='d-flex align-items-center gap-2 small py-1';label.draggable=true;label.dataset.key=key;label.innerHTML=`<span aria-hidden="true">↕</span><input class="form-check-input m-0" type="checkbox" ${visible.has(key)?'checked':''}> ${labels[key]}`;label.querySelector('input').onchange=e=>{e.target.checked?visible.add(key):visible.delete(key);if(!visible.size){e.target.checked=true;visible.add(key)};paint();save()};label.ondragstart=e=>e.dataTransfer.setData('text/plain',key);label.ondragover=e=>e.preventDefault();label.ondrop=e=>{e.preventDefault();const from=e.dataTransfer.getData('text/plain'),to=key;columns.splice(columns.indexOf(from),1);columns.splice(columns.indexOf(to),0,from);paint();save()};picker.append(label)});const head=table.querySelector('thead tr');columns.forEach(key=>{const th=head.querySelector(`[data-column="${key}"]`);if(th)head.append(th)});table.querySelectorAll('tbody tr').forEach(row=>columns.forEach(key=>{const cell=row.querySelector(`[data-column="${key}"]`);if(cell)row.append(cell)}))}
+ function save(){fetch('{{ url_for("eventos.save_pipeline_preferences") }}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({columns:columns.filter(c=>visible.has(c))})}).catch(()=>{})}
+ paint();
+ let searchTimer;document.querySelector('#pipeline-filter-form input[name="q"]').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>document.getElementById('pipeline-filter-form').requestSubmit(),350)});
+ table.querySelectorAll('[data-sort]').forEach(button=>button.addEventListener('click',e=>{e.stopPropagation();const url=new URL(location.href),key=button.dataset.sort;url.searchParams.set('sort',key);url.searchParams.set('direction',url.searchParams.get('sort')===key&&'{{ sort_by }}'===key&&'{{ sort_direction }}'==='asc'?'desc':'asc');location.href=url}));
+ const panel=document.getElementById('event-panel'), body=document.getElementById('event-panel-body');
+ function open(row){body.innerHTML='<div class="p-4 text-muted small">A carregar detalhe…</div>';bootstrap.Offcanvas.getOrCreateInstance(panel).show();fetch(row.dataset.panelUrl).then(r=>r.ok?r.text():Promise.reject()).then(html=>body.innerHTML=html).catch(()=>body.innerHTML='<div class="p-4 text-danger small">Não foi possível carregar o detalhe.</div>')}
+ table.querySelectorAll('tbody tr[data-panel-url]').forEach(row=>{row.addEventListener('click',()=>open(row));row.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open(row)}})});
+})();
+</script>
 {% endblock %}

@@ -764,10 +764,23 @@ TABS = [
     {'id': 'pipeline',  'label': 'Pipeline de Eventos',  'icon': '📋', 'url_endpoint': 'eventos.pipeline'},
     {'id': 'calendario', 'label': 'Calendário', 'icon': '🗓️', 'url_endpoint': 'eventos.calendario'},
     {'id': 'clientes',  'label': 'Clientes',  'icon': '👥', 'url_endpoint': 'eventos.clientes'},
+    {'id': 'locais',   'label': 'Locais',    'icon': '📍', 'url_endpoint': 'eventos.locais'},
     {'id': 'artigos',   'label': 'Artigos',   'icon': '🏷️', 'url_endpoint': 'eventos.artigos'},
     {'id': 'configuracao', 'label': 'Configuração', 'icon': '⚙️', 'url_endpoint': 'eventos.configuracao'},
     {'id': 'recebimentos', 'label': 'Recebimentos', 'icon': '💶', 'url_endpoint': 'eventos.recebimentos'},
 ]
+
+PIPELINE_COLUMNS = (
+    'event', 'client', 'date', 'type', 'venue', 'guests',
+    'source', 'status', 'budget', 'email', 'phone',
+)
+
+
+def _pipeline_user_key():
+    user = session.get('user') or {}
+    if isinstance(user, dict):
+        return str(user.get('id') or user.get('email') or user.get('username') or '')
+    return str(user or '')
 
 
 def _get_tabs():
@@ -843,7 +856,16 @@ def pipeline():
         'date_to': request.args.get('date_to', '').strip() or None,
         'resource_id': request.args.get('resource_id', type=int),
     }
-    events = db.get_events(status=status_filter or None, **filters)
+    sort_by = request.args.get('sort', 'date')
+    if sort_by not in PIPELINE_COLUMNS:
+        sort_by = 'date'
+    sort_direction = request.args.get('direction', 'asc').lower()
+    if sort_direction not in ('asc', 'desc'):
+        sort_direction = 'asc'
+    events = db.get_events(
+        status=status_filter or None, sort_by=sort_by,
+        sort_direction=sort_direction, **filters,
+    )
     from flask_app.google_sheets_sync import get_sheet_sync_status
     sync_run = get_sheet_sync_status()
     all_statuses = db.EVENT_STATUSES
@@ -857,9 +879,96 @@ def pipeline():
                            status_labels=STATUS_LABELS,
                            status_colors=STATUS_COLORS,
                            valid_transitions=VALID_TRANSITIONS,
+                            pipeline_columns=PIPELINE_COLUMNS,
+                            pipeline_preferences=db.get_pipeline_view_preferences(_pipeline_user_key()),
+                            sort_by=sort_by,
+                            sort_direction=sort_direction,
                            sync_run=sync_run,
                            tabs=tabs,
                            active_tab='pipeline')
+
+
+@eventos_bp.post('/pipeline/preferencias')
+@perm_required('acesso_eventos')
+def save_pipeline_preferences():
+    payload = request.get_json(silent=True) or {}
+    columns = payload.get('columns')
+    if not isinstance(columns, list):
+        return jsonify({'error': 'Formato de preferências inválido.'}), 400
+    normalized = []
+    for column in columns:
+        if column in PIPELINE_COLUMNS and column not in normalized:
+            normalized.append(column)
+    if not normalized:
+        return jsonify({'error': 'Selecione pelo menos uma coluna.'}), 400
+    db.save_pipeline_view_preferences(_pipeline_user_key(), normalized)
+    return jsonify({'columns': normalized})
+
+
+@eventos_bp.get('/evento/<int:event_id>/painel')
+@perm_required('acesso_eventos')
+def event_panel(event_id):
+    event = db.get_event(event_id)
+    if not event:
+        abort(404)
+    return render_template(
+        'eventos/_event_panel.html', event=event,
+        quote_items=db.get_quote_items(event_id),
+        quote_totals=db.get_event_quote_totals(event_id),
+        event_history=db.get_event_history(event_id),
+        venue=db.get_event_primary_venue(event_id),
+        status_labels=STATUS_LABELS, status_colors=STATUS_COLORS,
+    )
+
+
+@eventos_bp.route('/locais', methods=['GET', 'POST'])
+@perm_required('acesso_eventos')
+def locais():
+    if request.method == 'POST':
+        try:
+            venue_id = db.save_event_venue(request.form, actor=_current_actor())
+            flash('Local registado.', 'success')
+            return redirect(url_for('eventos.local_detail', venue_id=venue_id))
+        except ValueError as exc:
+            flash(str(exc), 'error')
+    search_q = request.args.get('q', '').strip()
+    return render_template(
+        'eventos/locais.html', venues=db.get_event_venues(search_q or None),
+        search_q=search_q, tabs=_get_tabs(), active_tab='locais',
+    )
+
+
+@eventos_bp.route('/locais/<int:venue_id>', methods=['GET', 'POST'])
+@perm_required('acesso_eventos')
+def local_detail(venue_id):
+    venue = db.get_event_venue(venue_id)
+    if not venue:
+        flash('Local não encontrado.', 'error')
+        return redirect(url_for('eventos.locais'))
+    if request.method == 'POST':
+        if request.form.get('action') == 'link_occurrence':
+            try:
+                db.link_event_occurrence_to_venue(
+                    int(request.form.get('occurrence_id', '')), venue_id, _current_actor(),
+                )
+                flash('Ocorrência associada ao local. O texto histórico não foi alterado.', 'success')
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or 'Não foi possível associar a ocorrência.', 'error')
+            return redirect(url_for('eventos.local_detail', venue_id=venue_id))
+        try:
+            db.save_event_venue(request.form, actor=_current_actor(), venue_id=venue_id)
+            flash('Dados do local atualizados.', 'success')
+            return redirect(url_for('eventos.local_detail', venue_id=venue_id))
+        except ValueError as exc:
+            flash(str(exc), 'error')
+    return render_template(
+        'eventos/local_detail.html', venue=venue,
+        events=db.get_event_venue_events(venue_id),
+        unlinked_occurrences=db.get_unlinked_venue_occurrences(venue_id),
+        history=db.get_event_venue_history(venue_id),
+        tabs=_get_tabs(), active_tab='locais', status_labels=STATUS_LABELS,
+        status_colors=STATUS_COLORS,
+    )
 
 
 @eventos_bp.route('/calendario')

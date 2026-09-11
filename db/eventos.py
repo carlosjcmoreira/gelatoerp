@@ -389,6 +389,7 @@ def add_event_occurrence(event_id, data, actor=None):
             ),
         )
         occurrence_id = cursor.fetchone()['id']
+        _link_occurrence_to_matching_venue(cursor, occurrence_id)
         _sync_event_schedule_from_occurrences(cursor, event_id)
         _insert_event_history(
             cursor, event_id, 'occurrence_added', actor=actor,
@@ -442,6 +443,14 @@ def update_event_occurrence(occurrence_id, data, actor=None, risk_acknowledged=F
                 merged('service_mode'), occurrence_id,
             ),
         )
+        venue_changed = _event_venue_keys(row.get('venue'), row.get('venue_address')) != \
+            _event_venue_keys(merged('venue'), merged('venue_address'))
+        if venue_changed:
+            cursor.execute(
+                "UPDATE event_occurrences SET venue_id=NULL WHERE id=%s",
+                (occurrence_id,),
+            )
+        _link_occurrence_to_matching_venue(cursor, occurrence_id)
         _sync_event_schedule_from_occurrences(cursor, row['event_id'])
         _insert_event_history(
             cursor, row['event_id'], 'occurrence_updated', actor=actor,
@@ -1653,7 +1662,8 @@ def get_pipeline_dashboard():
 # ── events ─────────────────────────────────────────────────────────────────────
 
 def get_events(status=None, search=None, client=None, event_type=None,
-               date_from=None, date_to=None, resource_id=None):
+               date_from=None, date_to=None, resource_id=None, sort_by=None,
+               sort_direction=None):
     status = normalize_event_status(status) if status else None
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -1691,14 +1701,246 @@ def get_events(status=None, search=None, client=None, event_type=None,
             )""")
             params.append(resource_id)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        ordering = {
+            'event': "e.event_name",
+            'client': "e.client_name",
+            'date': "e.event_date",
+            'type': "e.event_type",
+            'venue': "e.venue",
+            'guests': "e.estimated_guests",
+            'source': "e.source",
+            'status': "e.status",
+            'budget': "quote_total",
+        }.get(sort_by or '', "e.event_date")
+        direction = 'DESC' if (sort_direction or '').lower() == 'desc' else 'ASC'
         cursor.execute(f"""
             SELECT e.*, COALESCE((
                 SELECT SUM(COALESCE(total_gross,total)) FROM quote_items WHERE event_id=e.id
             ), 0) AS quote_total
             FROM events e {where}
-            ORDER BY e.event_date ASC NULLS LAST, e.created_at DESC
+            ORDER BY {ordering} {direction} NULLS LAST, e.created_at DESC
         """, params)
         return cursor.fetchall()
+
+
+def get_pipeline_view_preferences(user_key):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT columns FROM event_pipeline_view_preferences WHERE user_key=%s",
+            (user_key,),
+        )
+        row = cursor.fetchone()
+        return row['columns'] if row else None
+
+
+def save_pipeline_view_preferences(user_key, columns):
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO event_pipeline_view_preferences (user_key, columns, updated_at)
+            VALUES (%s, %s::jsonb, NOW())
+            ON CONFLICT (user_key) DO UPDATE SET columns=EXCLUDED.columns, updated_at=NOW()
+        """, (user_key, json.dumps(columns)))
+        conn.commit()
+
+
+def _event_venue_keys(name, address):
+    return (
+        ' '.join(str(name or '').strip().lower().split()),
+        ' '.join(str(address or '').strip().lower().split()),
+    )
+
+
+def _link_occurrence_to_matching_venue(cursor, occurrence_id):
+    """Link a new/unlinked occurrence only when its exact normalised identity exists."""
+    cursor.execute("""
+        UPDATE event_occurrences eo
+        SET venue_id = ev.id
+        FROM event_venues ev
+        WHERE eo.id=%s AND eo.venue_id IS NULL
+          AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue, '')), '\s+', ' ', 'g'))=ev.name_key
+          AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g'))=ev.address_key
+    """, (occurrence_id,))
+
+
+def _link_primary_occurrence_to_matching_venue(cursor, event_id):
+    """The single-date editor writes a primary occurrence in the same transaction."""
+    cursor.execute("""
+        UPDATE event_occurrences eo
+        SET venue_id = ev.id
+        FROM event_venues ev
+        WHERE eo.event_id=%s AND eo.occurrence_number=1 AND eo.venue_id IS NULL
+          AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue, '')), '\s+', ' ', 'g'))=ev.name_key
+          AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g'))=ev.address_key
+    """, (event_id,))
+
+
+def get_event_venues(search=None):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        clauses, params = [], []
+        if search:
+            clauses.append(
+                "(v.name ILIKE %s OR v.address ILIKE %s OR v.contact_name ILIKE %s "
+                "OR v.contact_email ILIKE %s)"
+            )
+            params.extend([f'%{search.strip()}%'] * 4)
+        where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
+        cursor.execute(f"""
+            SELECT v.*, COUNT(DISTINCT eo.event_id) AS event_count,
+                   MAX(eo.event_date) AS last_event_date
+            FROM event_venues v
+            LEFT JOIN event_occurrences eo ON eo.venue_id=v.id
+            {where}
+            GROUP BY v.id
+            ORDER BY v.name, v.address
+        """, params)
+        return cursor.fetchall()
+
+
+def get_event_venue(venue_id):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT v.*, COUNT(DISTINCT eo.event_id) AS event_count,
+                   MAX(eo.event_date) AS last_event_date
+            FROM event_venues v
+            LEFT JOIN event_occurrences eo ON eo.venue_id=v.id
+            WHERE v.id=%s GROUP BY v.id
+        """, (venue_id,))
+        return cursor.fetchone()
+
+
+def get_event_venue_events(venue_id):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT DISTINCT e.id, e.event_name, e.client_name, e.status, e.event_date,
+                   eo.event_date AS occurrence_date, eo.service_start_time
+            FROM event_occurrences eo JOIN events e ON e.id=eo.event_id
+            WHERE eo.venue_id=%s
+            ORDER BY eo.event_date DESC NULLS LAST, e.id DESC
+        """, (venue_id,))
+        return cursor.fetchall()
+
+
+def get_unlinked_venue_occurrences(venue_id):
+    """Potential matches are intentionally not joined until a manager confirms one."""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT eo.id, eo.venue, eo.venue_address, eo.event_date, e.id AS event_id,
+                   e.event_name, e.client_name
+            FROM event_occurrences eo
+            JOIN events e ON e.id=eo.event_id
+            JOIN event_venues v ON v.id=%s
+            WHERE eo.venue_id IS NULL
+              AND (
+                LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue, '')), '\s+', ' ', 'g'))=v.name_key
+                OR LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g'))=v.address_key
+              )
+            ORDER BY eo.event_date DESC NULLS LAST, eo.id DESC
+        """, (venue_id,))
+        return cursor.fetchall()
+
+
+def link_event_occurrence_to_venue(occurrence_id, venue_id, actor=None):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            UPDATE event_occurrences eo
+            SET venue_id=%s, updated_at=NOW()
+            FROM event_venues ev
+            WHERE eo.id=%s AND ev.id=%s AND eo.venue_id IS NULL
+              AND (
+                LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue, '')), '\s+', ' ', 'g'))=ev.name_key
+                OR LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g'))=ev.address_key
+              )
+            RETURNING eo.event_id
+        """, (venue_id, occurrence_id, venue_id))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError('A ocorrência não está disponível para associação a este local.')
+        cursor.execute("""
+            INSERT INTO event_venue_history (venue_id, actor, action, details)
+            VALUES (%s,%s,'occurrence_linked',%s::jsonb)
+        """, (venue_id, actor, json.dumps({
+            'occurrence_id': occurrence_id, 'event_id': row['event_id'],
+        })))
+        _insert_event_history(
+            cursor, row['event_id'], 'venue_linked', actor=actor,
+            details={'occurrence_id': occurrence_id, 'venue_id': venue_id},
+        )
+        conn.commit()
+
+
+def get_event_venue_history(venue_id):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT * FROM event_venue_history WHERE venue_id=%s
+            ORDER BY created_at DESC, id DESC
+        """, (venue_id,))
+        return cursor.fetchall()
+
+
+def save_event_venue(data, actor=None, venue_id=None):
+    name, address = (data.get('name') or '').strip(), (data.get('address') or '').strip()
+    if not name or not address:
+        raise ValueError('Indique o nome e a localização do local.')
+    name_key, address_key = _event_venue_keys(name, address)
+    fields = (
+        name, address, name_key, address_key, (data.get('contact_name') or '').strip() or None,
+        (data.get('contact_phone') or '').strip() or None,
+        (data.get('contact_email') or '').strip() or None,
+        (data.get('logistics_notes') or '').strip() or None,
+    )
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            if venue_id:
+                cursor.execute("""
+                    UPDATE event_venues SET name=%s, address=%s, name_key=%s, address_key=%s,
+                        contact_name=%s, contact_phone=%s, contact_email=%s,
+                        logistics_notes=%s, updated_at=NOW()
+                    WHERE id=%s RETURNING id
+                """, fields + (venue_id,))
+                action = 'updated'
+            else:
+                cursor.execute("""
+                    INSERT INTO event_venues
+                        (name, address, name_key, address_key, contact_name, contact_phone,
+                         contact_email, logistics_notes)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                """, fields)
+                action = 'created'
+        except psycopg2.IntegrityError as exc:
+            conn.rollback()
+            if exc.pgcode == '23505':
+                raise ValueError('Já existe um local com este nome e localização.') from exc
+            raise
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError('Local não encontrado.')
+        saved_id = row['id']
+        cursor.execute("""
+            INSERT INTO event_venue_history (venue_id, actor, action, details)
+            VALUES (%s,%s,%s,%s::jsonb)
+        """, (saved_id, actor, action, json.dumps({'name': name, 'address': address})))
+        conn.commit()
+        return saved_id
+
+
+def get_event_primary_venue(event_id):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT v.* FROM event_occurrences eo
+            JOIN event_venues v ON v.id=eo.venue_id
+            WHERE eo.event_id=%s ORDER BY eo.occurrence_number, eo.id LIMIT 1
+        """, (event_id,))
+        return cursor.fetchone()
 
 
 def get_event_calendar_occurrences(date_from, date_to):
@@ -1862,7 +2104,8 @@ def update_event(event_id, data: dict, actor=None, risk_acknowledged=False):
 def _upsert_primary_occurrence(cursor, event_id, data, risk_acknowledged=False):
     """Keep existing single-date forms compatible with the v2 occurrences model."""
     cursor.execute(
-        "SELECT id FROM event_occurrences WHERE event_id = %s AND occurrence_number = 1",
+        "SELECT id, venue, venue_address FROM event_occurrences "
+        "WHERE event_id = %s AND occurrence_number = 1",
         (event_id,),
     )
     existing = cursor.fetchone()
@@ -1874,6 +2117,10 @@ def _upsert_primary_occurrence(cursor, event_id, data, risk_acknowledged=False):
             data.get('event_time') or None, data.get('event_end_time') or None,
             risk_acknowledged=risk_acknowledged,
         )
+    venue_changed = existing and (
+        _event_venue_keys(_row_value(existing, 'venue'), _row_value(existing, 'venue_address'))
+        != _event_venue_keys(data.get('venue'), data.get('venue_address'))
+    )
     cursor.execute(
         """
         INSERT INTO event_occurrences (
@@ -1897,6 +2144,12 @@ def _upsert_primary_occurrence(cursor, event_id, data, risk_acknowledged=False):
             data.get('event_end_time') or '', data.get('internal_notes'),
         ),
     )
+    if venue_changed:
+        cursor.execute(
+            "UPDATE event_occurrences SET venue_id=NULL WHERE event_id=%s AND occurrence_number=1",
+            (event_id,),
+        )
+    _link_primary_occurrence_to_matching_venue(cursor, event_id)
     return conflicts
 
 

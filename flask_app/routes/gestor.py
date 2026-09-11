@@ -2001,6 +2001,7 @@ _TILE_MASTER = {
         {'id': 'pipeline',      'icon': '📋', 'default_label': 'Pipeline de Eventos',      'description': 'Gerir o pipeline de eventos por estado: lead, proposta, adjudicado, etc.'},
         {'id': 'calendario',    'icon': '🗓️', 'default_label': 'Calendário',                'description': 'Consultar as ocorrências de eventos e a agenda operacional'},
         {'id': 'clientes',      'icon': '👥', 'default_label': 'Clientes',                 'description': 'Gerir a base de dados de clientes associados a eventos'},
+        {'id': 'locais',        'icon': '📍', 'default_label': 'Locais',                   'description': 'Consolidar locais, contactos e notas logísticas de eventos'},
         {'id': 'artigos',       'icon': '🏷️', 'default_label': 'Artigos',                  'description': 'Gerir os artigos e serviços disponíveis para orçamentação de eventos'},
         {'id': 'configuracao',  'icon': '⚙️', 'default_label': 'Configuração',              'description': 'Configurar meios, capacidades, preços, IVA e sinal dos eventos'},
         {'id': 'recebimentos',  'icon': '💶', 'default_label': 'Recebimentos',             'description': 'Registar e acompanhar os recebimentos de pagamentos de eventos'},

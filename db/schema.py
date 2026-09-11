@@ -541,6 +541,71 @@ def run_migrations_eventos_v2_foundation():
                 WHERE taxa_iva IS NULL
                 """
             )
+            # Locations are independent operational records.  Occurrence text is
+            # deliberately retained as historical evidence; the optional link is
+            # only made for an exact name + address match.
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_venues (
+                    id BIGSERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    address TEXT NOT NULL,
+                    name_key VARCHAR(255) NOT NULL,
+                    address_key TEXT NOT NULL,
+                    contact_name VARCHAR(255),
+                    contact_phone VARCHAR(80),
+                    contact_email VARCHAR(255),
+                    logistics_notes TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(name_key, address_key)
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_venue_history (
+                    id BIGSERIAL PRIMARY KEY,
+                    venue_id BIGINT NOT NULL REFERENCES event_venues(id) ON DELETE RESTRICT,
+                    actor VARCHAR(255),
+                    action VARCHAR(60) NOT NULL,
+                    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute(
+                "ALTER TABLE event_occurrences ADD COLUMN IF NOT EXISTS venue_id "
+                "BIGINT REFERENCES event_venues(id) ON DELETE SET NULL"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_event_occurrences_venue_id "
+                "ON event_occurrences(venue_id)"
+            )
+            cursor.execute("""
+                INSERT INTO event_venues (name, address, name_key, address_key, logistics_notes)
+                SELECT MIN(BTRIM(venue)), MIN(BTRIM(venue_address)),
+                       LOWER(REGEXP_REPLACE(BTRIM(venue), '\s+', ' ', 'g')),
+                       LOWER(REGEXP_REPLACE(BTRIM(venue_address), '\s+', ' ', 'g')),
+                       MIN(NULLIF(BTRIM(logistics_notes), ''))
+                FROM event_occurrences
+                WHERE NULLIF(BTRIM(venue), '') IS NOT NULL
+                  AND NULLIF(BTRIM(venue_address), '') IS NOT NULL
+                GROUP BY LOWER(REGEXP_REPLACE(BTRIM(venue), '\s+', ' ', 'g')),
+                         LOWER(REGEXP_REPLACE(BTRIM(venue_address), '\s+', ' ', 'g'))
+                ON CONFLICT (name_key, address_key) DO NOTHING
+            """)
+            cursor.execute("""
+                UPDATE event_occurrences eo
+                SET venue_id = ev.id
+                FROM event_venues ev
+                WHERE eo.venue_id IS NULL
+                  AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue, '')), '\s+', ' ', 'g')) = ev.name_key
+                  AND LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g')) = ev.address_key
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS event_pipeline_view_preferences (
+                    user_key VARCHAR(255) PRIMARY KEY,
+                    columns JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
             conn.commit()
             logger.info("run_migrations_eventos_v2_foundation: complete")
