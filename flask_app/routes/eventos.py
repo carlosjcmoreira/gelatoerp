@@ -221,6 +221,21 @@ def _require_portal_csrf():
         raise ValueError('A página expirou. Atualize e tente novamente.')
 
 
+def _locations_csrf_token():
+    token = session.get('event_locations_csrf')
+    if not token:
+        token = secrets.token_urlsafe(24)
+        session['event_locations_csrf'] = token
+    return token
+
+
+def _require_locations_csrf():
+    supplied = request.form.get('csrf_token', '')
+    expected = session.get('event_locations_csrf', '')
+    if not expected or not secrets.compare_digest(supplied, expected):
+        raise ValueError('A página expirou. Atualize e tente novamente.')
+
+
 def _admin_portal_brand_csrf_token():
     token = session.get('event_portal_brand_csrf')
     if not token:
@@ -926,6 +941,37 @@ def event_panel(event_id):
 def locais():
     if request.method == 'POST':
         try:
+            _require_locations_csrf()
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('eventos.locais'))
+        action = request.form.get('action')
+        if action == 'link_incomplete_occurrence':
+            try:
+                db.link_incomplete_event_occurrence_to_venue(
+                    int(request.form.get('occurrence_id', '')),
+                    int(request.form.get('venue_id', '')),
+                    _current_actor(),
+                )
+                flash('Ocorrência associada ao local. O texto histórico não foi alterado.', 'success')
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or 'Não foi possível associar a ocorrência.', 'error')
+            return redirect(url_for('eventos.locais'))
+        if action == 'complete_incomplete_occurrence':
+            try:
+                venue_id = db.complete_event_occurrence_venue(
+                    int(request.form.get('occurrence_id', '')), request.form, _current_actor(),
+                )
+                flash(
+                    'Local completo guardado e ocorrência associada. '
+                    'O texto histórico não foi alterado.',
+                    'success',
+                )
+                return redirect(url_for('eventos.local_detail', venue_id=venue_id))
+            except (TypeError, ValueError) as exc:
+                flash(str(exc) or 'Não foi possível completar o local.', 'error')
+            return redirect(url_for('eventos.locais'))
+        try:
             venue_id = db.save_event_venue(request.form, actor=_current_actor())
             flash('Local registado.', 'success')
             return redirect(url_for('eventos.local_detail', venue_id=venue_id))
@@ -934,7 +980,9 @@ def locais():
     search_q = request.args.get('q', '').strip()
     return render_template(
         'eventos/locais.html', venues=db.get_event_venues(search_q or None),
+        incomplete_occurrences=db.get_incomplete_venue_occurrences(),
         search_q=search_q, tabs=_get_tabs(), active_tab='locais',
+        csrf_token=_locations_csrf_token(),
     )
 
 
@@ -946,6 +994,11 @@ def local_detail(venue_id):
         flash('Local não encontrado.', 'error')
         return redirect(url_for('eventos.locais'))
     if request.method == 'POST':
+        try:
+            _require_locations_csrf()
+        except ValueError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('eventos.local_detail', venue_id=venue_id))
         if request.form.get('action') == 'link_occurrence':
             try:
                 db.link_event_occurrence_to_venue(
@@ -967,7 +1020,7 @@ def local_detail(venue_id):
         unlinked_occurrences=db.get_unlinked_venue_occurrences(venue_id),
         history=db.get_event_venue_history(venue_id),
         tabs=_get_tabs(), active_tab='locais', status_labels=STATUS_LABELS,
-        status_colors=STATUS_COLORS,
+        status_colors=STATUS_COLORS, csrf_token=_locations_csrf_token(),
     )
 
 

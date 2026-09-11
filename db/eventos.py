@@ -1845,10 +1845,65 @@ def get_unlinked_venue_occurrences(venue_id):
         return cursor.fetchall()
 
 
-def link_event_occurrence_to_venue(occurrence_id, venue_id, actor=None):
+def get_incomplete_venue_occurrences():
+    """Return unlinked occurrences which cannot form a complete venue identity."""
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
+            SELECT eo.id, eo.venue, eo.venue_address, eo.event_date, e.id AS event_id,
+                   e.event_name, e.client_name,
+                   COALESCE(
+                       json_agg(
+                           json_build_object(
+                               'id', candidate.id,
+                               'name', candidate.name,
+                               'address', candidate.address
+                           )
+                           ORDER BY candidate.name, candidate.address
+                       ) FILTER (WHERE candidate.id IS NOT NULL),
+                       '[]'::json
+                   ) AS candidate_venues
+            FROM event_occurrences eo
+            JOIN events e ON e.id=eo.event_id
+            LEFT JOIN event_venues candidate ON
+                LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue, '')), '\s+', ' ', 'g'))
+                    = candidate.name_key
+                OR LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g'))
+                    = candidate.address_key
+            WHERE eo.venue_id IS NULL
+              AND (
+                  NULLIF(BTRIM(COALESCE(eo.venue, '')), '') IS NULL
+                  OR NULLIF(BTRIM(COALESCE(eo.venue_address, '')), '') IS NULL
+              )
+            GROUP BY eo.id, e.id
+            ORDER BY eo.event_date ASC NULLS FIRST, eo.id ASC
+        """)
+        return cursor.fetchall()
+
+
+def link_event_occurrence_to_venue(occurrence_id, venue_id, actor=None):
+    return _link_event_occurrence_to_venue(
+        occurrence_id, venue_id, actor=actor, require_incomplete=False,
+    )
+
+
+def link_incomplete_event_occurrence_to_venue(occurrence_id, venue_id, actor=None):
+    """Confirm a candidate only when the occurrence remains in the review queue."""
+    return _link_event_occurrence_to_venue(
+        occurrence_id, venue_id, actor=actor, require_incomplete=True,
+    )
+
+
+def _link_event_occurrence_to_venue(occurrence_id, venue_id, actor=None, *, require_incomplete):
+    incomplete_clause = """
+              AND (
+                  NULLIF(BTRIM(COALESCE(eo.venue, '')), '') IS NULL
+                  OR NULLIF(BTRIM(COALESCE(eo.venue_address, '')), '') IS NULL
+              )
+    """ if require_incomplete else ""
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(f"""
             UPDATE event_occurrences eo
             SET venue_id=%s, updated_at=NOW()
             FROM event_venues ev
@@ -1857,6 +1912,7 @@ def link_event_occurrence_to_venue(occurrence_id, venue_id, actor=None):
                 LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue, '')), '\s+', ' ', 'g'))=ev.name_key
                 OR LOWER(REGEXP_REPLACE(BTRIM(COALESCE(eo.venue_address, '')), '\s+', ' ', 'g'))=ev.address_key
               )
+              {incomplete_clause}
             RETURNING eo.event_id
         """, (venue_id, occurrence_id, venue_id))
         row = cursor.fetchone()
@@ -1873,6 +1929,85 @@ def link_event_occurrence_to_venue(occurrence_id, venue_id, actor=None):
             details={'occurrence_id': occurrence_id, 'venue_id': venue_id},
         )
         conn.commit()
+
+
+def complete_event_occurrence_venue(occurrence_id, data, actor=None):
+    """Create or reuse a complete venue and manually attach an incomplete occurrence.
+
+    The venue and address stored on the occurrence are deliberately not altered:
+    they remain the historical source text.  This operation records the explicit
+    manager decision in both venue and event histories.
+    """
+    name, address = (data.get('name') or '').strip(), (data.get('address') or '').strip()
+    if not name or not address:
+        raise ValueError('Indique o nome e a localização completos do local.')
+    name_key, address_key = _event_venue_keys(name, address)
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT id, event_id, venue, venue_address
+            FROM event_occurrences
+            WHERE id=%s AND venue_id IS NULL
+              AND (
+                  NULLIF(BTRIM(COALESCE(venue, '')), '') IS NULL
+                  OR NULLIF(BTRIM(COALESCE(venue_address, '')), '') IS NULL
+              )
+            FOR UPDATE
+        """, (occurrence_id,))
+        occurrence = cursor.fetchone()
+        if not occurrence:
+            raise ValueError('A ocorrência não está disponível para completar o local.')
+
+        cursor.execute("""
+            INSERT INTO event_venues (name, address, name_key, address_key)
+            VALUES (%s,%s,%s,%s)
+            ON CONFLICT (name_key, address_key) DO NOTHING
+            RETURNING id
+        """, (name, address, name_key, address_key))
+        venue = cursor.fetchone()
+        created = venue is not None
+        if venue is None:
+            cursor.execute("""
+                SELECT id FROM event_venues
+                WHERE name_key=%s AND address_key=%s
+            """, (name_key, address_key))
+            venue = cursor.fetchone()
+        if not venue:
+            raise ValueError('Não foi possível guardar o local.')
+        venue_id = venue['id']
+
+        cursor.execute("""
+            UPDATE event_occurrences
+            SET venue_id=%s, updated_at=NOW()
+            WHERE id=%s
+        """, (venue_id, occurrence_id))
+        if created:
+            cursor.execute("""
+                INSERT INTO event_venue_history (venue_id, actor, action, details)
+                VALUES (%s,%s,'created',%s::jsonb)
+            """, (venue_id, actor, json.dumps({'name': name, 'address': address})))
+        cursor.execute("""
+            INSERT INTO event_venue_history (venue_id, actor, action, details)
+            VALUES (%s,%s,'incomplete_occurrence_completed',%s::jsonb)
+        """, (venue_id, actor, json.dumps({
+            'occurrence_id': occurrence_id,
+            'event_id': occurrence['event_id'],
+            'historical_venue': occurrence['venue'],
+            'historical_venue_address': occurrence['venue_address'],
+        })))
+        _insert_event_history(
+            cursor, occurrence['event_id'], 'venue_completed', actor=actor,
+            details={
+                'occurrence_id': occurrence_id,
+                'venue_id': venue_id,
+                'historical_venue': occurrence['venue'],
+                'historical_venue_address': occurrence['venue_address'],
+                'confirmed_name': name,
+                'confirmed_address': address,
+            },
+        )
+        conn.commit()
+        return venue_id
 
 
 def get_event_venue_history(venue_id):

@@ -6,7 +6,7 @@
     <div><h5 class="fw-bold mb-0">📍 {{ venue.name }}</h5><small class="text-muted">{{ venue.address }}</small></div>
     <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('eventos.locais') }}">Voltar a locais</a>
   </div>
-  <form method="post"><div class="card shadow-sm mb-3"><div class="card-header small fw-semibold">Dados e logística</div><div class="card-body row g-3">
+  <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="card shadow-sm mb-3"><div class="card-header small fw-semibold">Dados e logística</div><div class="card-body row g-3">
     <div class="col-md-6"><label class="form-label small">Nome *</label><input class="form-control form-control-sm" name="name" required value="{{ venue.name }}"></div>
     <div class="col-md-6"><label class="form-label small">Localização *</label><input class="form-control form-control-sm" name="address" required value="{{ venue.address }}"></div>
     <div class="col-md-4"><label class="form-label small">Responsável</label><input class="form-control form-control-sm" name="contact_name" value="{{ venue.contact_name or '' }}"></div>
@@ -20,7 +20,7 @@
   </div></div>
   <div class="card shadow-sm mb-3"><div class="card-header small fw-semibold">Ocorrências a confirmar</div><div class="card-body small">
     <p class="text-muted">Estas ocorrências partilham o nome ou a morada, mas não foram associadas automaticamente. Confirme cada associação antes de a guardar.</p>
-    {% for occurrence in unlinked_occurrences %}<form method="post" class="border-top py-2 d-flex align-items-center justify-content-between gap-2"><input type="hidden" name="action" value="link_occurrence"><input type="hidden" name="occurrence_id" value="{{ occurrence.id }}"><div><strong>{{ occurrence.event_name or occurrence.client_name or 'Evento #' ~ occurrence.event_id }}</strong><div class="text-muted">{{ occurrence.venue or '—' }} · {{ occurrence.venue_address or '—' }} · {{ occurrence.event_date.strftime('%d/%m/%Y') if occurrence.event_date else 'Data a definir' }}</div></div><button class="btn btn-sm btn-outline-primary">Associar</button></form>
+    {% for occurrence in unlinked_occurrences %}<form method="post" class="border-top py-2 d-flex align-items-center justify-content-between gap-2"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="link_occurrence"><input type="hidden" name="occurrence_id" value="{{ occurrence.id }}"><div><strong>{{ occurrence.event_name or occurrence.client_name or 'Evento #' ~ occurrence.event_id }}</strong><div class="text-muted">{{ occurrence.venue or '—' }} · {{ occurrence.venue_address or '—' }} · {{ occurrence.event_date.strftime('%d/%m/%Y') if occurrence.event_date else 'Data a definir' }}</div></div><button class="btn btn-sm btn-outline-primary">Associar</button></form>
     {% else %}<span class="text-muted">Não existem possíveis associações pendentes.</span>{% endfor %}
   </div></div>
   <div class="card shadow-sm"><div class="card-header small fw-semibold">Histórico do local</div><div class="list-group list-group-flush small">
