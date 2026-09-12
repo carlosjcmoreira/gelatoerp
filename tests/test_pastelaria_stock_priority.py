@@ -244,6 +244,143 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             [(10, 1, 5), (10, 2, 0)],
         )
 
+    def test_product_state_change_preserves_identity_and_minimum_rows(self):
+        cursor = _Cursor([[{'id': 10, 'ativo': True}, {'id': 11, 'ativo': False}]])
+        connection = _Connection(cursor)
+        token = pastelaria.pastelaria_product_state_token([
+            {'id': 10, 'ativo': True}, {'id': 11, 'ativo': False},
+        ])
+        with patch('db.pastelaria.db_connection', return_value=connection):
+            changed = pastelaria.save_produtos_pastelaria_active([
+                (10, False), (11, False),
+            ], token)
+        self.assertEqual(changed, 1)
+        self.assertTrue(connection.committed)
+        statements = '\n'.join(query for query, _params in cursor.queries)
+        self.assertIn('UPDATE produtos_pastelaria SET ativo=%s', statements)
+        self.assertNotIn('DELETE', statements)
+        self.assertNotIn('pastelaria_stock_minimos', statements)
+
+    def test_only_management_can_change_product_states(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        products = [{
+            'id': 10, 'tipologia': 'Palito', 'sabor': '',
+            'cobertura': '', 'ativo': True,
+        }]
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'loja', 'role': 'vendas',
+                'acesso_pastelaria': True,
+            }
+        with patch(
+            'flask_app.routes.pastelaria.db.save_produtos_pastelaria_active'
+        ) as save:
+            response = client.post(
+                '/pastelaria/produtos',
+                data={
+                    'action': 'save_product_states',
+                    'state_10': 'inactive', 'state_token': 'token-a',
+                },
+            )
+        self.assertEqual(response.status_code, 403)
+        save.assert_not_called()
+
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'gestor', 'role': 'gestao',
+                'acesso_pastelaria': True, 'acesso_gestor': True,
+            }
+        with (
+            patch(
+                'flask_app.routes.pastelaria.db.get_all_produtos_pastelaria',
+                return_value=products,
+            ),
+            patch(
+                'flask_app.routes.pastelaria.db.save_produtos_pastelaria_active',
+                return_value=1,
+            ) as save,
+        ):
+            response = client.post(
+                '/pastelaria/produtos',
+                data={
+                    'action': 'save_product_states',
+                    'state_10': 'inactive', 'state_token': 'token-a',
+                },
+            )
+        self.assertEqual(response.status_code, 302)
+        save.assert_called_once_with([(10, False)], 'token-a')
+
+    def test_stale_product_state_form_is_rejected(self):
+        cursor = _Cursor([[{'id': 10, 'ativo': False}]])
+        connection = _Connection(cursor)
+        with patch('db.pastelaria.db_connection', return_value=connection):
+            with self.assertRaisesRegex(ValueError, 'outro utilizador'):
+                pastelaria.save_produtos_pastelaria_active(
+                    [(10, True)], 'stale-token'
+                )
+        self.assertFalse(connection.committed)
+        self.assertFalse(any(
+            'UPDATE produtos_pastelaria' in query
+            for query, _params in cursor.queries
+        ))
+
+    def test_non_management_cannot_add_or_delete_catalogue_products(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'loja', 'role': 'vendas',
+                'acesso_pastelaria': True,
+            }
+        with (
+            patch('flask_app.routes.pastelaria.db.add_produto_pastelaria') as add,
+            patch(
+                'flask_app.routes.pastelaria.db.delete_produtos_pastelaria_bulk'
+            ) as delete,
+        ):
+            add_response = client.post('/pastelaria/produtos', data={
+                'action': 'add_produto_past', 'novo_tipologia': 'Palito',
+            })
+            delete_response = client.post('/pastelaria/produtos', data={
+                'action': 'delete_bulk_produtos_past', 'produto_ids': '10',
+            })
+        self.assertEqual(add_response.status_code, 403)
+        self.assertEqual(delete_response.status_code, 403)
+        add.assert_not_called()
+        delete.assert_not_called()
+
+    def test_breakage_rejects_inactive_or_forged_product(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'operador', 'role': 'producao',
+                'acesso_pastelaria': True,
+            }
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_produtos_pastelaria',
+                return_value=['Palito'],
+            ),
+            patch('flask_app.routes.pastelaria.add_quebra_area') as add,
+        ):
+            response = client.post('/pastelaria/registar-quebra', data={
+                'data': '2026-09-12', 'quantidade': '2',
+                'produto': 'Nivotto inativo', 'motivo': 'teste',
+            })
+        self.assertEqual(response.status_code, 302)
+        add.assert_not_called()
+
     def test_schema_keeps_history_when_catalog_products_are_deleted(self):
         schema = Path('db/schema.py').read_text()
         self.assertIn(

@@ -1,4 +1,5 @@
 import psycopg2
+import hashlib
 from psycopg2.extras import RealDictCursor, DictCursor, execute_values
 from datetime import datetime, date, timedelta
 import logging
@@ -444,6 +445,14 @@ def get_all_produtos_pastelaria() -> list:
         cursor = conn.cursor()
         cursor.execute("SELECT id, tipologia, sabor, cobertura, ativo FROM produtos_pastelaria ORDER BY tipologia, sabor")
         return [{'id': row[0], 'tipologia': row[1] or '', 'sabor': row[2] or '', 'cobertura': row[3] or '', 'ativo': row[4]} for row in cursor.fetchall()]
+
+
+def pastelaria_product_state_token(products):
+    payload = '|'.join(
+        f"{int(product['id'])}:{1 if product['ativo'] else 0}"
+        for product in sorted(products, key=lambda product: int(product['id']))
+    )
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
 def _pastelaria_product_label(row):
@@ -1076,6 +1085,44 @@ def update_produto_pastelaria(id: int, tipologia: str, sabor: str = '', cobertur
         cursor = conn.cursor()
         cursor.execute("UPDATE produtos_pastelaria SET tipologia = %s, sabor = %s, cobertura = %s WHERE id = %s", (tipologia, sabor, cobertura, id))
         conn.commit()
+
+
+def save_produtos_pastelaria_active(states, expected_token):
+    """Persist active flags without changing catalogue identity or related history."""
+    normalized = {}
+    for product_id, active in states:
+        if not isinstance(product_id, int) or not isinstance(active, bool):
+            raise ValueError('Estado de produto inválido.')
+        normalized[product_id] = active
+    if not normalized:
+        raise ValueError('Nenhum estado de produto recebido.')
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT id, ativo FROM produtos_pastelaria ORDER BY id FOR UPDATE"
+        )
+        current_rows = cursor.fetchall()
+        current = {row['id']: row['ativo'] for row in current_rows}
+        if not expected_token or pastelaria_product_state_token(
+            current_rows
+        ) != expected_token:
+            raise ValueError(
+                'Os estados foram alterados por outro utilizador. '
+                'Atualize a página antes de guardar.'
+            )
+        if set(current) != set(normalized):
+            raise ValueError('Um ou mais produtos já não existem.')
+        changed = 0
+        for product_id, active in normalized.items():
+            if current[product_id] != active:
+                cursor.execute(
+                    "UPDATE produtos_pastelaria SET ativo=%s WHERE id=%s",
+                    (active, product_id),
+                )
+                changed += 1
+        conn.commit()
+    return changed
+
 
 def delete_produto_pastelaria(id: int):
     with db_connection() as conn:

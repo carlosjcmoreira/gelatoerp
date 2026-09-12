@@ -501,16 +501,18 @@ def transferir():
             produto for produto in get_produtos_pastelaria()
             if produto.strip().casefold() != 'bolo'
         }
-        persisted_products = {
+        persisted_plan_products = {
             row['produto'] for row in get_plano_do_dia_area(AREA, data_prevista)
         }
-        persisted_products.update(
-            row['produto'] for row in get_stock_producao_area_all(AREA, today)
+        cake_enabled = any(
+            product.strip().casefold() == 'bolo individual'
+            for product in configured_products
         )
-        persisted_products.update(
-            row['produto'] for row in get_ultimo_stock_balcao(AREA)
-        )
-        allowed_products = configured_products | persisted_products
+        active_cake_configurations = {
+            product for product in persisted_plan_products
+            if cake_enabled and product.startswith('Bolo — ')
+        }
+        allowed_products = configured_products | active_cake_configurations
         invalid_products = sorted({
             produto for produto, _ in requested if produto not in allowed_products
         })
@@ -567,6 +569,14 @@ def transferir():
         produto for produto in get_produtos_pastelaria()
         if produto.strip().casefold() != 'bolo'
     ]
+    cake_enabled = any(
+        product.strip().casefold() == 'bolo individual'
+        for product in configured_products
+    )
+    active_cake_configurations = {
+        row['produto'] for row in plano_data_prevista
+        if cake_enabled and row['produto'].startswith('Bolo — ')
+    }
     all_produtos = sorted(set(
         list(prod_map.keys())
         + list(balcao_map.keys())
@@ -592,7 +602,10 @@ def transferir():
 
     # Every known article is selectable: the operator confirms physical
     # availability when preparing the dispatch.
-    cards_transferivel = cards
+    cards_transferivel = [
+        card for card in cards
+        if card['produto'] in set(configured_products) | active_cake_configurations
+    ]
 
     return render_template('pastelaria/transferir.html',
                            active_tab='transferir',
@@ -670,7 +683,31 @@ def produtos():
                 flash('Stocks mínimos guardados.', 'success')
             except ValueError as exc:
                 flash(str(exc), 'warning')
+        elif action == 'save_product_states':
+            if not _can_configure_stock_minimums(session.get('user') or {}):
+                abort(403)
+            products = db.get_all_produtos_pastelaria()
+            try:
+                states = []
+                for product in products:
+                    value = request.form.get(f"state_{product['id']}")
+                    if value not in {'active', 'inactive'}:
+                        raise ValueError(
+                            'Escolha Ativo ou Inativo para todos os produtos.'
+                        )
+                    states.append((product['id'], value == 'active'))
+                changed = db.save_produtos_pastelaria_active(
+                    states, request.form.get('state_token', '')
+                )
+                flash(
+                    f'Estado guardado em {changed} produto(s).',
+                    'success',
+                )
+            except ValueError as exc:
+                flash(str(exc), 'warning')
         elif action == 'add_produto_past':
+            if not _can_configure_stock_minimums(session.get('user') or {}):
+                abort(403)
             tip = request.form.get('novo_tipologia', '')
             sabor = request.form.get('novo_sabor_past', '')
             cob = request.form.get('novo_cob_past', '')
@@ -680,6 +717,8 @@ def produtos():
             else:
                 flash('Por favor, selecione uma tipologia.', 'warning')
         elif action == 'delete_bulk_produtos_past':
+            if not _can_configure_stock_minimums(session.get('user') or {}):
+                abort(403)
             ids_str = request.form.getlist('produto_ids')
             ids = [int(i) for i in ids_str if i.isdigit()]
             if ids:
@@ -689,14 +728,21 @@ def produtos():
                 flash('Nenhum produto selecionado.', 'warning')
         return redirect(url_for('pastelaria.produtos'))
     minimum_config = get_pastelaria_stock_minimums()
+    products = db.get_all_produtos_pastelaria()
     return render_template('pastelaria/lista_produtos.html',
-                           produtos_past=db.get_all_produtos_pastelaria(),
+                           produtos_past=products,
                            tipologias_list=[t['nome'] for t in db.get_all_tipologias_pastelaria()],
                            sabores_list=db.get_sabores_list(),
                            coberturas_list=[c['nome'] for c in db.get_all_coberturas()],
                            minimum_config=minimum_config,
                            can_configure_minimums=_can_configure_stock_minimums(
                                session.get('user') or {}
+                            ),
+                           can_configure_products=_can_configure_stock_minimums(
+                               session.get('user') or {}
+                           ),
+                           state_token=db.pastelaria_product_state_token(
+                               products
                            ))
 
 
@@ -744,7 +790,13 @@ def registar_quebra():
         produto = request.form.get('produto', '')
         lote = request.form.get('lote', '')
         motivo = request.form.get('motivo', '')
-        if quantidade > 0 and produto:
+        active_products = set(get_produtos_pastelaria() or [])
+        if produto not in active_products:
+            flash(
+                'Produto inválido ou inativo. Atualize a página e tente novamente.',
+                'error',
+            )
+        elif quantidade > 0:
             add_quebra_area(data_quebra, "Matosinhos", quantidade, AREA, produto, lote if lote else None, motivo)
             lote_text = f" (Lote: {lote})" if lote else ""
             flash(f"Quebra de {quantidade} de {produto}{lote_text} registada com sucesso!", "success")

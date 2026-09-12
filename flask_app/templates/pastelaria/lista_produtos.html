@@ -3,32 +3,61 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-    <h5 class="mb-3">📋 Lista de Produtos</h5>
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">Lista de Produtos</h5>
+            <p class="text-muted small mb-0">O estado define quais produtos ficam disponíveis no trabalho diário.</p>
+        </div>
+        {% if produtos_past %}
+        <div class="d-flex gap-2 small" aria-label="Resumo dos estados dos produtos">
+            <span class="badge text-bg-success">{{ produtos_past|selectattr('ativo')|list|length }} ativos</span>
+            <span class="badge text-bg-secondary">{{ produtos_past|rejectattr('ativo')|list|length }} inativos</span>
+        </div>
+        {% endif %}
+    </div>
 
     {% if produtos_past %}
     <form method="POST" id="bulkDeleteForm">
-        <input type="hidden" name="action" value="delete_bulk_produtos_past">
-        <div class="d-flex justify-content-between align-items-center mb-2">
+        <input type="hidden" name="state_token" value="{{ state_token }}">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <span class="text-muted small">{{ produtos_past|length }} produto(s)</span>
-            <button type="submit" class="btn btn-outline-danger btn-sm" id="btnDeleteSelected" disabled onclick="return confirm('Eliminar os produtos selecionados?')">Eliminar selecionados</button>
+            {% if can_configure_products %}
+            <div class="d-flex gap-2">
+                <button type="submit" name="action" value="delete_bulk_produtos_past" class="btn btn-outline-danger btn-sm" id="btnDeleteSelected" disabled onclick="return confirm('Eliminar os produtos selecionados?')">Eliminar selecionados</button>
+                <button type="submit" name="action" value="save_product_states" class="btn btn-primary btn-sm">Guardar estados</button>
+            </div>
+            {% else %}
+            <span class="badge text-bg-light text-dark border">Só consulta</span>
+            {% endif %}
         </div>
         <div class="table-responsive mb-3">
             <table class="table table-sm table-striped">
                 <thead>
                     <tr>
-                        <th style="width:40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>
+                        {% if can_configure_products %}<th style="width:40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>{% endif %}
                         <th>Tipologia</th>
                         <th>Sabor</th>
                         <th>Cobertura</th>
+                        <th>Estado operacional</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for p in produtos_past %}
                     <tr>
-                        <td><input type="checkbox" name="produto_ids" value="{{ p.id }}" class="form-check-input produto-check"></td>
+                        {% if can_configure_products %}<td><input type="checkbox" name="produto_ids" value="{{ p.id }}" class="form-check-input produto-check"></td>{% endif %}
                         <td>{{ p.tipologia }}</td>
                         <td>{{ p.sabor or '—' }}</td>
                         <td>{{ p.cobertura or '—' }}</td>
+                        <td>
+                            {% if can_configure_products %}
+                            <select class="form-select form-select-sm" name="state_{{ p.id }}" aria-label="Estado operacional de {{ p.tipologia }}{% if p.sabor %}, {{ p.sabor }}{% endif %}">
+                                <option value="active" {% if p.ativo %}selected{% endif %}>Ativo</option>
+                                <option value="inactive" {% if not p.ativo %}selected{% endif %}>Inativo</option>
+                            </select>
+                            {% else %}
+                            <span class="badge {% if p.ativo %}text-bg-success{% else %}text-bg-secondary{% endif %}" aria-label="Estado operacional: {{ 'Ativo' if p.ativo else 'Inativo' }}">{{ 'Ativo' if p.ativo else 'Inativo' }}</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -38,6 +67,8 @@
     {% else %}
     <p class="text-muted small">Sem produtos registados.</p>
     {% endif %}
+
+    <p class="text-muted small mb-3">Produtos inativos deixam de aparecer em novas contagens, mínimos, planos e seletores. O histórico e os mínimos já guardados permanecem disponíveis.</p>
 
     <div class="card border-primary mb-3">
         <div class="card-header fw-semibold">Stock mínimo por loja</div>
@@ -67,6 +98,7 @@
 
     <hr>
 
+    {% if can_configure_products %}
     <div class="card mb-3">
         <div class="card-body">
             <h6 class="card-title">Adicionar Novo Produto</h6>
@@ -104,6 +136,7 @@
             </form>
         </div>
     </div>
+    {% endif %}
 </div>
 {% endblock %}
 
