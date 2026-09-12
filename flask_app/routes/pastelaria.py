@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, abort
 from flask_app.auth import perm_required
 import sys, os
+import json
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import database as db
 import pandas as pd
@@ -29,6 +30,7 @@ from db.pastelaria import (
     generate_pastelaria_priority_plan,
     get_pastelaria_priority_plan,
     list_pastelaria_priority_plans,
+    get_pastelaria_intelligence,
 )
 
 pastelaria_bp = Blueprint('pastelaria', __name__)
@@ -37,6 +39,7 @@ AREA = 'pastelaria'
 
 TABS = [
     {'id': 'stock_balcao', 'label': 'Visão de Stock', 'icon': '📦', 'endpoint': 'pastelaria.stock_balcao'},
+    {'id': 'inteligencia', 'label': 'Rotação e Sazonalidade', 'icon': '📈', 'endpoint': 'pastelaria.inteligencia'},
     {'id': 'planear', 'label': 'Planear Produção', 'icon': '📋', 'endpoint': 'pastelaria.planear'},
     {'id': 'transferir', 'label': 'Transferir para Loja', 'icon': '🔄', 'endpoint': 'pastelaria.transferir'},
     {'id': 'quebra', 'label': 'Registar Quebra', 'icon': '⚠️', 'endpoint': 'pastelaria.registar_quebra'},
@@ -52,6 +55,13 @@ def _can_configure_stock_minimums(user):
 
 
 def _can_generate_priority_plan(user):
+    return bool(user and (
+        user.get('acesso_gestor')
+        or user.get('role') in {'admin', 'gestao', 'producao'}
+    ))
+
+
+def _can_view_intelligence(user):
     return bool(user and (
         user.get('acesso_gestor')
         or user.get('role') in {'admin', 'gestao', 'producao'}
@@ -241,6 +251,89 @@ def stock_balcao():
                            history_start=history_start,
                            history_end=history_end,
                            selected_store=selected_store)
+
+
+@pastelaria_bp.route('/inteligencia')
+@perm_required('acesso_pastelaria')
+def inteligencia():
+    if not _can_view_intelligence(session.get('user') or {}):
+        abort(403)
+    today = date.today()
+    try:
+        data_inicio = date.fromisoformat(request.args.get('inicio', ''))
+    except ValueError:
+        data_inicio = today - timedelta(days=365)
+    try:
+        data_fim = date.fromisoformat(request.args.get('fim', ''))
+    except ValueError:
+        data_fim = today
+    filters = {
+        'loja': request.args.get('loja', '').strip(),
+        'produto': request.args.get('produto', '').strip(),
+        'tipologia': request.args.get('tipologia', '').strip(),
+        'tipologia_venda': request.args.get('tipologia_venda', '').strip(),
+        'estado': request.args.get('estado', 'todos').strip(),
+    }
+    error = None
+    try:
+        intelligence = get_pastelaria_intelligence(
+            data_inicio, data_fim, **filters
+        )
+    except ValueError as exc:
+        error = str(exc)
+        data_inicio = today - timedelta(days=365)
+        data_fim = today
+        filters = {
+            'loja': '', 'produto': '', 'tipologia': '',
+            'tipologia_venda': '', 'estado': 'todos',
+        }
+        intelligence = get_pastelaria_intelligence(data_inicio, data_fim)
+    rotation_daily = {}
+    for row in intelligence['intervals']:
+        key = row['fim'].isoformat()
+        rotation_daily[key] = (
+            rotation_daily.get(key, 0) + row['consumo_estimado']
+        )
+    chart_figure = {
+        'data': [
+            {
+                'type': 'scatter', 'mode': 'lines+markers',
+                'name': 'Vendas Pastelaria (€)',
+                'x': [row['data'].isoformat() for row in intelligence['sales_series']],
+                'y': [row['valor'] for row in intelligence['sales_series']],
+                'line': {'color': '#197f78', 'width': 2},
+                'hovertemplate': '%{x}<br>%{y:.2f} €<extra></extra>',
+            },
+            {
+                'type': 'bar', 'name': 'Consumo estimado (un.)',
+                'x': list(rotation_daily),
+                'y': list(rotation_daily.values()),
+                'marker': {'color': '#d89a57'},
+                'yaxis': 'y2',
+                'hovertemplate': '%{x}<br>%{y} un.<extra></extra>',
+            },
+        ],
+        'layout': {
+            'legend': {'orientation': 'h', 'y': 1.12},
+            'yaxis': {'title': 'Vendas (€)', 'rangemode': 'tozero'},
+            'yaxis2': {
+                'title': 'Consumo estimado (un.)', 'overlaying': 'y',
+                'side': 'right', 'rangemode': 'tozero',
+            },
+            'barmode': 'group',
+        },
+    }
+    return render_template(
+        'pastelaria/inteligencia.html',
+        active_tab='inteligencia',
+        tabs=_tabs_with_urls(),
+        intelligence=intelligence,
+        dashboard_json=json.dumps(chart_figure),
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        filters=filters,
+        error=error,
+    )
 
 
 @pastelaria_bp.route('/planear', methods=['GET', 'POST'])

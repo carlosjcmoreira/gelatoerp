@@ -9,6 +9,8 @@ from db.producao import get_sabores_mapping
 import pandas as pd
 import json
 import os
+from collections import defaultdict
+from bisect import bisect_right
 
 def generate_lote_pastelaria(data: date) -> str:
     return f"P{data.strftime('%d%m%y')}"
@@ -485,6 +487,387 @@ def get_pastelaria_stock_minimums():
                 for store in stores
             },
         } for product in products],
+    }
+
+
+def get_pastelaria_intelligence(
+    data_inicio: date,
+    data_fim: date,
+    loja: str = '',
+    produto: str = '',
+    tipologia: str = '',
+    tipologia_venda: str = '',
+    estado: str = 'todos',
+):
+    """Build stock-rotation and uploaded-sales intelligence without inventing flavour sales."""
+    if data_inicio > data_fim:
+        raise ValueError('A data inicial não pode ser posterior à data final.')
+    if (data_fim - data_inicio).days > 1095:
+        raise ValueError('Escolha um período máximo de três anos.')
+    if estado not in {'todos', 'ativos', 'inativos'}:
+        estado = 'todos'
+    def previous_year(value):
+        try:
+            return value.replace(year=value.year - 1)
+        except ValueError:
+            return value.replace(year=value.year - 1, day=28)
+    previous_start = previous_year(data_inicio)
+    previous_end = previous_year(data_fim)
+
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT id, tipologia, sabor, cobertura, ativo
+            FROM produtos_pastelaria
+            ORDER BY tipologia, sabor, cobertura
+        """)
+        catalogue = [dict(row) for row in cursor.fetchall()]
+        for row in catalogue:
+            row['nome'] = _pastelaria_product_label(row)
+        catalogue_by_name = {row['nome']: row for row in catalogue}
+
+        cursor.execute("""
+            SELECT name AS loja, TRUE AS active_sales_store
+            FROM stores
+            WHERE supports_vendas=TRUE AND is_active=TRUE
+            ORDER BY name
+        """)
+        store_rows = [dict(row) for row in cursor.fetchall()]
+        stores = [row['loja'] for row in store_rows]
+        active_sales_stores = {
+            row['loja'] for row in store_rows
+            if row.get('active_sales_store', True)
+        }
+
+        cursor.execute("""
+            SELECT DISTINCT ON (data, loja, produto)
+                   data, loja, produto, quantidade, created_at
+            FROM contagem_stock
+            WHERE tipo='pastelaria' AND origem='contagem'
+              AND data BETWEEN %s AND %s
+            ORDER BY data, loja, produto, id DESC
+        """, (data_inicio, data_fim))
+        counts = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT data, loja, produto, SUM(quantidade)::integer AS quantidade
+            FROM producao_pastelaria
+            WHERE data BETWEEN %s AND %s
+            GROUP BY data, loja, produto
+        """, (data_inicio, data_fim))
+        production = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT COALESCE(confirmado_em::date, data_prevista, data) AS data,
+                   loja_destino AS loja, produto,
+                   SUM(quantidade)::numeric AS quantidade
+            FROM ordens_transferencia
+            WHERE LOWER(area_origem)='pastelaria'
+              AND status='confirmada'
+              AND unidade IN ('und', 'un', 'unidade', 'unidades')
+              AND ((confirmado_em >= %s AND confirmado_em < %s)
+                   OR (confirmado_em IS NULL
+                       AND COALESCE(data_prevista, data) BETWEEN %s AND %s))
+              AND COALESCE(destino_tipo, 'loja')='loja'
+            GROUP BY COALESCE(confirmado_em::date, data_prevista, data),
+                     loja_destino, produto
+        """, (data_inicio, data_fim + timedelta(days=1),
+              data_inicio, data_fim))
+        transfers = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT vd.data, vd.loja, vd.produto AS tipologia,
+                   SUM(vd.quantidade)::integer AS unidades,
+                   COALESCE(SUM(vd.valor_euros), 0)::numeric AS valor
+            FROM vendas_detalhe vd
+            INNER JOIN produtos_vendas_config pvc ON pvc.produto=vd.produto
+            WHERE pvc.pastelaria=TRUE AND vd.data BETWEEN %s AND %s
+            GROUP BY vd.data, vd.loja, vd.produto
+            ORDER BY vd.data, vd.loja, vd.produto
+        """, (data_inicio, data_fim))
+        pastry_sales = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT vd.data, vd.loja, vd.produto AS tipologia,
+                   SUM(vd.quantidade)::integer AS unidades,
+                   COALESCE(SUM(vd.valor_euros), 0)::numeric AS valor
+            FROM vendas_detalhe vd
+            INNER JOIN produtos_vendas_config pvc ON pvc.produto=vd.produto
+            WHERE pvc.pastelaria=TRUE AND vd.data BETWEEN %s AND %s
+            GROUP BY vd.data, vd.loja, vd.produto
+            ORDER BY vd.data, vd.loja, vd.produto
+        """, (previous_start, previous_end))
+        previous_pastry_sales = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT vd.data, vd.loja,
+                   COALESCE(SUM(vd.valor_euros), 0)::numeric AS valor
+            FROM vendas_detalhe vd
+            WHERE vd.data BETWEEN %s AND %s
+            GROUP BY vd.data, vd.loja
+            ORDER BY vd.data, vd.loja
+        """, (data_inicio, data_fim))
+        total_sales = [dict(row) for row in cursor.fetchall()]
+
+        cursor.execute("""
+            SELECT vd.data, vd.loja,
+                   COALESCE(SUM(vd.valor_euros), 0)::numeric AS valor
+            FROM vendas_detalhe vd
+            WHERE vd.data BETWEEN %s AND %s
+            GROUP BY vd.data, vd.loja
+            ORDER BY vd.data, vd.loja
+        """, (previous_start, previous_end))
+        previous_total_sales = [dict(row) for row in cursor.fetchall()]
+
+    def product_allowed(name):
+        row = catalogue_by_name.get(name)
+        if produto and name != produto:
+            return False
+        if tipologia and (not row or row['tipologia'] != tipologia):
+            return False
+        if estado == 'ativos' and (not row or not row['ativo']):
+            return False
+        if estado == 'inativos' and (not row or row['ativo']):
+            return False
+        return True
+
+    analysis_stores = {loja} if loja else active_sales_stores
+    counts = [
+        row for row in counts
+        if row['loja'] in analysis_stores and product_allowed(row['produto'])
+    ]
+    for row in counts:
+        catalogue_row = catalogue_by_name.get(row['produto'])
+        row['estado'] = (
+            'Ativo' if catalogue_row and catalogue_row['ativo']
+            else 'Inativo' if catalogue_row else 'Histórico'
+        )
+    production = [
+        row for row in production
+        if row['loja'] in analysis_stores and product_allowed(row['produto'])
+    ]
+    transfers = [
+        row for row in transfers
+        if row['loja'] in analysis_stores and product_allowed(row['produto'])
+    ]
+    available_sales_typologies = sorted({
+        row['tipologia'] for row in pastry_sales + previous_pastry_sales
+        if row['loja'] in analysis_stores
+    })
+    pastry_sales = [
+        row for row in pastry_sales
+        if row['loja'] in analysis_stores
+        and (not tipologia_venda or row['tipologia'] == tipologia_venda)
+    ]
+    previous_pastry_sales = [
+        row for row in previous_pastry_sales
+        if row['loja'] in analysis_stores
+        and (not tipologia_venda or row['tipologia'] == tipologia_venda)
+    ]
+    total_sales = [
+        row for row in total_sales if row['loja'] in analysis_stores
+    ]
+    previous_total_sales = [
+        row for row in previous_total_sales if row['loja'] in analysis_stores
+    ]
+
+    entries = defaultdict(lambda: defaultdict(int))
+    for row in production:
+        entries[(row['loja'], row['produto'])][row['data']] += int(row['quantidade'])
+    for row in transfers:
+        entries[(row['loja'], row['produto'])][row['data']] += int(row['quantidade'])
+    entry_index = {}
+    for key, day_values in entries.items():
+        dates = sorted(day_values)
+        cumulative = [0]
+        for movement_date in dates:
+            cumulative.append(cumulative[-1] + day_values[movement_date])
+        entry_index[key] = (dates, cumulative)
+
+    grouped_counts = defaultdict(list)
+    for row in counts:
+        grouped_counts[(row['loja'], row['produto'])].append(row)
+    intervals = []
+    for (store_name, product_name), rows in grouped_counts.items():
+        rows.sort(key=lambda row: row['data'])
+        for opening, closing in zip(rows, rows[1:]):
+            dates, cumulative = entry_index.get(
+                (store_name, product_name), ([], [0])
+            )
+            start_index = bisect_right(dates, opening['data'])
+            end_index = bisect_right(dates, closing['data'])
+            interval_entries = (
+                cumulative[end_index] - cumulative[start_index]
+            )
+            available = int(opening['quantidade']) + interval_entries
+            raw_consumption = available - int(closing['quantidade'])
+            days = (closing['data'] - opening['data']).days
+            intervals.append({
+                'loja': store_name,
+                'produto': product_name,
+                'inicio': opening['data'],
+                'fim': closing['data'],
+                'dias': days,
+                'stock_inicial': int(opening['quantidade']),
+                'entradas_conhecidas': interval_entries,
+                'stock_final': int(closing['quantidade']),
+                'consumo_estimado': max(0, raw_consumption),
+                'taxa_rotacao': round(
+                    max(0, raw_consumption) * 100 / available, 1
+                ) if available > 0 else None,
+                'confianca': 'baixa',
+                'comparavel': raw_consumption >= 0 and 5 <= days <= 14,
+                'inconsistencia': raw_consumption < 0,
+            })
+
+    usable_intervals = [
+        row for row in intervals if not row['inconsistencia']
+    ]
+    rotation_by_product = defaultdict(lambda: {
+        'consumo_estimado': 0, 'intervalos': 0, 'intervalos_baixa': 0,
+        'stock_final': 0,
+    })
+    for row in usable_intervals:
+        item = rotation_by_product[row['produto']]
+        item['consumo_estimado'] += row['consumo_estimado']
+        item['intervalos'] += 1
+        item['intervalos_baixa'] += row['confianca'] == 'baixa'
+        item['stock_final'] = row['stock_final']
+    rotation_ranking = [
+        {'produto': name, **values}
+        for name, values in rotation_by_product.items()
+    ]
+    rotation_ranking.sort(
+        key=lambda row: (-row['consumo_estimado'], row['produto'])
+    )
+
+    sales_by_type = defaultdict(lambda: {'unidades': 0, 'valor': 0.0})
+    sales_daily = defaultdict(lambda: {'unidades': 0, 'valor': 0.0})
+    for row in pastry_sales:
+        sales_by_type[row['tipologia']]['unidades'] += int(row['unidades'])
+        sales_by_type[row['tipologia']]['valor'] += float(row['valor'])
+        sales_daily[row['data']]['unidades'] += int(row['unidades'])
+        sales_daily[row['data']]['valor'] += float(row['valor'])
+    sales_ranking = [
+        {'tipologia': name, 'unidades': values['unidades'],
+         'valor': round(values['valor'], 2)}
+        for name, values in sales_by_type.items()
+    ]
+    sales_ranking.sort(key=lambda row: (-row['valor'], row['tipologia']))
+    previous_by_type = defaultdict(lambda: {'unidades': 0, 'valor': 0.0})
+    for row in previous_pastry_sales:
+        previous_by_type[row['tipologia']]['unidades'] += int(row['unidades'])
+        previous_by_type[row['tipologia']]['valor'] += float(row['valor'])
+    sales_comparison = []
+    for name in sorted(set(sales_by_type) | set(previous_by_type)):
+        current = sales_by_type[name]
+        previous = previous_by_type[name]
+        current_value = round(current['valor'], 2)
+        previous_value = round(previous['valor'], 2)
+        sales_comparison.append({
+            'tipologia': name,
+            'valor_atual': current_value,
+            'valor_anterior': previous_value,
+            'variacao': round(
+                (current_value - previous_value) * 100 / previous_value, 1
+            ) if previous_value else None,
+            'unidades_atuais': current['unidades'],
+            'unidades_anteriores': previous['unidades'],
+        })
+    sales_comparison.sort(
+        key=lambda row: (-row['valor_atual'], row['tipologia'])
+    )
+    sales_series = [
+        {'data': day, 'unidades': values['unidades'],
+         'valor': round(values['valor'], 2)}
+        for day, values in sorted(sales_daily.items())
+    ]
+
+    pastry_value = round(sum(float(row['valor']) for row in pastry_sales), 2)
+    total_value = round(sum(float(row['valor']) for row in total_sales), 2)
+    sales_days = {row['data'] for row in total_sales}
+    sales_store_days = {(row['data'], row['loja']) for row in total_sales}
+    previous_sales_days = {row['data'] for row in previous_total_sales}
+    previous_sales_store_days = {
+        (row['data'], row['loja']) for row in previous_total_sales
+    }
+    calendar_days = (data_fim - data_inicio).days + 1
+    previous_calendar_days = (previous_end - previous_start).days + 1
+    coverage_by_store = []
+    coverage_store_names = sorted(analysis_stores)
+    for store_name in coverage_store_names:
+        store_days = {
+            row['data'] for row in total_sales if row['loja'] == store_name
+        }
+        coverage_by_store.append({
+            'loja': store_name,
+            'dias': len(store_days),
+            'cobertura': round(
+                len(store_days) * 100 / calendar_days, 1
+            ) if calendar_days else 0,
+        })
+    store_count = len(coverage_store_names)
+    possible_store_days = calendar_days * store_count
+    previous_possible_store_days = previous_calendar_days * store_count
+    coverage = round(
+        len(sales_store_days) * 100 / possible_store_days, 1
+    ) if possible_store_days else 0
+    previous_coverage = round(
+        len(previous_sales_store_days) * 100 / previous_possible_store_days, 1
+    ) if previous_possible_store_days else 0
+    comparison_comparable = (
+        coverage >= 70
+        and previous_coverage >= 70
+        and abs(coverage - previous_coverage) <= 10
+    )
+    if not comparison_comparable:
+        for row in sales_comparison:
+            row['variacao'] = None
+
+    product_options = sorted({
+        row['nome'] for row in catalogue
+    } | {row['produto'] for row in counts})
+    typology_options = sorted({
+        row['tipologia'] for row in catalogue if row['tipologia']
+    })
+    return {
+        'stores': stores,
+        'products': product_options,
+        'typologies': typology_options,
+        'sales_typologies': available_sales_typologies,
+        'catalogue': catalogue,
+        'counts': counts,
+        'intervals': sorted(intervals, key=lambda row: row['fim']),
+        'rotation_ranking': rotation_ranking,
+        'sales_ranking': sales_ranking,
+        'sales_comparison': sales_comparison,
+        'sales_series': sales_series,
+        'coverage_by_store': coverage_by_store,
+        'previous_period': {
+            'start': previous_start, 'end': previous_end,
+        },
+        'summary': {
+            'count_snapshots': len({(r['data'], r['loja']) for r in counts}),
+            'count_cells': len(counts),
+            'rotation_intervals': len(usable_intervals),
+            'inconsistent_intervals': len(intervals) - len(usable_intervals),
+            'estimated_consumption': sum(
+                row['consumo_estimado'] for row in usable_intervals
+            ),
+            'pastry_units': sum(int(row['unidades']) for row in pastry_sales),
+            'pastry_value': pastry_value,
+            'total_sales_value': total_value,
+            'pastry_share': round(pastry_value * 100 / total_value, 1)
+            if total_value else None,
+            'sales_days': len(sales_days),
+            'calendar_days': calendar_days,
+            'sales_store_days': len(sales_store_days),
+            'possible_store_days': possible_store_days,
+            'sales_coverage': coverage,
+            'previous_sales_days': len(previous_sales_days),
+            'previous_sales_coverage': previous_coverage,
+            'comparison_comparable': comparison_comparable,
+        },
     }
 
 

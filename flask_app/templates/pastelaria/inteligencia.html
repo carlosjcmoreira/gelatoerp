@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.index") %}
+
+{% block title %}Inteligência de stock | Scoopy{% endblock %}
+
+{% block head %}
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js" charset="utf-8"></script>
+<style>
+  .intel-page { --ink:#173a43; --muted:#61757a; --line:#d9e4e2; --wash:#f3f8f6; --teal:#197f78; --coral:#bd5b43; --amber:#b47724; color:var(--ink); }
+  .intel-page .eyebrow { color:var(--teal); font-size:.7rem; font-weight:800; letter-spacing:.12em; text-transform:uppercase; }
+  .intel-page h1 { font-size:clamp(1.35rem,2.5vw,2rem); letter-spacing:-.035em; }
+  .intel-page .intro { max-width:720px; color:var(--muted); }
+  .intel-page .card { border:1px solid var(--line); border-radius:12px; box-shadow:0 2px 10px rgba(23,58,67,.035); }
+  .intel-page .card-header { background:var(--wash); border-bottom:1px solid var(--line); color:var(--ink); }
+  .intel-page .kpi { min-height:112px; padding:1rem; background:linear-gradient(135deg,#f7fbf9,#eef6f3); }
+  .intel-page .kpi-label { color:var(--muted); font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+  .intel-page .kpi-value { font-size:1.45rem; font-weight:800; letter-spacing:-.04em; margin-top:.35rem; }
+  .intel-page .kpi-note { color:var(--muted); font-size:.75rem; }
+  .intel-page .section-title { font-size:1rem; font-weight:800; letter-spacing:-.02em; }
+  .intel-page .table { --bs-table-striped-bg:#f7faf9; color:var(--ink); font-size:.82rem; }
+  .intel-page .table th { color:var(--muted); font-size:.68rem; letter-spacing:.04em; text-transform:uppercase; white-space:nowrap; }
+  .intel-page .table td, .intel-page .table th { padding:.65rem .6rem; border-color:#e6eeec; }
+  .intel-page .rank { width:1.8rem; height:1.8rem; display:inline-grid; place-items:center; border-radius:50%; background:#e7f2ef; color:var(--teal); font-weight:800; font-size:.72rem; }
+  .intel-page .state { border-left:4px solid var(--teal); background:#f2f8f6; }
+  .intel-page .state.warning { border-left-color:var(--amber); background:#fff8e9; }
+  .intel-page .state.danger { border-left-color:var(--coral); background:#fff3ef; }
+  .intel-page .chart { min-height:310px; }
+  .intel-page .filter-card { background:#fbfcfb; }
+  .intel-page .coverage-bar { height:8px; background:#e4eeeb; border-radius:20px; overflow:hidden; }
+  .intel-page .coverage-bar span { display:block; height:100%; background:var(--teal); }
+  .intel-page .muted-rule { border-top:1px dashed #cbdad6; }
+  @media (max-width:767.98px) {
+    .intel-page .kpi { min-height:98px; }
+    .intel-page .chart { min-height:260px; }
+    .intel-page .table { min-width:600px; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 px-lg-4 py-3 intel-page">
+  {% include "components/tabs.html" %}
+
+  <header class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+    <div>
+      <div class="eyebrow">Decisão sazonal · rotação de stock</div>
+      <h1 class="mb-1">Inteligência de pastelaria</h1>
+      <p class="intro mb-0">Transforme contagens de loja e vendas carregadas em sinais claros para preparar a próxima época de maior procura.</p>
+    </div>
+    <div class="text-end small text-muted">Comparação anual<br><strong class="text-dark">{{ intelligence.previous_period.start.strftime('%d/%m/%Y') }}–{{ intelligence.previous_period.end.strftime('%d/%m/%Y') }}</strong></div>
+  </header>
+
+  {% if error %}
+  <div class="alert alert-danger d-flex justify-content-between align-items-start gap-2" role="alert">
+    <div><strong>Não foi possível carregar todos os dados.</strong><br><span class="small">{{ error }}</span></div>
+    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('pastelaria.inteligencia') }}">Limpar filtros</a>
+  </div>
+  {% endif %}
+
+  <form method="get" class="card filter-card p-3 mb-3" aria-label="Filtros de inteligência">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <span class="section-title">Recorte da análise</span>
+      <span class="small text-muted">Atualize para recalcular os indicadores</span>
+    </div>
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-lg-2"><label class="form-label small mb-1" for="data_inicio">De</label><input id="data_inicio" class="form-control form-control-sm" type="date" name="inicio" value="{{ data_inicio.isoformat() }}"></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-1" for="data_fim">Até</label><input id="data_fim" class="form-control form-control-sm" type="date" name="fim" value="{{ data_fim.isoformat() }}"></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-1" for="loja">Loja</label><select id="loja" name="loja" class="form-select form-select-sm"><option value="">Todas</option>{% for option in intelligence.stores %}<option value="{{ option }}" {% if filters.loja == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-1" for="produto">Produto</label><select id="produto" name="produto" class="form-select form-select-sm"><option value="">Todos</option>{% for option in intelligence.products %}<option value="{{ option }}" {% if filters.produto == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-1" for="tipologia">Tipologia</label><select id="tipologia" name="tipologia" class="form-select form-select-sm"><option value="">Todas</option>{% for option in intelligence.typologies %}<option value="{{ option }}" {% if filters.tipologia == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-1" for="tipologia_venda">Tipologia de venda</label><select id="tipologia_venda" name="tipologia_venda" class="form-select form-select-sm"><option value="">Todas</option>{% for option in intelligence.sales_typologies %}<option value="{{ option }}" {% if filters.tipologia_venda == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-lg-2"><label class="form-label small mb-1" for="estado">Estado</label><select id="estado" name="estado" class="form-select form-select-sm"><option value="todos" {% if filters.estado == 'todos' %}selected{% endif %}>Todos</option><option value="ativos" {% if filters.estado == 'ativos' %}selected{% endif %}>Ativos</option><option value="inativos" {% if filters.estado == 'inativos' %}selected{% endif %}>Inativos</option></select></div>
+      <div class="col-12 col-lg-2"><button class="btn btn-primary btn-sm w-100" type="submit">Aplicar filtros</button></div>
+    </div>
+  </form>
+
+  {% set s = intelligence.summary %}
+  <section class="row g-2 mb-3" aria-label="Resumo do período">
+    {% for label, value, note in [
+      ('Contagens', s.count_snapshots, (s.count_cells|string + ' células registadas')),
+      ('Consumo estimado', s.estimated_consumption, 'entre contagens conhecidas'),
+      ('Intervalos de rotação', s.rotation_intervals, 'intervalos observados'),
+      ('Valor de pastelaria', ('%.2f €'|format(s.pastry_value)), (s.pastry_units|string + ' unidades')),
+      ('Vendas carregadas', ('%.2f €'|format(s.total_sales_value)), (s.sales_store_days|string + ' de ' + s.possible_store_days|string + ' dias-loja')),
+      ('Peso nas vendas', (('%.1f%%'|format(s.pastry_share)) if s.pastry_share is not none else '—'), (s.calendar_days|string + ' dias no calendário'))
+    ] %}
+    <div class="col-6 col-md-4 col-xl-2"><div class="card kpi h-100"><div class="kpi-label">{{ label }}</div><div class="kpi-value">{{ value if value is not none else '—' }}</div><div class="kpi-note">{{ note }}</div></div></div>
+    {% endfor %}
+  </section>
+
+  <div class="card state mb-3 {% if s.sales_coverage is defined and s.sales_coverage < 70 %}warning{% endif %}" role="status">
+    <div class="card-body py-3">
+      <div class="d-flex flex-wrap justify-content-between gap-2">
+        <div><strong>Qualidade e cobertura dos dados</strong><div class="small text-muted mt-1">A cobertura mede dias-loja com pelo menos uma venda carregada; não confirma que o ficheiro do dia esteja completo. As vendas são reais, mas agregadas por <strong>tipologia de venda</strong>: não permitem concluir vendas por produto ou sabor.</div></div>
+        <div class="text-end"><strong>{{ '%.1f%%'|format(s.sales_coverage) }}</strong><div class="small text-muted">período atual · anterior {{ '%.1f%%'|format(s.previous_sales_coverage) }}</div></div>
+      </div>
+      {% if s.calendar_days %}<div class="coverage-bar mt-2" aria-label="Cobertura de vendas: {{ s.sales_coverage }}%"><span style="width:{{ s.sales_coverage }}%"></span></div>{% endif %}
+      <div class="d-flex flex-wrap gap-2 mt-2">{% for row in intelligence.coverage_by_store %}<span class="badge text-bg-light">{{ row.loja }}: {{ row.dias }}/{{ s.calendar_days }} dias ({{ '%.1f%%'|format(row.cobertura) }})</span>{% endfor %}</div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-12 col-xl-7">
+      <section class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center"><div><div class="section-title">Evolução do período</div><div class="small text-muted">Consumo estimado e vendas observadas</div></div><span class="badge text-bg-light">Vendas reais · rotação estimada</span></div>
+        <div class="card-body">{% if intelligence.sales_series or intelligence.intervals %}<div id="intelligence-chart" class="chart" role="img" aria-label="Evolução temporal do valor real das vendas de Pastelaria e do consumo estimado entre contagens"></div>{% else %}<div class="state warning p-3 small">Não existem dados suficientes para desenhar a série com este recorte.</div>{% endif %}</div>
+      </section>
+    </div>
+    <div class="col-12 col-xl-5">
+      <section class="card h-100">
+        <div class="card-header"><div class="section-title">Ano contra ano</div><div class="small text-muted">A mesma janela temporal, quando disponível</div></div>
+        <div class="card-body">
+          {% if intelligence.sales_comparison %}
+          {% if not s.comparison_comparable %}<div class="state warning p-2 small mb-2">Os períodos têm cobertura insuficiente ou desigual. Os valores são mostrados, mas a variação percentual fica suspensa para não confundir falhas de dados com crescimento ou quebra.</div>{% endif %}
+          <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Indicador</th><th class="text-end">Atual</th><th class="text-end">Anterior</th><th class="text-end">Variação</th></tr></thead><tbody>
+          {% for row in intelligence.sales_comparison %}<tr><td>{{ row.tipologia }}</td><td class="text-end fw-semibold">{{ '%.2f €'|format(row.valor_atual) }}</td><td class="text-end text-muted">{{ '%.2f €'|format(row.valor_anterior) }}</td><td class="text-end {% if row.variacao is not none and row.variacao < 0 %}text-danger{% elif row.variacao is not none %}text-success{% endif %}">{{ ('%+.1f%%'|format(row.variacao)) if row.variacao is not none else 'Não comparável' }}</td></tr>{% endfor %}
+          </tbody></table></div>
+          {% else %}<div class="state warning p-3 small">Sem período anterior comparável para este filtro.</div>{% endif %}
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-12 col-lg-6"><section class="card h-100"><div class="card-header"><div class="section-title">Rotação estimada por produto</div><div class="small text-muted">Ranking construído entre contagens físicas conhecidas</div></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-striped align-middle mb-0"><thead><tr><th>#</th><th>Produto</th><th class="text-end">Consumo est.</th><th class="text-end">Intervalos</th><th class="text-end">Baixa confiança</th></tr></thead><tbody>{% for row in intelligence.rotation_ranking %}<tr><td><span class="rank">{{ loop.index }}</span></td><td class="fw-semibold">{{ row.produto }}</td><td class="text-end">{{ row.consumo_estimado }}</td><td class="text-end">{{ row.intervalos }}</td><td class="text-end">{{ row.intervalos_baixa }}</td></tr>{% else %}<tr><td colspan="5" class="text-center text-muted py-4">Sem intervalos conhecidos no período.</td></tr>{% endfor %}</tbody></table></div></div></section></div>
+    <div class="col-12 col-lg-6"><section class="card h-100"><div class="card-header"><div class="section-title">Vendas por tipologia</div><div class="small text-muted">Não é uma leitura por sabor ou produto</div></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-striped align-middle mb-0"><thead><tr><th>#</th><th>Tipologia de venda</th><th class="text-end">Unidades</th><th class="text-end">Valor</th></tr></thead><tbody>{% for row in intelligence.sales_ranking %}<tr><td><span class="rank">{{ loop.index }}</span></td><td class="fw-semibold">{{ row.tipologia }}</td><td class="text-end">{{ row.unidades }}</td><td class="text-end">{{ '%.2f €'|format(row.valor) }}</td></tr>{% else %}<tr><td colspan="4" class="text-center text-muted py-4">Sem vendas agregadas por tipologia.</td></tr>{% endfor %}</tbody></table></div></div></section></div>
+  </div>
+
+  <section class="card mb-3"><div class="card-header d-flex justify-content-between align-items-center"><div><div class="section-title">Intervalos entre contagens</div><div class="small text-muted">Estimativa: stock inicial + entradas conhecidas − stock final. Sem confirmação de todos os movimentos, a confiança permanece baixa; “comparável” identifica apenas intervalos regulares de 5–14 dias.</div></div><span class="badge text-bg-light">{{ intelligence.intervals|length }} registos</span></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-sm table-striped align-middle mb-0"><thead><tr><th>Produto</th><th>Loja</th><th>De</th><th>Até</th><th class="text-end">Dias</th><th class="text-end">Entradas</th><th class="text-end">Consumo est.</th><th>Qualidade</th></tr></thead><tbody>{% for row in intelligence.intervals|reverse %}<tr><td>{{ row.produto }}</td><td>{{ row.loja }}</td><td>{{ row.inicio.strftime('%d/%m/%Y') }}</td><td>{{ row.fim.strftime('%d/%m/%Y') }}</td><td class="text-end">{{ row.dias }}</td><td class="text-end">{{ row.entradas_conhecidas }}</td><td class="text-end">{{ row.consumo_estimado }}</td><td><span class="badge text-bg-warning">confiança baixa</span>{% if row.comparavel %} <span class="badge text-bg-light">comparável</span>{% endif %}{% if row.inconsistencia %} <span class="text-danger">reposição não registada</span>{% endif %}</td></tr>{% else %}<tr><td colspan="8" class="text-center text-muted py-4">Ainda não há duas contagens conhecidas para calcular rotação.</td></tr>{% endfor %}</tbody></table></div></div></section>
+
+  <section class="card mt-3"><div class="card-header"><div class="section-title">Contagens físicas recebidas</div><div class="small text-muted">Fonte da estimativa de consumo e rotação</div></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-sm table-striped align-middle mb-0"><thead><tr><th>Data</th><th>Loja</th><th>Produto</th><th class="text-end">Quantidade</th><th>Estado</th></tr></thead><tbody>{% for row in intelligence.counts|sort(attribute='data', reverse=true) %}<tr><td>{{ row.data.strftime('%d/%m/%Y') }}</td><td>{{ row.loja }}</td><td>{{ row.produto }}</td><td class="text-end fw-semibold">{{ row.quantidade }}</td><td>{{ row.estado }}</td></tr>{% else %}<tr><td colspan="5" class="text-center text-muted py-4">Sem contagens para os filtros selecionados.</td></tr>{% endfor %}</tbody></table></div></div></section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if intelligence.sales_series or intelligence.intervals %}
+<script>
+(function () {
+  var figure = {{ dashboard_json|safe }};
+  var node = document.getElementById('intelligence-chart');
+  if (!node || !figure) return;
+  figure.layout = Object.assign({}, figure.layout || {}, {autosize:true, margin:{l:42,r:18,t:16,b:42}, paper_bgcolor:'transparent', plot_bgcolor:'transparent', font:{family:'system-ui, sans-serif', color:'#173a43'}});
+  Plotly.newPlot(node, figure.data || [], figure.layout, {responsive:true, displayModeBar:false, scrollZoom:false});
+})();
+</script>
+{% endif %}
+{% endblock %}

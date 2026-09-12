@@ -819,8 +819,9 @@ def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
                         (f'pastelaria-count:{today.isoformat()}',),
                     )
                 cursor.execute("""
-                    INSERT INTO contagem_stock (data, loja, produto, quantidade, tipo)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO contagem_stock
+                        (data, loja, produto, quantidade, tipo, origem)
+                    VALUES (%s, %s, %s, %s, %s, 'transferencia')
                     ON CONFLICT DO NOTHING
                 """, (today, loja_destino, produto, int(quantidade), area_origem.lower()))
         if updated:

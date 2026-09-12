@@ -1945,6 +1945,7 @@ _TILE_MASTER = {
     ],
     'pastelaria': [
         {'id': 'stock_balcao',      'icon': '📦',  'default_label': 'Visão de Stock',              'description': 'Consultar stock atual e histórico das contagens feitas pelas lojas'},
+        {'id': 'inteligencia',       'icon': '📈',  'default_label': 'Rotação e Sazonalidade',      'description': 'Analisar rotação estimada, contagens e peso da Pastelaria nas vendas por época'},
         {'id': 'planear',           'icon': '📋',  'default_label': 'Planear Produção',            'description': 'Gerar, imprimir e consultar planos de produção por prioridade'},
         {'id': 'transferir',        'icon': '🔄',  'default_label': 'Transferir para Loja',        'description': 'Enviar stock de pastelaria e confeitaria para a loja via ordem de transferência'},
         {'id': 'quebra',            'icon': '⚠️',  'default_label': 'Registar Quebra',             'description': 'Registar perdas de produtos de pastelaria e confeitaria com motivo'},

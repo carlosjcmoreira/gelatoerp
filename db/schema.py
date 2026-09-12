@@ -1504,9 +1504,19 @@ def init_database():
                 produto VARCHAR(255) NOT NULL,
                 quantidade INTEGER NOT NULL,
                 tipo VARCHAR(50) NOT NULL,
+                origem VARCHAR(30) NOT NULL DEFAULT 'contagem',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ADD COLUMN IF NOT EXISTS origem VARCHAR(30) NOT NULL DEFAULT 'contagem'
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_contagem_pastelaria_intelligence
+            ON contagem_stock (data, loja, produto, id)
+            WHERE tipo='pastelaria' AND origem='contagem'
+        """)
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS ajustes_producao (
@@ -1658,6 +1668,42 @@ def run_migrations():
                 destino_nome VARCHAR(255)
             )
         ''')
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ADD COLUMN IF NOT EXISTS origem VARCHAR(30) NOT NULL DEFAULT 'contagem'
+        """)
+        cursor.execute("""
+            WITH exact_candidates AS (
+                SELECT cs.id AS count_id, ot.id AS order_id,
+                       COUNT(*) OVER (PARTITION BY ot.id) AS counts_per_order,
+                       COUNT(*) OVER (PARTITION BY cs.id) AS orders_per_count
+                FROM contagem_stock cs
+                JOIN ordens_transferencia ot
+                  ON ot.status='confirmada'
+                 AND LOWER(ot.area_origem)=cs.tipo
+                 AND ot.loja_destino=cs.loja
+                 AND ot.produto=cs.produto
+                 AND ot.quantidade::integer=cs.quantidade
+                 AND ot.confirmado_em IS NOT NULL
+                 AND cs.data=ot.confirmado_em::date
+                 AND cs.created_at=ot.confirmado_em
+                WHERE cs.origem='contagem'
+                  AND cs.tipo IN ('pastelaria', 'confeitaria')
+            )
+            UPDATE contagem_stock cs
+            SET origem='transferencia'
+            FROM exact_candidates candidate
+            WHERE cs.id=candidate.count_id
+              AND candidate.counts_per_order=1
+              AND candidate.orders_per_count=1
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_transferencias_pastelaria_intelligence
+            ON ordens_transferencia
+                (confirmado_em, loja_destino, produto)
+            WHERE status='confirmada'
+              AND LOWER(area_origem)='pastelaria'
+        """)
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS artigos_administrativos (

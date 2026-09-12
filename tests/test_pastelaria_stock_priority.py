@@ -483,6 +483,138 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertIn('alterada por outro utilizador', rendered['error'])
         self.assertEqual(client.post('/pastelaria/stock-balcao').status_code, 405)
 
+    def test_intelligence_calculates_rotation_and_keeps_sales_at_typology_level(self):
+        cursor = _Cursor([
+            [{
+                'id': 10, 'tipologia': 'Palito', 'sabor': 'Pistacchio',
+                'cobertura': '', 'ativo': True,
+            }],
+            [{'loja': 'Bolhão'}],
+            [
+                {
+                    'data': date(2026, 1, 4), 'loja': 'Bolhão',
+                    'produto': 'Palito, Pistacchio', 'quantidade': 10,
+                    'created_at': None,
+                },
+                {
+                    'data': date(2026, 1, 11), 'loja': 'Bolhão',
+                    'produto': 'Palito, Pistacchio', 'quantidade': 4,
+                    'created_at': None,
+                },
+            ],
+            [{
+                'data': date(2026, 1, 8), 'loja': 'Bolhão',
+                'produto': 'Palito, Pistacchio', 'quantidade': 2,
+            }],
+            [{
+                'data': date(2026, 1, 9), 'loja': 'Bolhão',
+                'produto': 'Palito, Pistacchio', 'quantidade': 1,
+            }],
+            [{
+                'data': date(2026, 1, 8), 'loja': 'Bolhão',
+                'tipologia': 'Palitos', 'unidades': 20, 'valor': 100,
+            }],
+            [{
+                'data': date(2025, 1, 8), 'loja': 'Bolhão',
+                'tipologia': 'Palitos', 'unidades': 10, 'valor': 80,
+            }],
+            [
+                {'data': date(2026, 1, day), 'loja': 'Bolhão', 'valor': 500}
+                for day in range(1, 15)
+            ],
+            [
+                {'data': date(2025, 1, day), 'loja': 'Bolhão', 'valor': 400}
+                for day in range(1, 15)
+            ],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            result = pastelaria.get_pastelaria_intelligence(
+                date(2026, 1, 1), date(2026, 1, 14), loja='Bolhão'
+            )
+        interval = result['intervals'][0]
+        self.assertEqual(interval['entradas_conhecidas'], 3)
+        self.assertEqual(interval['consumo_estimado'], 9)
+        self.assertEqual(interval['confianca'], 'baixa')
+        self.assertTrue(interval['comparavel'])
+        self.assertEqual(result['rotation_ranking'][0]['produto'],
+                         'Palito, Pistacchio')
+        self.assertEqual(result['sales_ranking'], [{
+            'tipologia': 'Palitos', 'unidades': 20, 'valor': 100.0,
+        }])
+        self.assertEqual(result['summary']['pastry_share'], 1.4)
+        self.assertEqual(result['sales_comparison'][0]['variacao'], 25.0)
+        self.assertEqual(result['summary']['previous_sales_days'], 14)
+        self.assertEqual(result['coverage_by_store'][0]['loja'], 'Bolhão')
+        self.assertNotIn('Pistacchio', result['sales_ranking'][0]['tipologia'])
+        statements = [query for query, _params in cursor.queries]
+        count_query = next(
+            query for query in statements if 'FROM contagem_stock' in query
+            and 'DISTINCT ON' in query
+        )
+        transfer_query = next(
+            query for query in statements if 'FROM ordens_transferencia' in query
+        )
+        self.assertIn("origem='contagem'", count_query)
+        self.assertIn('confirmado_em::date', transfer_query)
+
+    def test_intelligence_route_is_restricted_to_production_and_management(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+        app = Flask(__name__)
+        app.secret_key = 'test'
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'loja', 'role': 'vendas',
+                'acesso_pastelaria': True,
+            }
+        response = client.get('/pastelaria/inteligencia')
+        self.assertEqual(response.status_code, 403)
+
+    def test_intelligence_excludes_inconsistent_rotation_and_uses_store_days(self):
+        cursor = _Cursor([
+            [{
+                'id': 10, 'tipologia': 'Palito', 'sabor': '',
+                'cobertura': '', 'ativo': True,
+            }],
+            [{'loja': 'Bolhão'}, {'loja': 'Matosinhos'}],
+            [
+                {
+                    'data': date(2026, 1, 1), 'loja': 'Bolhão',
+                    'produto': 'Palito', 'quantidade': 1, 'created_at': None,
+                },
+                {
+                    'data': date(2026, 1, 2), 'loja': 'Bolhão',
+                    'produto': 'Palito', 'quantidade': 5, 'created_at': None,
+                },
+            ],
+            [],
+            [],
+            [],
+            [],
+            [
+                {'data': date(2026, 1, 1), 'loja': 'Bolhão', 'valor': 10},
+                {'data': date(2026, 1, 2), 'loja': 'Matosinhos', 'valor': 10},
+            ],
+            [],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            result = pastelaria.get_pastelaria_intelligence(
+                date(2026, 1, 1), date(2026, 1, 2)
+            )
+        self.assertTrue(result['intervals'][0]['inconsistencia'])
+        self.assertEqual(result['rotation_ranking'], [])
+        self.assertEqual(result['summary']['rotation_intervals'], 0)
+        self.assertEqual(result['summary']['inconsistent_intervals'], 1)
+        self.assertEqual(result['summary']['sales_coverage'], 50.0)
+        self.assertFalse(result['summary']['comparison_comparable'])
+
     def test_print_template_has_calculated_and_handwritten_columns(self):
         template = Path(
             'flask_app/templates/pastelaria/plano_prioridade.html'
