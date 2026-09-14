@@ -298,11 +298,19 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         with patch('db.pastelaria.db_connection', return_value=connection):
             changed = pastelaria.save_produtos_pastelaria_active([
                 (10, False), (11, False),
-            ], token)
+            ], token, actor_id=7, actor_username='gestor')
         self.assertEqual(changed, 1)
         self.assertTrue(connection.committed)
         statements = '\n'.join(query for query, _params in cursor.queries)
         self.assertIn('UPDATE produtos_pastelaria SET ativo=%s', statements)
+        audit_inserts = [
+            params for query, params in cursor.queries
+            if 'INSERT INTO pastelaria_produto_estado_audit' in query
+        ]
+        self.assertEqual(
+            audit_inserts,
+            [(10, 7, 'gestor', True, False)],
+        )
         self.assertNotIn('DELETE', statements)
         self.assertNotIn('pastelaria_stock_minimos', statements)
 
@@ -336,6 +344,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
 
         with client.session_transaction() as session:
             session['user'] = {
+                'id': 7,
                 'username': 'gestor', 'role': 'gestao',
                 'acesso_pastelaria': True, 'acesso_gestor': True,
             }
@@ -357,7 +366,9 @@ class PastelariaStockPriorityTests(unittest.TestCase):
                 },
             )
         self.assertEqual(response.status_code, 302)
-        save.assert_called_once_with([(10, False)], 'token-a')
+        save.assert_called_once_with(
+            [(10, False)], 'token-a', 7, 'gestor'
+        )
 
     def test_stale_product_state_form_is_rejected(self):
         cursor = _Cursor([[{'id': 10, 'ativo': False}]])
@@ -372,6 +383,33 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             'UPDATE produtos_pastelaria' in query
             for query, _params in cursor.queries
         ))
+        self.assertFalse(any(
+            'INSERT INTO pastelaria_produto_estado_audit' in query
+            for query, _params in cursor.queries
+        ))
+
+    def test_product_state_history_returns_recent_actor_and_transition(self):
+        history = [{
+            'id': 3,
+            'produto_id': 10,
+            'actor_id': 7,
+            'actor_username': 'gestor',
+            'previous_active': True,
+            'new_active': False,
+            'changed_at': date(2026, 9, 14),
+            'tipologia': 'Palitos',
+            'sabor': '',
+            'cobertura': '',
+        }]
+        cursor = _Cursor([history])
+        connection = _Connection(cursor)
+        with patch('db.pastelaria.db_connection', return_value=connection):
+            result = pastelaria.get_pastelaria_product_state_history(10)
+        self.assertEqual(result[0]['produto'], 'Palitos')
+        self.assertEqual(result[0]['actor_username'], 'gestor')
+        self.assertTrue(result[0]['previous_active'])
+        self.assertFalse(result[0]['new_active'])
+        self.assertIn('ORDER BY a.changed_at DESC, a.id DESC', cursor.queries[0][0])
 
     def test_non_management_cannot_add_or_delete_catalogue_products(self):
         from flask_app.routes.pastelaria import pastelaria_bp

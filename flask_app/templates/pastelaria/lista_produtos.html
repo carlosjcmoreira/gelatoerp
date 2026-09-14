@@ -65,6 +65,43 @@
 
     <p class="text-muted small mb-3">Produtos inativos deixam de aparecer em novas contagens, mínimos, planos e seletores. O histórico e os mínimos já guardados permanecem disponíveis. A remoção operacional é sempre feita por este estado; a eliminação permanente está bloqueada.</p>
 
+    <div class="card border-secondary mb-3">
+        <div class="card-header fw-semibold">Alterações recentes de estado</div>
+        <div class="card-body">
+            {% if state_change_history %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Produto</th>
+                            <th>Alteração</th>
+                            <th>Utilizador</th>
+                            <th>Data e hora</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for change in state_change_history %}
+                        <tr>
+                            <td>{{ change.produto }}</td>
+                            <td>
+                                <span class="badge {% if change.new_active %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+                                    {{ 'Ativo' if change.new_active else 'Inativo' }}
+                                </span>
+                                <span class="text-muted small">← {{ 'Ativo' if change.previous_active else 'Inativo' }}</span>
+                            </td>
+                            <td>{{ change.actor_username }}</td>
+                            <td class="text-nowrap">{{ change.changed_at.strftime('%d/%m/%Y %H:%M') if change.changed_at else '—' }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted small mb-0">Ainda não existem alterações de estado registadas.</p>
+            {% endif %}
+        </div>
+    </div>
+
     <div class="card border-primary mb-3">
         <div class="card-header fw-semibold">Stock mínimo por loja</div>
         <div class="card-body">

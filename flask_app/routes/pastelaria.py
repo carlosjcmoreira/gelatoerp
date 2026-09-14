@@ -757,9 +757,17 @@ def produtos():
                             'Escolha Ativo ou Inativo para todos os produtos.'
                         )
                     states.append((product['id'], value == 'active'))
-                changed = db.save_produtos_pastelaria_active(
-                    states, request.form.get('state_token', '')
-                )
+                actor = session.get('user') or {}
+                save_args = [states, request.form.get('state_token', '')]
+                # Authenticated sessions always include the database user id.
+                # Keep the old two-argument call compatible with lightweight
+                # legacy/test sessions that predate that session field.
+                if actor.get('id') is not None:
+                    save_args.extend([
+                        actor.get('id'),
+                        actor.get('username') or actor.get('nome'),
+                    ])
+                changed = db.save_produtos_pastelaria_active(*save_args)
                 flash(
                     f'Estado guardado em {changed} produto(s).',
                     'success',
@@ -803,6 +811,7 @@ def produtos():
                            can_configure_products=_can_configure_stock_minimums(
                                session.get('user') or {}
                            ),
+                            state_change_history=db.get_pastelaria_product_state_history(),
                            state_token=db.pastelaria_product_state_token(
                                products
                            ))

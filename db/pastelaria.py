@@ -634,6 +634,33 @@ def pastelaria_product_state_token(products):
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
+def get_pastelaria_product_state_history(limit=100) -> list:
+    """Return recent catalogue state changes, newest first."""
+    try:
+        limit = max(1, min(int(limit), 500))
+    except (TypeError, ValueError):
+        limit = 100
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT a.id, a.produto_id, a.actor_id, a.actor_username,
+                   a.previous_active, a.new_active, a.changed_at,
+                   p.tipologia, p.sabor, p.cobertura
+            FROM pastelaria_produto_estado_audit a
+            JOIN produtos_pastelaria p ON p.id = a.produto_id
+            ORDER BY a.changed_at DESC, a.id DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cursor.fetchall()
+    return [
+        {
+            **row,
+            'produto': _pastelaria_product_label(row),
+        }
+        for row in rows
+    ]
+
+
 def _pastelaria_product_label(row):
     return ', '.join(
         str(row.get(key) or '').strip()
@@ -1274,8 +1301,15 @@ def update_produto_pastelaria(id: int, tipologia: str, sabor: str = '', cobertur
         conn.commit()
 
 
-def save_produtos_pastelaria_active(states, expected_token):
-    """Persist active flags without changing catalogue identity or related history."""
+def save_produtos_pastelaria_active(
+    states, expected_token, actor_id=None, actor_username=None
+):
+    """Persist active flags and audit each successful state transition.
+
+    The product rows are locked before checking ``expected_token``.  This
+    means a stale or concurrent submission exits before either product updates
+    or audit inserts are made.
+    """
     normalized = {}
     for product_id, active in states:
         if not isinstance(product_id, int) or not isinstance(active, bool):
@@ -1302,10 +1336,23 @@ def save_produtos_pastelaria_active(states, expected_token):
         changed = 0
         for product_id, active in normalized.items():
             if current[product_id] != active:
+                previous_active = current[product_id]
                 cursor.execute(
                     "UPDATE produtos_pastelaria SET ativo=%s WHERE id=%s",
                     (active, product_id),
                 )
+                cursor.execute("""
+                    INSERT INTO pastelaria_produto_estado_audit
+                        (produto_id, actor_id, actor_username,
+                         previous_active, new_active)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    product_id,
+                    actor_id,
+                    str(actor_username or 'sistema')[:100],
+                    previous_active,
+                    active,
+                ))
                 changed += 1
         conn.commit()
     return changed

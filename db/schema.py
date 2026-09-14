@@ -5864,6 +5864,7 @@ def run_migrations_cost_centers_store_id():
 
 
 _LOCK_PASTELARIA_PLANO = 202716
+_LOCK_PASTELARIA_PRODUCT_STATE_AUDIT = 202717
 
 
 def run_migrations_pastelaria_plano():
@@ -5994,3 +5995,49 @@ def run_migrations_pastelaria_plano():
         """)
         conn.commit()
         logger.info("run_migrations_pastelaria_plano: schema ready")
+
+
+def run_migrations_pastelaria_product_state_audit():
+    """Create the audit trail for Pastelaria catalogue state changes.
+
+    Existing products deliberately receive no rows here.  An audit row is
+    written only by the state-change transaction after its optimistic
+    concurrency check succeeds.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)",
+            (_LOCK_PASTELARIA_PRODUCT_STATE_AUDIT,),
+        )
+        if not cursor.fetchone()[0]:
+            logger.info(
+                "run_migrations_pastelaria_product_state_audit: lock held, skipping"
+            )
+            return
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pastelaria_produto_estado_audit (
+                id BIGSERIAL PRIMARY KEY,
+                produto_id INTEGER NOT NULL
+                    REFERENCES produtos_pastelaria(id) ON DELETE RESTRICT,
+                actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                actor_username VARCHAR(100) NOT NULL,
+                previous_active BOOLEAN NOT NULL,
+                new_active BOOLEAN NOT NULL,
+                changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CHECK (previous_active <> new_active)
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS
+                idx_pastelaria_produto_estado_audit_recent
+            ON pastelaria_produto_estado_audit(changed_at DESC, id DESC)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS
+                idx_pastelaria_produto_estado_audit_product
+            ON pastelaria_produto_estado_audit(produto_id, changed_at DESC, id DESC)
+        """)
+        conn.commit()
+        logger.info("run_migrations_pastelaria_product_state_audit: schema ready")
