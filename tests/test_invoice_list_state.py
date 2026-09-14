@@ -145,7 +145,7 @@ class TestDocumentListStickyReferences(unittest.TestCase):
         self.assertIn(
             '.document-page #bulk-form {\n'
             '    min-height: 0;\n'
-            '    flex: 1 1 auto;\n'
+            '    flex: 1 1 0;\n'
             '    display: flex;',
             self.source,
         )
@@ -157,6 +157,11 @@ class TestDocumentListStickyReferences(unittest.TestCase):
             self.source,
         )
         self.assertIn(
+            '.document-page > nav[aria-label="Paginação de faturas"] {\n'
+            '    flex: 0 0 auto;',
+            self.source,
+        )
+        self.assertIn(
             'height: calc(100dvh - 56px - var(--bottom-nav-height) - '
             'env(safe-area-inset-bottom) - var(--back-bar-height) - '
             'var(--fixed-bar-content-gap));',
@@ -164,7 +169,7 @@ class TestDocumentListStickyReferences(unittest.TestCase):
         )
 
     def test_sticky_references_are_scoped_to_document_view(self):
-        self.assertEqual(self.source.count('document-list-actions'), 3)
+        self.assertEqual(self.source.count('document-list-actions'), 4)
         self.assertEqual(self.source.count('class="document-table-scroll table-responsive"'), 1)
         self.assertIn('{% if invoices %}', self.source)
 

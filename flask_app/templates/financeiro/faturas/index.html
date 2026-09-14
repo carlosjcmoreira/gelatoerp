@@ -61,9 +61,10 @@
 }
 .document-page #bulk-form {
     min-height: 0;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 .document-page #bulk-form > .d-flex.justify-content-end {
     flex: 0 0 auto;
@@ -72,6 +73,9 @@
     min-height: 0;
     max-height: none;
     flex: 1 1 auto;
+}
+.document-page > nav[aria-label="Paginação de faturas"] {
+    flex: 0 0 auto;
 }
 @media (min-width: 768px) {
     .document-table-scroll { max-height: calc(100dvh - 10rem); }
