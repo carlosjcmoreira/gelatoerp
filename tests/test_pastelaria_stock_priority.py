@@ -426,14 +426,34 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         add.assert_not_called()
 
-    def test_schema_keeps_history_when_catalog_products_are_deleted(self):
+    def test_schema_blocks_catalog_product_deletion_when_minimums_exist(self):
         schema = Path('db/schema.py').read_text()
         self.assertIn(
-            'REFERENCES produtos_pastelaria(id) ON DELETE CASCADE', schema
+            'REFERENCES produtos_pastelaria(id) ON DELETE RESTRICT', schema
         )
         self.assertIn(
             'REFERENCES produtos_pastelaria(id) ON DELETE SET NULL', schema
         )
+
+    def test_product_workflows_only_expose_reversible_inactivation(self):
+        product_template = Path(
+            'flask_app/templates/pastelaria/lista_produtos.html'
+        ).read_text()
+        legacy_template = Path(
+            'flask_app/templates/gestor/_produtos_pastelaria.html'
+        ).read_text()
+        for template in (product_template, legacy_template):
+            self.assertNotIn('delete_produto_past', template)
+            self.assertNotIn('delete_bulk_produtos_past', template)
+            self.assertNotIn('produto_past_id', template)
+        self.assertIn('value="inactive"', product_template)
+        self.assertIn('eliminação permanente', legacy_template)
+
+    def test_retired_product_delete_helpers_are_hard_delete_guards(self):
+        with self.assertRaisesRegex(ValueError, 'eliminação permanente'):
+            pastelaria.delete_produto_pastelaria(10)
+        with self.assertRaisesRegex(ValueError, 'eliminação permanente'):
+            pastelaria.delete_produtos_pastelaria_bulk([10])
 
     def test_routes_reject_partial_configuration_and_sales_generation(self):
         from flask_app.routes.pastelaria import pastelaria_bp
@@ -956,15 +976,18 @@ class PastelariaPlanMigrationPostgresTests(unittest.TestCase):
                     """)
                 cursor.execute('ROLLBACK TO SAVEPOINT duplicate_version')
 
-                cursor.execute('DELETE FROM produtos_pastelaria WHERE id = 1')
+                cursor.execute('SAVEPOINT product_delete')
+                with self.assertRaises(psycopg2.errors.ForeignKeyViolation):
+                    cursor.execute('DELETE FROM produtos_pastelaria WHERE id = 1')
+                cursor.execute('ROLLBACK TO SAVEPOINT product_delete')
                 cursor.execute('SELECT COUNT(*) FROM pastelaria_stock_minimos')
-                self.assertEqual(cursor.fetchone()[0], 0)
+                self.assertEqual(cursor.fetchone()[0], 1)
                 cursor.execute("""
                     SELECT produto_id, produto
                     FROM pastelaria_plano_prioridade_linhas
                     WHERE plano_id = 1
                 """)
-                self.assertEqual(cursor.fetchone(), (None, 'Palito'))
+                self.assertEqual(cursor.fetchone(), (1, 'Palito'))
                 cursor.execute("""
                     SELECT COUNT(*) FROM pastelaria_planos_prioridade
                     WHERE id = 1

@@ -778,15 +778,16 @@ def produtos():
             else:
                 flash('Por favor, selecione uma tipologia.', 'warning')
         elif action == 'delete_bulk_produtos_past':
+            # Keep the legacy action as a protected no-op. Product removal is
+            # deliberately reversible so minimums and historical records stay
+            # attached to the catalogue identity.
             if not _can_configure_stock_minimums(session.get('user') or {}):
                 abort(403)
-            ids_str = request.form.getlist('produto_ids')
-            ids = [int(i) for i in ids_str if i.isdigit()]
-            if ids:
-                deleted = db.delete_produtos_pastelaria_bulk(ids)
-                flash(f'{deleted} produto(s) eliminado(s)!', 'success')
-            else:
-                flash('Nenhum produto selecionado.', 'warning')
+            flash(
+                'A eliminação permanente de produtos está bloqueada. '
+                'Marque o produto como Inativo.',
+                'warning',
+            )
         return redirect(url_for('pastelaria.produtos'))
     minimum_config = get_pastelaria_stock_minimums()
     products = db.get_all_produtos_pastelaria()

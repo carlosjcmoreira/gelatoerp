@@ -1049,9 +1049,13 @@ def _handle_config_post(action, config_option):
             flash('Por favor, selecione uma tipologia.', 'warning')
 
     elif action == 'delete_produto_past':
-        pid = int(request.form.get('produto_past_id'))
-        db.delete_produto_pastelaria(pid)
-        flash('Produto eliminado!', 'success')
+        # Legacy management forms may still submit this action, but product
+        # catalogue rows are historical identities and cannot be hard-deleted.
+        flash(
+            'A eliminação permanente de produtos de Pastelaria está bloqueada. '
+            'Marque o produto como Inativo na página Gerir Produtos.',
+            'warning',
+        )
 
     elif action == 'save_gelado_tip':
         gelado_tip = db.get_gelado_por_tipologia()

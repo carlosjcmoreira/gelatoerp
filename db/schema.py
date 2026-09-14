@@ -5910,7 +5910,7 @@ def run_migrations_pastelaria_plano():
             """, (nome, ordem))
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pastelaria_stock_minimos (
-                produto_id INTEGER NOT NULL REFERENCES produtos_pastelaria(id) ON DELETE CASCADE,
+                produto_id INTEGER NOT NULL REFERENCES produtos_pastelaria(id) ON DELETE RESTRICT,
                 store_id INTEGER NOT NULL REFERENCES stores(id),
                 quantidade_minima INTEGER NOT NULL DEFAULT 0 CHECK (quantidade_minima >= 0),
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -5964,14 +5964,14 @@ def run_migrations_pastelaria_plano():
                 IF EXISTS (
                     SELECT 1 FROM pg_constraint
                     WHERE conname='pastelaria_stock_minimos_produto_id_fkey'
-                      AND confdeltype <> 'c'
+                      AND confdeltype <> 'r'
                 ) THEN
                     ALTER TABLE pastelaria_stock_minimos
                     DROP CONSTRAINT pastelaria_stock_minimos_produto_id_fkey;
                     ALTER TABLE pastelaria_stock_minimos
                     ADD CONSTRAINT pastelaria_stock_minimos_produto_id_fkey
                     FOREIGN KEY (produto_id) REFERENCES produtos_pastelaria(id)
-                    ON DELETE CASCADE;
+                    ON DELETE RESTRICT;
                 END IF;
             END $$;
         """)

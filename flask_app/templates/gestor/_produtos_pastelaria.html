@@ -45,20 +45,12 @@
             <button type="submit" class="btn btn-primary btn-sm">Guardar Alterações</button>
         </form>
 
-        <div class="mt-3">
-            <h6>Eliminar Produto</h6>
-            {% for p in produtos_past %}
-            <div class="d-flex justify-content-between align-items-center border-bottom py-1">
-                <span class="small">ID {{ p.id }}: {{ p.tipologia }} {% if p.sabor %}/ {{ p.sabor }}{% endif %} {% if p.cobertura %}/ {{ p.cobertura }}{% endif %}</span>
-                <form method="POST" class="d-inline">
-                    <input type="hidden" name="action" value="delete_produto_past">
-                    <input type="hidden" name="section" value="produtos_pastelaria">
-                    <input type="hidden" name="produto_past_id" value="{{ p.id }}">
-                    <button type="submit" class="btn btn-outline-danger btn-sm" onclick="return confirm('Eliminar?')">✕</button>
-                </form>
-            </div>
-            {% endfor %}
-        </div>
+        <p class="text-muted small mt-3 mb-0">
+            A eliminação permanente de produtos de Pastelaria está bloqueada.
+            Para retirar um produto do trabalho diário, use o estado <strong>Inativo</strong>
+            na página Gerir Produtos da Pastelaria. O histórico e os mínimos guardados
+            devem permanecer intactos.
+        </p>
         {% else %}
         <p class="text-muted small">Sem produtos registados.</p>
         {% endif %}

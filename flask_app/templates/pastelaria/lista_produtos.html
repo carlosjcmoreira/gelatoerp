@@ -17,15 +17,12 @@
     </div>
 
     {% if produtos_past %}
-    <form method="POST" id="bulkDeleteForm">
+    <form method="POST">
         <input type="hidden" name="state_token" value="{{ state_token }}">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <span class="text-muted small">{{ produtos_past|length }} produto(s)</span>
             {% if can_configure_products %}
-            <div class="d-flex gap-2">
-                <button type="submit" name="action" value="delete_bulk_produtos_past" class="btn btn-outline-danger btn-sm" id="btnDeleteSelected" disabled onclick="return confirm('Eliminar os produtos selecionados?')">Eliminar selecionados</button>
-                <button type="submit" name="action" value="save_product_states" class="btn btn-primary btn-sm">Guardar estados</button>
-            </div>
+            <button type="submit" name="action" value="save_product_states" class="btn btn-primary btn-sm">Guardar estados</button>
             {% else %}
             <span class="badge text-bg-light text-dark border">Só consulta</span>
             {% endif %}
@@ -34,7 +31,6 @@
             <table class="table table-sm table-striped">
                 <thead>
                     <tr>
-                        {% if can_configure_products %}<th style="width:40px;"><input type="checkbox" id="selectAll" class="form-check-input"></th>{% endif %}
                         <th>Tipologia</th>
                         <th>Sabor</th>
                         <th>Cobertura</th>
@@ -44,7 +40,6 @@
                 <tbody>
                     {% for p in produtos_past %}
                     <tr>
-                        {% if can_configure_products %}<td><input type="checkbox" name="produto_ids" value="{{ p.id }}" class="form-check-input produto-check"></td>{% endif %}
                         <td>{{ p.tipologia }}</td>
                         <td>{{ p.sabor or '—' }}</td>
                         <td>{{ p.cobertura or '—' }}</td>
@@ -68,7 +63,7 @@
     <p class="text-muted small">Sem produtos registados.</p>
     {% endif %}
 
-    <p class="text-muted small mb-3">Produtos inativos deixam de aparecer em novas contagens, mínimos, planos e seletores. O histórico e os mínimos já guardados permanecem disponíveis.</p>
+    <p class="text-muted small mb-3">Produtos inativos deixam de aparecer em novas contagens, mínimos, planos e seletores. O histórico e os mínimos já guardados permanecem disponíveis. A remoção operacional é sempre feita por este estado; a eliminação permanente está bloqueada.</p>
 
     <div class="card border-primary mb-3">
         <div class="card-header fw-semibold">Stock mínimo por loja</div>
@@ -141,28 +136,4 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    var selectAll = document.getElementById('selectAll');
-    var checks = document.querySelectorAll('.produto-check');
-    var btnDel = document.getElementById('btnDeleteSelected');
-
-    function updateBtn() {
-        var any = false;
-        checks.forEach(function(c) { if (c.checked) any = true; });
-        if (btnDel) btnDel.disabled = !any;
-    }
-
-    if (selectAll) {
-        selectAll.addEventListener('change', function() {
-            checks.forEach(function(c) { c.checked = selectAll.checked; });
-            updateBtn();
-        });
-    }
-    checks.forEach(function(c) {
-        c.addEventListener('change', updateBtn);
-    });
-
-});
-</script>
 {% endblock %}

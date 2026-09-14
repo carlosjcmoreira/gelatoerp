@@ -1312,21 +1312,25 @@ def save_produtos_pastelaria_active(states, expected_token):
 
 
 def delete_produto_pastelaria(id: int):
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM produtos_pastelaria WHERE id = %s", (id,))
-        conn.commit()
+    """Reject the retired hard-delete API for catalogue products.
+
+    Product rows are historical identities. Operational removal must use the
+    ``ativo`` flag so saved minimums, counts, plans and movements remain
+    traceable. This guard remains for stale callers and is intentionally not an
+    administrative cleanup mechanism.
+    """
+    raise ValueError(
+        'A eliminação permanente de produtos de Pastelaria está bloqueada; '
+        'marque o produto como Inativo.'
+    )
 
 
 def delete_produtos_pastelaria_bulk(ids: list):
-    if not ids:
-        return 0
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM produtos_pastelaria WHERE id = ANY(%s)", (ids,))
-        deleted = cursor.rowcount
-        conn.commit()
-    return deleted
+    """Reject the retired bulk hard-delete API; see ``delete_produto_pastelaria``."""
+    raise ValueError(
+        'A eliminação permanente de produtos de Pastelaria está bloqueada; '
+        'marque os produtos como Inativos.'
+    )
 
 def get_gelado_por_tipologia() -> list:
     with db_connection() as conn:
