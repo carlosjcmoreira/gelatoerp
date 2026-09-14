@@ -95,6 +95,23 @@ class PastelariaWeeklyPlanTests(unittest.TestCase):
         self.assertNotIn('Adicionar Bolo configurável', html)
         self.assertNotIn('Guardar plano semanal', html)
 
+    def test_priority_print_template_is_a4_and_hides_editing_controls(self):
+        with open(
+            'flask_app/templates/pastelaria/plano_prioridade.html',
+            encoding='utf-8',
+        ) as template:
+            html = template.read()
+        self.assertIn('@page { size: A4 landscape;', html)
+        self.assertIn('window.print()', html)
+        self.assertIn('class="no-print"', html)
+        with open(
+            'flask_app/templates/pastelaria/planear.html',
+            encoding='utf-8',
+        ) as template:
+            planning_html = template.read()
+        self.assertNotIn('id="weekly-print"', planning_html)
+        self.assertNotIn('Notas / controlo manual', planning_html)
+
 
 class PastelariaTransferTests(unittest.TestCase):
     def setUp(self):

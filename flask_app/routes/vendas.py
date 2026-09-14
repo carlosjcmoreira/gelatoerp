@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify, abort
 from flask_app.auth import login_required
 from datetime import date, datetime, timedelta
 from collections import defaultdict
@@ -25,20 +25,23 @@ from flask_app.services import ServiceError
 from flask_app.utils.finance import parse_date as _shared_parse_date
 from db.plano import get_ordem_transferencia_by_id, criar_transferencia_entre_lojas, get_latest_pesagem_por_sabor, get_effective_stock_por_sabor
 from db.pastelaria import (
-    get_pastelaria_sunday_count_grid, save_pastelaria_sunday_counts,
+    get_pastelaria_sunday_count_grid,
+    get_pastelaria_store_count_grid,
+    save_pastelaria_sunday_counts,
+    save_pastelaria_store_counts,
 )
 
 vendas_bp = Blueprint('vendas', __name__)
 
 TAB_DEFS = [
     {'id': 'dashboard', 'label': 'Resumo Diário', 'icon': '📊', 'endpoint': 'vendas.dashboard'},
+    {'id': 'contagem_pastelaria', 'label': 'Contagem Pastelaria', 'icon': '🍰', 'endpoint': 'vendas.contagem_pastelaria'},
     {'id': 'transferencias', 'label': 'Receção de Mercadoria', 'icon': '📦', 'endpoint': 'vendas.transferencias'},
     {'id': 'transferir_gelado', 'label': 'Transferir Gelado', 'icon': '📤', 'endpoint': 'vendas.transferir_gelado'},
     {'id': 'quebras', 'label': 'Registar Quebras', 'icon': '⚠️', 'endpoint': 'vendas.quebras'},
     {'id': 'pesagem', 'label': 'Pesagem Fim de Dia', 'icon': '⚖️', 'endpoint': 'vendas.pesagem'},
     {'id': 'fecho_caixa', 'label': 'Fecho de Caixa', 'icon': '💵', 'endpoint': 'vendas.fecho_caixa'},
     {'id': 'sabores_ativos', 'label': 'Sabores Ativos', 'icon': '✅', 'endpoint': 'vendas.sabores_ativos'},
-    {'id': 'contagem_pastelaria', 'label': 'Contagem Pastelaria', 'icon': '🧁', 'endpoint': 'vendas.contagem_pastelaria'},
     {'id': 'fecho_historico', 'label': 'Histórico Caixa', 'icon': '📋', 'endpoint': 'vendas.fecho_historico', 'gestor_only': True},
 ]
 
@@ -173,65 +176,55 @@ def _user_owns_loja(loja_nome):
     return False
 
 
-def _previous_sunday(value=None):
+def _get_count_store():
+    """Resolve the store allowed for the pastry count screen.
+
+    Store users are deliberately pinned to their first assigned store. Only
+    Gestor can use the normal store selector, so a forged loja_id cannot
+    expose another store's counts.
+    """
+    user = session.get('user', {})
+    if user.get('acesso_gestor'):
+        loja_id = None
+        override = request.args.get('loja_id') or request.form.get('loja_id') or request.form.get('_loja_id')
+        if override:
+            try:
+                loja_id = int(override)
+            except (TypeError, ValueError):
+                loja_id = None
+        if loja_id:
+            selected = get_store_by_id(loja_id)
+            loja_nome = selected['name'] if selected else None
+        else:
+            loja_id, loja_nome = _get_user_loja()
+    else:
+        store_ids = user.get('vendas_store_ids') or []
+        store = get_store_by_id(store_ids[0]) if store_ids else None
+        loja_id = store['id'] if store else None
+        loja_nome = store['name'] if store else None
+    store = get_store_by_id(loja_id) if loja_id else None
+    if (
+        not store
+        or store.get('is_active', True) is False
+        or store.get('supports_vendas', True) is False
+    ):
+        return None, None, None
+    return store['id'], store['name'], store
+
+
+def _default_count_sunday():
+    today = date.today()
+    return today - timedelta(days=(today.weekday() + 1) % 7)
+
+
+def _parse_count_sunday(raw):
     try:
-        selected = date.fromisoformat(str(value)) if value else date.today()
-    except ValueError:
-        selected = date.today()
-    return selected - timedelta(days=(selected.weekday() + 1) % 7)
-
-
-@vendas_bp.route('/contagem-pastelaria', methods=['GET', 'POST'])
-@login_required
-def contagem_pastelaria():
-    if not _check_vendas_access():
-        return redirect(url_for('home.index'))
-    loja_id, loja_nome = _get_user_loja()
-    if not loja_id:
-        flash('Não foi possível identificar a loja.', 'warning')
-        return redirect(url_for('vendas.index'))
-    selected_date = _previous_sunday(
-        request.form.get('data') if request.method == 'POST'
-        else request.args.get('data')
-    )
-    submitted = {}
-    error = None
-    if request.method == 'POST':
-        grid = get_pastelaria_sunday_count_grid(selected_date, loja_id)
-        try:
-            values = []
-            for product in grid['products']:
-                key = f"count_{product['id']}"
-                raw = request.form.get(key)
-                submitted[product['id']] = raw
-                if raw is None or not raw.strip().isdigit():
-                    raise ValueError(
-                        'Preencha todos os produtos com quantidades inteiras.'
-                    )
-                values.append((product['id'], loja_id, int(raw)))
-            save_pastelaria_sunday_counts(
-                selected_date, values, request.form.get('snapshot_token'),
-                store_id=loja_id,
-            )
-            flash(f'Contagem de {loja_nome} guardada.', 'success')
-            return redirect(url_for(
-                'vendas.contagem_pastelaria',
-                loja_id=loja_id, data=selected_date.isoformat(),
-            ))
-        except ValueError as exc:
-            error = str(exc)
-    grid = get_pastelaria_sunday_count_grid(selected_date, loja_id)
-    if submitted:
-        for product in grid['products']:
-            raw = submitted.get(product['id'])
-            if raw is not None and raw.strip().isdigit():
-                product['counts'][loja_id] = int(raw)
-    return render_template(
-        'vendas/contagem_pastelaria.html',
-        tabs=_build_tabs('contagem_pastelaria', loja_id),
-        loja_id=loja_id, loja_nome=loja_nome, grid=grid,
-        selected_date=selected_date, error=error,
-    )
+        selected = date.fromisoformat(str(raw or ''))
+    except (TypeError, ValueError):
+        selected = _default_count_sunday()
+    if selected.weekday() != 6:
+        raise ValueError('Escolha um domingo para preencher a grelha de contagem.')
+    return selected
 
 
 @vendas_bp.route('/')
@@ -270,6 +263,97 @@ def dashboard():
                            total_recebido=data.get('total_recebido', '0.000'),
                            total_fim=data.get('total_fim'),
                            fecho=data.get('fecho'))
+
+
+@vendas_bp.route('/contagem-pastelaria', methods=['GET', 'POST'])
+@login_required
+def contagem_pastelaria():
+    if not _check_vendas_access():
+        return redirect(url_for('home.index'))
+
+    loja_id, loja_nome, store = _get_count_store()
+    if not store:
+        return redirect(url_for('home.index'))
+
+    error = None
+    raw_date = (
+        request.form.get('data_contagem') or request.form.get('data')
+        or request.form.get('domingo')
+        if request.method == 'POST'
+        else request.args.get('data_contagem') or request.args.get('data')
+        or request.args.get('domingo')
+    )
+    date_error = False
+    try:
+        count_date = _parse_count_sunday(raw_date)
+        grid = get_pastelaria_sunday_count_grid(count_date, loja_id)
+    except (TypeError, ValueError) as exc:
+        date_error = bool(raw_date)
+        error = str(exc)
+        flash(str(exc), 'warning')
+        count_date = _default_count_sunday()
+        grid = get_pastelaria_store_count_grid(count_date, loja_id)
+
+    if request.method == 'POST' and not date_error:
+        action = request.form.get('action', '')
+        legacy_save = not action
+        if action not in ('guardar_grelha', ''):
+            abort(405)
+        values = []
+        try:
+            for product in grid['products']:
+                raw_quantity = request.form.get(f"count_{product['id']}", '')
+                if raw_quantity is None or not raw_quantity.strip().isdigit():
+                    raise ValueError(
+                        'Preencha todas as contagens com números inteiros não negativos.'
+                    )
+                values.append((product['id'], int(raw_quantity)))
+            if legacy_save:
+                saved = save_pastelaria_sunday_counts(
+                    count_date,
+                    [(product_id, loja_id, quantity) for product_id, quantity in values],
+                    request.form.get('snapshot_token'),
+                    store_id=loja_id,
+                )
+            else:
+                saved = save_pastelaria_store_counts(
+                    count_date, loja_id, values, request.form.get('snapshot_token')
+                )
+            flash(f'Contagem de domingo guardada: {saved} valores.', 'success')
+            return redirect(url_for(
+                'vendas.contagem_pastelaria',
+                loja_id=loja_id,
+                data_contagem=count_date.isoformat(),
+            ))
+        except (TypeError, ValueError) as exc:
+            error = str(exc)
+            flash(str(exc), 'warning')
+            grid = get_pastelaria_sunday_count_grid(count_date, loja_id)
+            submitted = dict(values)
+            for product in grid.get('products', []):
+                if product['id'] not in submitted:
+                    continue
+                quantity = submitted[product['id']]
+                if 'count' in product:
+                    product['count'] = quantity
+                if 'counts' in product:
+                    product['counts'][loja_id] = quantity
+
+    return render_template(
+        'vendas/contagem_pastelaria.html',
+        active_tab='contagem_pastelaria',
+        tabs=_build_tabs('contagem_pastelaria', loja_id),
+        loja_id=loja_id,
+        loja_nome=loja_nome,
+        count_date=count_date,
+        count_grid=grid,
+        # Compatibility aliases for older integrations and tests.
+        grid=grid,
+        selected_date=count_date,
+        error=error,
+        is_gestor=bool(session.get('user', {}).get('acesso_gestor')),
+        vendas_stores=get_vendas_module_stores(),
+    )
 
 
 @vendas_bp.route('/quebras', methods=['GET', 'POST'])

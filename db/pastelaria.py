@@ -161,6 +161,7 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
         snapshot_token = cursor.fetchone()['snapshot_token']
     rows = []
     completed = 0
+    completed_by_store = {store['id']: 0 for store in stores}
     for product in products:
         label = _pastelaria_product_label(product)
         values = {}
@@ -168,6 +169,7 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
             quantity = counts.get((store['name'], label))
             values[store['id']] = quantity
             completed += quantity is not None
+            completed_by_store[store['id']] += quantity is not None
         rows.append({**product, 'nome': label, 'counts': values})
     total = len(stores) * len(products)
     return {
@@ -177,8 +179,166 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
         'completed': completed,
         'total': total,
         'complete': total > 0 and completed == total,
+        'completed_by_store': completed_by_store,
+        'total_by_store': {store['id']: len(products) for store in stores},
         'snapshot_token': snapshot_token,
     }
+
+
+def get_pastelaria_store_count_grid(count_date, store_id):
+    """Return the Sunday count grid for one active sales store."""
+    if count_date.weekday() != 6:
+        raise ValueError('Escolha um domingo para preencher a grelha de contagem.')
+    try:
+        store_id = int(store_id)
+    except (TypeError, ValueError):
+        raise ValueError('Loja inválida.') from None
+
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f'pastelaria-count:{count_date.isoformat()}',),
+        )
+        cursor.execute("""
+            SELECT id, name
+            FROM stores
+            WHERE id=%s AND supports_vendas=TRUE AND is_active=TRUE
+        """, (store_id,))
+        store = cursor.fetchone()
+        if not store:
+            raise ValueError('Loja inválida ou sem acesso ao módulo Vendas.')
+        cursor.execute("""
+            SELECT id, tipologia, sabor, cobertura
+            FROM produtos_pastelaria WHERE ativo=TRUE
+            ORDER BY tipologia, sabor, cobertura
+        """)
+        products = cursor.fetchall()
+        cursor.execute("""
+            SELECT DISTINCT ON (produto) produto, quantidade
+            FROM contagem_stock
+            WHERE tipo='pastelaria' AND data=%s AND loja=%s
+            ORDER BY produto, id DESC
+        """, (count_date, store['name']))
+        counts = {
+            row['produto']: int(row['quantidade'])
+            for row in cursor.fetchall()
+        }
+        cursor.execute("""
+            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY produto), ''))
+                   AS snapshot_token
+            FROM (
+                SELECT DISTINCT ON (produto) id, produto
+                FROM contagem_stock
+                WHERE tipo='pastelaria' AND data=%s AND loja=%s
+                ORDER BY produto, id DESC
+            ) latest
+        """, (count_date, store['name']))
+        snapshot_token = cursor.fetchone()['snapshot_token']
+
+    rows = []
+    completed = 0
+    for product in products:
+        label = _pastelaria_product_label(product)
+        quantity = counts.get(label)
+        completed += quantity is not None
+        rows.append({**product, 'nome': label, 'count': quantity})
+    total = len(products)
+    return {
+        'date': count_date,
+        'store': store,
+        'stores': [store],
+        'products': rows,
+        'completed': completed,
+        'total': total,
+        'complete': total > 0 and completed == total,
+        'snapshot_token': snapshot_token,
+    }
+
+
+def save_pastelaria_store_counts(count_date, store_id, values, snapshot_token):
+    """Append one store's complete Sunday count snapshot."""
+    if count_date.weekday() != 6:
+        raise ValueError('A data da contagem tem de ser um domingo.')
+    try:
+        store_id = int(store_id)
+    except (TypeError, ValueError):
+        raise ValueError('Loja inválida.') from None
+    normalized = {}
+    snapshot_token = str(snapshot_token or '')
+    if len(snapshot_token) != 32 or any(
+        character not in '0123456789abcdef' for character in snapshot_token
+    ):
+        raise ValueError('A versão da grelha é inválida.') from None
+    for product_id, quantity in values:
+        if (
+            isinstance(quantity, bool) or not isinstance(quantity, int)
+            or quantity < 0
+        ):
+            raise ValueError('As contagens devem ser números inteiros não negativos.')
+        if product_id in normalized:
+            raise ValueError('A grelha contém produtos repetidos.')
+        normalized[product_id] = quantity
+
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f'pastelaria-count:{count_date.isoformat()}',),
+        )
+        cursor.execute("""
+            SELECT id, name
+            FROM stores
+            WHERE id=%s AND supports_vendas=TRUE AND is_active=TRUE
+        """, (store_id,))
+        store = cursor.fetchone()
+        if not store:
+            raise ValueError('Loja inválida ou sem acesso ao módulo Vendas.')
+        cursor.execute("""
+            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY produto), ''))
+                   AS snapshot_token
+            FROM (
+                SELECT DISTINCT ON (produto) id, produto
+                FROM contagem_stock
+                WHERE tipo='pastelaria' AND data=%s AND loja=%s
+                ORDER BY produto, id DESC
+            ) latest
+        """, (count_date, store['name']))
+        current_token = cursor.fetchone()['snapshot_token']
+        if current_token != snapshot_token:
+            raise ValueError(
+                'Esta grelha foi alterada por outro utilizador. '
+                'Atualize a página antes de guardar.'
+            )
+        cursor.execute("""
+            SELECT id, tipologia, sabor, cobertura
+            FROM produtos_pastelaria WHERE ativo=TRUE
+            ORDER BY tipologia, sabor, cobertura
+        """)
+        products = cursor.fetchall()
+        expected = {product['id'] for product in products}
+        if not expected or set(normalized) != expected:
+            raise ValueError(
+                'Preencha todas as contagens da grelha antes de guardar.'
+            )
+        product_names = {
+            product['id']: _pastelaria_product_label(product)
+            for product in products
+        }
+        rows = [
+            (
+                count_date, store['name'], product_names[product_id],
+                quantity, 'pastelaria',
+            )
+            for product_id, quantity in normalized.items()
+        ]
+        execute_values(cursor, """
+            INSERT INTO contagem_stock
+                (data, loja, produto, quantidade, tipo)
+            VALUES %s
+        """, rows)
+        conn.commit()
+    return len(rows)
 
 
 def save_pastelaria_sunday_counts(
@@ -273,16 +433,31 @@ def save_pastelaria_sunday_counts(
 
 
 def get_contagem_stock_df(tipo: str, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:
-    query = "SELECT * FROM contagem_stock WHERE tipo = %s"
-    params = [tipo]
-    if data_inicio:
-        query += " AND data >= %s"
-        params.append(data_inicio)
-    if data_fim:
-        query += " AND data <= %s"
-        params.append(data_fim)
-    query += " ORDER BY data DESC, produto"
     with db_connection() as conn:
+        cursor = conn.cursor()
+        if tipo == 'pastelaria':
+            cursor.execute("""
+                SELECT pg_advisory_xact_lock(
+                    hashtextextended('pastelaria-count:' || data::text, 0)
+                )
+                FROM (
+                    SELECT DISTINCT data
+                    FROM contagem_stock
+                    WHERE tipo='pastelaria'
+                      AND (%s IS NULL OR data >= %s)
+                      AND (%s IS NULL OR data <= %s)
+                      AND EXTRACT(DOW FROM data)=0
+                ) sundays
+            """, (data_inicio, data_inicio, data_fim, data_fim))
+        query = "SELECT * FROM contagem_stock WHERE tipo = %s"
+        params = [tipo]
+        if data_inicio:
+            query += " AND data >= %s"
+            params.append(data_inicio)
+        if data_fim:
+            query += " AND data <= %s"
+            params.append(data_fim)
+        query += " ORDER BY data DESC, produto"
         return pd.read_sql_query(query, conn, params=params)
 
 def add_ajuste_producao(ano: int, mes: int, quantidade_kg: float, descricao: str = None):
@@ -314,7 +489,7 @@ def delete_contagem_stock(contagem_id: int):
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT data, tipo FROM contagem_stock WHERE id = %s FOR UPDATE",
+            "SELECT data, tipo FROM contagem_stock WHERE id = %s",
             (contagem_id,),
         )
         row = cursor.fetchone()
@@ -322,6 +497,10 @@ def delete_contagem_stock(contagem_id: int):
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 (f'pastelaria-count:{row[0].isoformat()}',),
+            )
+            cursor.execute(
+                "SELECT id FROM contagem_stock WHERE id = %s FOR UPDATE",
+                (contagem_id,),
             )
         cursor.execute("DELETE FROM contagem_stock WHERE id = %s", (contagem_id,))
         conn.commit()
@@ -986,6 +1165,10 @@ def _pastelaria_priority_inputs(cursor, count_date):
 def get_pastelaria_priority_status(count_date):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f'pastelaria-count:{count_date.isoformat()}',),
+        )
         return _pastelaria_priority_inputs(cursor, count_date)
 
 
@@ -995,6 +1178,10 @@ def generate_pastelaria_priority_plan(count_date, actor=None):
         cursor.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
             (f'pastelaria-plan:{count_date.isoformat()}',),
+        )
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f'pastelaria-count:{count_date.isoformat()}',),
         )
         data = _pastelaria_priority_inputs(cursor, count_date)
         if not data['complete']:

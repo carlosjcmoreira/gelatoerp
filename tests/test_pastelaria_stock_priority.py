@@ -130,6 +130,51 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertEqual(grid['products'][0]['counts'], {1: 3, 2: None})
         self.assertEqual(grid['snapshot_token'], self.TOKEN_81)
 
+    def test_store_grid_is_scoped_to_requested_store(self):
+        cursor = _Cursor([
+            [{'id': 2, 'name': 'Matosinhos'}],
+            [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
+            [{'produto': 'Palito', 'quantidade': 4}],
+            [{'snapshot_token': self.TOKEN_81}],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            grid = pastelaria.get_pastelaria_store_count_grid(
+                date(2026, 9, 6), 2
+            )
+        self.assertEqual(grid['store']['name'], 'Matosinhos')
+        self.assertEqual(grid['products'][0]['count'], 4)
+        self.assertEqual(grid['completed'], 1)
+        self.assertEqual(grid['total'], 1)
+
+    @patch('db.pastelaria.execute_values')
+    def test_store_count_save_keeps_other_stores_and_uses_date_lock(self, bulk):
+        cursor = _Cursor([
+            [{'id': 2, 'name': 'Matosinhos'}],
+            [{'snapshot_token': self.TOKEN_81}],
+            [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
+        ])
+        connection = _Connection(cursor)
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=connection,
+        ):
+            saved = pastelaria.save_pastelaria_store_counts(
+                date(2026, 9, 6), 2, [(10, 7)], self.TOKEN_81
+            )
+        self.assertEqual(saved, 1)
+        self.assertTrue(connection.committed)
+        bulk.assert_called_once()
+        statements = '\n'.join(query for query, _ in cursor.queries)
+        self.assertIn('pg_advisory_xact_lock', statements)
+        self.assertIn(
+            ('pastelaria-count:2026-09-06',),
+            [params for query, params in cursor.queries if 'pg_advisory_xact_lock' in query],
+        )
+        self.assertNotIn('DELETE FROM contagem_stock', statements)
+
     @patch('db.pastelaria.execute_values')
     def test_complete_sunday_grid_is_saved_once_and_keeps_history(self, bulk):
         cursor = _Cursor([
@@ -535,7 +580,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         with client.session_transaction() as session:
             session['user'] = {
                 'username': 'bolhao', 'role': 'vendas',
-                'vendas_store_ids': [1],
+                'vendas_store_ids': [1], 'acesso_pastelaria': True,
             }
         store_rows = {
             1: {'id': 1, 'name': 'Bolhão', 'store_type': 'loja',
@@ -581,7 +626,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         with client.session_transaction() as session:
             session['user'] = {
                 'username': 'bolhao', 'role': 'vendas',
-                'vendas_store_ids': [1],
+                'vendas_store_ids': [1], 'acesso_pastelaria': True,
             }
         store = {
             'id': 1, 'name': 'Bolhão', 'store_type': 'loja',
@@ -762,6 +807,13 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertIn('Produtor', template)
         self.assertIn('Comentários', template)
         self.assertIn('@page { size: A4 landscape;', template)
+
+    def test_active_planning_template_has_no_manual_weekly_or_cake_forms(self):
+        template = Path('flask_app/templates/pastelaria/planear.html').read_text()
+        self.assertNotIn('save_plano', template)
+        self.assertNotIn('save_bolo', template)
+        self.assertNotIn('Plano semanal', template)
+        self.assertNotIn('Adicionar Bolo', template)
 
 
 class PastelariaPlanMigrationPostgresTests(unittest.TestCase):

@@ -1,39 +1,152 @@
 {% extends "base.html" %}
 {% set back_url = url_for("pastelaria.index") %}
+
 {% block content %}
 <div class="container-fluid px-3 py-3">
-  {% include "components/tabs.html" %}
-  <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
-    <div><h5 class="mb-1">📦 Visão de Stock</h5><p class="text-muted small mb-0">Consulta das contagens recebidas das lojas.</p></div>
-    <a href="{{ url_for('pastelaria.planear', domingo=sunday_date.isoformat()) }}" class="btn btn-primary btn-sm">Planear produção</a>
-  </div>
-  <div class="alert alert-light border small">As contagens são preenchidas no módulo <strong>Vendas</strong> de cada loja. Esta página não altera os valores.</div>
-
-  <form method="get" class="card card-body mb-3">
-    <div class="row g-2 align-items-end">
-      <div class="col-md-3"><label class="form-label small">Domingo</label><input type="date" name="domingo" value="{{ sunday_date.isoformat() }}" class="form-control form-control-sm"></div>
-      <div class="col-md-3"><label class="form-label small">Loja no histórico</label><select name="loja" class="form-select form-select-sm"><option value="">Todas</option>{% for store in stock_stores %}<option value="{{ store.name }}" {% if selected_store==store.name %}selected{% endif %}>{{ store.name }}</option>{% endfor %}</select></div>
-      <div class="col-md-2"><label class="form-label small">Desde</label><input type="date" name="inicio" value="{{ history_start.isoformat() }}" class="form-control form-control-sm"></div>
-      <div class="col-md-2"><label class="form-label small">Até</label><input type="date" name="fim" value="{{ history_end.isoformat() }}" class="form-control form-control-sm"></div>
-      <div class="col-md-2"><button class="btn btn-outline-secondary btn-sm w-100">Atualizar</button></div>
+    {% include "components/tabs.html" %}
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">📦 Visão de Stock</h5>
+            <p class="text-muted small mb-0">
+                Consulta do stock atual, da data de cada valor e do histórico de contagens.
+            </p>
+        </div>
+        <a class="btn btn-outline-primary btn-sm text-nowrap"
+           href="{{ url_for('pastelaria.planear') }}">Planear produção</a>
     </div>
-  </form>
 
-  <div class="card mb-3"><div class="card-header fw-semibold">Estado da contagem de {{ sunday_date.strftime('%d/%m/%Y') }}</div><div class="card-body">
-    {% if count_grid.error %}<div class="alert alert-warning small">{{ count_grid.error }}</div>{% endif %}
-    <div class="row g-2">{% for store in count_grid.stores %}{% set ns=namespace(done=0) %}{% for product in count_grid.products %}{% if product.counts[store.id] is not none %}{% set ns.done=ns.done+1 %}{% endif %}{% endfor %}
-      <div class="col-sm-6"><div class="border rounded p-2 d-flex justify-content-between"><strong>{{ store.name }}</strong><span class="badge {% if ns.done==count_grid.products|length and ns.done>0 %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ ns.done }}/{{ count_grid.products|length }}</span></div></div>
-    {% endfor %}</div>
-  </div></div>
+    <div class="card mb-3">
+        <div class="card-header fw-semibold">Estado das contagens por loja</div>
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <div class="col-sm-6">
+                    <label class="form-label small">Domingo</label>
+                    <input type="date" name="data_estado" class="form-control form-control-sm"
+                           value="{{ status_date.isoformat() }}" required>
+                </div>
+                <div class="col-sm-6">
+                    <button class="btn btn-outline-secondary btn-sm w-100">Verificar estado</button>
+                </div>
+            </form>
+            {% if count_status and count_status.error %}
+            <div class="alert alert-warning py-2 small">{{ count_status.error }}</div>
+            {% endif %}
+            <div class="row g-2">
+                {% for store in store_status %}
+                <div class="col-sm-6 col-lg-4">
+                    <div class="border rounded p-2 d-flex justify-content-between align-items-center">
+                        <span>{{ store.name }}</span>
+                        {% if store.complete %}
+                        <span class="badge bg-success">{{ store.completed }}/{{ store.total }} completa</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark">{{ store.completed }}/{{ store.total }} em falta</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-muted small">Sem lojas ativas configuradas.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
 
-  <h6>Stock atual por produto e loja</h6>
-  <div class="table-responsive mb-4"><table class="table table-sm table-striped align-middle"><thead><tr><th>Produto</th>{% for store in stock_stores %}<th class="text-center">{{ store.name }}</th>{% endfor %}</tr></thead><tbody>
-    {% for row in stock_matrix %}<tr><td>{{ row.produto }}</td>{% for store in stock_stores %}{% set value=row.stores.get(store.name) %}<td class="text-center"><strong>{{ value.quantidade if value else '—' }}</strong>{% if value and value.data %}<br><small class="text-muted">{{ value.data.strftime('%d/%m/%Y') }}</small>{% endif %}</td>{% endfor %}</tr>{% else %}<tr><td colspan="{{ stock_stores|length + 1 }}" class="text-muted text-center">Sem stock registado.</td></tr>{% endfor %}
-  </tbody></table></div>
+    <h6 class="mb-2">Stock atual por produto e loja</h6>
+    {% if stock_matrix %}
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>Produto</th>
+                    {% for store in stock_stores %}
+                    <th class="text-center">{{ store.name }}</th>
+                    {% endfor %}
+                    <th class="text-center">Total conhecido</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in stock_matrix %}
+                <tr>
+                    <td>{{ row.produto }}</td>
+                    {% set known = [] %}
+                    {% for store in stock_stores %}
+                    {% set value = row.stores[store.name] %}
+                    <td class="text-center">
+                        {% if value.quantidade is not none %}
+                        {% set _ = known.append(value.quantidade) %}
+                        <span class="fw-bold">{{ value.quantidade }}</span>
+                        <br><small class="text-muted">{{ value.data.strftime('%d/%m/%Y') }}</small>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="text-center fw-bold">
+                        {% if known|length == stock_stores|length and known %}
+                        {{ known|sum }}
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="alert alert-info mb-4">Sem stock registado.</div>
+    {% endif %}
 
-  <h6>Histórico de contagens</h6>
-  <div class="table-responsive"><table class="table table-sm table-striped"><thead><tr><th>Data</th><th>Loja</th><th>Produto</th><th>Quantidade</th></tr></thead><tbody>
-    {% for row in contagens %}<tr><td>{{ row.data }}</td><td>{{ row.loja }}</td><td>{{ row.produto }}</td><td>{{ row.quantidade }}</td></tr>{% else %}<tr><td colspan="4" class="text-muted text-center">Sem contagens no período.</td></tr>{% endfor %}
-  </tbody></table></div>
+    <div class="card">
+        <div class="card-header fw-semibold">Histórico de contagens</div>
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <div class="col-sm-3">
+                    <label class="form-label small">Desde</label>
+                    <input type="date" name="data_inicio" class="form-control form-control-sm"
+                           value="{{ history_start.isoformat() if history_start else '' }}">
+                </div>
+                <div class="col-sm-3">
+                    <label class="form-label small">Até</label>
+                    <input type="date" name="data_fim" class="form-control form-control-sm"
+                           value="{{ history_end.isoformat() if history_end else '' }}">
+                </div>
+                <div class="col-sm-3">
+                    <label class="form-label small">Loja</label>
+                    <select name="loja" class="form-select form-select-sm">
+                        <option value="">Todas</option>
+                        {% for store in stock_stores %}
+                        <option value="{{ store.name }}" {% if history_store == store.name %}selected{% endif %}>
+                            {{ store.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-sm-3">
+                    <button class="btn btn-outline-secondary btn-sm w-100">Filtrar histórico</button>
+                </div>
+            </form>
+            {% if contagens %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead>
+                        <tr><th>Data</th><th>Loja</th><th>Produto</th><th>Quantidade</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for row in contagens %}
+                        <tr>
+                            <td>{{ row.data }}</td>
+                            <td>{{ row.loja }}</td>
+                            <td>{{ row.produto }}</td>
+                            <td>{{ row.quantidade }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-muted small">Não existem contagens para os filtros selecionados.</div>
+            {% endif %}
+        </div>
+    </div>
 </div>
 {% endblock %}

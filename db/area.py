@@ -7,6 +7,18 @@ from db.connection import db_connection, get_connection, release_connection, log
 def get_ultimo_stock_balcao(area: str) -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
+        if area == 'pastelaria':
+            cursor.execute("""
+                SELECT pg_advisory_xact_lock(
+                    hashtextextended('pastelaria-count:' || data::text, 0)
+                )
+                FROM (
+                    SELECT DISTINCT data
+                    FROM contagem_stock
+                    WHERE tipo='pastelaria'
+                      AND EXTRACT(DOW FROM data)=0
+                ) sundays
+            """)
         cursor.execute("""
             SELECT DISTINCT ON (produto, loja) produto, loja, quantidade, data
             FROM contagem_stock

@@ -129,6 +129,21 @@ def _week_days(start):
     return [start + timedelta(days=offset) for offset in range(7)]
 
 
+def _default_sunday():
+    today = date.today()
+    return today - timedelta(days=(today.weekday() + 1) % 7)
+
+
+def _parse_sunday(value):
+    try:
+        selected = date.fromisoformat(str(value or ''))
+    except (TypeError, ValueError):
+        selected = _default_sunday()
+    if selected.weekday() != 6:
+        raise ValueError('Escolha um domingo para verificar as contagens.')
+    return selected
+
+
 def validate_bolo_configuration(tamanho, sabores, cobertura, tamanhos, sabores_validos, coberturas):
     """Validate and canonicalise the configurable cake fields."""
     options = {str(option).strip().casefold(): str(option).strip() for option in tamanhos}
@@ -186,9 +201,19 @@ def index():
                            menu_title=f'🍰 {custom_mod}' if custom_mod else '🍰 Produção Pastelaria')
 
 
-@pastelaria_bp.route('/stock-balcao')
+@pastelaria_bp.route('/stock-balcao', methods=['GET', 'POST'])
 @perm_required('acesso_pastelaria')
 def stock_balcao():
+    if request.method == 'POST':
+        if request.form.get('action') != 'gerar_plano':
+            abort(405)
+        if not _can_generate_priority_plan(session.get('user') or {}):
+            abort(403)
+        return redirect(url_for(
+            'pastelaria.planear',
+            data_contagem=request.form.get('data_plano') or _default_sunday().isoformat(),
+        ))
+
     stock_config = get_pastelaria_stock_minimums()
     ultimo_stock = get_ultimo_stock_balcao(AREA)
     stock_matrix = {}
@@ -201,21 +226,38 @@ def stock_balcao():
         }
     stock_matrix_list = sorted(stock_matrix.values(), key=lambda x: x['produto'])
 
+    stores = stock_config['stores']
+    products = get_produtos_pastelaria() or []
+    for product in products:
+        stock_matrix.setdefault(product, {
+            'produto': product,
+            'stores': {
+                store['name']: {'quantidade': None, 'data': None}
+                for store in stores
+            },
+        })
+    stock_matrix_list = sorted(stock_matrix.values(), key=lambda x: x['produto'])
+
     try:
-        history_start = date.fromisoformat(request.args.get('inicio', ''))
-    except ValueError:
-        history_start = date.today() - timedelta(days=90)
-    try:
-        history_end = date.fromisoformat(request.args.get('fim', ''))
-    except ValueError:
-        history_end = date.today()
-    selected_store = request.args.get('loja', '').strip()
-    valid_stores = {store['name'] for store in stock_config['stores']}
-    if selected_store not in valid_stores:
-        selected_store = ''
-    contagens = get_contagem_stock_df(AREA, history_start, history_end)
-    if selected_store and not contagens.empty:
-        contagens = contagens[contagens['loja'] == selected_store]
+        history_start = (
+            date.fromisoformat(request.args['data_inicio'])
+            if request.args.get('data_inicio') else None
+        )
+        history_end = (
+            date.fromisoformat(request.args['data_fim'])
+            if request.args.get('data_fim') else None
+        )
+        if history_start and history_end and history_start > history_end:
+            raise ValueError
+    except (TypeError, ValueError):
+        flash('Intervalo de histórico inválido.', 'warning')
+        history_start = history_end = None
+    contagens = get_contagem_stock_df(
+        AREA, data_inicio=history_start, data_fim=history_end,
+    )
+    history_store = request.args.get('loja', '').strip()
+    if history_store and not contagens.empty:
+        contagens = contagens[contagens['loja'] == history_store]
     contagens_list = []
     if not contagens.empty:
         for _, row in contagens.iterrows():
@@ -227,30 +269,39 @@ def stock_balcao():
                 'quantidade': int(row['quantidade']),
             })
 
-    sunday_value = request.args.get('domingo')
     try:
-        sunday_date = date.fromisoformat(sunday_value) if sunday_value else (
-            date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
-        )
-        count_grid = get_pastelaria_sunday_count_grid(sunday_date)
+        status_date = _parse_sunday(request.args.get('data_estado'))
+        count_status = get_pastelaria_sunday_count_grid(status_date)
     except ValueError as exc:
-        sunday_date = (
-            date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
-        )
-        count_grid = get_pastelaria_sunday_count_grid(sunday_date)
-        count_grid['error'] = str(exc)
+        status_date = _default_sunday()
+        count_status = get_pastelaria_sunday_count_grid(status_date)
+        count_status['error'] = str(exc)
+    store_status = []
+    for store in count_status['stores']:
+        store_id = store['id']
+        completed = count_status['completed_by_store'].get(store_id, 0)
+        total = count_status['total_by_store'].get(store_id, 0)
+        store_status.append({
+            'id': store_id,
+            'name': store['name'],
+            'completed': completed,
+            'total': total,
+            'complete': total > 0 and completed == total,
+        })
 
     return render_template('pastelaria/stock_balcao.html',
                            active_tab='stock_balcao',
                            tabs=_tabs_with_urls(),
+                           produtos=products,
                            stock_matrix=stock_matrix_list,
                            contagens=contagens_list,
-                           count_grid=count_grid,
-                           sunday_date=sunday_date,
-                           stock_stores=stock_config['stores'],
+                           stock_stores=stores,
                            history_start=history_start,
                            history_end=history_end,
-                           selected_store=selected_store)
+                           history_store=history_store,
+                           status_date=status_date,
+                           count_status=count_status,
+                           store_status=store_status)
 
 
 @pastelaria_bp.route('/inteligencia')
@@ -341,45 +392,55 @@ def inteligencia():
 def planear():
     msg = None
     msg_type = None
-    valid_selected_date = True
-    selected_value = request.values.get('domingo')
+    raw_date = request.form.get('data_contagem') if request.method == 'POST' else request.args.get('data_contagem')
+    date_error = False
     try:
-        selected_date = date.fromisoformat(selected_value) if selected_value else (
-            date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
-        )
-        status = get_pastelaria_priority_status(selected_date)
-    except (TypeError, ValueError) as exc:
-        valid_selected_date = False
-        selected_date = date.today() - timedelta(
-            days=(date.today().weekday() + 1) % 7
-        )
-        status = get_pastelaria_priority_status(selected_date)
-        status['error'] = str(exc)
-    if request.method == 'POST':
+        count_date = _parse_sunday(raw_date)
+    except ValueError as exc:
+        date_error = bool(raw_date)
+        count_date = _default_sunday()
+        msg, msg_type = str(exc), 'warning'
+
+    if request.method == 'POST' and not date_error:
         if not _can_generate_priority_plan(session.get('user') or {}):
             abort(403)
-        if valid_selected_date:
+        action = request.form.get('action', '')
+        if action == 'gerar_plano':
             try:
                 plan_id = generate_pastelaria_priority_plan(
-                    selected_date, (session.get('user') or {}).get('username'),
+                    count_date, (session.get('user') or {}).get('username'),
                 )
-                return redirect(url_for(
-                    'pastelaria.plano_prioridade', plan_id=plan_id
-                ))
-            except ValueError as exc:
+                return redirect(url_for('pastelaria.plano_prioridade', plan_id=plan_id))
+            except (TypeError, ValueError) as exc:
                 msg, msg_type = str(exc), 'warning'
 
-    return render_template('pastelaria/planear.html',
-                           active_tab='planear',
-                           tabs=_tabs_with_urls(),
-                           selected_date=selected_date,
-                           priority_status=status,
-                           plans=list_pastelaria_priority_plans(),
-                           can_generate=_can_generate_priority_plan(
-                               session.get('user') or {}
-                           ),
-                           msg=msg,
-                           msg_type=msg_type)
+    try:
+        priority_status = get_pastelaria_priority_status(count_date)
+    except (TypeError, ValueError) as exc:
+        if date_error:
+            priority_status = get_pastelaria_priority_status(_default_sunday())
+        else:
+            priority_status = {
+                'complete': False,
+                'rows': [],
+                'missing': [],
+                'missing_minimums': [],
+            }
+        msg, msg_type = str(exc), 'warning'
+    history = list_pastelaria_priority_plans()
+    return render_template(
+        'pastelaria/planear.html',
+        active_tab='planear',
+        tabs=_tabs_with_urls(),
+        count_date=count_date,
+        priority_status=priority_status,
+        history=history,
+        can_generate_priority_plan=_can_generate_priority_plan(
+            session.get('user') or {}
+        ),
+        msg=msg,
+        msg_type=msg_type,
+    )
 
 
 @pastelaria_bp.route('/produzir', methods=['GET', 'POST'])

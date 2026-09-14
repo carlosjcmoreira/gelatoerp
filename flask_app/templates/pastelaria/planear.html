@@ -1,27 +1,116 @@
 {% extends "base.html" %}
 {% set back_url = url_for("pastelaria.index") %}
-{% block content %}
-<div class="container-fluid px-3 py-3">
-  {% include "components/tabs.html" %}
-  <h5 class="mb-1">📋 Planear Produção por Prioridade</h5>
-  <p class="text-muted small">Gere o plano a partir das contagens feitas pelas lojas e reabra versões anteriores.</p>
-  {% if msg %}<div class="alert alert-{{ msg_type }}">{{ msg }}</div>{% endif %}
-  <div class="card border-primary mb-4"><div class="card-header fw-semibold">Gerar plano</div><div class="card-body">
-    <form method="get" class="row g-2 align-items-end mb-3"><div class="col-sm-8"><label class="form-label small">Domingo da contagem</label><input type="date" name="domingo" value="{{ selected_date.isoformat() }}" class="form-control" required></div><div class="col-sm-4"><button class="btn btn-outline-secondary w-100">Verificar</button></div></form>
-    {% if priority_status.error %}<div class="alert alert-warning">{{ priority_status.error }}</div>
-    {% elif priority_status.complete %}
-      <div class="alert alert-success">Contagem completa. {{ priority_status.rows|length }} produto(s) precisam de produção.</div>
-      {% if can_generate %}<form method="post"><input type="hidden" name="domingo" value="{{ selected_date.isoformat() }}"><button class="btn btn-primary">Gerar nova versão do plano</button></form>{% else %}<div class="text-muted small">Apenas Produção ou Gestão pode gerar o plano.</div>{% endif %}
-    {% else %}
-      <div class="alert alert-warning"><strong>Plano bloqueado.</strong> Existem contagens ou stocks mínimos em falta.</div>
-      {% if priority_status.missing %}<details><summary>Contagens em falta ({{ priority_status.missing|length }})</summary><ul class="small mt-2">{% for item in priority_status.missing %}<li>{{ item.loja }} — {{ item.produto }}</li>{% endfor %}</ul></details>{% endif %}
-      {% if priority_status.missing_minimums %}<details><summary>Stocks mínimos em falta ({{ priority_status.missing_minimums|length }})</summary><ul class="small mt-2">{% for item in priority_status.missing_minimums %}<li>{{ item.loja }} — {{ item.produto }}</li>{% endfor %}</ul></details>{% endif %}
-    {% endif %}
-  </div></div>
 
-  <h6>Planos históricos</h6>
-  <div class="table-responsive"><table class="table table-sm table-striped align-middle"><thead><tr><th>Domingo</th><th>Versão</th><th>Gerado por</th><th>Data</th><th>Produtos</th><th></th></tr></thead><tbody>
-    {% for plan in plans %}<tr><td>{{ plan.data_contagem.strftime('%d/%m/%Y') }}</td><td>{{ plan.versao }}</td><td>{{ plan.generated_by or '—' }}</td><td>{{ plan.generated_at.strftime('%d/%m/%Y %H:%M') }}</td><td>{{ plan.line_count }}</td><td class="text-end"><a class="btn btn-outline-primary btn-sm" href="{{ url_for('pastelaria.plano_prioridade', plan_id=plan.id) }}">Abrir / imprimir</a></td></tr>{% else %}<tr><td colspan="6" class="text-muted text-center">Ainda não existem planos gerados.</td></tr>{% endfor %}
-  </tbody></table></div>
+{% block content %}
+<div class="container-fluid px-3 py-3 no-print">
+    {% include "components/tabs.html" %}
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">📋 Planear Produção por Prioridade</h5>
+            <p class="text-muted small mb-0">
+                Gere, imprima e consulte versões do único plano de produção por prioridades.
+            </p>
+        </div>
+        <span class="text-muted small">A impressão está disponível em cada versão.</span>
+    </div>
+
+    {% if msg %}
+    <div class="alert alert-{{ msg_type }} alert-dismissible fade show" role="alert">
+        {{ msg }} <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endif %}
+
+    <div class="card border-primary mb-3">
+        <div class="card-header fw-semibold">Plano prioritário</div>
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-end mb-3">
+                <div class="col-sm-6">
+                    <label class="form-label small">Domingo da contagem</label>
+                    <input type="date" name="data_contagem" class="form-control form-control-sm"
+                           value="{{ count_date.isoformat() }}" required>
+                </div>
+                <div class="col-sm-6">
+                    <button class="btn btn-outline-secondary btn-sm w-100">Verificar contagens</button>
+                </div>
+            </form>
+
+            {% if priority_status.complete %}
+            <div class="alert alert-success py-2 small">
+                Todas as lojas e produtos estão preenchidos.
+                {% if priority_status.rows %}
+                Há {{ priority_status.rows|length }} produto(s) com necessidade de produção.
+                {% else %}
+                Não é necessária produção para repor os stocks mínimos.
+                {% endif %}
+            </div>
+            {% if can_generate_priority_plan %}
+            <form method="post">
+                <input type="hidden" name="action" value="gerar_plano">
+                <input type="hidden" name="data_contagem" value="{{ count_date.isoformat() }}">
+                <button class="btn btn-primary btn-sm">Gerar nova versão do plano</button>
+            </form>
+            {% else %}
+            <div class="text-muted small">Apenas Produção ou Gestão pode gerar o plano.</div>
+            {% endif %}
+            {% else %}
+            <div class="alert alert-warning py-2 small mb-2">
+                <strong>Não é possível gerar o plano.</strong>
+                Complete as contagens e configure todos os stocks mínimos.
+            </div>
+            {% if priority_status.missing %}
+            <details><summary class="small">Ver contagens em falta</summary>
+                <ul class="small mt-2 mb-0">
+                {% for item in priority_status.missing %}
+                    <li>{{ item.loja }} — {{ item.produto }}</li>
+                {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+            {% if priority_status.missing_minimums %}
+            <details><summary class="small">Ver stocks mínimos por configurar</summary>
+                <ul class="small mt-2 mb-0">
+                {% for item in priority_status.missing_minimums %}
+                    <li>{{ item.loja }} — {{ item.produto }}</li>
+                {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header fw-semibold">Planos históricos</div>
+        <div class="card-body p-0">
+            {% if history %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle mb-0">
+                    <thead><tr>
+                        <th>Domingo</th><th>Versão</th><th>Gerado por</th>
+                        <th>Data de geração</th><th></th>
+                    </tr></thead>
+                    <tbody>
+                    {% for plan in history %}
+                    <tr>
+                        <td>{{ plan.data_contagem.strftime('%d/%m/%Y') }}</td>
+                        <td>{{ plan.versao }}</td>
+                        <td>{{ plan.generated_by or '—' }}</td>
+                        <td>{{ plan.generated_at.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td class="text-end">
+                            <a class="btn btn-outline-primary btn-sm"
+                               href="{{ url_for('pastelaria.plano_prioridade', plan_id=plan.id) }}">
+                                Consultar / imprimir
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-3 text-muted small">Ainda não existem planos prioritários.</div>
+            {% endif %}
+        </div>
+    </div>
 </div>
 {% endblock %}

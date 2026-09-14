@@ -1935,6 +1935,7 @@ _TILE_MASTER = {
     ],
     'vendas': [
         {'id': 'dashboard',         'icon': '📊',  'default_label': 'Resumo Diário',                'description': 'Resumo das vendas do dia por loja com totais e indicadores de performance'},
+        {'id': 'contagem_pastelaria','icon': '🍰',  'default_label': 'Contagem Pastelaria',           'description': 'Registar a contagem de produtos de pastelaria da própria loja'},
         {'id': 'transferencias',    'icon': '📦',  'default_label': 'Receção de Mercadoria',        'description': 'Confirmar a receção de transferências enviadas pela produção e pastelaria'},
         {'id': 'quebras',           'icon': '⚠️',  'default_label': 'Registar Quebras',             'description': 'Registar quebras de gelado, pastelaria e confeitaria com motivo justificativo'},
         {'id': 'pesagem',           'icon': '⚖️',  'default_label': 'Pesagem Fim de Dia',           'description': 'Registar o stock de gelado em expositor no fecho do dia por sabor'},

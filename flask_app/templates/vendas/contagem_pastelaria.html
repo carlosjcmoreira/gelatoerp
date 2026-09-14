@@ -1,28 +1,103 @@
 {% extends "base.html" %}
 {% set back_url = url_for("vendas.index", loja_id=loja_id) %}
+
 {% block content %}
 <div class="container-fluid px-3 py-3">
-  {% include "components/tabs.html" %}
-  <h5 class="mb-1">🧁 Contagem Pastelaria — {{ loja_nome }}</h5>
-  <p class="text-muted small">Registe o stock físico desta loja. A Produção recebe automaticamente o resultado.</p>
-  {% if error %}<div class="alert alert-warning">{{ error }} Os valores digitados foram mantidos.</div>{% endif %}
-  <form method="get" class="row g-2 align-items-end mb-3">
-    {% if loja_id %}<input type="hidden" name="loja_id" value="{{ loja_id }}">{% endif %}
-    <div class="col-sm-8"><label class="form-label small">Domingo da contagem</label><input type="date" name="data" class="form-control" value="{{ selected_date.isoformat() }}" required></div>
-    <div class="col-sm-4"><button class="btn btn-outline-secondary w-100">Abrir</button></div>
-  </form>
-  <form method="post">
-    <input type="hidden" name="_loja_id" value="{{ loja_id }}">
-    <input type="hidden" name="data" value="{{ selected_date.isoformat() }}">
-    <input type="hidden" name="snapshot_token" value="{{ grid.snapshot_token }}">
-    <div class="d-flex justify-content-between mb-2"><strong>{{ selected_date.strftime('%d/%m/%Y') }}</strong><span class="badge {% if grid.complete %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ grid.completed }}/{{ grid.total }} preenchidos</span></div>
-    <div class="table-responsive"><table class="table table-sm align-middle">
-      <thead><tr><th>Produto</th><th style="width:130px" class="text-center">Quantidade</th></tr></thead>
-      <tbody>{% for product in grid.products %}{% set quantity=product.counts[loja_id] %}<tr>
-        <td>{{ product.nome }}</td><td><input type="number" name="count_{{ product.id }}" class="form-control text-center" min="0" step="1" value="{{ '' if quantity is none else quantity }}" required></td>
-      </tr>{% endfor %}</tbody>
-    </table></div>
-    <button class="btn btn-primary w-100">Guardar contagem de {{ loja_nome }}</button>
-  </form>
+    {% include "components/tabs.html" %}
+    <div class="mb-3">
+        <h5 class="mb-1">🍰 Contagem Pastelaria — {{ loja_nome }}</h5>
+        <p class="text-muted small mb-0">
+            Registe apenas a contagem física da sua loja. A Pastelaria recebe estes dados
+            para consulta e planeamento.
+        </p>
+    </div>
+
+    <div class="card border-primary">
+        <div class="card-header">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <span class="fw-semibold">Contagem de domingo</span>
+                <span class="badge {% if count_grid.complete %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                    {{ count_grid.completed }}/{{ count_grid.total }} preenchidos
+                </span>
+            </div>
+        </div>
+        <div class="card-body">
+            <form method="get" class="row g-2 align-items-end mb-3">
+                {% if is_gestor %}
+                <div class="col-sm-4">
+                    <label class="form-label small">Loja</label>
+                    <select name="loja_id" class="form-select form-select-sm">
+                        {% for store in vendas_stores %}
+                        <option value="{{ store.id }}" {% if store.id == loja_id %}selected{% endif %}>
+                            {{ store.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <div class="col-sm-6">
+                    <label class="form-label small">Domingo da contagem</label>
+                    <input type="date" name="data_contagem" class="form-control form-control-sm"
+                           value="{{ count_date.isoformat() }}" required>
+                </div>
+                <div class="col-sm-6">
+                    <button class="btn btn-outline-secondary btn-sm w-100">Abrir contagem</button>
+                </div>
+            </form>
+
+            <form method="post" id="pastelaria-count-form">
+                <input type="hidden" name="action" value="guardar_grelha">
+                {% if is_gestor %}<input type="hidden" name="loja_id" value="{{ loja_id }}">{% endif %}
+                <input type="hidden" name="data_contagem" value="{{ count_date.isoformat() }}">
+                <input type="hidden" name="snapshot_token" value="{{ count_grid.snapshot_token }}">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-2">
+                        <thead><tr><th>Produto</th><th class="text-center">Quantidade</th></tr></thead>
+                        <tbody>
+                        {% for product in count_grid.products %}
+                        <tr>
+                            <th class="fw-normal">{{ product.nome }}</th>
+                            <td>
+                                <input type="number" min="0" step="1" required
+                                       class="form-control form-control-sm text-center count-input{% if product.count is none %} border-warning{% endif %}"
+                                       name="count_{{ product.id }}"
+                                       value="{{ '' if product.count is none else product.count }}"
+                                       aria-label="{{ product.nome }}">
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="2" class="text-muted small">Sem produtos ativos.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div id="count-missing" class="small text-warning mb-2"></div>
+                <button type="submit" id="save-count" class="btn btn-primary btn-sm w-100">
+                    Guardar contagem da {{ loja_nome }}
+                </button>
+            </form>
+        </div>
+    </div>
 </div>
+<script>
+(() => {
+    const inputs = [...document.querySelectorAll('.count-input')];
+    const save = document.getElementById('save-count');
+    const missing = document.getElementById('count-missing');
+    function update() {
+        const incomplete = inputs.filter(input =>
+            input.value.trim() === '' || !input.validity.valid
+        );
+        save.disabled = inputs.length === 0 || incomplete.length > 0;
+        missing.textContent = incomplete.length
+            ? `Faltam ${incomplete.length} campo(s).`
+            : 'Contagem completa e pronta a guardar.';
+        incomplete.forEach(input => input.classList.add('border-warning'));
+        inputs.filter(input => !incomplete.includes(input))
+            .forEach(input => input.classList.remove('border-warning'));
+    }
+    inputs.forEach(input => input.addEventListener('input', update));
+    update();
+})();
+</script>
 {% endblock %}
