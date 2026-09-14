@@ -1,8 +1,10 @@
 import os
 import unittest
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date
+from threading import Barrier
 from pathlib import Path
 from unittest.mock import patch
 
@@ -1031,6 +1033,192 @@ class PastelariaPlanMigrationPostgresTests(unittest.TestCase):
                     WHERE id = 1
                 """)
                 self.assertEqual(cursor.fetchone()[0], 1)
+
+
+class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
+    """Exercise Sunday count writes with independent PostgreSQL sessions."""
+
+    COUNT_DATE = date(2026, 9, 6)
+
+    @classmethod
+    def setUpClass(cls):
+        database_url = os.environ.get('DATABASE_URL')
+        if not database_url:
+            raise unittest.SkipTest(
+                'DATABASE_URL is required for PostgreSQL integration tests'
+            )
+
+        try:
+            cls.admin_connection = psycopg2.connect(database_url)
+        except Exception as exc:
+            raise unittest.SkipTest(
+                f'PostgreSQL test database unavailable: {exc}'
+            )
+
+        cls.admin_connection.autocommit = True
+        cls.schema_name = f'test_pastelaria_sunday_concurrency_{uuid.uuid4().hex}'
+        with cls.admin_connection.cursor() as cursor:
+            cursor.execute(f'CREATE SCHEMA "{cls.schema_name}"')
+            cursor.execute(f'SET search_path TO "{cls.schema_name}"')
+            cursor.execute("""
+                CREATE TABLE stores (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL UNIQUE,
+                    supports_vendas BOOLEAN NOT NULL DEFAULT TRUE,
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE
+                );
+                CREATE TABLE produtos_pastelaria (
+                    id SERIAL PRIMARY KEY,
+                    tipologia VARCHAR(255) NOT NULL,
+                    sabor VARCHAR(255) NOT NULL DEFAULT '',
+                    cobertura VARCHAR(255) NOT NULL DEFAULT '',
+                    ativo BOOLEAN NOT NULL DEFAULT TRUE
+                );
+                CREATE TABLE contagem_stock (
+                    id SERIAL PRIMARY KEY,
+                    data DATE NOT NULL,
+                    loja VARCHAR(50) NOT NULL,
+                    produto VARCHAR(255) NOT NULL,
+                    quantidade INTEGER NOT NULL,
+                    tipo VARCHAR(50) NOT NULL,
+                    origem VARCHAR(30) NOT NULL DEFAULT 'contagem',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                INSERT INTO stores (name) VALUES ('Bolhão'), ('Matosinhos');
+                INSERT INTO produtos_pastelaria (tipologia)
+                VALUES ('Palito');
+            """)
+
+        @contextmanager
+        def isolated_connection():
+            connection = psycopg2.connect(database_url)
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(f'SET search_path TO "{cls.schema_name}"')
+                yield connection
+            finally:
+                connection.close()
+
+        cls.isolated_connection = staticmethod(isolated_connection)
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, 'admin_connection', None):
+            with cls.admin_connection.cursor() as cursor:
+                cursor.execute(
+                    f'DROP SCHEMA IF EXISTS "{cls.schema_name}" CASCADE'
+                )
+            cls.admin_connection.close()
+
+    def _latest_rows(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT loja, produto, quantidade
+                    FROM contagem_stock
+                    WHERE data=%s AND tipo='pastelaria'
+                    ORDER BY loja, id
+                """, (self.COUNT_DATE,))
+                return cursor.fetchall()
+
+    def test_two_stores_save_same_sunday_without_losing_values(self):
+        with patch(
+            'db.pastelaria.db_connection',
+            self.isolated_connection,
+        ):
+            full_grid = pastelaria.get_pastelaria_sunday_count_grid(
+                self.COUNT_DATE
+            )
+            bolhao_grid = pastelaria.get_pastelaria_store_count_grid(
+                self.COUNT_DATE, 1
+            )
+            matosinhos_grid = pastelaria.get_pastelaria_store_count_grid(
+                self.COUNT_DATE, 2
+            )
+
+        self.assertEqual(full_grid['snapshot_token'], bolhao_grid['snapshot_token'])
+        self.assertEqual(full_grid['snapshot_token'], matosinhos_grid['snapshot_token'])
+        self.assertEqual(full_grid['completed'], 0)
+
+        # Both requests enter their transactions before either can acquire the
+        # date-scoped advisory lock. The second request must then re-check its
+        # own store version after the first request commits.
+        ready = Barrier(2)
+
+        @contextmanager
+        def synchronized_connection():
+            with self.isolated_connection() as connection:
+                ready.wait(timeout=10)
+                yield connection
+
+        with patch(
+            'db.pastelaria.db_connection',
+            synchronized_connection,
+        ):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(
+                        pastelaria.save_pastelaria_store_counts,
+                        self.COUNT_DATE,
+                        1,
+                        [(1, 3)],
+                        bolhao_grid['snapshot_token'],
+                    ),
+                    executor.submit(
+                        pastelaria.save_pastelaria_store_counts,
+                        self.COUNT_DATE,
+                        2,
+                        [(1, 7)],
+                        matosinhos_grid['snapshot_token'],
+                    ),
+                ]
+                self.assertEqual(
+                    [future.result(timeout=15) for future in futures],
+                    [1, 1],
+                )
+
+        self.assertEqual(
+            self._latest_rows(),
+            [
+                ('Bolhão', 'Palito', 3),
+                ('Matosinhos', 'Palito', 7),
+            ],
+        )
+        with patch(
+            'db.pastelaria.db_connection',
+            self.isolated_connection,
+        ):
+            saved_grid = pastelaria.get_pastelaria_sunday_count_grid(
+                self.COUNT_DATE
+            )
+        self.assertEqual(saved_grid['completed'], 2)
+        self.assertEqual(saved_grid['products'][0]['counts'], {1: 3, 2: 7})
+        self.assertNotEqual(
+            saved_grid['snapshot_token'],
+            full_grid['snapshot_token'],
+        )
+
+        # A full-grid request that was opened before either store saved must
+        # lose the common lock's version check and must not append an overwrite.
+        with patch(
+            'db.pastelaria.db_connection',
+            self.isolated_connection,
+        ):
+            with self.assertRaisesRegex(ValueError, 'outro utilizador'):
+                pastelaria.save_pastelaria_sunday_counts(
+                    self.COUNT_DATE,
+                    [(1, 1, 99), (1, 2, 99)],
+                    full_grid['snapshot_token'],
+                )
+
+        self.assertEqual(
+            self._latest_rows(),
+            [
+                ('Bolhão', 'Palito', 3),
+                ('Matosinhos', 'Palito', 7),
+            ],
+        )
 
 
 if __name__ == '__main__':
