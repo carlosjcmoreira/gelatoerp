@@ -132,6 +132,37 @@ class TestDocumentListStickyReferences(unittest.TestCase):
         self.assertIn('.document-table-scroll #inv-table thead th {\n    position: sticky;', self.source)
         self.assertIn('top: 0;', self.source)
 
+    def test_document_view_uses_the_table_as_the_only_flexible_scroll_area(self):
+        self.assertIn(
+            '<div class="container-fluid px-3 py-3 pb-5{% if view == \'documento\' %} document-page{% endif %}">',
+            self.source,
+        )
+        self.assertIn(
+            '.document-page {\n'
+            '    height: calc(100dvh - 56px - var(--back-bar-height) - var(--fixed-bar-content-gap));',
+            self.source,
+        )
+        self.assertIn(
+            '.document-page #bulk-form {\n'
+            '    min-height: 0;\n'
+            '    flex: 1 1 auto;\n'
+            '    display: flex;',
+            self.source,
+        )
+        self.assertIn(
+            '.document-page #bulk-form > .document-table-scroll {\n'
+            '    min-height: 0;\n'
+            '    max-height: none;\n'
+            '    flex: 1 1 auto;',
+            self.source,
+        )
+        self.assertIn(
+            'height: calc(100dvh - 56px - var(--bottom-nav-height) - '
+            'env(safe-area-inset-bottom) - var(--back-bar-height) - '
+            'var(--fixed-bar-content-gap));',
+            self.source,
+        )
+
     def test_sticky_references_are_scoped_to_document_view(self):
         self.assertEqual(self.source.count('document-list-actions'), 3)
         self.assertEqual(self.source.count('class="document-table-scroll table-responsive"'), 1)
