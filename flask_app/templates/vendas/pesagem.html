@@ -616,14 +616,11 @@ function calcularDuplicadosPendentes() {
 
 function _ensureBtnConfirmVisible() {
     const btnConf = document.getElementById('btn-confirmar');
-    if (!btnConf) return;
+    const backBar = document.getElementById('backBar');
+    if (!btnConf || !backBar) return;
     setTimeout(function() {
         const rect = btnConf.getBoundingClientRect();
-        const isMobile = window.innerWidth < 768;
-        // Fixed bars at the bottom: mobile = bottom-nav (64px) + back-bar (48px) + safe-area (~40px) + gap (8px)
-        // desktop = back-bar (48px) + gap (8px)
-        const fixedBottom = isMobile ? 160 : 56;
-        const visibleBottom = window.innerHeight - fixedBottom;
+        const visibleBottom = backBar.getBoundingClientRect().top - 8;
         if (rect.bottom > visibleBottom) {
             window.scrollBy({ top: rect.bottom - visibleBottom, behavior: 'smooth' });
         }

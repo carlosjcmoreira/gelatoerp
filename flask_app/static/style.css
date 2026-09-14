@@ -274,7 +274,7 @@ body {
 }
 
 .fullpage-container.has-back-bar {
-    height: calc(100dvh - 56px - 48px);
+    height: calc(100dvh - 56px - var(--back-bar-height));
 }
 
 .back-bar {
@@ -285,7 +285,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    height: 48px;
+    height: var(--back-bar-height);
     background: var(--scoopy-bg-secondary);
     border-top: 1px solid var(--scoopy-border);
     color: var(--scoopy-text);
@@ -308,12 +308,12 @@ body {
 }
 
 .has-back-bar-content {
-    padding-bottom: 56px;
+    padding-bottom: calc(var(--back-bar-height) + var(--fixed-bar-content-gap));
 }
 
 .save-bar {
     position: fixed;
-    bottom: 48px;
+    bottom: var(--back-bar-height);
     left: 0;
     right: 0;
     padding: 0.5rem 0.75rem;
@@ -635,6 +635,8 @@ input[type="number"]::-webkit-outer-spin-button {
     --sidebar-width: 220px;
     --sidebar-width-collapsed: 60px;
     --bottom-nav-height: 64px;
+    --back-bar-height: 48px;
+    --fixed-bar-content-gap: 8px;
 }
 
 .app-sidebar {
@@ -950,8 +952,13 @@ body.sidebar-collapsed .sidebar-toggle {
         padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
     }
 
-    .has-back-bar-content {
-        padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 56px);
+    main.with-nav.has-back-bar-content {
+        padding-bottom: calc(
+            var(--bottom-nav-height)
+            + env(safe-area-inset-bottom)
+            + var(--back-bar-height)
+            + var(--fixed-bar-content-gap)
+        );
     }
 
     .fullpage-container {
@@ -959,7 +966,13 @@ body.sidebar-collapsed .sidebar-toggle {
     }
 
     .fullpage-container.has-back-bar {
-        height: calc(100dvh - 56px - var(--bottom-nav-height) - env(safe-area-inset-bottom) - 48px);
+        height: calc(
+            100dvh
+            - 56px
+            - var(--bottom-nav-height)
+            - env(safe-area-inset-bottom)
+            - var(--back-bar-height)
+        );
     }
 
     .back-bar {
@@ -967,7 +980,11 @@ body.sidebar-collapsed .sidebar-toggle {
     }
 
     .save-bar {
-        bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom) + 48px);
+        bottom: calc(
+            var(--bottom-nav-height)
+            + env(safe-area-inset-bottom)
+            + var(--back-bar-height)
+        );
     }
 }
 

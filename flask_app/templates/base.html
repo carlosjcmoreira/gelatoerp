@@ -222,11 +222,10 @@
             );
             if (!submits.length) return;
 
-            var isMobile = window.innerWidth < 768;
-            /* On mobile: bottom-nav (64 px) + back-bar (48 px) + safe-area (~34 px) + gap (8 px) ≈ 154 px
-               On desktop: back-bar (48 px) + gap (8 px) = 56 px */
-            var fixedBottom = isMobile ? 154 : 56;
-            var visibleBottom = window.innerHeight - fixedBottom;
+            /* The bar's rendered top already accounts for the mobile nav and
+               iPhone safe area. Measuring it also follows dynamic viewports
+               instead of relying on a device-specific pixel estimate. */
+            var visibleBottom = bar.getBoundingClientRect().top - 8;
 
             var worstBottom = 0;
             submits.forEach(function(btn) {
