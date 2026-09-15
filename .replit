@@ -1,6 +1,6 @@
 modules = ["nodejs-20", "python-3.11", "postgresql-16"]
 [deployment]
-deploymentTarget = "vm"
+deploymentTarget = "cloudrun"
 run = ["gunicorn", "flask_app.app:create_app()", "-c", "gunicorn.conf.py"]
 
 [nix]
