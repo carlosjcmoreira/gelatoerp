@@ -602,18 +602,44 @@ def criar_ordem_transferencia(
         destino_nome = None
     with db_connection() as conn:
         cursor = conn.cursor()
+        produto_pastelaria_id = None
+        if area_origem == 'Pastelaria':
+            cursor.execute("""
+                SELECT MIN(id)
+                FROM produtos_pastelaria
+                WHERE CONCAT_WS(', ',
+                    NULLIF(BTRIM(tipologia), ''),
+                    NULLIF(BTRIM(sabor), ''),
+                    NULLIF(BTRIM(cobertura), '')
+                ) = %s
+                HAVING COUNT(*) = 1
+            """, (produto,))
+            identity_row = cursor.fetchone()
+            produto_pastelaria_id = (
+                identity_row[0] if identity_row else None
+            )
+            if (
+                produto_pastelaria_id is None
+                and not produto.startswith('Bolo — ')
+            ):
+                raise ValueError(
+                    f'Produto de Pastelaria sem identidade única: {produto}'
+                )
         cursor.execute("""
             INSERT INTO ordens_transferencia (
                 data, area_origem, produto, sabor, quantidade, unidade,
                 loja_destino, criado_por, data_prevista, batch_id,
-                destino_tipo, destino_nome
+                destino_tipo, destino_nome, produto_pastelaria_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s
+            )
             RETURNING id
         """, (
             data, area_origem, produto, sabor, quantidade, unidade,
             loja_destino, criado_por, data_prevista or data, batch_id,
-            destino_tipo, destino_nome,
+            destino_tipo, destino_nome, produto_pastelaria_id,
         ))
         order_id = cursor.fetchone()[0]
         _insert_evento(cursor, order_id, 'criado', criado_por)
@@ -789,14 +815,17 @@ def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
         cursor = conn.cursor()
         cursor.execute("""
             SELECT area_origem, produto, sabor, quantidade, unidade, loja_destino,
-                   destino_tipo
+                   destino_tipo, produto_pastelaria_id
             FROM ordens_transferencia
             WHERE id = %s AND status = 'pendente'
         """, (ordem_id,))
         ordem = cursor.fetchone()
         if not ordem:
             return False
-        area_origem, produto, sabor, quantidade, unidade, loja_destino, destino_tipo = ordem
+        (
+            area_origem, produto, sabor, quantidade, unidade, loja_destino,
+            destino_tipo, produto_pastelaria_id,
+        ) = ordem
         if destino_tipo == 'b2b':
             return False
         cursor.execute("""
@@ -820,10 +849,18 @@ def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
                     )
                 cursor.execute("""
                     INSERT INTO contagem_stock
-                        (data, loja, produto, quantidade, tipo, origem)
-                    VALUES (%s, %s, %s, %s, %s, 'transferencia')
+                        (data, loja, produto, quantidade, tipo, origem,
+                         produto_pastelaria_id)
+                    VALUES (
+                        %s, %s, %s, %s, %s, 'transferencia',
+                        CASE WHEN %s = 'Pastelaria' THEN %s ELSE NULL END
+                    )
                     ON CONFLICT DO NOTHING
-                """, (today, loja_destino, produto, int(quantidade), area_origem.lower()))
+                """, (
+                    today, loja_destino, produto, int(quantidade),
+                    area_origem.lower(), area_origem,
+                    produto_pastelaria_id,
+                ))
         if updated:
             _insert_evento(cursor, ordem_id, 'confirmado', confirmado_por)
         conn.commit()

@@ -1752,7 +1752,7 @@ def run_migrations():
                 nota TEXT DEFAULT '',
                 producao_estimada_bolhao INTEGER DEFAULT 0,
                 producao_estimada_matosinhos INTEGER DEFAULT 0,
-                UNIQUE(data, produto)
+                produto_pastelaria_id INTEGER
             )
         ''')
 
@@ -1776,7 +1776,7 @@ def run_migrations():
                 produto VARCHAR(255) NOT NULL,
                 quantidade INTEGER NOT NULL DEFAULT 0,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(data, produto)
+                produto_pastelaria_id INTEGER
             )
         ''')
 
@@ -5865,6 +5865,7 @@ def run_migrations_cost_centers_store_id():
 
 _LOCK_PASTELARIA_PLANO = 202716
 _LOCK_PASTELARIA_PRODUCT_STATE_AUDIT = 202717
+_LOCK_PASTELARIA_COUNT_PRODUCT_ID = 202718
 
 
 def run_migrations_pastelaria_plano():
@@ -5995,6 +5996,339 @@ def run_migrations_pastelaria_plano():
         """)
         conn.commit()
         logger.info("run_migrations_pastelaria_plano: schema ready")
+
+
+def run_migrations_pastelaria_count_product_id():
+    """Attach Pastelaria stock counts to stable catalogue product identities."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)",
+            (_LOCK_PASTELARIA_COUNT_PRODUCT_ID,),
+        )
+        if not cursor.fetchone()[0]:
+            logger.info(
+                "run_migrations_pastelaria_count_product_id: lock held, skipping"
+            )
+            return
+
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ADD COLUMN IF NOT EXISTS produto_pastelaria_id INTEGER
+        """)
+        cursor.execute("""
+            ALTER TABLE ordens_transferencia
+            ADD COLUMN IF NOT EXISTS produto_pastelaria_id INTEGER
+        """)
+        cursor.execute("""
+            ALTER TABLE producao_pastelaria
+            ADD COLUMN IF NOT EXISTS produto_pastelaria_id INTEGER
+        """)
+        cursor.execute("""
+            ALTER TABLE plano_producao_pastelaria
+            ADD COLUMN IF NOT EXISTS produto_pastelaria_id INTEGER
+        """)
+        cursor.execute("""
+            ALTER TABLE stock_producao_pastelaria
+            ADD COLUMN IF NOT EXISTS produto_pastelaria_id INTEGER
+        """)
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='contagem_stock_produto_pastelaria_id_fkey'
+                ) THEN
+                    ALTER TABLE contagem_stock
+                    ADD CONSTRAINT contagem_stock_produto_pastelaria_id_fkey
+                    FOREIGN KEY (produto_pastelaria_id)
+                    REFERENCES produtos_pastelaria(id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='ordens_transferencia_produto_pastelaria_id_fkey'
+                ) THEN
+                    ALTER TABLE ordens_transferencia
+                    ADD CONSTRAINT ordens_transferencia_produto_pastelaria_id_fkey
+                    FOREIGN KEY (produto_pastelaria_id)
+                    REFERENCES produtos_pastelaria(id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='producao_pastelaria_produto_pastelaria_id_fkey'
+                ) THEN
+                    ALTER TABLE producao_pastelaria
+                    ADD CONSTRAINT producao_pastelaria_produto_pastelaria_id_fkey
+                    FOREIGN KEY (produto_pastelaria_id)
+                    REFERENCES produtos_pastelaria(id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='plano_producao_pastelaria_produto_id_fkey'
+                ) THEN
+                    ALTER TABLE plano_producao_pastelaria
+                    ADD CONSTRAINT plano_producao_pastelaria_produto_id_fkey
+                    FOREIGN KEY (produto_pastelaria_id)
+                    REFERENCES produtos_pastelaria(id) ON DELETE SET NULL;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='stock_producao_pastelaria_produto_id_fkey'
+                ) THEN
+                    ALTER TABLE stock_producao_pastelaria
+                    ADD CONSTRAINT stock_producao_pastelaria_produto_id_fkey
+                    FOREIGN KEY (produto_pastelaria_id)
+                    REFERENCES produtos_pastelaria(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_schema_migrations (
+                name VARCHAR(255) PRIMARY KEY,
+                applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        migration_name = 'pastelaria_count_product_id_backfill_v1'
+        cursor.execute(
+            "SELECT 1 FROM app_schema_migrations WHERE name=%s FOR UPDATE",
+            (migration_name,),
+        )
+        if cursor.fetchone() is None:
+            cursor.execute("""
+                WITH catalogue_labels AS (
+                    SELECT id,
+                           CONCAT_WS(', ',
+                               NULLIF(BTRIM(tipologia), ''),
+                               NULLIF(BTRIM(sabor), ''),
+                               NULLIF(BTRIM(cobertura), '')
+                           ) AS label
+                    FROM produtos_pastelaria
+                ),
+                unique_labels AS (
+                    SELECT MIN(id) AS id, label
+                    FROM catalogue_labels
+                    GROUP BY label
+                    HAVING COUNT(*) = 1
+                )
+                UPDATE contagem_stock cs
+                SET produto_pastelaria_id = ul.id
+                FROM unique_labels ul
+                WHERE cs.tipo = 'pastelaria'
+                  AND cs.produto_pastelaria_id IS NULL
+                  AND cs.produto = ul.label
+            """)
+            cursor.execute(
+                "INSERT INTO app_schema_migrations (name) VALUES (%s)",
+                (migration_name,),
+            )
+        order_migration_name = 'pastelaria_transfer_product_id_backfill_v1'
+        cursor.execute(
+            "SELECT 1 FROM app_schema_migrations WHERE name=%s FOR UPDATE",
+            (order_migration_name,),
+        )
+        if cursor.fetchone() is None:
+            cursor.execute("""
+                WITH catalogue_labels AS (
+                    SELECT id,
+                           CONCAT_WS(', ',
+                               NULLIF(BTRIM(tipologia), ''),
+                               NULLIF(BTRIM(sabor), ''),
+                               NULLIF(BTRIM(cobertura), '')
+                           ) AS label
+                    FROM produtos_pastelaria
+                ),
+                unique_labels AS (
+                    SELECT MIN(id) AS id, label
+                    FROM catalogue_labels
+                    GROUP BY label
+                    HAVING COUNT(*) = 1
+                )
+                UPDATE ordens_transferencia ot
+                SET produto_pastelaria_id = ul.id
+                FROM unique_labels ul
+                WHERE LOWER(ot.area_origem) = 'pastelaria'
+                  AND ot.produto_pastelaria_id IS NULL
+                  AND ot.produto = ul.label
+            """)
+            cursor.execute(
+                "INSERT INTO app_schema_migrations (name) VALUES (%s)",
+                (order_migration_name,),
+            )
+        production_migration_name = 'pastelaria_production_product_id_backfill_v1'
+        cursor.execute(
+            "SELECT 1 FROM app_schema_migrations WHERE name=%s FOR UPDATE",
+            (production_migration_name,),
+        )
+        if cursor.fetchone() is None:
+            cursor.execute("""
+                WITH catalogue_labels AS (
+                    SELECT id,
+                           CONCAT_WS(', ',
+                               NULLIF(BTRIM(tipologia), ''),
+                               NULLIF(BTRIM(sabor), ''),
+                               NULLIF(BTRIM(cobertura), '')
+                           ) AS label
+                    FROM produtos_pastelaria
+                ),
+                unique_labels AS (
+                    SELECT MIN(id) AS id, label
+                    FROM catalogue_labels
+                    GROUP BY label
+                    HAVING COUNT(*) = 1
+                )
+                UPDATE producao_pastelaria pp
+                SET produto_pastelaria_id = ul.id
+                FROM unique_labels ul
+                WHERE pp.produto_pastelaria_id IS NULL
+                  AND pp.produto = ul.label
+            """)
+            cursor.execute(
+                "INSERT INTO app_schema_migrations (name) VALUES (%s)",
+                (production_migration_name,),
+            )
+        support_migration_name = 'pastelaria_support_stock_product_id_backfill_v1'
+        cursor.execute(
+            "SELECT 1 FROM app_schema_migrations WHERE name=%s FOR UPDATE",
+            (support_migration_name,),
+        )
+        if cursor.fetchone() is None:
+            for table_name in (
+                'plano_producao_pastelaria',
+                'stock_producao_pastelaria',
+            ):
+                cursor.execute(f"""
+                    WITH catalogue_labels AS (
+                        SELECT id,
+                               CONCAT_WS(', ',
+                                   NULLIF(BTRIM(tipologia), ''),
+                                   NULLIF(BTRIM(sabor), ''),
+                                   NULLIF(BTRIM(cobertura), '')
+                               ) AS label
+                        FROM produtos_pastelaria
+                    ),
+                    unique_labels AS (
+                        SELECT MIN(id) AS id, label
+                        FROM catalogue_labels
+                        GROUP BY label
+                        HAVING COUNT(*) = 1
+                    )
+                    UPDATE {table_name} source
+                    SET produto_pastelaria_id = ul.id
+                    FROM unique_labels ul
+                    WHERE source.produto_pastelaria_id IS NULL
+                      AND source.produto = ul.label
+                """)
+            cursor.execute(
+                "INSERT INTO app_schema_migrations (name) VALUES (%s)",
+                (support_migration_name,),
+            )
+        dedupe_migration_name = 'pastelaria_support_identity_dedupe_v1'
+        cursor.execute(
+            "SELECT 1 FROM app_schema_migrations WHERE name=%s FOR UPDATE",
+            (dedupe_migration_name,),
+        )
+        if cursor.fetchone() is None:
+            cursor.execute("""
+                WITH grouped AS (
+                    SELECT data, produto_pastelaria_id, MAX(id) AS keeper_id,
+                           MAX(producao_estimada) AS producao_estimada,
+                           MAX(producao_real) AS producao_real,
+                           BOOL_OR(no_plano) AS no_plano,
+                           MAX(producao_estimada_bolhao)
+                               AS producao_estimada_bolhao,
+                           MAX(producao_estimada_matosinhos)
+                               AS producao_estimada_matosinhos
+                    FROM plano_producao_pastelaria
+                    WHERE produto_pastelaria_id IS NOT NULL
+                    GROUP BY data, produto_pastelaria_id
+                    HAVING COUNT(*) > 1
+                )
+                UPDATE plano_producao_pastelaria plan
+                SET producao_estimada = grouped.producao_estimada,
+                    producao_real = grouped.producao_real,
+                    no_plano = grouped.no_plano,
+                    producao_estimada_bolhao =
+                        grouped.producao_estimada_bolhao,
+                    producao_estimada_matosinhos =
+                        grouped.producao_estimada_matosinhos
+                FROM grouped
+                WHERE plan.id=grouped.keeper_id
+            """)
+            cursor.execute("""
+                DELETE FROM plano_producao_pastelaria plan
+                USING plano_producao_pastelaria keeper
+                WHERE plan.data=keeper.data
+                  AND plan.produto_pastelaria_id=keeper.produto_pastelaria_id
+                  AND plan.id < keeper.id
+                  AND plan.produto_pastelaria_id IS NOT NULL
+            """)
+            cursor.execute("""
+                WITH grouped AS (
+                    SELECT data, produto_pastelaria_id, MAX(id) AS keeper_id,
+                           SUM(quantidade) AS quantidade
+                    FROM stock_producao_pastelaria
+                    WHERE produto_pastelaria_id IS NOT NULL
+                    GROUP BY data, produto_pastelaria_id
+                    HAVING COUNT(*) > 1
+                )
+                UPDATE stock_producao_pastelaria stock
+                SET quantidade=grouped.quantidade
+                FROM grouped
+                WHERE stock.id=grouped.keeper_id
+            """)
+            cursor.execute("""
+                DELETE FROM stock_producao_pastelaria stock
+                USING stock_producao_pastelaria keeper
+                WHERE stock.data=keeper.data
+                  AND stock.produto_pastelaria_id=keeper.produto_pastelaria_id
+                  AND stock.id < keeper.id
+                  AND stock.produto_pastelaria_id IS NOT NULL
+            """)
+            cursor.execute(
+                "INSERT INTO app_schema_migrations (name) VALUES (%s)",
+                (dedupe_migration_name,),
+            )
+        cursor.execute("""
+            ALTER TABLE plano_producao_pastelaria
+            DROP CONSTRAINT IF EXISTS
+                plano_producao_pastelaria_data_produto_key
+        """)
+        cursor.execute("""
+            ALTER TABLE stock_producao_pastelaria
+            DROP CONSTRAINT IF EXISTS
+                stock_producao_pastelaria_data_produto_key
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_plano_pastelaria_data_product_identity
+            ON plano_producao_pastelaria (data, produto_pastelaria_id)
+            WHERE produto_pastelaria_id IS NOT NULL
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_stock_pastelaria_data_product_identity
+            ON stock_producao_pastelaria (data, produto_pastelaria_id)
+            WHERE produto_pastelaria_id IS NOT NULL
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_plano_pastelaria_date_unlinked_label
+            ON plano_producao_pastelaria (data, produto)
+            WHERE produto_pastelaria_id IS NULL
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                idx_stock_pastelaria_date_unlinked_label
+            ON stock_producao_pastelaria (data, produto)
+            WHERE produto_pastelaria_id IS NULL
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_contagem_stock_pastelaria_product
+            ON contagem_stock (produto_pastelaria_id, loja, data DESC, id DESC)
+            WHERE tipo = 'pastelaria'
+        """)
+        conn.commit()
+        logger.info("run_migrations_pastelaria_count_product_id: schema ready")
 
 
 def run_migrations_pastelaria_product_state_audit():

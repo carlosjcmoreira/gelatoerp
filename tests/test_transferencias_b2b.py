@@ -121,7 +121,7 @@ class TransferenciasB2BTests(unittest.TestCase):
     def test_b2b_order_cannot_create_internal_store_receipt(self):
         cursor = FakeCursor(
             fetchone_values=[
-                ("Gelado", "Baunilha", "Baunilha", 5, "kg", "B2B", "b2b")
+                ("Gelado", "Baunilha", "Baunilha", 5, "kg", "B2B", "b2b", None)
             ]
         )
         connection = FakeConnection(cursor)
@@ -135,7 +135,7 @@ class TransferenciasB2BTests(unittest.TestCase):
 
     def test_sunday_pastelaria_receipt_uses_count_date_lock(self):
         cursor = FakeCursor(fetchone_values=[
-            ("Pastelaria", "Palito", None, 5, "und", "Bolhão", "loja")
+            ("Pastelaria", "Palito antigo", None, 5, "und", "Bolhão", "loja", 17)
         ])
         connection = FakeConnection(cursor)
 
@@ -161,6 +161,10 @@ class TransferenciasB2BTests(unittest.TestCase):
             cursor.executions[lock_index][1],
             ('pastelaria-count:2026-09-06',),
         )
+        count_params = cursor.executions[count_index][1]
+        self.assertEqual(count_params[-2:], ('Pastelaria', 17))
+        self.assertIn('produto_pastelaria_id', statements[count_index])
+        self.assertNotIn('FROM produtos_pastelaria', statements[count_index])
 
     def test_order_reader_exposes_destination_type_and_name(self):
         row = (

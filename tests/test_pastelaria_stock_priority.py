@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import psycopg2
 from flask import Flask
-from db import pastelaria, schema
+from db import area, pastelaria, plano, schema
 
 
 class _Cursor:
@@ -59,12 +59,18 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             {'id': 12, 'tipologia': 'Nivotto', 'sabor': '', 'cobertura': ''},
         ]
         counts = [
-            {'loja': 'Bolhão', 'produto': 'Palito', 'quantidade': 2},
-            {'loja': 'Matosinhos', 'produto': 'Palito', 'quantidade': 10},
-            {'loja': 'Bolhão', 'produto': 'Bolo, Chocolate', 'quantidade': 0},
-            {'loja': 'Matosinhos', 'produto': 'Bolo, Chocolate', 'quantidade': 4},
-            {'loja': 'Bolhão', 'produto': 'Nivotto', 'quantidade': 9},
-            {'loja': 'Matosinhos', 'produto': 'Nivotto', 'quantidade': 9},
+            {'loja': 'Bolhão', 'produto': 'Palito', 'quantidade': 2,
+             'produto_pastelaria_id': 10},
+            {'loja': 'Matosinhos', 'produto': 'Palito', 'quantidade': 10,
+             'produto_pastelaria_id': 10},
+            {'loja': 'Bolhão', 'produto': 'Bolo, Chocolate', 'quantidade': 0,
+             'produto_pastelaria_id': 11},
+            {'loja': 'Matosinhos', 'produto': 'Bolo, Chocolate', 'quantidade': 4,
+             'produto_pastelaria_id': 11},
+            {'loja': 'Bolhão', 'produto': 'Nivotto', 'quantidade': 9,
+             'produto_pastelaria_id': 12},
+            {'loja': 'Matosinhos', 'produto': 'Nivotto', 'quantidade': 9,
+             'produto_pastelaria_id': 12},
         ]
         minimums = [
             {'produto_id': 10, 'store_id': 1, 'quantidade_minima': 10},
@@ -183,7 +189,8 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         cursor = _Cursor([
             [{'id': 1, 'name': 'Bolhão'}, {'id': 2, 'name': 'Matosinhos'}],
             [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
-            [{'loja': 'Bolhão', 'produto': 'Palito', 'quantidade': 3}],
+            [{'loja': 'Bolhão', 'produto': 'Palito', 'quantidade': 3,
+              'produto_pastelaria_id': 10}],
             [{'snapshot_token': self.TOKEN_81}],
         ])
         with patch(
@@ -199,11 +206,40 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertEqual(grid['products'][0]['counts'], {1: 3, 2: None})
         self.assertEqual(grid['snapshot_token'], self.TOKEN_81)
 
+    def test_count_identity_migration_only_backfills_unique_exact_labels(self):
+        first_cursor = _Cursor([[(True,)], []])
+        first_connection = _Connection(first_cursor)
+        with patch(
+            'db.schema.db_connection',
+            return_value=first_connection,
+        ):
+            schema.run_migrations_pastelaria_count_product_id()
+
+        statements = '\n'.join(query for query, _ in first_cursor.queries)
+        self.assertTrue(first_connection.committed)
+        self.assertIn('ADD COLUMN IF NOT EXISTS produto_pastelaria_id', statements)
+        self.assertIn('HAVING COUNT(*) = 1', statements)
+        self.assertIn('cs.produto = ul.label', statements)
+        self.assertNotIn('LOWER(cs.produto)', statements)
+
+        second_cursor = _Cursor([[(True,)], [(1,)]])
+        second_connection = _Connection(second_cursor)
+        with patch(
+            'db.schema.db_connection',
+            return_value=second_connection,
+        ):
+            schema.run_migrations_pastelaria_count_product_id()
+        rerun_statements = '\n'.join(
+            query for query, _ in second_cursor.queries
+        )
+        self.assertNotIn('UPDATE contagem_stock cs', rerun_statements)
+
     def test_store_grid_is_scoped_to_requested_store(self):
         cursor = _Cursor([
             [{'id': 2, 'name': 'Matosinhos'}],
             [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
-            [{'produto': 'Palito', 'quantidade': 4}],
+            [{'produto': 'Palito', 'quantidade': 4,
+              'produto_pastelaria_id': 10}],
             [{'snapshot_token': self.TOKEN_81}],
         ])
         with patch(
@@ -217,6 +253,24 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertEqual(grid['products'][0]['count'], 4)
         self.assertEqual(grid['completed'], 1)
         self.assertEqual(grid['total'], 1)
+
+    def test_unlinked_legacy_label_is_not_invented_as_catalogue_identity(self):
+        cursor = _Cursor([
+            [{'id': 2, 'name': 'Matosinhos'}],
+            [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
+            [{'produto': 'Palito', 'quantidade': 4,
+              'produto_pastelaria_id': None}],
+            [{'snapshot_token': self.TOKEN_81}],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            grid = pastelaria.get_pastelaria_store_count_grid(
+                date(2026, 9, 6), 2
+            )
+        self.assertIsNone(grid['products'][0]['count'])
+        self.assertEqual(grid['completed'], 0)
 
     @patch('db.pastelaria.execute_values')
     def test_store_count_save_keeps_other_stores_and_uses_date_lock(self, bulk):
@@ -603,7 +657,8 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         cursor = _Cursor([
             [{'id': 2, 'name': 'Matosinhos'}],
             [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
-            [{'loja': 'Matosinhos', 'produto': 'Palito', 'quantidade': 4}],
+            [{'loja': 'Matosinhos', 'produto': 'Palito', 'quantidade': 4,
+              'produto_pastelaria_id': 10}],
             [{'snapshot_token': self.TOKEN_81}],
         ])
         with patch(
@@ -780,21 +835,23 @@ class PastelariaStockPriorityTests(unittest.TestCase):
                 {
                     'data': date(2026, 1, 4), 'loja': 'Bolhão',
                     'produto': 'Palito, Pistacchio', 'quantidade': 10,
-                    'created_at': None,
+                    'created_at': None, 'produto_pastelaria_id': 10,
                 },
                 {
                     'data': date(2026, 1, 11), 'loja': 'Bolhão',
                     'produto': 'Palito, Pistacchio', 'quantidade': 4,
-                    'created_at': None,
+                    'created_at': None, 'produto_pastelaria_id': 10,
                 },
             ],
             [{
                 'data': date(2026, 1, 8), 'loja': 'Bolhão',
                 'produto': 'Palito, Pistacchio', 'quantidade': 2,
+                'produto_pastelaria_id': 10,
             }],
             [{
                 'data': date(2026, 1, 9), 'loja': 'Bolhão',
                 'produto': 'Palito, Pistacchio', 'quantidade': 1,
+                'produto_pastelaria_id': 10,
             }],
             [{
                 'data': date(2026, 1, 8), 'loja': 'Bolhão',
@@ -944,6 +1001,142 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertNotIn('save_bolo', template)
         self.assertNotIn('Plano semanal', template)
         self.assertNotIn('Adicionar Bolo', template)
+
+    def test_intelligence_includes_transfer_created_before_product_rename(self):
+        cursor = _Cursor([
+            [{
+                'id': 10, 'tipologia': 'Palito Renomeado', 'sabor': '',
+                'cobertura': '', 'ativo': True,
+            }],
+            [{'loja': 'Bolhão', 'active_sales_store': True}],
+            [
+                {
+                    'data': date(2026, 9, 1), 'loja': 'Bolhão',
+                    'produto': 'Palito Renomeado', 'quantidade': 5,
+                    'created_at': None, 'produto_pastelaria_id': 10,
+                },
+                {
+                    'data': date(2026, 9, 8), 'loja': 'Bolhão',
+                    'produto': 'Palito Renomeado', 'quantidade': 2,
+                    'created_at': None, 'produto_pastelaria_id': 10,
+                },
+            ],
+            [],
+            [{
+                'data': date(2026, 9, 4), 'loja': 'Bolhão',
+                'produto': 'Palito Renomeado', 'quantidade': 3,
+                'produto_pastelaria_id': 10,
+            }],
+            [],
+            [],
+            [],
+            [],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            result = pastelaria.get_pastelaria_intelligence(
+                date(2026, 9, 1), date(2026, 9, 8), loja='Bolhão'
+            )
+        self.assertEqual(result['intervals'][0]['entradas_conhecidas'], 3)
+        self.assertEqual(result['intervals'][0]['consumo_estimado'], 6)
+
+    def test_intelligence_includes_production_recorded_before_product_rename(self):
+        cursor = _Cursor([
+            [{
+                'id': 10, 'tipologia': 'Palito Renomeado', 'sabor': '',
+                'cobertura': '', 'ativo': True,
+            }],
+            [{'loja': 'Bolhão', 'active_sales_store': True}],
+            [
+                {
+                    'data': date(2026, 9, 1), 'loja': 'Bolhão',
+                    'produto': 'Palito Renomeado', 'quantidade': 5,
+                    'created_at': None, 'produto_pastelaria_id': 10,
+                },
+                {
+                    'data': date(2026, 9, 8), 'loja': 'Bolhão',
+                    'produto': 'Palito Renomeado', 'quantidade': 2,
+                    'created_at': None, 'produto_pastelaria_id': 10,
+                },
+            ],
+            [{
+                'data': date(2026, 9, 4), 'loja': 'Bolhão',
+                'produto': 'Palito Renomeado', 'quantidade': 3,
+                'produto_pastelaria_id': 10,
+            }],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            result = pastelaria.get_pastelaria_intelligence(
+                date(2026, 9, 1), date(2026, 9, 8), loja='Bolhão'
+            )
+        self.assertEqual(result['intervals'][0]['entradas_conhecidas'], 3)
+        self.assertEqual(result['intervals'][0]['consumo_estimado'], 6)
+
+    def test_intelligence_keeps_reused_legacy_label_as_separate_identity(self):
+        cursor = _Cursor([
+            [{
+                'id': 10, 'tipologia': 'Palito', 'sabor': '',
+                'cobertura': '', 'ativo': True,
+            }],
+            [{'loja': 'Bolhão', 'active_sales_store': True}],
+            [
+                {
+                    'data': date(2026, 9, 1), 'loja': 'Bolhão',
+                    'produto': 'Palito', 'quantidade': 10,
+                    'created_at': None, 'produto_pastelaria_id': 10,
+                },
+                {
+                    'data': date(2026, 9, 8), 'loja': 'Bolhão',
+                    'produto': 'Palito', 'quantidade': 7,
+                    'created_at': None, 'produto_pastelaria_id': 10,
+                },
+                {
+                    'data': date(2026, 9, 1), 'loja': 'Bolhão',
+                    'produto': 'Palito', 'quantidade': 6,
+                    'created_at': None, 'produto_pastelaria_id': None,
+                },
+                {
+                    'data': date(2026, 9, 8), 'loja': 'Bolhão',
+                    'produto': 'Palito', 'quantidade': 5,
+                    'created_at': None, 'produto_pastelaria_id': None,
+                },
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            result = pastelaria.get_pastelaria_intelligence(
+                date(2026, 9, 1), date(2026, 9, 8), loja='Bolhão'
+            )
+        ranking = {
+            row['identity_key']: row for row in result['rotation_ranking']
+        }
+        self.assertEqual(set(ranking), {'id:10', 'text:Palito'})
+        self.assertEqual(ranking['id:10']['consumo_estimado'], 3)
+        self.assertEqual(ranking['id:10']['stock_final'], 7)
+        self.assertEqual(ranking['text:Palito']['consumo_estimado'], 1)
+        self.assertEqual(ranking['text:Palito']['stock_final'], 5)
+        self.assertEqual(
+            ranking['text:Palito']['produto'],
+            'Palito (histórico sem associação)',
+        )
 
 
 class PastelariaPlanMigrationPostgresTests(unittest.TestCase):
@@ -1152,8 +1345,95 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     quantidade INTEGER NOT NULL,
                     tipo VARCHAR(50) NOT NULL,
                     origem VARCHAR(30) NOT NULL DEFAULT 'contagem',
+                    produto_pastelaria_id INTEGER
+                        REFERENCES produtos_pastelaria(id) ON DELETE SET NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE ordens_transferencia (
+                    id SERIAL PRIMARY KEY,
+                    data DATE NOT NULL,
+                    area_origem VARCHAR(100) NOT NULL,
+                    produto VARCHAR(255) NOT NULL,
+                    sabor VARCHAR(255),
+                    quantidade REAL NOT NULL,
+                    unidade VARCHAR(50) NOT NULL DEFAULT 'kg',
+                    loja_destino VARCHAR(100) NOT NULL,
+                    status VARCHAR(50) NOT NULL DEFAULT 'pendente',
+                    criado_por VARCHAR(100),
+                    confirmado_por VARCHAR(100),
+                    confirmado_em TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    data_prevista DATE,
+                    batch_id VARCHAR(100),
+                    destino_tipo VARCHAR(20) NOT NULL DEFAULT 'loja',
+                    destino_nome VARCHAR(255),
+                    produto_pastelaria_id INTEGER
+                        REFERENCES produtos_pastelaria(id) ON DELETE SET NULL
+                );
+                CREATE TABLE transferencias_eventos (
+                    id SERIAL PRIMARY KEY,
+                    ordem_id INTEGER NOT NULL
+                        REFERENCES ordens_transferencia(id) ON DELETE CASCADE,
+                    event_type VARCHAR(50) NOT NULL,
+                    utilizador VARCHAR(100),
+                    motivo TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE plano_producao_pastelaria (
+                    id SERIAL PRIMARY KEY,
+                    data DATE NOT NULL,
+                    produto VARCHAR(255) NOT NULL,
+                    producao_estimada INTEGER DEFAULT 0,
+                    producao_real INTEGER,
+                    no_plano BOOLEAN DEFAULT FALSE,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status VARCHAR(20) DEFAULT 'pendente',
+                    nota TEXT DEFAULT '',
+                    producao_estimada_bolhao INTEGER DEFAULT 0,
+                    producao_estimada_matosinhos INTEGER DEFAULT 0,
+                    item_tipo VARCHAR(20) DEFAULT 'standard',
+                    bolo_tamanho VARCHAR(50),
+                    bolo_sabor_1 VARCHAR(255),
+                    bolo_sabor_2 VARCHAR(255),
+                    bolo_sabor_3 VARCHAR(255),
+                    bolo_cobertura VARCHAR(255),
+                    produto_pastelaria_id INTEGER
+                        REFERENCES produtos_pastelaria(id) ON DELETE SET NULL
+                );
+                CREATE TABLE stock_producao_pastelaria (
+                    id SERIAL PRIMARY KEY,
+                    data DATE NOT NULL,
+                    produto VARCHAR(255) NOT NULL,
+                    quantidade INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    produto_pastelaria_id INTEGER
+                        REFERENCES produtos_pastelaria(id) ON DELETE SET NULL
+                );
+                CREATE TABLE producao_pastelaria (
+                    id SERIAL PRIMARY KEY,
+                    data DATE NOT NULL,
+                    loja VARCHAR(100) NOT NULL,
+                    produto VARCHAR(255) NOT NULL,
+                    quantidade INTEGER NOT NULL,
+                    lote VARCHAR(50),
+                    store_id INTEGER,
+                    produto_pastelaria_id INTEGER
+                        REFERENCES produtos_pastelaria(id) ON DELETE SET NULL
+                );
+                CREATE UNIQUE INDEX plan_linked_identity
+                    ON plano_producao_pastelaria (
+                        data, produto_pastelaria_id
+                    ) WHERE produto_pastelaria_id IS NOT NULL;
+                CREATE UNIQUE INDEX plan_unlinked_identity
+                    ON plano_producao_pastelaria (data, produto)
+                    WHERE produto_pastelaria_id IS NULL;
+                CREATE UNIQUE INDEX stock_linked_identity
+                    ON stock_producao_pastelaria (
+                        data, produto_pastelaria_id
+                    ) WHERE produto_pastelaria_id IS NOT NULL;
+                CREATE UNIQUE INDEX stock_unlinked_identity
+                    ON stock_producao_pastelaria (data, produto)
+                    WHERE produto_pastelaria_id IS NULL;
 
                 INSERT INTO stores (name) VALUES ('Bolhão'), ('Matosinhos');
                 INSERT INTO produtos_pastelaria (tipologia)
@@ -1191,6 +1471,353 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     ORDER BY loja, id
                 """, (self.COUNT_DATE,))
                 return cursor.fetchall()
+
+    def test_catalogue_rename_keeps_saved_count_on_same_product(self):
+        count_date = date(2026, 9, 20)
+        with patch(
+            'db.pastelaria.db_connection',
+            self.isolated_connection,
+        ):
+            grid = pastelaria.get_pastelaria_store_count_grid(count_date, 1)
+            pastelaria.save_pastelaria_store_counts(
+                count_date,
+                1,
+                [(grid['products'][0]['id'], 6)],
+                grid['snapshot_token'],
+            )
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE produtos_pastelaria SET tipologia='Palito Renomeado' "
+                    "WHERE id=1"
+                )
+                connection.commit()
+
+        try:
+            with patch(
+                'db.pastelaria.db_connection',
+                self.isolated_connection,
+            ):
+                renamed_grid = pastelaria.get_pastelaria_store_count_grid(
+                    count_date, 1
+                )
+                history = pastelaria.get_contagem_stock_df(
+                    'pastelaria', count_date, count_date
+                )
+
+            self.assertEqual(renamed_grid['products'][0]['nome'],
+                             'Palito Renomeado')
+            self.assertEqual(renamed_grid['products'][0]['count'], 6)
+            self.assertEqual(history.iloc[0]['produto'], 'Palito Renomeado')
+            self.assertEqual(int(history.iloc[0]['produto_pastelaria_id']), 1)
+        finally:
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE produtos_pastelaria SET tipologia='Palito' "
+                        "WHERE id=1"
+                    )
+                    connection.commit()
+
+    def test_pending_transfer_keeps_product_identity_across_rename(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO plano_producao_pastelaria (
+                        data, produto, producao_real, produto_pastelaria_id
+                    ) VALUES ('2026-09-14', 'Palito', 12, 1)
+                """)
+                cursor.execute("""
+                    INSERT INTO stock_producao_pastelaria (
+                        data, produto, quantidade, produto_pastelaria_id
+                    ) VALUES ('2026-09-14', 'Palito', 7, 1)
+                """)
+                connection.commit()
+        with patch('db.plano.db_connection', self.isolated_connection):
+            order_id = plano.criar_ordem_transferencia(
+                date(2026, 9, 14),
+                'Pastelaria',
+                'Palito',
+                5,
+                unidade='und',
+                loja_destino='Bolhão',
+                criado_por='producao',
+            )
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE produtos_pastelaria SET tipologia='Palito Renomeado' "
+                    "WHERE id=1"
+                )
+                connection.commit()
+
+        try:
+            with patch('db.plano.db_connection', self.isolated_connection):
+                self.assertTrue(
+                    plano.confirmar_ordem_transferencia(order_id, 'loja')
+                )
+
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT cs.produto, cs.produto_pastelaria_id,
+                               p.tipologia
+                        FROM contagem_stock cs
+                        JOIN produtos_pastelaria p
+                          ON p.id=cs.produto_pastelaria_id
+                        WHERE cs.origem='transferencia'
+                          AND cs.loja='Bolhão'
+                        ORDER BY cs.id DESC
+                        LIMIT 1
+                    """)
+                    receipt = cursor.fetchone()
+            self.assertEqual(receipt, ('Palito', 1, 'Palito Renomeado'))
+
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO contagem_stock (
+                            data, loja, produto, quantidade, tipo, origem,
+                            produto_pastelaria_id
+                        ) VALUES (
+                            '2099-09-15', 'Bolhão', 'Palito Renomeado', 5,
+                            'pastelaria', 'contagem', 1
+                        )
+                    """)
+                    connection.commit()
+
+            with patch('db.area.db_connection', self.isolated_connection):
+                reconciliation = area.get_reconciliacao_pastelaria(
+                    date(2026, 9, 1), date(2099, 9, 30)
+                )
+            linked_rows = [
+                row for row in reconciliation
+                if row['produto'] == 'Palito Renomeado'
+            ]
+            self.assertEqual(len(linked_rows), 1)
+            self.assertEqual(linked_rows[0]['total_produzido'], 12)
+            self.assertEqual(linked_rows[0]['total_transferido'], 5)
+            self.assertEqual(linked_rows[0]['stock_producao'], 7)
+            self.assertEqual(linked_rows[0]['balcao_bolhao'], 5)
+        finally:
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("DELETE FROM plano_producao_pastelaria")
+                    cursor.execute("DELETE FROM stock_producao_pastelaria")
+                    cursor.execute(
+                        "UPDATE produtos_pastelaria SET tipologia='Palito' "
+                        "WHERE id=1"
+                    )
+                    connection.commit()
+
+    def test_pre_rename_plan_records_first_stock_under_same_product_id(self):
+        with patch('db.area.db_connection', self.isolated_connection):
+            area.upsert_plano_area(
+                'pastelaria', date(2026, 10, 1), 'Palito', 4
+            )
+            area.marcar_produto_no_plano(
+                'pastelaria', date(2026, 10, 1), 'Palito'
+            )
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE produtos_pastelaria SET tipologia='Palito Novo' "
+                    "WHERE id=1"
+                )
+                connection.commit()
+
+        try:
+            with patch('db.area.db_connection', self.isolated_connection):
+                plan_rows = area.get_plano_do_dia_area(
+                    'pastelaria', date(2026, 10, 1)
+                )
+                self.assertEqual(
+                    [row['produto'] for row in plan_rows], ['Palito Novo']
+                )
+                area.update_producao_real_area(
+                    'pastelaria', date(2026, 10, 1), 'Palito Novo', 4
+                )
+                area.upsert_stock_producao_area(
+                    'pastelaria', date(2026, 10, 1), 'Palito Novo', 4
+                )
+                stock_rows = area.get_stock_producao_area_all('pastelaria')
+
+            self.assertEqual(stock_rows, [{
+                'produto': 'Palito Novo', 'quantidade': 4,
+            }])
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT produto_pastelaria_id, COUNT(*), SUM(quantidade)
+                        FROM stock_producao_pastelaria
+                        WHERE data='2026-10-01'
+                        GROUP BY produto_pastelaria_id
+                    """)
+                    self.assertEqual(cursor.fetchone(), (1, 1, 4))
+        finally:
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM plano_producao_pastelaria "
+                        "WHERE data='2026-10-01'"
+                    )
+                    cursor.execute(
+                        "DELETE FROM stock_producao_pastelaria "
+                        "WHERE data='2026-10-01'"
+                    )
+                    cursor.execute(
+                        "UPDATE produtos_pastelaria SET tipologia='Palito' "
+                        "WHERE id=1"
+                    )
+                    connection.commit()
+
+    def test_label_reuse_never_claims_unresolved_plan_or_stock(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO plano_producao_pastelaria (
+                        data, produto, producao_estimada,
+                        produto_pastelaria_id
+                    ) VALUES ('2026-11-01', 'Palito', 9, NULL)
+                """)
+                cursor.execute("""
+                    INSERT INTO stock_producao_pastelaria (
+                        data, produto, quantidade, produto_pastelaria_id
+                    ) VALUES ('2026-11-01', 'Palito', 7, NULL)
+                """)
+                connection.commit()
+
+        try:
+            with patch('db.area.db_connection', self.isolated_connection):
+                area.upsert_plano_area(
+                    'pastelaria', date(2026, 11, 1), 'Palito', 4
+                )
+                area.upsert_stock_producao_area(
+                    'pastelaria', date(2026, 11, 1), 'Palito', 3
+                )
+
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT produto_pastelaria_id, producao_estimada
+                        FROM plano_producao_pastelaria
+                        WHERE data='2026-11-01'
+                        ORDER BY produto_pastelaria_id NULLS FIRST
+                    """)
+                    self.assertEqual(cursor.fetchall(), [(None, 9), (1, 4)])
+                    cursor.execute("""
+                        SELECT produto_pastelaria_id, quantidade
+                        FROM stock_producao_pastelaria
+                        WHERE data='2026-11-01'
+                        ORDER BY produto_pastelaria_id NULLS FIRST
+                    """)
+                    self.assertEqual(cursor.fetchall(), [(None, 7), (1, 3)])
+        finally:
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM plano_producao_pastelaria "
+                        "WHERE data='2026-11-01'"
+                    )
+                    cursor.execute(
+                        "DELETE FROM stock_producao_pastelaria "
+                        "WHERE data='2026-11-01'"
+                    )
+                    connection.commit()
+
+    def test_ambiguous_catalogue_label_is_rejected_by_all_stock_writers(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO produtos_pastelaria (tipologia) "
+                    "VALUES ('Palito')"
+                )
+                connection.commit()
+        try:
+            with patch('db.area.db_connection', self.isolated_connection):
+                with self.assertRaisesRegex(ValueError, 'identidade única'):
+                    area.upsert_plano_area(
+                        'pastelaria', date(2026, 12, 1), 'Palito', 2
+                    )
+            with (
+                patch('db.pastelaria.db_connection', self.isolated_connection),
+                patch('db.pastelaria.get_store_id_by_name', return_value=1),
+            ):
+                with self.assertRaisesRegex(ValueError, 'identidade única'):
+                    pastelaria.add_producao_pastelaria(
+                        date(2026, 12, 1), 'Bolhão', 'Palito', 2
+                    )
+            with patch('db.plano.db_connection', self.isolated_connection):
+                with self.assertRaisesRegex(ValueError, 'identidade única'):
+                    plano.criar_ordem_transferencia(
+                        date(2026, 12, 1), 'Pastelaria', 'Palito', 2,
+                        unidade='und', loja_destino='Bolhão',
+                    )
+        finally:
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM produtos_pastelaria WHERE id <> 1"
+                    )
+                    connection.commit()
+
+    def test_concurrent_first_plan_and_stock_writes_are_atomic(self):
+        plan_barrier = Barrier(2)
+
+        def save_plan(value):
+            plan_barrier.wait(timeout=5)
+            with patch('db.area.db_connection', self.isolated_connection):
+                area.upsert_plano_area(
+                    'pastelaria', date(2026, 12, 2), 'Palito', value
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(save_plan, (2, 3)))
+
+        stock_barrier = Barrier(2)
+
+        def save_stock(value):
+            stock_barrier.wait(timeout=5)
+            with patch('db.area.db_connection', self.isolated_connection):
+                area.upsert_stock_producao_area(
+                    'pastelaria', date(2026, 12, 2), 'Palito', value
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            list(executor.map(save_stock, (2, 3)))
+
+        try:
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM plano_producao_pastelaria
+                        WHERE data='2026-12-02'
+                          AND produto_pastelaria_id=1
+                    """)
+                    self.assertEqual(cursor.fetchone()[0], 1)
+                    cursor.execute("""
+                        SELECT COUNT(*), SUM(quantidade)
+                        FROM stock_producao_pastelaria
+                        WHERE data='2026-12-02'
+                          AND produto_pastelaria_id=1
+                    """)
+                    self.assertEqual(cursor.fetchone(), (1, 5))
+        finally:
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM plano_producao_pastelaria "
+                        "WHERE data='2026-12-02'"
+                    )
+                    cursor.execute(
+                        "DELETE FROM stock_producao_pastelaria "
+                        "WHERE data='2026-12-02'"
+                    )
+                    connection.commit()
 
     def test_two_stores_save_same_sunday_without_losing_values(self):
         with patch(

@@ -24,10 +24,38 @@ def add_producao_pastelaria(data: date, loja: str, produto: str, quantidade: int
     lote = generate_lote_pastelaria(data)
     with db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("""
+            SELECT MIN(id)
+            FROM produtos_pastelaria
+            WHERE CONCAT_WS(', ',
+                NULLIF(BTRIM(tipologia), ''),
+                NULLIF(BTRIM(sabor), ''),
+                NULLIF(BTRIM(cobertura), '')
+            ) = %s
+            HAVING COUNT(*) = 1
+        """, (produto,))
+        identity_row = cursor.fetchone()
+        produto_pastelaria_id = identity_row[0] if identity_row else None
+        if (
+            produto_pastelaria_id is None
+            and not produto.startswith('Bolo — ')
+        ):
+            raise ValueError(
+                f'Produto de Pastelaria sem identidade única: {produto}'
+            )
         cursor.execute('''
-            INSERT INTO producao_pastelaria (data, loja, produto, quantidade, lote, store_id)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        ''', (data, loja, produto, quantidade, lote, store_id))
+            INSERT INTO producao_pastelaria (
+                data, loja, produto, quantidade, lote, store_id,
+                produto_pastelaria_id
+            )
+            VALUES (
+                %s, %s, %s, %s, %s, %s,
+                %s
+            )
+        ''', (
+            data, loja, produto, quantidade, lote, store_id,
+            produto_pastelaria_id,
+        ))
         conn.commit()
     return lote
 
@@ -103,10 +131,26 @@ def add_contagem_stock(data: date, loja: str, produto: str, quantidade: int, tip
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 (f'pastelaria-count:{data.isoformat()}',),
             )
-        cursor.execute(
-            "INSERT INTO contagem_stock (data, loja, produto, quantidade, tipo) VALUES (%s, %s, %s, %s, %s)",
-            (data, loja, produto, quantidade, tipo)
-        )
+        produto_pastelaria_id = None
+        if tipo == 'pastelaria':
+            cursor.execute("""
+                SELECT id
+                FROM produtos_pastelaria
+                WHERE CONCAT_WS(', ',
+                    NULLIF(BTRIM(tipologia), ''),
+                    NULLIF(BTRIM(sabor), ''),
+                    NULLIF(BTRIM(cobertura), '')
+                ) = %s
+            """, (produto,))
+            matches = cursor.fetchall()
+            if len(matches) != 1:
+                raise ValueError('Produto de Pastelaria inválido ou ambíguo.')
+            produto_pastelaria_id = matches[0][0]
+        cursor.execute("""
+            INSERT INTO contagem_stock
+                (data, loja, produto, quantidade, tipo, produto_pastelaria_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (data, loja, produto, quantidade, tipo, produto_pastelaria_id))
         conn.commit()
 
 
@@ -134,13 +178,14 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
         """)
         products = cursor.fetchall()
         cursor.execute("""
-            SELECT DISTINCT ON (loja, produto) loja, produto, quantidade
-            FROM contagem_stock
+            SELECT DISTINCT ON (cs.loja, COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto))
+                   cs.loja, cs.produto, cs.quantidade, cs.produto_pastelaria_id
+            FROM contagem_stock cs
             WHERE tipo='pastelaria' AND data=%s
-            ORDER BY loja, produto, id DESC
+            ORDER BY cs.loja, COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto), cs.id DESC
         """, (count_date,))
         counts = {
-            (row['loja'], row['produto']): int(row['quantidade'])
+            (row['loja'], row.get('produto_pastelaria_id') or row['produto']): int(row['quantidade'])
             for row in cursor.fetchall()
         }
         token_filter = """
@@ -148,14 +193,22 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
                       WHERE id=%s AND supports_vendas=TRUE AND is_active=TRUE)
         """ if store_id is not None else ""
         cursor.execute(f"""
-            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, produto), ''))
+            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, product_key), ''))
                    AS snapshot_token
             FROM (
-                SELECT DISTINCT ON (loja, produto) id, loja, produto
+                SELECT DISTINCT ON (
+                           loja,
+                           COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                       )
+                       id, loja,
+                       COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                           AS product_key
                 FROM contagem_stock
                 WHERE tipo='pastelaria' AND data=%s
                 {token_filter}
-                ORDER BY loja, produto, id DESC
+                ORDER BY loja,
+                         COALESCE(produto_pastelaria_id::text, 'text:' || produto),
+                         id DESC
             ) latest
         """, (count_date, store_id) if store_id is not None else (count_date,))
         snapshot_token = cursor.fetchone()['snapshot_token']
@@ -166,7 +219,7 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
         label = _pastelaria_product_label(product)
         values = {}
         for store in stores:
-            quantity = counts.get((store['name'], label))
+            quantity = counts.get((store['name'], product['id']))
             values[store['id']] = quantity
             completed += quantity is not None
             completed_by_store[store['id']] += quantity is not None
@@ -215,23 +268,30 @@ def get_pastelaria_store_count_grid(count_date, store_id):
         """)
         products = cursor.fetchall()
         cursor.execute("""
-            SELECT DISTINCT ON (produto) produto, quantidade
-            FROM contagem_stock
+            SELECT DISTINCT ON (COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto))
+                   cs.produto, cs.quantidade, cs.produto_pastelaria_id
+            FROM contagem_stock cs
             WHERE tipo='pastelaria' AND data=%s AND loja=%s
-            ORDER BY produto, id DESC
+            ORDER BY COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto), cs.id DESC
         """, (count_date, store['name']))
         counts = {
-            row['produto']: int(row['quantidade'])
+            row.get('produto_pastelaria_id') or row['produto']: int(row['quantidade'])
             for row in cursor.fetchall()
         }
         cursor.execute("""
-            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY produto), ''))
+            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY product_key), ''))
                    AS snapshot_token
             FROM (
-                SELECT DISTINCT ON (produto) id, produto
+                SELECT DISTINCT ON (
+                           COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                       )
+                       id,
+                       COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                           AS product_key
                 FROM contagem_stock
                 WHERE tipo='pastelaria' AND data=%s AND loja=%s
-                ORDER BY produto, id DESC
+                ORDER BY COALESCE(produto_pastelaria_id::text, 'text:' || produto),
+                         id DESC
             ) latest
         """, (count_date, store['name']))
         snapshot_token = cursor.fetchone()['snapshot_token']
@@ -240,7 +300,7 @@ def get_pastelaria_store_count_grid(count_date, store_id):
     completed = 0
     for product in products:
         label = _pastelaria_product_label(product)
-        quantity = counts.get(label)
+        quantity = counts.get(product['id'])
         completed += quantity is not None
         rows.append({**product, 'nome': label, 'count': quantity})
     total = len(products)
@@ -295,13 +355,19 @@ def save_pastelaria_store_counts(count_date, store_id, values, snapshot_token):
         if not store:
             raise ValueError('Loja inválida ou sem acesso ao módulo Vendas.')
         cursor.execute("""
-            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY produto), ''))
+            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY product_key), ''))
                    AS snapshot_token
             FROM (
-                SELECT DISTINCT ON (produto) id, produto
+                SELECT DISTINCT ON (
+                           COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                       )
+                       id,
+                       COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                           AS product_key
                 FROM contagem_stock
                 WHERE tipo='pastelaria' AND data=%s AND loja=%s
-                ORDER BY produto, id DESC
+                ORDER BY COALESCE(produto_pastelaria_id::text, 'text:' || produto),
+                         id DESC
             ) latest
         """, (count_date, store['name']))
         current_token = cursor.fetchone()['snapshot_token']
@@ -328,13 +394,13 @@ def save_pastelaria_store_counts(count_date, store_id, values, snapshot_token):
         rows = [
             (
                 count_date, store['name'], product_names[product_id],
-                quantity, 'pastelaria',
+                quantity, 'pastelaria', product_id,
             )
             for product_id, quantity in normalized.items()
         ]
         execute_values(cursor, """
             INSERT INTO contagem_stock
-                (data, loja, produto, quantidade, tipo)
+                (data, loja, produto, quantidade, tipo, produto_pastelaria_id)
             VALUES %s
         """, rows)
         conn.commit()
@@ -375,14 +441,22 @@ def save_pastelaria_sunday_counts(
                       WHERE id=%s AND supports_vendas=TRUE AND is_active=TRUE)
         """ if store_id is not None else ""
         cursor.execute(f"""
-            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, produto), ''))
+            SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, product_key), ''))
                    AS snapshot_token
             FROM (
-                SELECT DISTINCT ON (loja, produto) id, loja, produto
+                SELECT DISTINCT ON (
+                           loja,
+                           COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                       )
+                       id, loja,
+                       COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                           AS product_key
                 FROM contagem_stock
                 WHERE tipo='pastelaria' AND data=%s
                 {token_filter}
-                ORDER BY loja, produto, id DESC
+                ORDER BY loja,
+                         COALESCE(produto_pastelaria_id::text, 'text:' || produto),
+                         id DESC
             ) latest
         """, (count_date, store_id) if store_id is not None else (count_date,))
         current_token = cursor.fetchone()['snapshot_token']
@@ -420,13 +494,13 @@ def save_pastelaria_sunday_counts(
         rows = [
             (
                 count_date, store_names[store_id], product_names[product_id],
-                quantity, 'pastelaria',
+                quantity, 'pastelaria', product_id,
             )
             for (product_id, store_id), quantity in normalized.items()
         ]
         execute_values(cursor, """
             INSERT INTO contagem_stock
-                (data, loja, produto, quantidade, tipo)
+                (data, loja, produto, quantidade, tipo, produto_pastelaria_id)
             VALUES %s
         """, rows)
         conn.commit()
@@ -449,15 +523,30 @@ def get_contagem_stock_df(tipo: str, data_inicio: date = None, data_fim: date = 
                       AND EXTRACT(DOW FROM data)=0
                 ) sundays
             """, (data_inicio, data_inicio, data_fim, data_fim))
-        query = "SELECT * FROM contagem_stock WHERE tipo = %s"
+        query = """
+            SELECT cs.id, cs.data, cs.loja,
+                   CASE WHEN cs.tipo='pastelaria' AND p.id IS NOT NULL
+                        THEN CONCAT_WS(', ',
+                            NULLIF(BTRIM(p.tipologia), ''),
+                            NULLIF(BTRIM(p.sabor), ''),
+                            NULLIF(BTRIM(p.cobertura), '')
+                        )
+                        ELSE cs.produto END AS produto,
+                   cs.quantidade, cs.tipo, cs.origem, cs.created_at,
+                   cs.produto_pastelaria_id
+            FROM contagem_stock cs
+            LEFT JOIN produtos_pastelaria p
+              ON p.id=cs.produto_pastelaria_id
+            WHERE cs.tipo = %s
+        """
         params = [tipo]
         if data_inicio:
-            query += " AND data >= %s"
+            query += " AND cs.data >= %s"
             params.append(data_inicio)
         if data_fim:
-            query += " AND data <= %s"
+            query += " AND cs.data <= %s"
             params.append(data_fim)
-        query += " ORDER BY data DESC, produto"
+        query += " ORDER BY cs.data DESC, produto"
         return pd.read_sql_query(query, conn, params=params)
 
 def add_ajuste_producao(ano: int, mes: int, quantidade_kg: float, descricao: str = None):
@@ -755,37 +844,80 @@ def get_pastelaria_intelligence(
         }
 
         cursor.execute("""
-            SELECT DISTINCT ON (data, loja, produto)
-                   data, loja, produto, quantidade, created_at
-            FROM contagem_stock
-            WHERE tipo='pastelaria' AND origem='contagem'
-              AND data BETWEEN %s AND %s
-            ORDER BY data, loja, produto, id DESC
+            SELECT DISTINCT ON (
+                       cs.data, cs.loja,
+                       COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
+                   )
+                   cs.data, cs.loja,
+                   COALESCE(
+                       NULLIF(CONCAT_WS(', ',
+                           NULLIF(BTRIM(p.tipologia), ''),
+                           NULLIF(BTRIM(p.sabor), ''),
+                           NULLIF(BTRIM(p.cobertura), '')
+                       ), ''),
+                       cs.produto
+                   ) AS produto,
+                   cs.quantidade, cs.created_at, cs.produto_pastelaria_id
+            FROM contagem_stock cs
+            LEFT JOIN produtos_pastelaria p
+              ON p.id=cs.produto_pastelaria_id
+            WHERE cs.tipo='pastelaria' AND cs.origem='contagem'
+              AND cs.data BETWEEN %s AND %s
+            ORDER BY cs.data, cs.loja,
+                     COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto),
+                     cs.id DESC
         """, (data_inicio, data_fim))
         counts = [dict(row) for row in cursor.fetchall()]
 
         cursor.execute("""
-            SELECT data, loja, produto, SUM(quantidade)::integer AS quantidade
-            FROM producao_pastelaria
-            WHERE data BETWEEN %s AND %s
-            GROUP BY data, loja, produto
+            SELECT pp.data, pp.loja,
+                   COALESCE(
+                       NULLIF(CONCAT_WS(', ',
+                           NULLIF(BTRIM(p.tipologia), ''),
+                           NULLIF(BTRIM(p.sabor), ''),
+                           NULLIF(BTRIM(p.cobertura), '')
+                       ), ''),
+                       pp.produto
+                   ) AS produto,
+                   SUM(pp.quantidade)::integer AS quantidade,
+                   pp.produto_pastelaria_id
+            FROM producao_pastelaria pp
+            LEFT JOIN produtos_pastelaria p
+              ON p.id=pp.produto_pastelaria_id
+            WHERE pp.data BETWEEN %s AND %s
+            GROUP BY pp.data, pp.loja, pp.produto_pastelaria_id,
+                     p.tipologia, p.sabor, p.cobertura, pp.produto
         """, (data_inicio, data_fim))
         production = [dict(row) for row in cursor.fetchall()]
 
         cursor.execute("""
             SELECT COALESCE(confirmado_em::date, data_prevista, data) AS data,
-                   loja_destino AS loja, produto,
-                   SUM(quantidade)::numeric AS quantidade
-            FROM ordens_transferencia
-            WHERE LOWER(area_origem)='pastelaria'
-              AND status='confirmada'
-              AND unidade IN ('und', 'un', 'unidade', 'unidades')
-              AND ((confirmado_em >= %s AND confirmado_em < %s)
-                   OR (confirmado_em IS NULL
-                       AND COALESCE(data_prevista, data) BETWEEN %s AND %s))
-              AND COALESCE(destino_tipo, 'loja')='loja'
-            GROUP BY COALESCE(confirmado_em::date, data_prevista, data),
-                     loja_destino, produto
+                   ot.loja_destino AS loja,
+                   COALESCE(
+                       NULLIF(CONCAT_WS(', ',
+                           NULLIF(BTRIM(p.tipologia), ''),
+                           NULLIF(BTRIM(p.sabor), ''),
+                           NULLIF(BTRIM(p.cobertura), '')
+                       ), ''),
+                       ot.produto
+                   ) AS produto,
+                   SUM(ot.quantidade)::numeric AS quantidade,
+                   ot.produto_pastelaria_id
+            FROM ordens_transferencia ot
+            LEFT JOIN produtos_pastelaria p
+              ON p.id=ot.produto_pastelaria_id
+            WHERE LOWER(ot.area_origem)='pastelaria'
+              AND ot.status='confirmada'
+              AND ot.unidade IN ('und', 'un', 'unidade', 'unidades')
+              AND ((ot.confirmado_em >= %s AND ot.confirmado_em < %s)
+                   OR (ot.confirmado_em IS NULL
+                       AND COALESCE(ot.data_prevista, ot.data) BETWEEN %s AND %s))
+              AND COALESCE(ot.destino_tipo, 'loja')='loja'
+            GROUP BY COALESCE(
+                         ot.confirmado_em::date, ot.data_prevista, ot.data
+                     ),
+                     ot.loja_destino, ot.produto_pastelaria_id,
+                     p.tipologia, p.sabor, p.cobertura, ot.produto
         """, (data_inicio, data_fim + timedelta(days=1),
               data_inicio, data_fim))
         transfers = [dict(row) for row in cursor.fetchall()]
@@ -834,8 +966,12 @@ def get_pastelaria_intelligence(
         """, (previous_start, previous_end))
         previous_total_sales = [dict(row) for row in cursor.fetchall()]
 
-    def product_allowed(name):
-        row = catalogue_by_name.get(name)
+    catalogue_by_id = {row['id']: row for row in catalogue}
+
+    def product_allowed(name, product_id=None, allow_name_match=True):
+        row = catalogue_by_id.get(product_id) if product_id else None
+        if product_id is None and allow_name_match and name in catalogue_by_name:
+            row = catalogue_by_name[name]
         if produto and name != produto:
             return False
         if tipologia and (not row or row['tipologia'] != tipologia):
@@ -849,21 +985,38 @@ def get_pastelaria_intelligence(
     analysis_stores = {loja} if loja else active_sales_stores
     counts = [
         row for row in counts
-        if row['loja'] in analysis_stores and product_allowed(row['produto'])
+        if row['loja'] in analysis_stores
+        and product_allowed(
+            row['produto'], row.get('produto_pastelaria_id'),
+            allow_name_match=False,
+        )
     ]
     for row in counts:
-        catalogue_row = catalogue_by_name.get(row['produto'])
+        catalogue_row = catalogue_by_id.get(row.get('produto_pastelaria_id'))
+        row['identity_key'] = (
+            f"id:{row['produto_pastelaria_id']}"
+            if row.get('produto_pastelaria_id') is not None
+            else f"text:{row['produto']}"
+        )
         row['estado'] = (
             'Ativo' if catalogue_row and catalogue_row['ativo']
             else 'Inativo' if catalogue_row else 'Histórico'
         )
     production = [
         row for row in production
-        if row['loja'] in analysis_stores and product_allowed(row['produto'])
+        if row['loja'] in analysis_stores
+        and product_allowed(
+            row['produto'], row.get('produto_pastelaria_id'),
+            allow_name_match=row.get('produto_pastelaria_id') is None,
+        )
     ]
     transfers = [
         row for row in transfers
-        if row['loja'] in analysis_stores and product_allowed(row['produto'])
+        if row['loja'] in analysis_stores
+        and product_allowed(
+            row['produto'], row.get('produto_pastelaria_id'),
+            allow_name_match=row.get('produto_pastelaria_id') is None,
+        )
     ]
     available_sales_typologies = sorted({
         row['tipologia'] for row in pastry_sales + previous_pastry_sales
@@ -888,9 +1041,19 @@ def get_pastelaria_intelligence(
 
     entries = defaultdict(lambda: defaultdict(int))
     for row in production:
-        entries[(row['loja'], row['produto'])][row['data']] += int(row['quantidade'])
+        identity_key = (
+            f"id:{row['produto_pastelaria_id']}"
+            if row.get('produto_pastelaria_id') is not None
+            else f"text:{row['produto']}"
+        )
+        entries[(row['loja'], identity_key)][row['data']] += int(row['quantidade'])
     for row in transfers:
-        entries[(row['loja'], row['produto'])][row['data']] += int(row['quantidade'])
+        identity_key = (
+            f"id:{row['produto_pastelaria_id']}"
+            if row.get('produto_pastelaria_id') is not None
+            else f"text:{row['produto']}"
+        )
+        entries[(row['loja'], identity_key)][row['data']] += int(row['quantidade'])
     entry_index = {}
     for key, day_values in entries.items():
         dates = sorted(day_values)
@@ -901,13 +1064,15 @@ def get_pastelaria_intelligence(
 
     grouped_counts = defaultdict(list)
     for row in counts:
-        grouped_counts[(row['loja'], row['produto'])].append(row)
+        grouped_counts[
+            (row['loja'], row['identity_key'], row['produto'])
+        ].append(row)
     intervals = []
-    for (store_name, product_name), rows in grouped_counts.items():
+    for (store_name, identity_key, product_name), rows in grouped_counts.items():
         rows.sort(key=lambda row: row['data'])
         for opening, closing in zip(rows, rows[1:]):
             dates, cumulative = entry_index.get(
-                (store_name, product_name), ([], [0])
+                (store_name, identity_key), ([], [0])
             )
             start_index = bisect_right(dates, opening['data'])
             end_index = bisect_right(dates, closing['data'])
@@ -919,6 +1084,7 @@ def get_pastelaria_intelligence(
             days = (closing['data'] - opening['data']).days
             intervals.append({
                 'loja': store_name,
+                'identity_key': identity_key,
                 'produto': product_name,
                 'inicio': opening['data'],
                 'fim': closing['data'],
@@ -940,18 +1106,41 @@ def get_pastelaria_intelligence(
     ]
     rotation_by_product = defaultdict(lambda: {
         'consumo_estimado': 0, 'intervalos': 0, 'intervalos_baixa': 0,
-        'stock_final': 0,
+        'stock_final_por_loja': {},
     })
     for row in usable_intervals:
-        item = rotation_by_product[row['produto']]
+        item = rotation_by_product[row['identity_key']]
+        item['produto'] = row['produto']
         item['consumo_estimado'] += row['consumo_estimado']
         item['intervalos'] += 1
         item['intervalos_baixa'] += row['confianca'] == 'baixa'
-        item['stock_final'] = row['stock_final']
-    rotation_ranking = [
-        {'produto': name, **values}
-        for name, values in rotation_by_product.items()
-    ]
+        previous = item['stock_final_por_loja'].get(row['loja'])
+        if previous is None or row['fim'] > previous['fim']:
+            item['stock_final_por_loja'][row['loja']] = {
+                'fim': row['fim'], 'stock_final': row['stock_final'],
+            }
+    labels_per_identity = defaultdict(set)
+    for identity_key, values in rotation_by_product.items():
+        labels_per_identity[values['produto']].add(identity_key)
+    rotation_ranking = []
+    for identity_key, values in rotation_by_product.items():
+        product_name = values['produto']
+        if (
+            identity_key.startswith('text:')
+            and len(labels_per_identity[product_name]) > 1
+        ):
+            product_name = f'{product_name} (histórico sem associação)'
+        rotation_ranking.append({
+            'identity_key': identity_key,
+            'produto': product_name,
+            'consumo_estimado': values['consumo_estimado'],
+            'intervalos': values['intervalos'],
+            'intervalos_baixa': values['intervalos_baixa'],
+            'stock_final': sum(
+                item['stock_final']
+                for item in values['stock_final_por_loja'].values()
+            ),
+        })
     rotation_ranking.sort(
         key=lambda row: (-row['consumo_estimado'], row['produto'])
     )
@@ -1122,12 +1311,17 @@ def _pastelaria_priority_inputs(cursor, count_date):
     """)
     products = cursor.fetchall()
     cursor.execute("""
-        SELECT DISTINCT ON (loja, produto) loja, produto, quantidade
-        FROM contagem_stock
+        SELECT DISTINCT ON (cs.loja, COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto))
+               cs.loja, cs.produto, cs.quantidade, cs.produto_pastelaria_id
+        FROM contagem_stock cs
         WHERE tipo='pastelaria' AND data=%s
-        ORDER BY loja, produto, id DESC
+        ORDER BY cs.loja, COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto), cs.id DESC
     """, (count_date,))
-    counts = {(row['loja'], row['produto']): int(row['quantidade']) for row in cursor.fetchall()}
+    counts = {
+        (row['loja'], row.get('produto_pastelaria_id') or row['produto']):
+            int(row['quantidade'])
+        for row in cursor.fetchall()
+    }
     cursor.execute("""
         SELECT produto_id, store_id, quantidade_minima
         FROM pastelaria_stock_minimos
@@ -1144,7 +1338,7 @@ def _pastelaria_priority_inputs(cursor, count_date):
         distribution = []
         total_minimum = total_count = total_need = 0
         for store in stores:
-            key = (store['name'], label)
+            key = (store['name'], product['id'])
             minimum_key = (product['id'], store['id'])
             if minimum_key not in minimums:
                 missing_minimums.append({
@@ -2454,12 +2648,47 @@ def get_product_dashboard_summary(area: str) -> pd.DataFrame:
                 vendas_semana[produto_venda] = {}
             vendas_semana[produto_venda][loja] = total
 
-        cursor.execute("""
-            SELECT DISTINCT ON (produto, loja) produto, loja, quantidade
-            FROM contagem_stock
-            WHERE tipo = %s
-            ORDER BY produto, loja, data DESC, id DESC
-        """, (area,))
+        if area == 'pastelaria':
+            cursor.execute("""
+                WITH latest_identity AS (
+                    SELECT DISTINCT ON (
+                               COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto),
+                               cs.loja
+                           )
+                           COALESCE(
+                               NULLIF(CONCAT_WS(', ',
+                                   NULLIF(BTRIM(p.tipologia), ''),
+                                   NULLIF(BTRIM(p.sabor), ''),
+                                   NULLIF(BTRIM(p.cobertura), '')
+                               ), ''),
+                               cs.produto
+                           ) AS produto,
+                           cs.loja, cs.quantidade, cs.data, cs.id,
+                           cs.produto_pastelaria_id
+                    FROM contagem_stock cs
+                    LEFT JOIN produtos_pastelaria p
+                      ON p.id=cs.produto_pastelaria_id
+                    WHERE cs.tipo = %s
+                    ORDER BY COALESCE(
+                                 cs.produto_pastelaria_id::text,
+                                 'text:' || cs.produto
+                             ),
+                             cs.loja, cs.data DESC, cs.id DESC
+                )
+                SELECT DISTINCT ON (produto, loja)
+                       produto, loja, quantidade
+                FROM latest_identity
+                ORDER BY produto, loja,
+                         (produto_pastelaria_id IS NOT NULL) DESC,
+                         data DESC, id DESC
+            """, (area,))
+        else:
+            cursor.execute("""
+                SELECT DISTINCT ON (produto, loja) produto, loja, quantidade
+                FROM contagem_stock
+                WHERE tipo = %s
+                ORDER BY produto, loja, data DESC, id DESC
+            """, (area,))
         stock_map = {}
         for row in cursor.fetchall():
             produto_stock = row[0]

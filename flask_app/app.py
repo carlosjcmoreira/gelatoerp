@@ -66,6 +66,7 @@ from db.schema import run_migrations_drop_supplier_category, run_migrations_aces
 from db.schema import run_migrations_cost_centers_store_id
 from db.schema import (
     run_migrations_pastelaria_plano,
+    run_migrations_pastelaria_count_product_id,
     run_migrations_pastelaria_product_state_audit,
 )
 from db.schema import run_migrations_eventos_v2_foundation, run_migrations_eventos_customer_portal
@@ -206,6 +207,7 @@ def create_app():
         run_migrations_centros_custo()
         run_migrations_cost_centers_store_id()
         run_migrations_pastelaria_plano()
+        run_migrations_pastelaria_count_product_id()
         run_migrations_pastelaria_product_state_audit()
         run_migrations_colaboradores_smart()
         run_migrations_transferencias_motivo()
