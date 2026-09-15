@@ -69,12 +69,16 @@
                     <td>{{ row.produto }}</td>
                     {% set known = [] %}
                     {% for store in stock_stores %}
-                    {% set value = row.stores[store.name] %}
+                    {% set value = row.stores.get(store.name) %}
                     <td class="text-center">
-                        {% if value.quantidade is not none %}
+                        {% if value and value.quantidade is not none %}
                         {% set _ = known.append(value.quantidade) %}
                         <span class="fw-bold">{{ value.quantidade }}</span>
+                        {% if value.data %}
                         <br><small class="text-muted">{{ value.data.strftime('%d/%m/%Y') }}</small>
+                        {% else %}
+                        <br><small class="text-muted">—</small>
+                        {% endif %}
                         {% else %}
                         <span class="text-muted">—</span>
                         {% endif %}

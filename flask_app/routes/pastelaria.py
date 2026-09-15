@@ -61,6 +61,35 @@ def _can_generate_priority_plan(user):
     ))
 
 
+def _build_stock_matrix(latest_stock, products, stores):
+    stock_matrix = {}
+    for stock in latest_stock:
+        product = stock['produto']
+        row = stock_matrix.setdefault(product, {
+            'produto': product,
+            'stores': {},
+        })
+        row['stores'][stock['loja']] = {
+            'quantidade': stock['quantidade'],
+            'data': stock['data'],
+        }
+
+    for product in products:
+        stock_matrix.setdefault(product, {
+            'produto': product,
+            'stores': {},
+        })
+
+    for row in stock_matrix.values():
+        for store in stores:
+            row['stores'].setdefault(store['name'], {
+                'quantidade': None,
+                'data': None,
+            })
+
+    return sorted(stock_matrix.values(), key=lambda row: row['produto'])
+
+
 def _can_view_intelligence(user):
     return bool(user and (
         user.get('acesso_gestor')
@@ -216,27 +245,9 @@ def stock_balcao():
 
     stock_config = get_pastelaria_stock_minimums()
     ultimo_stock = get_ultimo_stock_balcao(AREA)
-    stock_matrix = {}
-    for s in ultimo_stock:
-        prod = s['produto']
-        if prod not in stock_matrix:
-            stock_matrix[prod] = {'produto': prod, 'stores': {}}
-        stock_matrix[prod]['stores'][s['loja']] = {
-            'quantidade': s['quantidade'], 'data': s['data'],
-        }
-    stock_matrix_list = sorted(stock_matrix.values(), key=lambda x: x['produto'])
-
     stores = stock_config['stores']
     products = get_produtos_pastelaria() or []
-    for product in products:
-        stock_matrix.setdefault(product, {
-            'produto': product,
-            'stores': {
-                store['name']: {'quantidade': None, 'data': None}
-                for store in stores
-            },
-        })
-    stock_matrix_list = sorted(stock_matrix.values(), key=lambda x: x['produto'])
+    stock_matrix_list = _build_stock_matrix(ultimo_stock, products, stores)
 
     try:
         history_start = (

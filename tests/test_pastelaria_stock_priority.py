@@ -99,6 +99,73 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             {'loja': 'Matosinhos', 'produto': 'Nivotto'}, result['missing']
         )
 
+    def test_stock_page_renders_partial_store_counts_as_unknown(self):
+        from flask_app.routes import pastelaria as pastelaria_routes
+
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.add_url_rule('/', endpoint='home.index', view_func=lambda: '')
+        app.add_url_rule('/login', endpoint='auth.login', view_func=lambda: '')
+        app.register_blueprint(
+            pastelaria_routes.pastelaria_bp, url_prefix='/pastelaria'
+        )
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'loja',
+                'role': 'vendas',
+                'acesso_pastelaria': True,
+            }
+
+        stores = [
+            {'id': 1, 'name': 'Bolhão'},
+            {'id': 2, 'name': 'Matosinhos'},
+        ]
+        partial_stock = [{
+            'produto': 'Palito',
+            'loja': 'Matosinhos',
+            'quantidade': 7,
+            'data': date(2026, 9, 13),
+        }]
+        count_status = {
+            'stores': stores,
+            'completed_by_store': {1: 0, 2: 1},
+            'total_by_store': {1: 1, 2: 1},
+        }
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_stock_minimums',
+                return_value={'stores': stores, 'products': []},
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_ultimo_stock_balcao',
+                return_value=partial_stock,
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_produtos_pastelaria',
+                return_value=['Palito'],
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_contagem_stock_df',
+                return_value=pastelaria_routes.pd.DataFrame(),
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_sunday_count_grid',
+                return_value=count_status,
+            ),
+            patch(
+                'flask_app.routes.pastelaria._tabs_with_urls',
+                return_value=[],
+            ),
+        ):
+            response = client.get('/pastelaria/stock-balcao')
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('7', html)
+        self.assertIn('13/09/2026', html)
+        self.assertIn('—', html)
+
     def test_non_sunday_is_rejected(self):
         with self.assertRaisesRegex(ValueError, 'domingo'):
             pastelaria._pastelaria_priority_inputs(_Cursor(), date(2026, 9, 7))
