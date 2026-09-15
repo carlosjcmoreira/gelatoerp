@@ -334,17 +334,10 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             result['missing_minimums'],
         )
 
-    def test_permissions_separate_sales_from_management_and_production(self):
+    def test_minimum_matrix_requires_every_product_store_value(self):
         from flask_app.routes.pastelaria import (
-            _can_configure_stock_minimums,
-            _can_generate_priority_plan,
             _parse_stock_minimum_matrix,
         )
-        sales = {'role': 'vendasmat', 'acesso_pastelaria': True}
-        self.assertFalse(_can_configure_stock_minimums(sales))
-        self.assertFalse(_can_generate_priority_plan(sales))
-        self.assertTrue(_can_configure_stock_minimums({'role': 'gestao'}))
-        self.assertTrue(_can_generate_priority_plan({'role': 'producao'}))
         config = {
             'products': [{'id': 10}],
             'stores': [{'id': 1}, {'id': 2}],
@@ -383,7 +376,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertNotIn('DELETE', statements)
         self.assertNotIn('pastelaria_stock_minimos', statements)
 
-    def test_only_management_can_change_product_states(self):
+    def test_pastelaria_user_can_change_product_states(self):
         from flask_app.routes.pastelaria import pastelaria_bp
         app = Flask(__name__, template_folder='../flask_app/templates')
         app.secret_key = 'test'
@@ -397,25 +390,6 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             session['user'] = {
                 'username': 'loja', 'role': 'vendas',
                 'acesso_pastelaria': True,
-            }
-        with patch(
-            'flask_app.routes.pastelaria.db.save_produtos_pastelaria_active'
-        ) as save:
-            response = client.post(
-                '/pastelaria/produtos',
-                data={
-                    'action': 'save_product_states',
-                    'state_10': 'inactive', 'state_token': 'token-a',
-                },
-            )
-        self.assertEqual(response.status_code, 403)
-        save.assert_not_called()
-
-        with client.session_transaction() as session:
-            session['user'] = {
-                'id': 7,
-                'username': 'gestor', 'role': 'gestao',
-                'acesso_pastelaria': True, 'acesso_gestor': True,
             }
         with (
             patch(
@@ -436,7 +410,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 302)
         save.assert_called_once_with(
-            [(10, False)], 'token-a', 7, 'gestor'
+            [(10, False)], 'token-a'
         )
 
     def test_stale_product_state_form_is_rejected(self):
@@ -480,7 +454,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertFalse(result[0]['new_active'])
         self.assertIn('ORDER BY a.changed_at DESC, a.id DESC', cursor.queries[0][0])
 
-    def test_non_management_cannot_add_or_delete_catalogue_products(self):
+    def test_pastelaria_user_can_add_product_but_permanent_delete_stays_blocked(self):
         from flask_app.routes.pastelaria import pastelaria_bp
         app = Flask(__name__, template_folder='../flask_app/templates')
         app.secret_key = 'test'
@@ -503,9 +477,9 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             delete_response = client.post('/pastelaria/produtos', data={
                 'action': 'delete_bulk_produtos_past', 'produto_ids': '10',
             })
-        self.assertEqual(add_response.status_code, 403)
-        self.assertEqual(delete_response.status_code, 403)
-        add.assert_not_called()
+        self.assertEqual(add_response.status_code, 302)
+        self.assertEqual(delete_response.status_code, 302)
+        add.assert_called_once_with('Palito', '', '')
         delete.assert_not_called()
 
     def test_breakage_rejects_inactive_or_forged_product(self):
@@ -562,7 +536,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'eliminação permanente'):
             pastelaria.delete_produtos_pastelaria_bulk([10])
 
-    def test_routes_reject_partial_configuration_and_sales_generation(self):
+    def test_routes_reject_partial_configuration_and_allow_module_generation(self):
         from flask_app.routes.pastelaria import pastelaria_bp
 
         app = Flask(__name__, template_folder='../flask_app/templates')
@@ -617,10 +591,13 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         ):
             response = client.post(
                 '/pastelaria/planear',
-                data={'domingo': '2026-09-06'},
+                data={
+                    'action': 'gerar_plano',
+                    'data_contagem': '2026-09-06',
+                },
             )
-        self.assertEqual(response.status_code, 403)
-        generate.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        generate.assert_called_once()
 
     def test_store_scoped_grid_only_requires_the_selected_store(self):
         cursor = _Cursor([
@@ -869,7 +846,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertIn("origem='contagem'", count_query)
         self.assertIn('confirmado_em::date', transfer_query)
 
-    def test_intelligence_route_is_restricted_to_production_and_management(self):
+    def test_intelligence_route_allows_pastelaria_user(self):
         from flask_app.routes.pastelaria import pastelaria_bp
         app = Flask(__name__)
         app.secret_key = 'test'
@@ -880,8 +857,34 @@ class PastelariaStockPriorityTests(unittest.TestCase):
                 'username': 'loja', 'role': 'vendas',
                 'acesso_pastelaria': True,
             }
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_intelligence',
+                return_value={'intervals': [], 'sales_series': []},
+            ),
+            patch(
+                'flask_app.routes.pastelaria.render_template',
+                return_value='ok',
+            ),
+        ):
+            response = client.get('/pastelaria/inteligencia')
+        self.assertEqual(response.status_code, 200)
+
+    def test_intelligence_route_still_blocks_user_without_pastelaria_access(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+        app = Flask(__name__)
+        app.secret_key = 'test'
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        app.add_url_rule('/', endpoint='home.index', view_func=lambda: 'home')
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'compras', 'role': 'compras',
+                'acesso_pastelaria': False,
+            }
         response = client.get('/pastelaria/inteligencia')
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers['Location'], '/')
 
     def test_intelligence_excludes_inconsistent_rotation_and_uses_store_days(self):
         cursor = _Cursor([

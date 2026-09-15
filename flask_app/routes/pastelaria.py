@@ -48,19 +48,6 @@ TABS = [
 ]
 
 
-def _can_configure_stock_minimums(user):
-    return bool(user and (
-        user.get('acesso_gestor') or user.get('role') in {'admin', 'gestao'}
-    ))
-
-
-def _can_generate_priority_plan(user):
-    return bool(user and (
-        user.get('acesso_gestor')
-        or user.get('role') in {'admin', 'gestao', 'producao'}
-    ))
-
-
 def _build_stock_matrix(latest_stock, products, stores):
     stock_matrix = {}
     for stock in latest_stock:
@@ -88,13 +75,6 @@ def _build_stock_matrix(latest_stock, products, stores):
             })
 
     return sorted(stock_matrix.values(), key=lambda row: row['produto'])
-
-
-def _can_view_intelligence(user):
-    return bool(user and (
-        user.get('acesso_gestor')
-        or user.get('role') in {'admin', 'gestao', 'producao'}
-    ))
 
 
 def _parse_stock_minimum_matrix(config, form):
@@ -236,8 +216,6 @@ def stock_balcao():
     if request.method == 'POST':
         if request.form.get('action') != 'gerar_plano':
             abort(405)
-        if not _can_generate_priority_plan(session.get('user') or {}):
-            abort(403)
         return redirect(url_for(
             'pastelaria.planear',
             data_contagem=request.form.get('data_plano') or _default_sunday().isoformat(),
@@ -318,8 +296,6 @@ def stock_balcao():
 @pastelaria_bp.route('/inteligencia')
 @perm_required('acesso_pastelaria')
 def inteligencia():
-    if not _can_view_intelligence(session.get('user') or {}):
-        abort(403)
     today = date.today()
     try:
         data_inicio = date.fromisoformat(request.args.get('inicio', ''))
@@ -413,8 +389,6 @@ def planear():
         msg, msg_type = str(exc), 'warning'
 
     if request.method == 'POST' and not date_error:
-        if not _can_generate_priority_plan(session.get('user') or {}):
-            abort(403)
         action = request.form.get('action', '')
         if action == 'gerar_plano':
             try:
@@ -446,9 +420,6 @@ def planear():
         count_date=count_date,
         priority_status=priority_status,
         history=history,
-        can_generate_priority_plan=_can_generate_priority_plan(
-            session.get('user') or {}
-        ),
         msg=msg,
         msg_type=msg_type,
     )
@@ -746,8 +717,6 @@ def produtos():
     if request.method == 'POST':
         action = request.form.get('action', '')
         if action == 'save_minimos_stock':
-            if not _can_configure_stock_minimums(session.get('user') or {}):
-                abort(403)
             config = get_pastelaria_stock_minimums()
             try:
                 values = _parse_stock_minimum_matrix(config, request.form)
@@ -756,8 +725,6 @@ def produtos():
             except ValueError as exc:
                 flash(str(exc), 'warning')
         elif action == 'save_product_states':
-            if not _can_configure_stock_minimums(session.get('user') or {}):
-                abort(403)
             products = db.get_all_produtos_pastelaria()
             try:
                 states = []
@@ -786,8 +753,6 @@ def produtos():
             except ValueError as exc:
                 flash(str(exc), 'warning')
         elif action == 'add_produto_past':
-            if not _can_configure_stock_minimums(session.get('user') or {}):
-                abort(403)
             tip = request.form.get('novo_tipologia', '')
             sabor = request.form.get('novo_sabor_past', '')
             cob = request.form.get('novo_cob_past', '')
@@ -800,8 +765,6 @@ def produtos():
             # Keep the legacy action as a protected no-op. Product removal is
             # deliberately reversible so minimums and historical records stay
             # attached to the catalogue identity.
-            if not _can_configure_stock_minimums(session.get('user') or {}):
-                abort(403)
             flash(
                 'A eliminação permanente de produtos está bloqueada. '
                 'Marque o produto como Inativo.',
@@ -816,13 +779,7 @@ def produtos():
                            sabores_list=db.get_sabores_list(),
                            coberturas_list=[c['nome'] for c in db.get_all_coberturas()],
                            minimum_config=minimum_config,
-                           can_configure_minimums=_can_configure_stock_minimums(
-                               session.get('user') or {}
-                            ),
-                           can_configure_products=_can_configure_stock_minimums(
-                               session.get('user') or {}
-                           ),
-                            state_change_history=db.get_pastelaria_product_state_history(),
+                           state_change_history=db.get_pastelaria_product_state_history(),
                            state_token=db.pastelaria_product_state_token(
                                products
                            ))

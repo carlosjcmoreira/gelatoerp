@@ -43,15 +43,11 @@
                 Não é necessária produção para repor os stocks mínimos.
                 {% endif %}
             </div>
-            {% if can_generate_priority_plan %}
             <form method="post">
                 <input type="hidden" name="action" value="gerar_plano">
                 <input type="hidden" name="data_contagem" value="{{ count_date.isoformat() }}">
                 <button class="btn btn-primary btn-sm">Gerar nova versão do plano</button>
             </form>
-            {% else %}
-            <div class="text-muted small">Apenas Produção ou Gestão pode gerar o plano.</div>
-            {% endif %}
             {% else %}
             <div class="alert alert-warning py-2 small mb-2">
                 <strong>Não é possível gerar o plano.</strong>
