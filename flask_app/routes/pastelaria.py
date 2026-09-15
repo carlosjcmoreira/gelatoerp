@@ -77,6 +77,24 @@ def _build_stock_matrix(latest_stock, products, stores):
     return sorted(stock_matrix.values(), key=lambda row: row['produto'])
 
 
+def _missing_sunday_counts(count_status):
+    """Group unrecorded active product/store cells for display."""
+    missing_by_store = []
+    for store in count_status['stores']:
+        products = [
+            product['nome']
+            for product in count_status['products']
+            if product['counts'].get(store['id']) is None
+        ]
+        if products:
+            missing_by_store.append({
+                'store_id': store['id'],
+                'store_name': store['name'],
+                'products': products,
+            })
+    return missing_by_store
+
+
 def _parse_stock_minimum_matrix(config, form):
     values = []
     for product in config['products']:
@@ -277,6 +295,7 @@ def stock_balcao():
             'total': total,
             'complete': total > 0 and completed == total,
         })
+    missing_counts = _missing_sunday_counts(count_status)
 
     return render_template('pastelaria/stock_balcao.html',
                            active_tab='stock_balcao',
@@ -290,7 +309,8 @@ def stock_balcao():
                            history_store=history_store,
                            status_date=status_date,
                            count_status=count_status,
-                           store_status=store_status)
+                           store_status=store_status,
+                           missing_counts=missing_counts)
 
 
 @pastelaria_bp.route('/inteligencia')

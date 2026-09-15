@@ -47,6 +47,27 @@
                 <div class="text-muted small">Sem lojas ativas configuradas.</div>
                 {% endfor %}
             </div>
+            {% if missing_counts %}
+            <div class="alert alert-warning mt-3 mb-0">
+                <div class="fw-semibold mb-2">
+                    {{ count_status.total - count_status.completed }}
+                    {% if count_status.total - count_status.completed == 1 %}contagem{% else %}contagens{% endif %}
+                    em falta
+                </div>
+                <div class="small">
+                    {% for group in missing_counts %}
+                    <div{% if not loop.last %} class="mb-2"{% endif %}>
+                        <strong>{{ group.store_name }}:</strong>
+                        {{ group.products|join(', ') }}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% elif count_status.total %}
+            <div class="alert alert-success py-2 mt-3 mb-0 small">
+                Todas as contagens estão registadas para este domingo.
+            </div>
+            {% endif %}
         </div>
     </div>
 

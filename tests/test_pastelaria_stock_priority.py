@@ -135,6 +135,13 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         }]
         count_status = {
             'stores': stores,
+            'products': [{
+                'id': 10,
+                'nome': 'Palito',
+                'counts': {1: None, 2: 0},
+            }],
+            'completed': 1,
+            'total': 2,
             'completed_by_store': {1: 0, 2: 1},
             'total_by_store': {1: 1, 2: 1},
         }
@@ -171,6 +178,10 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertIn('7', html)
         self.assertIn('13/09/2026', html)
         self.assertIn('—', html)
+        self.assertRegex(html, r'1\s+contagem\s+em falta')
+        self.assertIn('<strong>Bolhão:</strong>', html)
+        self.assertIn('Palito', html)
+        self.assertNotIn('<strong>Matosinhos:</strong>', html)
 
     def test_non_sunday_is_rejected(self):
         with self.assertRaisesRegex(ValueError, 'domingo'):
