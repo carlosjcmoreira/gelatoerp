@@ -53,10 +53,44 @@ class MobileFixedBarSpacingTests(unittest.TestCase):
         )
         self.assertNotIn("const fixedBottom = isMobile ? 160 : 56", self.pesagem)
 
+    def test_keyboard_recovery_does_not_jump_from_intermediate_fields(self):
+        self.assertIn("function isLastEditableField(field, form)", self.base)
+        self.assertIn(':not([type="submit"])', self.base)
+        self.assertIn(":not([readonly])", self.base)
+        self.assertIn(
+            "if (mode !== 'always' && !isLastEditableField(e.target, scope)) return;",
+            self.base,
+        )
+        self.assertIn(
+            "if (generation !== recoveryGeneration) return;",
+            self.base,
+        )
+        self.assertIn(
+            "if (active && active !== document.body && active !== document.documentElement) return;",
+            self.base,
+        )
+        self.assertNotIn("e.target.closest('form') || document", self.base)
+
+    def test_keyboard_recovery_uses_the_visual_viewport_when_available(self):
+        self.assertIn("if (window.visualViewport)", self.base)
+        self.assertIn("window.visualViewport.offsetTop", self.base)
+        self.assertIn("window.visualViewport.height", self.base)
+
+    def test_keyboard_recovery_propagates_scroll_through_nested_containers(self):
+        self.assertIn("function scrollableAncestors(element)", self.base)
+        self.assertIn("var scrollRoots = scrollableAncestors(targetSubmit)", self.base)
+        self.assertIn("root.scrollHeight - root.clientHeight - root.scrollTop", self.base)
+        self.assertIn("root.scrollTop += consumed", self.base)
+        self.assertIn(
+            "window.scrollBy({ top: remaining, behavior: 'smooth' })",
+            self.base,
+        )
+
     def test_pastelaria_save_action_uses_global_back_bar_spacing(self):
         self.assertIn('{% set back_url = ', self.pastelaria_count)
         self.assertIn('id="save-count"', self.pastelaria_count)
         self.assertIn('type="submit"', self.pastelaria_count)
+        self.assertIn('data-ios-submit-scroll="last-field"', self.pastelaria_count)
 
 
 if __name__ == "__main__":

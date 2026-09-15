@@ -45,7 +45,7 @@
                 </div>
             </form>
 
-            <form method="post" id="pastelaria-count-form">
+            <form method="post" id="pastelaria-count-form" data-ios-submit-scroll="last-field">
                 <input type="hidden" name="action" value="guardar_grelha">
                 {% if is_gestor %}<input type="hidden" name="loja_id" value="{{ loja_id }}">{% endif %}
                 <input type="hidden" name="data_contagem" value="{{ count_date.isoformat() }}">

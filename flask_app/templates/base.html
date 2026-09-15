@@ -208,11 +208,48 @@
     })();
     </script>
     <script>
-    /* iOS keyboard dismiss: after blurring a form input, scroll any obscured
-       submit button above the fixed back-bar (and mobile nav when present). */
+    /* iOS keyboard dismiss: after finishing the last field in a form, reveal
+       its submit button above the fixed back-bar. Intermediate fields must not
+       pull long forms to the bottom. */
     (function(){
         var bar = document.getElementById('backBar');
         if (!bar) return;
+        var editableSelector = [
+            'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"])' +
+                ':not([type="submit"]):not([type="button"]):not([type="reset"])' +
+                ':not([type="image"]):not([readonly]):not([disabled])',
+            'textarea:not([readonly]):not([disabled])',
+            'select:not([disabled])'
+        ].join(',');
+        var recoveryGeneration = 0;
+
+        function isVisibleEditable(field) {
+            return field.matches(editableSelector) && field.getClientRects().length > 0;
+        }
+
+        function isLastEditableField(field, form) {
+            var fields = Array.prototype.filter.call(
+                form.querySelectorAll(editableSelector),
+                isVisibleEditable
+            );
+            return fields.length > 0 && fields[fields.length - 1] === field;
+        }
+
+        function scrollableAncestors(element) {
+            var ancestors = [];
+            var node = element.parentElement;
+            while (node && node !== document.body) {
+                var style = window.getComputedStyle(node);
+                if (
+                    /(auto|scroll|overlay)/.test(style.overflowY) &&
+                    node.scrollHeight > node.clientHeight + 1
+                ) {
+                    ancestors.push(node);
+                }
+                node = node.parentElement;
+            }
+            return ancestors;
+        }
 
         function ensureSubmitVisible(scope) {
             var root = scope || document;
@@ -222,31 +259,72 @@
             );
             if (!submits.length) return;
 
-            /* The bar's rendered top already accounts for the mobile nav and
-               iPhone safe area. Measuring it also follows dynamic viewports
-               instead of relying on a device-specific pixel estimate. */
-            var visibleBottom = bar.getBoundingClientRect().top - 8;
+            /* The rendered bar accounts for the app navigation and safe area.
+               visualViewport additionally excludes transient iOS browser
+               chrome while the keyboard or address bar is animating. */
+            var viewportBottom = window.innerHeight;
+            if (window.visualViewport) {
+                viewportBottom = (
+                    window.visualViewport.offsetTop +
+                    window.visualViewport.height
+                );
+            }
+            var visibleBottom = Math.min(
+                bar.getBoundingClientRect().top - 8,
+                viewportBottom - 8
+            );
 
+            var targetSubmit = null;
             var worstBottom = 0;
             submits.forEach(function(btn) {
                 var r = btn.getBoundingClientRect();
-                if (r.bottom > worstBottom) { worstBottom = r.bottom; }
+                if (r.bottom > worstBottom) {
+                    worstBottom = r.bottom;
+                    targetSubmit = btn;
+                }
+            });
+
+            if (!targetSubmit) return;
+            var scrollRoots = scrollableAncestors(targetSubmit);
+            scrollRoots.forEach(function(root) {
+                visibleBottom = Math.min(
+                    visibleBottom,
+                    root.getBoundingClientRect().bottom - 8
+                );
             });
 
             if (worstBottom > visibleBottom) {
-                window.scrollBy({ top: worstBottom - visibleBottom + 8, behavior: 'smooth' });
+                var remaining = worstBottom - visibleBottom + 8;
+                scrollRoots.forEach(function(root) {
+                    if (remaining <= 0) return;
+                    var available = Math.max(
+                        0,
+                        root.scrollHeight - root.clientHeight - root.scrollTop
+                    );
+                    var consumed = Math.min(remaining, available);
+                    if (consumed > 0) {
+                        root.scrollTop += consumed;
+                        remaining -= consumed;
+                    }
+                });
+                if (remaining > 0) {
+                    window.scrollBy({ top: remaining, behavior: 'smooth' });
+                }
             }
         }
 
         document.addEventListener('focus', function(e) {
+            recoveryGeneration += 1;
             var tag = (e.target || {}).tagName;
             if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
             var type = (e.target.type || '').toLowerCase();
             if (type === 'checkbox' || type === 'radio') return;
+            var field = e.target;
             /* iOS keyboard takes ~200 ms to animate up; wait 200 ms so the
                viewport has shrunk before we scroll the input into view. */
             setTimeout(function() {
-                e.target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                if (document.activeElement !== field) return;
+                field.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
             }, 200);
         }, true);
 
@@ -255,18 +333,21 @@
             if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
             var type = (e.target.type || '').toLowerCase();
             if (type === 'checkbox' || type === 'radio') return;
-            /* Scope the visibility check to the field's own form (falling back
-               to the whole document when the field isn't inside one) so pages
-               with several stacked forms don't jump to an unrelated button
-               far down the page. */
-             var scope = e.target.closest('form') || document;
-             /* Long editors can have their submit button far below the field
-                that was just edited. They can opt out of this repositioning
-                while pages that need it retain the existing behaviour. */
-             if (scope !== document && scope.dataset.iosSubmitScroll === 'false') return;
-             /* iOS keyboard takes ~300 ms to animate away; wait 350 ms so the
-               new viewport height is stable before we measure button positions. */
-            setTimeout(function() { ensureSubmitVisible(scope); }, 350);
+            var scope = e.target.closest('form');
+            if (!scope || scope.dataset.iosSubmitScroll === 'false') return;
+
+            var mode = scope.dataset.iosSubmitScroll || 'last-field';
+            var generation = ++recoveryGeneration;
+            if (mode !== 'always' && !isLastEditableField(e.target, scope)) return;
+
+            /* iOS keyboard takes ~300 ms to animate away. If focus moved to
+               another field meanwhile, preserve that field's natural position. */
+            setTimeout(function() {
+                if (generation !== recoveryGeneration) return;
+                var active = document.activeElement;
+                if (active && active !== document.body && active !== document.documentElement) return;
+                ensureSubmitVisible(scope);
+            }, 350);
         }, true);
     })();
     </script>
