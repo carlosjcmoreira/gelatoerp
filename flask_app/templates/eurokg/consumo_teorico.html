@@ -92,6 +92,39 @@
 
     {% if is_gestor %}
     <div class="card mb-3">
+        <div class="card-header py-2">
+            <h6 class="mb-0 small">Associação dos produtos às regras de dose</h6>
+        </div>
+        <div class="card-body">
+            <p class="small text-muted">Os produtos pendentes não entram no indicador. Também pode corrigir uma associação ativa; a anterior fica preservada até ontem. A sugestão por nome nunca é aplicada automaticamente.</p>
+            {% if dose_pending_products %}
+            {% for product in dose_pending_products %}
+            <form method="POST" action="{{ url_for('eurokg.configurar_produto_dose') }}" class="row g-2 align-items-end mb-2">
+                <input type="hidden" name="loja_filter" value="{{ loja_filter }}">
+                <input type="hidden" name="product_id" value="{{ product.id }}">
+                <div class="col-md-5"><strong class="small">{{ product.produto }}</strong> <span class="badge {{ 'text-bg-warning' if product.dose_config_pendente else 'text-bg-success' }}">{{ 'Pendente' if product.dose_config_pendente else 'Ativo' }}</span></div>
+                <div class="col-md-5">
+                    <label class="visually-hidden" for="rule-{{ product.id }}">Regra de dose</label>
+                    <select id="rule-{{ product.id }}" class="form-select form-select-sm" name="rule_id" required>
+                        <option value="">Escolher regra…</option>
+                        {% for rule in dose_rules %}
+                        <option value="{{ rule.id }}" {% if rule.id == product.suggested_rule_id %}selected{% endif %}>
+                            {{ rule.artigo }} — {{ 'ao peso' if rule.tipo_dose == 'peso' else rule.gramas ~ ' g' }}
+                            {% if rule.id == product.suggested_rule_id %} (sugestão){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2"><button class="btn btn-primary btn-sm w-100">{{ 'Associar' if product.dose_config_pendente else 'Alterar' }}</button></div>
+            </form>
+            {% endfor %}
+            {% else %}
+            <p class="small text-muted mb-0">Não há produtos de gelado para configurar.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
         <div class="card-header py-2"><h6 class="mb-0 small">Recuperar doses históricas com evidência</h6></div>
         <div class="card-body">
             <p class="small text-muted">CSV: <code>artigo,tipo_dose,gramas,data_efetiva,evidencia</code>. A data usa AAAA-MM-DD. Para venda ao peso, deixe gramas vazio.</p>

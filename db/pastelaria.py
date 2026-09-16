@@ -4,6 +4,10 @@ from psycopg2.extras import RealDictCursor, DictCursor, execute_values
 from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger, db_retry
+from db.dose_associations import (
+    backfill_weight_sales,
+    close_current_association,
+)
 from db.cache import ttl_cache, invalidate, invalidate_prefix
 from db.stores import get_store_id_by_name
 from db.producao import get_sabores_mapping
@@ -1786,14 +1790,26 @@ def add_venda_detalhe(data: date, loja: str, produto: str, quantidade: float, ca
     store_id = get_store_id_by_name(loja)
     with db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO produtos_vendas_config (produto, dose_config_pendente)
+            SELECT %s, EXISTS (
+                SELECT 1 FROM regras_negocio
+                WHERE area='gelado_kpi'
+                  AND LOWER(%s) LIKE '%%' || LOWER(palavra_chave) || '%%'
+            )
+            ON CONFLICT (produto) DO UPDATE SET produto=EXCLUDED.produto
+            RETURNING id
+        """, (produto, produto))
+        produto_config_id = cursor.fetchone()[0]
         cursor.execute('''
             INSERT INTO vendas_detalhe (
                 data, loja, produto, categoria, quantidade, valor_euros,
-                store_id, valor_sem_iva_euros, peso_vendido_kg
+                store_id, valor_sem_iva_euros, peso_vendido_kg,
+                produto_vendas_config_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ''', (data, loja, produto, categoria, quantidade, valor_euros,
-              store_id, valor_sem_iva_euros, peso_vendido_kg))
+              store_id, valor_sem_iva_euros, peso_vendido_kg, produto_config_id))
         conn.commit()
 
 
@@ -1840,6 +1856,21 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
     with db_connection() as conn:
         cursor = conn.cursor()
         try:
+            product_ids = {}
+            for product in sorted({row[2] for row in rows}):
+                cursor.execute("""
+                    INSERT INTO produtos_vendas_config
+                        (produto, dose_config_pendente)
+                    SELECT %s, EXISTS (
+                        SELECT 1 FROM regras_negocio
+                        WHERE area='gelado_kpi'
+                          AND LOWER(%s) LIKE
+                              '%%' || LOWER(palavra_chave) || '%%'
+                    )
+                    ON CONFLICT (produto) DO UPDATE SET produto=EXCLUDED.produto
+                    RETURNING id
+                """, (product, product))
+                product_ids[product] = cursor.fetchone()[0]
             if pre_delete_pairs:
                 for d, loja in pre_delete_pairs:
                     cursor.execute(
@@ -1851,9 +1882,10 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
                     cursor,
                     '''INSERT INTO vendas_detalhe
                        (data, loja, produto, categoria, quantidade, valor_euros,
-                        store_id, valor_sem_iva_euros, peso_vendido_kg)
+                         store_id, valor_sem_iva_euros, peso_vendido_kg,
+                         produto_vendas_config_id)
                        VALUES %s''',
-                    rows,
+                    [row + (product_ids[row[2]],) for row in rows],
                     page_size=500,
                 )
             conn.commit()
@@ -1864,12 +1896,23 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
 
 
 def _apply_vendas_weight_rules(records: list, history: list) -> list:
-    from db.doseamento import _matches
     enriched = []
     for record in records:
         item = dict(record)
         if item.get('peso_vendido_kg') is None:
-            rule = _matches(item.get('produto'), history, item.get('data'))
+            sale_date = item.get('data')
+            rule = next((
+                row for row in history
+                if row.get('produto') == item.get('produto')
+                and (
+                    row.get('valid_from') is None
+                    or row['valid_from'] <= sale_date
+                )
+                and (
+                    row.get('valid_to') is None
+                    or row['valid_to'] >= sale_date
+                )
+            ), None)
             if rule and rule.get('tipo_dose') == 'peso':
                 quantity = float(item.get('quantidade'))
                 if not math.isfinite(quantity) or quantity == 0:
@@ -1889,8 +1932,13 @@ def apply_vendas_weight_rules(records: list) -> list:
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute("""
-            SELECT artigo, gramas, tipo_dose, valid_from, valid_to
-            FROM gramas_gelado_historico
+            SELECT pvc.produto, hist.tipo_dose,
+                   prd.valid_from, prd.valid_to
+            FROM produto_regra_dose_historico prd
+            JOIN produtos_vendas_config pvc
+              ON pvc.id=prd.produto_vendas_config_id
+            JOIN gramas_gelado_historico hist
+              ON hist.id=prd.regra_dose_id
         """)
         history = [dict(row) for row in cursor.fetchall()]
     return _apply_vendas_weight_rules(records, history)
@@ -2464,12 +2512,28 @@ def sync_produtos_vendas_config():
                 is_gelado = any(kw in p_lower for kw in palavras_gelado) if palavras_gelado else False
                 is_pastelaria = any(kw in p_lower for kw in palavras_pastelaria) if palavras_pastelaria else False
                 is_confeitaria = any(kw in p_lower for kw in palavras_confeitaria) if palavras_confeitaria else False
-                rows.append((produto, is_gelado, is_pastelaria, is_confeitaria))
+                rows.append((
+                    produto, False, is_pastelaria, is_confeitaria, is_gelado
+                ))
 
             execute_values(
                 cursor,
-                """INSERT INTO produtos_vendas_config (produto, gelado_kpi, pastelaria, confeitaria)
-                   VALUES %s ON CONFLICT (produto) DO NOTHING""",
+                """INSERT INTO produtos_vendas_config
+                       (produto, gelado_kpi, pastelaria, confeitaria,
+                        dose_config_pendente)
+                   VALUES %s ON CONFLICT (produto) DO UPDATE
+                   SET dose_config_pendente = (
+                       produtos_vendas_config.dose_config_pendente
+                       OR (
+                           EXCLUDED.dose_config_pendente
+                           AND NOT produtos_vendas_config.gelado_kpi
+                           AND NOT EXISTS (
+                               SELECT 1 FROM produto_regra_dose_historico prd
+                               WHERE prd.produto_vendas_config_id =
+                                     produtos_vendas_config.id
+                           )
+                       )
+                   )""",
                 rows,
                 page_size=200,
             )
@@ -2485,23 +2549,87 @@ def get_produtos_vendas_config() -> list:
 def update_produto_vendas_config(produto_id: int, gelado_kpi: bool, pastelaria: bool, confeitaria: bool):
     with db_connection() as conn:
         cursor = conn.cursor()
+        if not gelado_kpi:
+            close_current_association(cursor, produto_id, date.today())
         cursor.execute("""
             UPDATE produtos_vendas_config
-            SET gelado_kpi = %s, pastelaria = %s, confeitaria = %s
-            WHERE id = %s
-        """, (gelado_kpi, pastelaria, confeitaria, produto_id))
+            SET gelado_kpi = (
+                    %(gelado)s AND EXISTS (
+                        SELECT 1 FROM produto_regra_dose_historico prd
+                        WHERE prd.produto_vendas_config_id =
+                              produtos_vendas_config.id
+                          AND CURRENT_DATE BETWEEN prd.valid_from
+                              AND COALESCE(prd.valid_to, 'infinity'::date)
+                    )
+                ),
+                dose_config_pendente = CASE
+                    WHEN NOT %(gelado)s THEN FALSE
+                    WHEN EXISTS (
+                        SELECT 1 FROM produto_regra_dose_historico prd
+                        WHERE prd.produto_vendas_config_id =
+                              produtos_vendas_config.id
+                          AND CURRENT_DATE BETWEEN prd.valid_from
+                              AND COALESCE(prd.valid_to, 'infinity'::date)
+                    ) THEN FALSE
+                    ELSE TRUE
+                END,
+                pastelaria = %(pastelaria)s,
+                confeitaria = %(confeitaria)s
+            WHERE id = %(id)s
+        """, {
+            'gelado': gelado_kpi, 'pastelaria': pastelaria,
+            'confeitaria': confeitaria, 'id': produto_id,
+        })
         conn.commit()
 
 def update_produtos_vendas_config_batch(updates: list):
     with db_connection() as conn:
         cursor = conn.cursor()
+        queued = 0
         for u in updates:
+            if not u['gelado_kpi']:
+                close_current_association(cursor, u['id'], date.today())
             cursor.execute("""
                 UPDATE produtos_vendas_config
-                SET gelado_kpi = %s, pastelaria = %s, confeitaria = %s
-                WHERE id = %s
-            """, (u['gelado_kpi'], u['pastelaria'], u['confeitaria'], u['id']))
+                SET gelado_kpi = (
+                        %(gelado)s AND EXISTS (
+                            SELECT 1 FROM produto_regra_dose_historico prd
+                            WHERE prd.produto_vendas_config_id =
+                                  produtos_vendas_config.id
+                              AND CURRENT_DATE BETWEEN prd.valid_from
+                                  AND COALESCE(
+                                      prd.valid_to, 'infinity'::date
+                                  )
+                        )
+                    ),
+                    dose_config_pendente = CASE
+                        WHEN NOT %(gelado)s THEN FALSE
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM produto_regra_dose_historico prd
+                            WHERE prd.produto_vendas_config_id =
+                                  produtos_vendas_config.id
+                              AND CURRENT_DATE BETWEEN prd.valid_from
+                                  AND COALESCE(
+                                      prd.valid_to, 'infinity'::date
+                                  )
+                        ) THEN FALSE
+                        ELSE TRUE
+                    END,
+                    pastelaria = %(pastelaria)s,
+                    confeitaria = %(confeitaria)s
+                WHERE id = %(id)s
+                RETURNING dose_config_pendente
+            """, {
+                'gelado': u['gelado_kpi'],
+                'pastelaria': u['pastelaria'],
+                'confeitaria': u['confeitaria'],
+                'id': u['id'],
+            })
+            result = cursor.fetchone()
+            queued += int(bool(result and result[0]))
         conn.commit()
+        return queued
 
 
 def update_conta_vendas_diarias_batch(updates: list):
@@ -2548,7 +2676,17 @@ def get_produtos_by_area(area: str) -> list:
         elif area == 'pastelaria':
             cursor.execute("SELECT produto FROM produtos_vendas_config WHERE pastelaria = TRUE ORDER BY produto")
         else:
-            cursor.execute("SELECT produto FROM produtos_vendas_config WHERE gelado_kpi = TRUE ORDER BY produto")
+            cursor.execute("""
+                SELECT produto FROM produtos_vendas_config pvc
+                WHERE gelado_kpi=TRUE
+                  AND EXISTS (
+                      SELECT 1 FROM produto_regra_dose_historico prd
+                      WHERE prd.produto_vendas_config_id=pvc.id
+                        AND CURRENT_DATE BETWEEN prd.valid_from
+                            AND COALESCE(prd.valid_to, 'infinity'::date)
+                  )
+                ORDER BY produto
+            """)
         return [r[0] for r in cursor.fetchall()]
 
 def delete_vendas_detalhe_by_dates(data_inicio: date, data_fim: date, loja: str = None) -> int:
@@ -2589,12 +2727,37 @@ def update_gramas_gelado(artigo_id: int, artigo: str, gramas: float,
                 return False
             today = date.today()
             cursor.execute("""
+                SELECT DISTINCT prd.produto_vendas_config_id
+                FROM produto_regra_dose_historico prd
+                JOIN gramas_gelado_historico hist
+                  ON hist.id=prd.regra_dose_id
+                WHERE LOWER(BTRIM(hist.artigo))=LOWER(BTRIM(%s))
+                  AND CURRENT_DATE BETWEEN prd.valid_from
+                      AND COALESCE(prd.valid_to, 'infinity'::date)
+            """, (old[0],))
+            affected_product_ids = [row[0] for row in cursor.fetchall()]
+            cursor.execute("""
                 UPDATE gramas_gelado_historico
                 SET valid_to = %s
                 WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
                   AND valid_to IS NULL
                   AND valid_from < %s
             """, (today - timedelta(days=1), old[0], today))
+            cursor.execute("""
+                UPDATE produto_regra_dose_historico prd
+                SET valid_to=%s
+                FROM gramas_gelado_historico hist
+                WHERE hist.id=prd.regra_dose_id
+                  AND LOWER(BTRIM(hist.artigo))=LOWER(BTRIM(%s))
+                  AND prd.valid_to IS NULL AND prd.valid_from < %s
+            """, (today - timedelta(days=1), old[0], today))
+            cursor.execute("""
+                DELETE FROM produto_regra_dose_historico prd
+                USING gramas_gelado_historico hist
+                WHERE hist.id=prd.regra_dose_id
+                  AND LOWER(BTRIM(hist.artigo))=LOWER(BTRIM(%s))
+                  AND hist.valid_to IS NULL AND hist.valid_from=%s
+            """, (old[0], today))
             cursor.execute("""
                 DELETE FROM gramas_gelado_historico
                 WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
@@ -2605,8 +2768,23 @@ def update_gramas_gelado(artigo_id: int, artigo: str, gramas: float,
                 INSERT INTO gramas_gelado_historico
                     (artigo, gramas, tipo_dose, valid_from)
                 VALUES (%s, %s, %s, %s)
+                RETURNING id
             """, (artigo, gramas if tipo_dose == 'fixa' else None,
                   tipo_dose, today))
+            new_rule_id = cursor.fetchone()[0]
+            if affected_product_ids:
+                cursor.execute("""
+                    INSERT INTO produto_regra_dose_historico (
+                        produto_vendas_config_id, regra_dose_id,
+                        valid_from, created_by
+                    )
+                    SELECT product_id, %s, %s, 'sistema'
+                    FROM UNNEST(%s::integer[]) AS product_id
+                """, (new_rule_id, today, affected_product_ids))
+                backfill_weight_sales(
+                    cursor, product_ids=affected_product_ids,
+                    rule_ids=[new_rule_id],
+                )
             conn.commit()
             return True
         except Exception:
@@ -2646,16 +2824,53 @@ def delete_gramas_gelado(artigo_id: int):
             return
         today = date.today()
         cursor.execute("""
+            SELECT DISTINCT prd.produto_vendas_config_id
+            FROM produto_regra_dose_historico prd
+            JOIN gramas_gelado_historico hist
+              ON hist.id=prd.regra_dose_id
+            WHERE LOWER(BTRIM(hist.artigo))=LOWER(BTRIM(%s))
+              AND CURRENT_DATE BETWEEN prd.valid_from
+                  AND COALESCE(prd.valid_to, 'infinity'::date)
+        """, (row[0],))
+        affected_product_ids = [value[0] for value in cursor.fetchall()]
+        cursor.execute("""
             UPDATE gramas_gelado_historico SET valid_to = %s
             WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
               AND valid_to IS NULL AND valid_from < %s
         """, (today - timedelta(days=1), row[0], today))
+        cursor.execute("""
+            UPDATE produto_regra_dose_historico prd
+            SET valid_to=%s
+            FROM gramas_gelado_historico hist
+            WHERE hist.id=prd.regra_dose_id
+              AND LOWER(BTRIM(hist.artigo))=LOWER(BTRIM(%s))
+              AND prd.valid_to IS NULL AND prd.valid_from < %s
+        """, (today - timedelta(days=1), row[0], today))
+        cursor.execute("""
+            DELETE FROM produto_regra_dose_historico prd
+            USING gramas_gelado_historico hist
+            WHERE hist.id=prd.regra_dose_id
+              AND LOWER(BTRIM(hist.artigo))=LOWER(BTRIM(%s))
+              AND hist.valid_to IS NULL AND hist.valid_from=%s
+        """, (row[0], today))
         cursor.execute("""
             DELETE FROM gramas_gelado_historico
             WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
               AND valid_to IS NULL AND valid_from = %s
         """, (row[0], today))
         cursor.execute("DELETE FROM gramas_gelado WHERE id = %s", (artigo_id,))
+        if affected_product_ids:
+            cursor.execute("""
+                UPDATE produtos_vendas_config pvc
+                SET gelado_kpi=FALSE, dose_config_pendente=TRUE
+                WHERE pvc.id=ANY(%s)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM produto_regra_dose_historico prd
+                      WHERE prd.produto_vendas_config_id=pvc.id
+                        AND CURRENT_DATE BETWEEN prd.valid_from
+                            AND COALESCE(prd.valid_to, 'infinity'::date)
+                  )
+            """, (affected_product_ids,))
         conn.commit()
 
 def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
@@ -2665,10 +2880,18 @@ def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
             vd.data,
             TO_CHAR(vd.data, 'YYYY-MM') as mes,
             vd.quantidade as quantidade_vendida,
-            vd.peso_vendido_kg
+            vd.peso_vendido_kg,
+            hist.gramas AS gramas_por_unidade,
+            hist.tipo_dose
         FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-        WHERE pvc.gelado_kpi = TRUE
+        INNER JOIN produtos_vendas_config pvc
+          ON vd.produto_vendas_config_id = pvc.id
+        INNER JOIN produto_regra_dose_historico prd
+          ON prd.produto_vendas_config_id = pvc.id
+         AND vd.data BETWEEN prd.valid_from
+             AND COALESCE(prd.valid_to, 'infinity'::date)
+        INNER JOIN gramas_gelado_historico hist ON hist.id = prd.regra_dose_id
+        WHERE TRUE
     """
     params = []
     if loja:
@@ -2677,40 +2900,24 @@ def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
     query += " ORDER BY vd.produto, vd.data"
 
     with db_connection() as conn:
-        gramas_df = pd.read_sql_query("""
-            SELECT artigo, gramas, tipo_dose, valid_from, valid_to
-            FROM gramas_gelado_historico
-        """, conn)
         vendas_df = pd.read_sql_query(query, conn, params=params)
 
     if vendas_df.empty:
         return vendas_df
 
-    from db.doseamento import _matches
-    history = gramas_df.to_dict('records')
-    def find_rule(row):
-        return _matches(row['produto'], history, row['data'])
-    vendas_df['_rule'] = vendas_df.apply(find_rule, axis=1)
-    vendas_df['tipo_dose'] = vendas_df['_rule'].apply(
-        lambda rule: rule.get('tipo_dose') if rule else None
-    )
-    vendas_df['gramas_por_unidade'] = vendas_df['_rule'].apply(
-        lambda rule: float(rule['gramas'])
-        if rule and rule.get('tipo_dose') == 'fixa' else None
-    )
     def row_consumption(row):
-        rule = row['_rule']
-        if not rule:
+        if pd.isna(row['tipo_dose']):
             return None
-        if rule.get('tipo_dose') == 'peso':
+        if row['tipo_dose'] == 'peso':
             weight = row['peso_vendido_kg']
             return None if pd.isna(weight) else float(weight)
         return (
-            float(row['quantidade_vendida']) * float(rule['gramas']) / 1000
+            float(row['quantidade_vendida'])
+            * float(row['gramas_por_unidade']) / 1000
         )
     vendas_df['consumo_kg'] = vendas_df.apply(row_consumption, axis=1)
     vendas_df['consumo_incompleto'] = vendas_df['consumo_kg'].isna()
-    return vendas_df.drop(columns=['_rule']).groupby(
+    return vendas_df.groupby(
         ['produto', 'mes', 'gramas_por_unidade', 'tipo_dose'],
         dropna=False, as_index=False,
     ).agg(

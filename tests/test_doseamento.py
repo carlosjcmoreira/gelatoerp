@@ -17,16 +17,18 @@ def rotation(consumption=10, issues=None):
     }
 
 
-def sale(product, quantity=10, store="A", day=date(2025, 1, 1), weight=None):
+def sale(product, quantity=10, store="A", day=date(2025, 1, 1), weight=None,
+         rule_id=1):
     return {"produto": product, "quantidade": quantity, "loja": store,
-            "data": day, "valor_euros": 20, "peso_vendido_kg": weight}
+            "data": day, "valor_euros": 20, "peso_vendido_kg": weight,
+            "regra_dose_id": rule_id}
 
 
-def test_fixed_formula_and_longest_mapping():
+def test_fixed_formula_uses_explicit_rule_not_longest_name():
     result = calculate_doseamento(
-        [sale("Copo Grande", 10)],
-        [{"artigo": "Copo", "gramas": 100, "tipo_dose": "fixed"},
-         {"artigo": "Copo Grande", "gramas": 250, "tipo_dose": "fixed"}],
+        [sale("Copo Grande", 10, rule_id=2)],
+        [{"id": 1, "artigo": "Copo", "gramas": 100, "tipo_dose": "fixed"},
+         {"id": 2, "artigo": "Copo Grande", "gramas": 250, "tipo_dose": "fixed"}],
         rotation(),
         date(2025, 1, 1), date(2025, 1, 1), "A",
     )
@@ -38,8 +40,8 @@ def test_fixed_formula_and_longest_mapping():
 
 def test_history_date_and_unmapped():
     result = calculate_doseamento(
-        [sale("Cone", 1), sale("Unknown", 1)],
-        [{"artigo": "Cone", "gramas": 100, "tipo_dose": "fixed",
+        [sale("Cone", 1), sale("Unknown", 1, rule_id=None)],
+        [{"id": 1, "artigo": "Cone", "gramas": 100, "tipo_dose": "fixed",
           "valid_from": date(2025, 2, 1)}],
         rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
     )
@@ -51,7 +53,7 @@ def test_history_date_and_unmapped():
 def test_weight_is_explicitly_incomplete():
     result = calculate_doseamento(
         [sale("Gelado weight")],
-        [{"artigo": "Gelado", "gramas": 100, "tipo_dose": "weight"}],
+        [{"id": 1, "artigo": "Gelado", "gramas": 100, "tipo_dose": "weight"}],
         rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
     )
     assert result["weighted_products"] == ["Gelado weight"]
@@ -60,9 +62,10 @@ def test_weight_is_explicitly_incomplete():
 
 def test_weight_with_kg_is_added_to_fixed_doses_without_double_counting():
     result = calculate_doseamento(
-        [sale("Copo", 2, weight=9), sale("Gelado weight", 1, weight=1.25)],
-        [{"artigo": "Copo", "gramas": 100, "tipo_dose": "fixed"},
-         {"artigo": "Gelado", "gramas": None, "tipo_dose": "weight"}],
+        [sale("Copo", 2, weight=9),
+         sale("Gelado weight", 1, weight=1.25, rule_id=2)],
+        [{"id": 1, "artigo": "Copo", "gramas": 100, "tipo_dose": "fixed"},
+         {"id": 2, "artigo": "Gelado", "gramas": None, "tipo_dose": "weight"}],
         rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
     )
     assert result["theoretical_kg"] == 1.45
@@ -179,7 +182,7 @@ def test_global_ignores_stores_outside_explicit_scope():
 def test_global_preserves_mapped_subtotal_when_incomplete():
     evidence = rotation()
     result = calculate_doseamento(
-        [sale("Copo"), sale("Unknown")],
+        [sale("Copo"), sale("Unknown", rule_id=None)],
         [{"artigo": "Copo", "gramas": 100}],
         evidence, date(2025, 1, 1), date(2025, 1, 1),
         store_names=["A"],
@@ -203,6 +206,28 @@ def test_global_conserves_store_totals():
         row["theoretical_kg"] for row in result["stores"]
     ), 6)
     assert result["revenue"] == sum(row["revenue"] for row in result["stores"])
+
+
+def test_renamed_product_keeps_explicit_historical_rule():
+    result = calculate_doseamento(
+        [sale("Nome completamente novo", 3, rule_id=7)],
+        [{"id": 7, "artigo": "Copo antigo", "gramas": 200,
+          "tipo_dose": "fixed"}],
+        rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
+    )
+    assert result["theoretical_kg"] == 0.6
+    assert result["unmapped_products"] == []
+
+
+def test_overlapping_names_do_not_affect_explicit_rule():
+    result = calculate_doseamento(
+        [sale("Copo Grande Especial", 2, rule_id=1)],
+        [{"id": 1, "artigo": "Copo", "gramas": 100, "tipo_dose": "fixed"},
+         {"id": 2, "artigo": "Copo Grande", "gramas": 500,
+          "tipo_dose": "fixed"}],
+        rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
+    )
+    assert result["theoretical_kg"] == 0.2
 
 
 def load_tests(_loader, _tests, _pattern):

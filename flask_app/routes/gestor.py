@@ -967,8 +967,15 @@ def _handle_config_post(action, config_option):
                 'pastelaria': request.form.get(f'pastelaria_{pid}') == 'on',
                 'confeitaria': request.form.get(f'confeitaria_{pid}') == 'on',
             })
-        db.update_produtos_vendas_config_batch(updates)
-        flash('Alocação de Produtos atualizada com sucesso!', 'success')
+        queued = db.update_produtos_vendas_config_batch(updates)
+        if queued:
+            flash(
+                f'Alocação atualizada. {queued} produto(s) Gelado aguardam '
+                'associação de dose no Consumo Teórico.',
+                'warning',
+            )
+        else:
+            flash('Alocação de Produtos atualizada com sucesso!', 'success')
 
     elif action == 'add_ajuste':
         mes = int(request.form.get('ajuste_mes', 1))

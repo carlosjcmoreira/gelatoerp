@@ -18,6 +18,7 @@ from db.pastelaria import (
     get_volume_por_produto,
 )
 from db.doseamento import (
+    configure_dose_product, get_dose_product_configuration_queue,
     confirm_historical_dose_preview, create_historical_dose_preview,
     get_historical_dose_preview,
     get_doseamento_period, get_historical_dose_coverage,
@@ -416,6 +417,9 @@ def consumo_teorico():
     dose_import_preview = get_historical_dose_preview(
         session.get("dose_import_preview_id"), actor
     )
+    dose_pending_products, dose_rules = (
+        get_dose_product_configuration_queue() if is_gestor else ([], [])
+    )
 
     tabs = _build_tabs(loja_filter, is_gestor, 'consumo')
 
@@ -426,7 +430,8 @@ def consumo_teorico():
         totals_qty=totals_qty, totals_kg=totals_kg,
         gramas_list=gramas_list, store_filters=store_filters,
         dose_coverage=dose_coverage, dose_import_audits=dose_import_audits,
-        dose_import_preview=dose_import_preview)
+        dose_import_preview=dose_import_preview,
+        dose_pending_products=dose_pending_products, dose_rules=dose_rules)
 
 
 @eurokg_bp.route('/vendas-produto')
@@ -487,6 +492,22 @@ def add_gramas():
             flash("Erro ao adicionar. O artigo pode já existir.", 'error')
     else:
         flash("Preencha todos os campos.", 'warning')
+    return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
+
+
+@eurokg_bp.route('/consumo/configurar-produto', methods=['POST'])
+@perm_required('acesso_gestor')
+def configurar_produto_dose():
+    loja_filter = request.form.get('loja_filter', 'Global Porto')
+    try:
+        configure_dose_product(
+            int(request.form.get('product_id', '')),
+            int(request.form.get('rule_id', '')),
+            session.get('user', {}).get('username', 'sistema'),
+        )
+        flash('Produto associado à regra de dose e incluído no indicador.', 'success')
+    except (TypeError, ValueError) as exc:
+        flash(str(exc) or 'Selecione uma regra de dose válida.', 'error')
     return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
 
 

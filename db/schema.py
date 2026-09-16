@@ -3080,6 +3080,14 @@ def run_data_fix_gelado_kpi_classification():
             cursor.execute("""
                 SELECT COUNT(*) FROM produtos_vendas_config
                 WHERE produto = ANY(%s) AND gelado_kpi = FALSE
+                  AND dose_config_pendente = FALSE
+                  AND EXISTS (
+                      SELECT 1 FROM produto_regra_dose_historico prd
+                      WHERE prd.produto_vendas_config_id=
+                            produtos_vendas_config.id
+                        AND CURRENT_DATE BETWEEN prd.valid_from
+                            AND COALESCE(prd.valid_to, 'infinity'::date)
+                  )
             """, (produtos_to_fix,))
             pending = cursor.fetchone()[0]
             if pending == 0:
@@ -3090,6 +3098,14 @@ def run_data_fix_gelado_kpi_classification():
                 UPDATE produtos_vendas_config
                 SET gelado_kpi = TRUE
                 WHERE produto = ANY(%s) AND gelado_kpi = FALSE
+                  AND dose_config_pendente = FALSE
+                  AND EXISTS (
+                      SELECT 1 FROM produto_regra_dose_historico prd
+                      WHERE prd.produto_vendas_config_id=
+                            produtos_vendas_config.id
+                        AND CURRENT_DATE BETWEEN prd.valid_from
+                            AND COALESCE(prd.valid_to, 'infinity'::date)
+                  )
             """, (produtos_to_fix,))
             updated = cursor.rowcount
             conn.commit()
@@ -6129,6 +6145,66 @@ def run_migrations_doseamento_gelado():
             """)
             cursor.execute("""
                 ALTER TABLE vendas_detalhe
+                ADD COLUMN IF NOT EXISTS produto_vendas_config_id INTEGER
+                    REFERENCES produtos_vendas_config(id) ON DELETE RESTRICT
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_vendas_detalhe_produto_config
+                ON vendas_detalhe (produto_vendas_config_id, data)
+            """)
+            cursor.execute("""
+                ALTER TABLE produtos_vendas_config
+                ADD COLUMN IF NOT EXISTS dose_config_pendente BOOLEAN
+                    NOT NULL DEFAULT FALSE
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS produto_regra_dose_historico (
+                    id BIGSERIAL PRIMARY KEY,
+                    produto_vendas_config_id INTEGER NOT NULL
+                        REFERENCES produtos_vendas_config(id) ON DELETE RESTRICT,
+                    regra_dose_id INTEGER NOT NULL
+                        REFERENCES gramas_gelado_historico(id) ON DELETE RESTRICT,
+                    valid_from DATE NOT NULL,
+                    valid_to DATE,
+                    created_by VARCHAR(100),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT produto_regra_dose_datas_check
+                        CHECK (valid_to IS NULL OR valid_to >= valid_from)
+                )
+            """)
+            cursor.execute("""
+                ALTER TABLE produto_regra_dose_historico
+                DROP CONSTRAINT IF EXISTS
+                    produto_regra_dose_historico_produto_vendas_config_id_regra_key
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_produto_regra_dose_vigencia
+                ON produto_regra_dose_historico
+                    (produto_vendas_config_id, valid_from, valid_to)
+            """)
+            cursor.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'produto_regra_dose_sem_sobreposicao'
+                    ) THEN
+                        ALTER TABLE produto_regra_dose_historico
+                        ADD CONSTRAINT produto_regra_dose_sem_sobreposicao
+                        EXCLUDE USING gist (
+                            produto_vendas_config_id WITH =,
+                            daterange(
+                                valid_from,
+                                COALESCE(valid_to, 'infinity'::date),
+                                '[]'
+                            ) WITH &&
+                        );
+                    END IF;
+                END
+                $$;
+            """)
+            cursor.execute("""
+                ALTER TABLE vendas_detalhe
                 ALTER COLUMN quantidade TYPE NUMERIC(12,3)
                 USING quantidade::NUMERIC(12,3)
             """)
@@ -6165,6 +6241,163 @@ def run_migrations_doseamento_gelado():
                     INSERT INTO app_schema_migrations (name)
                     VALUES ('doseamento_seed_cutoff_v2')
                 """)
+            cursor.execute("""
+                UPDATE vendas_detalhe vd
+                SET produto_vendas_config_id = pvc.id
+                FROM produtos_vendas_config pvc
+                WHERE vd.produto_vendas_config_id IS NULL
+                  AND LOWER(BTRIM(vd.produto)) = LOWER(BTRIM(pvc.produto))
+            """)
+            cursor.execute("""
+                SELECT 1 FROM app_schema_migrations
+                WHERE name = 'doseamento_explicit_product_rules_v1'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("""
+                    WITH families AS (
+                        SELECT pvc.id AS product_id,
+                               LOWER(BTRIM(hist.artigo)) AS family,
+                               MAX(LENGTH(BTRIM(hist.artigo))) AS pattern_length
+                        FROM produtos_vendas_config pvc
+                        JOIN gramas_gelado_historico hist
+                          ON LOWER(pvc.produto) LIKE
+                             '%%' || LOWER(BTRIM(hist.artigo)) || '%%'
+                        WHERE pvc.gelado_kpi = TRUE
+                        GROUP BY pvc.id, LOWER(BTRIM(hist.artigo))
+                    ),
+                    ranked AS (
+                        SELECT *,
+                               MAX(pattern_length) OVER (
+                                   PARTITION BY product_id
+                               ) AS max_length
+                        FROM families
+                    ),
+                    winners AS (
+                        SELECT *, COUNT(*) OVER (
+                            PARTITION BY product_id
+                        ) AS winner_count
+                        FROM ranked WHERE pattern_length=max_length
+                    )
+                    INSERT INTO produto_regra_dose_historico (
+                        produto_vendas_config_id, regra_dose_id,
+                        valid_from, valid_to, created_by
+                    )
+                    SELECT winner.product_id, hist.id,
+                           hist.valid_from, hist.valid_to, 'migração'
+                    FROM winners winner
+                    JOIN gramas_gelado_historico hist
+                      ON LOWER(BTRIM(hist.artigo))=winner.family
+                    WHERE winner.winner_count = 1
+                """)
+                cursor.execute("""
+                    UPDATE produtos_vendas_config pvc
+                    SET dose_config_pendente = TRUE, gelado_kpi = FALSE
+                    WHERE pvc.gelado_kpi = TRUE
+                      AND NOT EXISTS (
+                          SELECT 1 FROM produto_regra_dose_historico prd
+                          WHERE prd.produto_vendas_config_id = pvc.id
+                      )
+                """)
+                cursor.execute("""
+                    INSERT INTO app_schema_migrations (name)
+                    VALUES ('doseamento_explicit_product_rules_v1')
+                """)
+            cursor.execute("""
+                SELECT 1 FROM app_schema_migrations
+                WHERE name = 'doseamento_explicit_product_rules_v2'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("""
+                    INSERT INTO produtos_vendas_config (
+                        produto, dose_config_pendente
+                    )
+                    SELECT DISTINCT vd.produto, EXISTS (
+                        SELECT 1 FROM regras_negocio rn
+                        WHERE rn.area='gelado_kpi'
+                          AND LOWER(vd.produto) LIKE
+                              '%%' || LOWER(rn.palavra_chave) || '%%'
+                    )
+                    FROM vendas_detalhe vd
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM produtos_vendas_config pvc
+                        WHERE pvc.produto=vd.produto
+                    )
+                    ON CONFLICT (produto) DO NOTHING
+                """)
+                cursor.execute("""
+                    UPDATE vendas_detalhe vd
+                    SET produto_vendas_config_id=pvc.id
+                    FROM produtos_vendas_config pvc
+                    WHERE vd.produto_vendas_config_id IS NULL
+                      AND pvc.produto=vd.produto
+                """)
+                cursor.execute("""
+                    WITH ambiguous AS (
+                        SELECT prd.produto_vendas_config_id
+                        FROM produto_regra_dose_historico prd
+                        JOIN gramas_gelado_historico hist
+                          ON hist.id=prd.regra_dose_id
+                        WHERE prd.created_by='migração'
+                        GROUP BY prd.produto_vendas_config_id
+                        HAVING COUNT(DISTINCT LOWER(BTRIM(hist.artigo))) > 1
+                    )
+                    DELETE FROM produto_regra_dose_historico prd
+                    USING ambiguous
+                    WHERE prd.produto_vendas_config_id=
+                          ambiguous.produto_vendas_config_id
+                      AND prd.created_by='migração'
+                """)
+                cursor.execute("""
+                    UPDATE produtos_vendas_config pvc
+                    SET gelado_kpi=FALSE, dose_config_pendente=TRUE
+                    WHERE pvc.gelado_kpi=TRUE
+                      AND NOT EXISTS (
+                          SELECT 1 FROM produto_regra_dose_historico prd
+                          WHERE prd.produto_vendas_config_id=pvc.id
+                      )
+                """)
+                cursor.execute("""
+                    INSERT INTO app_schema_migrations (name)
+                    VALUES ('doseamento_explicit_product_rules_v2')
+                """)
+            cursor.execute("""
+                UPDATE produtos_vendas_config pvc
+                SET gelado_kpi=FALSE, dose_config_pendente=TRUE
+                WHERE pvc.gelado_kpi=TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM produto_regra_dose_historico prd
+                      WHERE prd.produto_vendas_config_id=pvc.id
+                        AND CURRENT_DATE BETWEEN prd.valid_from
+                            AND COALESCE(prd.valid_to, 'infinity'::date)
+                  )
+            """)
+            cursor.execute("""
+                CREATE OR REPLACE FUNCTION enforce_gelado_kpi_dose_rule()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    IF NEW.gelado_kpi AND NOT EXISTS (
+                        SELECT 1 FROM produto_regra_dose_historico prd
+                        WHERE prd.produto_vendas_config_id=NEW.id
+                          AND CURRENT_DATE BETWEEN prd.valid_from
+                              AND COALESCE(prd.valid_to, 'infinity'::date)
+                    ) THEN
+                        RAISE EXCEPTION
+                            'produto de gelado requer associação de dose explícita';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+            """)
+            cursor.execute("""
+                DROP TRIGGER IF EXISTS trg_enforce_gelado_kpi_dose_rule
+                ON produtos_vendas_config
+            """)
+            cursor.execute("""
+                CREATE TRIGGER trg_enforce_gelado_kpi_dose_rule
+                BEFORE INSERT OR UPDATE OF gelado_kpi
+                ON produtos_vendas_config
+                FOR EACH ROW EXECUTE FUNCTION enforce_gelado_kpi_dose_rule()
+            """)
             conn.commit()
         except Exception:
             conn.rollback()

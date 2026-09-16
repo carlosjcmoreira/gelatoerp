@@ -16,6 +16,7 @@ import uuid
 from psycopg2.extras import RealDictCursor
 
 from db.connection import db_connection
+from db.dose_associations import backfill_weight_sales, close_current_association
 from db.gelato_rotation import get_gelato_stock_rotation
 
 
@@ -32,25 +33,181 @@ def _day(value):
 
 
 def _matches(product, history, sale_date):
-    """Return the longest unambiguous effective history row."""
+    """Migration-only textual suggestion; KPI calculations never call this."""
     product = str(product or "").casefold()
-    candidates = []
-    for row in history:
-        pattern = str(row.get("artigo", "")).casefold()
-        if not pattern or pattern not in product:
-            continue
-        start = row.get("valid_from")
-        end = row.get("valid_to")
-        if start is not None and _day(start) > sale_date:
-            continue
-        if end is not None and _day(end) < sale_date:
-            continue
-        candidates.append((len(pattern), row))
+    candidates = [
+        (len(str(row.get("artigo", "")).strip()), row)
+        for row in history
+        if str(row.get("artigo", "")).strip().casefold() in product
+        and (row.get("valid_from") is None or _day(row["valid_from"]) <= sale_date)
+        and (row.get("valid_to") is None or _day(row["valid_to"]) >= sale_date)
+    ]
     if not candidates:
         return None
     longest = max(length for length, _ in candidates)
     winners = [row for length, row in candidates if length == longest]
     return winners[0] if len(winners) == 1 else None
+
+
+def _explicit_rule(sale, history):
+    rule = sale.get("dose_rule")
+    sale_date = _day(sale.get("data"))
+    if rule:
+        candidate = rule
+    else:
+        rule_id = sale.get("regra_dose_id")
+        if rule_id is None:
+            return None
+        candidate = next(
+            (row for row in history if row.get("id") == rule_id), None
+        )
+        if candidate is None and len(history) == 1 and history[0].get("id") is None:
+            candidate = history[0]
+    if not candidate:
+        return None
+    if sale_date is not None:
+        if (candidate.get("valid_from") is not None
+                and _day(candidate["valid_from"]) > sale_date):
+            return None
+        if (candidate.get("valid_to") is not None
+                and _day(candidate["valid_to"]) < sale_date):
+            return None
+    return candidate
+
+
+def get_dose_product_configuration_queue():
+    """Products awaiting an explicit rule, with text used only as a suggestion."""
+    with db_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT id, artigo, gramas, tipo_dose, valid_from, valid_to
+            FROM gramas_gelado_historico
+            ORDER BY artigo, valid_from DESC
+        """)
+        rules = [dict(row) for row in cur.fetchall()]
+        cur.execute("""
+            UPDATE produtos_vendas_config pvc
+            SET gelado_kpi=FALSE, dose_config_pendente=TRUE
+            WHERE pvc.gelado_kpi=TRUE
+              AND NOT EXISTS (
+                  SELECT 1 FROM produto_regra_dose_historico prd
+                  WHERE prd.produto_vendas_config_id=pvc.id
+                    AND CURRENT_DATE BETWEEN prd.valid_from
+                        AND COALESCE(prd.valid_to, 'infinity'::date)
+              )
+        """)
+        cur.execute("""
+            SELECT pvc.id, pvc.produto,
+                   (current_rule.regra_dose_id IS NULL)
+                       AS dose_config_pendente,
+                   current_rule.regra_dose_id AS current_rule_id
+            FROM produtos_vendas_config pvc
+            LEFT JOIN LATERAL (
+                SELECT prd.regra_dose_id
+                FROM produto_regra_dose_historico prd
+                WHERE prd.produto_vendas_config_id=pvc.id
+                  AND CURRENT_DATE BETWEEN prd.valid_from
+                      AND COALESCE(prd.valid_to, 'infinity'::date)
+                ORDER BY prd.valid_from DESC LIMIT 1
+            ) current_rule ON TRUE
+            WHERE pvc.dose_config_pendente=TRUE OR pvc.gelado_kpi=TRUE
+            ORDER BY pvc.produto
+        """)
+        products = [dict(row) for row in cur.fetchall()]
+        conn.commit()
+    today = date.today()
+    active_rules = [
+        row for row in rules
+        if _day(row["valid_from"]) <= today
+        and (row["valid_to"] is None or _day(row["valid_to"]) >= today)
+    ]
+    for product in products:
+        suggestion = _matches(product["produto"], active_rules, today)
+        product["suggested_rule_id"] = (
+            product.get("current_rule_id")
+            or (suggestion["id"] if suggestion else None)
+        )
+    return products, active_rules
+
+
+def configure_dose_product(product_id, rule_id, actor):
+    """Activate a queued product using explicit IDs for every rule version."""
+    with db_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute("""
+                SELECT id FROM produtos_vendas_config
+                WHERE id=%s FOR UPDATE
+            """, (product_id,))
+            if not cur.fetchone():
+                raise ValueError("Produto de vendas inexistente.")
+            cur.execute("""
+                SELECT artigo, valid_from, valid_to
+                FROM gramas_gelado_historico
+                WHERE id=%s
+            """, (rule_id,))
+            selected = cur.fetchone()
+            if not selected:
+                raise ValueError("Regra de dose inexistente.")
+            today = date.today()
+            if (_day(selected["valid_from"]) > today
+                    or (
+                        selected["valid_to"] is not None
+                        and _day(selected["valid_to"]) < today
+                    )):
+                raise ValueError("Escolha uma versão de dose atualmente vigente.")
+            cur.execute("""
+                SELECT id, valid_from, valid_to
+                FROM gramas_gelado_historico
+                WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
+                ORDER BY valid_from
+            """, (selected["artigo"],))
+            versions = cur.fetchall()
+            cur.execute("""
+                SELECT id, regra_dose_id, valid_from, valid_to
+                FROM produto_regra_dose_historico
+                WHERE produto_vendas_config_id=%s
+                ORDER BY valid_from
+            """, (product_id,))
+            associations = cur.fetchall()
+            has_association_history = bool(associations)
+            versions_to_insert = versions
+            if has_association_history:
+                close_current_association(cur, product_id, today)
+                versions_to_insert = []
+                for version in versions:
+                    version_start = _day(version["valid_from"])
+                    version_end = (
+                        _day(version["valid_to"])
+                        if version["valid_to"] is not None else None
+                    )
+                    if version_end is not None and version_end < today:
+                        continue
+                    versions_to_insert.append({
+                        "id": version["id"],
+                        "valid_from": max(version_start, today),
+                        "valid_to": version_end,
+                    })
+            for version in versions_to_insert:
+                cur.execute("""
+                    INSERT INTO produto_regra_dose_historico (
+                        produto_vendas_config_id, regra_dose_id,
+                        valid_from, valid_to, created_by
+                    ) VALUES (%s, %s, %s, %s, %s)
+                """, (
+                    product_id, version["id"], version["valid_from"],
+                    version["valid_to"], actor,
+                ))
+            backfill_weight_sales(cur, product_ids=[product_id])
+            cur.execute("""
+                UPDATE produtos_vendas_config
+                SET gelado_kpi=TRUE, dose_config_pendente=FALSE
+                WHERE id=%s
+            """, (product_id,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def preview_historical_dose_csv(contents):
@@ -303,16 +460,44 @@ def _import_historical_doses_tx(cur, normalized, actor, source_name):
             _day(next_version["valid_from"]) - timedelta(days=1)
             if next_version else None
         )
+        continuing_product_ids = []
+        future_association_ids = []
         if previous and (
             previous["valid_to"] is None or _day(previous["valid_to"]) >= effective
         ):
             old_valid_to = previous["valid_to"]
+            cur.execute("""
+                SELECT id, produto_vendas_config_id, valid_from
+                FROM produto_regra_dose_historico
+                WHERE regra_dose_id=%s
+                  AND (valid_to IS NULL OR valid_to >= %s)
+            """, (previous["id"], effective))
+            affected_associations = cur.fetchall()
+            continuing_product_ids = [
+                value["produto_vendas_config_id"]
+                for value in affected_associations
+                if _day(value["valid_from"]) < effective
+            ]
+            future_association_ids = [
+                value["id"] for value in affected_associations
+                if _day(value["valid_from"]) >= effective
+            ]
             cur.execute(
                 """UPDATE gramas_gelado_historico
                    SET valid_to = %s WHERE id = %s RETURNING id""",
                 (effective - timedelta(days=1), previous["id"]),
             )
             cur.fetchone()
+            cur.execute("""
+                UPDATE produto_regra_dose_historico
+                SET valid_to=%s
+                WHERE regra_dose_id=%s
+                  AND valid_from < %s
+                  AND (valid_to IS NULL OR valid_to >= %s)
+            """, (
+                effective - timedelta(days=1), previous["id"],
+                effective, effective,
+            ))
             audit_changes.append({
                 "action": "shorten", "row_id": previous["id"],
                 "old_valid_to": (
@@ -331,6 +516,36 @@ def _import_historical_doses_tx(cur, normalized, actor, source_name):
             valid_to, actor, row["evidence_reference"], batch_id,
         ))
         inserted_id = cur.fetchone()["id"]
+        if future_association_ids:
+            cur.execute("""
+                UPDATE produto_regra_dose_historico
+                SET regra_dose_id=%s
+                WHERE id=ANY(%s)
+            """, (inserted_id, future_association_ids))
+        for product_id in continuing_product_ids:
+            cur.execute("""
+                SELECT MIN(valid_from) AS next_start
+                FROM produto_regra_dose_historico
+                WHERE produto_vendas_config_id=%s AND valid_from>%s
+            """, (product_id, effective))
+            next_association = cur.fetchone()["next_start"]
+            association_end = valid_to
+            if next_association is not None:
+                before_next = _day(next_association) - timedelta(days=1)
+                association_end = min(
+                    association_end, before_next
+                ) if association_end is not None else before_next
+            if association_end is not None and association_end < effective:
+                continue
+            cur.execute("""
+                INSERT INTO produto_regra_dose_historico (
+                    produto_vendas_config_id, regra_dose_id,
+                    valid_from, valid_to, created_by
+                ) VALUES (%s, %s, %s, %s, %s)
+            """, (
+                product_id, inserted_id, effective, association_end, actor,
+            ))
+        backfill_weight_sales(cur, rule_ids=[inserted_id])
         audit_changes.append({
             "action": "insert", "row_id": inserted_id,
             "artigo": row["artigo"], "valid_from": row["valid_from"],
@@ -362,18 +577,23 @@ def get_historical_dose_coverage(loja=None):
             store_clause = " AND vd.loja = %s"
             params.append(loja)
         cur.execute("""
-            SELECT vd.data, vd.produto
+            SELECT vd.data, vd.produto, prd.regra_dose_id
             FROM vendas_detalhe vd
-            JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
-             AND pvc.gelado_kpi = TRUE
-            WHERE 1=1
+            JOIN produtos_vendas_config pvc
+              ON pvc.id = vd.produto_vendas_config_id
+            LEFT JOIN produto_regra_dose_historico prd
+              ON prd.produto_vendas_config_id = pvc.id
+             AND vd.data BETWEEN prd.valid_from
+                 AND COALESCE(prd.valid_to, 'infinity'::date)
+            WHERE (
+                pvc.gelado_kpi=TRUE OR pvc.dose_config_pendente=TRUE
+                OR EXISTS (
+                    SELECT 1 FROM produto_regra_dose_historico any_prd
+                    WHERE any_prd.produto_vendas_config_id=pvc.id
+                )
+            )
         """ + store_clause + " ORDER BY vd.data", params)
         sales = [dict(row) for row in cur.fetchall()]
-        cur.execute("""
-            SELECT artigo, gramas, tipo_dose, valid_from, valid_to
-            FROM gramas_gelado_historico
-        """)
-        history = [dict(row) for row in cur.fetchall()]
         cur.execute("""
             SELECT id, created_by, created_at, source_name, row_count
             FROM gramas_gelado_import_audit
@@ -384,7 +604,7 @@ def get_historical_dose_coverage(loja=None):
     for sale in sales:
         key = _day(sale["data"]).strftime("%Y-%m")
         months[key]["total"] += 1
-        if _matches(sale["produto"], history, _day(sale["data"])):
+        if sale.get("regra_dose_id") is not None:
             months[key]["covered"] += 1
     coverage = []
     for month, counts in sorted(months.items(), reverse=True):
@@ -427,7 +647,7 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         quantity = _decimal(sale.get("quantidade"))
         bucket["sales"] += quantity
         bucket["revenue"] += _decimal(sale.get("valor_euros", sale.get("revenue")))
-        row = _matches(product, history, _day(sale.get("data")))
+        row = _explicit_rule(sale, history)
         if row is None:
             bucket["unmapped"].append(product)
             continue
@@ -661,15 +881,21 @@ def get_doseamento_period(data_inicio, data_fim, loja=None, store_names=None):
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
             SELECT vd.data, vd.loja, vd.produto, vd.quantidade, vd.valor_euros,
-                   vd.peso_vendido_kg
+                    vd.peso_vendido_kg, hist.id AS regra_dose_id
             FROM vendas_detalhe vd
-            JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
-              AND pvc.gelado_kpi = TRUE
+            JOIN produtos_vendas_config pvc
+              ON pvc.id = vd.produto_vendas_config_id
+            JOIN produto_regra_dose_historico prd
+              ON prd.produto_vendas_config_id = pvc.id
+             AND vd.data BETWEEN prd.valid_from
+                 AND COALESCE(prd.valid_to, 'infinity'::date)
+            JOIN gramas_gelado_historico hist
+              ON hist.id = prd.regra_dose_id
             WHERE vd.data >= %s AND vd.data <= %s
         """ + (" AND vd.loja = %s" if loja else ""), 
                    (data_inicio, data_fim, loja) if loja else (data_inicio, data_fim))
         sales = [dict(row) for row in cur.fetchall()]
-        cur.execute("SELECT artigo, gramas, tipo_dose, valid_from, valid_to "
+        cur.execute("SELECT id, artigo, gramas, tipo_dose, valid_from, valid_to "
                     "FROM gramas_gelado_historico ORDER BY artigo")
         history = [dict(row) for row in cur.fetchall()]
     rotation = get_gelato_stock_rotation(data_inicio, data_fim)
@@ -683,4 +909,5 @@ __all__ = [
     "preview_historical_dose_csv", "create_historical_dose_preview",
     "get_historical_dose_preview", "confirm_historical_dose_preview",
     "get_historical_dose_coverage",
+    "get_dose_product_configuration_queue", "configure_dose_product",
 ]

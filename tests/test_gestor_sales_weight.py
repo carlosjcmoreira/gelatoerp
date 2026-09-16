@@ -127,6 +127,7 @@ class SalesWeightParsingTests(unittest.TestCase):
             "peso_vendido_kg": None,
         }]
         history = [{
+            "produto": 'Copo "a peso"',
             "artigo": 'Copo "a peso"',
             "tipo_dose": "peso",
             "valid_from": date(2026, 8, 1),
@@ -146,6 +147,7 @@ class SalesWeightParsingTests(unittest.TestCase):
             "peso_vendido_kg": None,
         }]
         history = [{
+            "produto": "Copo Pequeno",
             "artigo": "Copo Pequeno",
             "tipo_dose": "fixa",
             "valid_from": date(2026, 8, 1),
@@ -165,12 +167,14 @@ class SalesWeightParsingTests(unittest.TestCase):
         }]
         history = [
             {
+                "produto": "Outro produto",
                 "artigo": "Copo",
                 "tipo_dose": "peso",
                 "valid_from": date(2026, 8, 1),
                 "valid_to": None,
             },
             {
+                "produto": "Copo Grande",
                 "artigo": "Copo Grande",
                 "tipo_dose": "fixa",
                 "gramas": 250,
@@ -191,6 +195,7 @@ class SalesWeightParsingTests(unittest.TestCase):
             "peso_vendido_kg": None,
         }]
         history = [{
+            "produto": 'Copo "a peso"',
             "artigo": 'Copo "a peso"',
             "tipo_dose": "peso",
             "valid_from": date(2026, 8, 1),
