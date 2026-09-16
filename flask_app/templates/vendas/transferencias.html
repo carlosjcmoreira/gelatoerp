@@ -6,7 +6,7 @@
     {% include "components/tabs.html" %}
     <h5 class="mb-2">🛒 Vendas {{ loja_nome }}</h5>
     <h6 class="mb-1">Receção de Mercadoria</h6>
-    <p class="text-muted small mb-3">Confirme as transferências enviadas pela produção. Ao confirmar, o stock é atualizado automaticamente.</p>
+    <p class="text-muted small mb-3">O stock é atualizado pela origem quando a transferência é executada. A aceitação da loja é opcional e serve apenas como comprovativo.</p>
 
     {% if grupos_pendentes %}
     {% for grupo in grupos_pendentes %}
@@ -18,7 +18,7 @@
                     <span class="fw-bold small">📅 {{ grupo.data_prevista.strftime('%d/%m/%Y') if grupo.data_prevista else '—' }}</span>
                     {% if grupo.criado_por %}<span class="text-muted ms-1" style="font-size:0.72rem;">por {{ grupo.criado_por }}</span>{% endif %}
                 </div>
-                <span class="badge bg-warning text-dark">{{ grupo.ordens|length }} artigo{{ 's' if grupo.ordens|length > 1 }}</span>
+                <span class="badge bg-warning text-dark">{{ grupo.ordens|length }} por verificar</span>
             </div>
         </div>
         <div class="card-body p-0">
@@ -39,25 +39,25 @@
                 <form method="post" class="d-inline">
                     <input type="hidden" name="action" value="confirmar_batch">
                     <input type="hidden" name="ordem_ids" value="{{ grupo.ordem_ids_csv }}">
-                    <button type="submit" class="btn btn-success btn-sm" style="font-size:0.78rem;">✓ Confirmar tudo</button>
+                    <button type="submit" class="btn btn-success btn-sm" style="font-size:0.78rem;">✓ Aceitar receção</button>
                 </form>
                 <button type="button"
-                        class="btn btn-outline-danger btn-sm rejeitar-toggle"
-                        data-target="rejeitar-batch-{{ loop.index }}"
-                        style="font-size:0.78rem;">Rejeitar</button>
+                        class="btn btn-outline-danger btn-sm problema-toggle"
+                        data-target="problema-batch-{{ loop.index }}"
+                        style="font-size:0.78rem;">Reportar problema</button>
             </div>
-            <div id="rejeitar-batch-{{ loop.index }}" class="mt-2 p-2 bg-danger bg-opacity-10 rounded" style="display:none;">
+            <div id="problema-batch-{{ loop.index }}" class="mt-2 p-2 bg-danger bg-opacity-10 rounded" style="display:none;">
                 <form method="post">
-                    <input type="hidden" name="action" value="rejeitar_batch">
+                    <input type="hidden" name="action" value="reportar_problema_batch">
                     <input type="hidden" name="ordem_ids" value="{{ grupo.ordem_ids_csv }}">
-                    <label class="form-label small fw-semibold mb-1">Motivo de rejeição <span class="text-muted fw-normal">(opcional)</span></label>
-                    <textarea name="motivo_rejeicao" class="form-control form-control-sm mb-2"
+                    <label class="form-label small fw-semibold mb-1">Problema encontrado</label>
+                    <textarea name="motivo_problema" class="form-control form-control-sm mb-2" required
                               rows="2" placeholder="Ex: quantidade incorrecta, produto não conforme…"
                               maxlength="500"></textarea>
                     <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-danger btn-sm" style="font-size:0.78rem;">Confirmar rejeição</button>
-                        <button type="button" class="btn btn-outline-secondary btn-sm rejeitar-cancel"
-                                data-target="rejeitar-batch-{{ loop.index }}" style="font-size:0.78rem;">Cancelar</button>
+                        <button type="submit" class="btn btn-danger btn-sm" style="font-size:0.78rem;">Reportar sem alterar stock</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm problema-cancel"
+                                data-target="problema-batch-{{ loop.index }}" style="font-size:0.78rem;">Cancelar</button>
                     </div>
                 </form>
             </div>
@@ -65,7 +65,7 @@
     </div>
     {% endfor %}
     {% else %}
-    <div class="alert alert-info small">Sem transferências pendentes para {{ loja_nome }}.</div>
+    <div class="alert alert-info small">Sem transferências por verificar para {{ loja_nome }}.</div>
     {% endif %}
 
     {% if confirmadas %}
@@ -90,14 +90,20 @@
                     <td>{{ o.produto }}{% if o.sabor and o.sabor != o.produto %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
                     <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
                     <td class="text-center">
-                        {% if o.status == 'confirmada' %}
-                        <span class="badge bg-success" style="font-size:0.65rem;">Confirmada</span>
+                        {% if o.rececao_estado == 'aceite' %}
+                        <span class="badge bg-success" style="font-size:0.65rem;">Aceite</span>
+                        {% elif o.rececao_estado == 'problema' %}
+                        <span class="badge bg-danger" style="font-size:0.65rem;">Problema reportado</span>
+                        {% elif o.status == 'rejeitada' %}
+                        <span class="badge bg-secondary" style="font-size:0.65rem;">Rejeição histórica</span>
                         {% else %}
-                        <span class="badge bg-danger" style="font-size:0.65rem;">Rejeitada</span>
+                        <span class="badge bg-success" style="font-size:0.65rem;">Concluída</span>
                         {% endif %}
                     </td>
                     <td class="text-muted" style="font-size:0.78rem;">
-                        {% if o.status == 'rejeitada' and o.motivo_rejeicao %}
+                        {% if o.rececao_estado == 'problema' and o.motivo_problema %}
+                        {{ o.motivo_problema }}
+                        {% elif o.status == 'rejeitada' and o.motivo_rejeicao %}
                         {{ o.motivo_rejeicao }}
                         {% elif o.status == 'rejeitada' %}
                         <span class="text-muted fst-italic">sem motivo</span>
@@ -112,7 +118,7 @@
 </div>
 
 <script>
-document.querySelectorAll('.rejeitar-toggle').forEach(function(btn) {
+document.querySelectorAll('.problema-toggle').forEach(function(btn) {
     btn.addEventListener('click', function() {
         var target = document.getElementById(this.dataset.target);
         if (target) {
@@ -120,7 +126,7 @@ document.querySelectorAll('.rejeitar-toggle').forEach(function(btn) {
         }
     });
 });
-document.querySelectorAll('.rejeitar-cancel').forEach(function(btn) {
+document.querySelectorAll('.problema-cancel').forEach(function(btn) {
     btn.addEventListener('click', function() {
         var target = document.getElementById(this.dataset.target);
         if (target) target.style.display = 'none';

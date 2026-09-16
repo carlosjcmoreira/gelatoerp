@@ -44,7 +44,13 @@
             <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">{{ t.n_pendentes }} pend.</span>
             {% endif %}
             {% if t.n_confirmadas > 0 %}
-            <span class="badge bg-success ms-1" style="font-size:0.65rem;">{{ t.n_confirmadas }} conf.</span>
+            <span class="badge bg-success ms-1" style="font-size:0.65rem;">{{ t.n_confirmadas }} concluída(s)</span>
+            {% endif %}
+            {% if t.n_por_verificar > 0 %}
+            <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">{{ t.n_por_verificar }} por verificar</span>
+            {% endif %}
+            {% if t.n_problemas > 0 %}
+            <span class="badge bg-danger ms-1" style="font-size:0.65rem;">{{ t.n_problemas }} problema(s)</span>
             {% endif %}
             {% if t.n_rejeitadas > 0 %}
             <span class="badge bg-danger ms-1" style="font-size:0.65rem;">{{ t.n_rejeitadas }} rej.</span>
@@ -73,7 +79,14 @@
                             {% if o.status == 'pendente' %}
                             <span class="badge bg-warning text-dark" style="font-size:0.65rem;">Pendente</span>
                             {% elif o.status == 'confirmada' %}
-                            <span class="badge bg-success" style="font-size:0.65rem;">Confirmada</span>
+                            <span class="badge bg-success" style="font-size:0.65rem;">Concluída</span>
+                            {% if o.rececao_estado == 'por_verificar' %}
+                            <div class="text-warning" style="font-size:0.68rem; margin-top:2px;">Por verificar</div>
+                            {% elif o.rececao_estado == 'aceite' %}
+                            <div class="text-success" style="font-size:0.68rem; margin-top:2px;">Aceite pela loja</div>
+                            {% elif o.rececao_estado == 'problema' %}
+                            <div class="text-danger" style="font-size:0.68rem; margin-top:2px;">Problema: {{ o.motivo_problema }}</div>
+                            {% endif %}
                             {% else %}
                             <span class="badge bg-danger" style="font-size:0.65rem;">Rejeitada</span>
                             {% if o.motivo_rejeicao %}
@@ -175,7 +188,7 @@
     {% for o in ordens %}
     {% set area_color = 'primary' if o.area_origem == 'Gelado' else ('warning text-dark' if o.area_origem == 'Pastelaria' else ('info' if o.area_origem == 'Confeitaria' else ('secondary' if o.area_origem == 'Compras' else 'dark'))) %}
     {% set status_color = 'warning text-dark' if o.status == 'pendente' else ('success' if o.status == 'confirmada' else 'danger') %}
-    {% set status_label = 'Pendente' if o.status == 'pendente' else ('Confirmada' if o.status == 'confirmada' else 'Rejeitada') %}
+    {% set status_label = 'Pendente' if o.status == 'pendente' else ('Concluída' if o.status == 'confirmada' else 'Rejeição histórica') %}
     <tr class="ordem-row" style="cursor:pointer;" onclick="toggleEventos({{ o.id }})">
         <td class="text-muted">{{ o.id }}</td>
         <td><span class="badge bg-{{ area_color }}" style="font-size:0.7rem;">{{ o.area_origem }}</span></td>
@@ -194,7 +207,11 @@
     <tr id="eventos-{{ o.id }}" style="display:none;">
         <td colspan="9" class="p-0">
             <div class="px-3 py-2 bg-light border-bottom">
-                {% if o.status == 'rejeitada' and o.motivo_rejeicao %}
+                {% if o.rececao_estado == 'problema' and o.motivo_problema %}
+                <div class="alert alert-danger py-1 px-2 mb-2" style="font-size:0.8rem;">
+                    <strong>Problema reportado:</strong> {{ o.motivo_problema }}
+                </div>
+                {% elif o.status == 'rejeitada' and o.motivo_rejeicao %}
                 <div class="alert alert-danger py-1 px-2 mb-2" style="font-size:0.8rem;">
                     <strong>Motivo de rejeição:</strong> {{ o.motivo_rejeicao }}
                 </div>
@@ -202,8 +219,10 @@
                 <div class="d-flex flex-column gap-1">
                 {% for ev in o.eventos %}
                 {% if ev.event_type == 'criado' %}{% set ev_icon = '🆕' %}{% set ev_color = 'secondary' %}{% set ev_label = 'Criado' %}
-                {% elif ev.event_type == 'confirmado' %}{% set ev_icon = '✅' %}{% set ev_color = 'success' %}{% set ev_label = 'Confirmado' %}
-                {% else %}{% set ev_icon = '❌' %}{% set ev_color = 'danger' %}{% set ev_label = 'Rejeitado' %}{% endif %}
+                {% elif ev.event_type == 'executado' %}{% set ev_icon = '🚚' %}{% set ev_color = 'success' %}{% set ev_label = 'Executado' %}
+                {% elif ev.event_type in ('aceite', 'confirmado') %}{% set ev_icon = '✅' %}{% set ev_color = 'success' %}{% set ev_label = 'Aceite' %}
+                {% elif ev.event_type == 'problema_reportado' %}{% set ev_icon = '⚠️' %}{% set ev_color = 'danger' %}{% set ev_label = 'Problema' %}
+                {% else %}{% set ev_icon = '❌' %}{% set ev_color = 'secondary' %}{% set ev_label = 'Rejeição histórica' %}{% endif %}
                 <div class="d-flex align-items-start gap-2">
                     <span class="badge bg-{{ ev_color }}" style="font-size:0.68rem; min-width:72px;">{{ ev_icon }} {{ ev_label }}</span>
                     <span style="font-size:0.8rem;">
@@ -228,7 +247,7 @@
 {% for o in ordens %}
 {% set area_color = 'primary' if o.area_origem == 'Gelado' else ('warning text-dark' if o.area_origem == 'Pastelaria' else ('info' if o.area_origem == 'Confeitaria' else ('secondary' if o.area_origem == 'Compras' else 'dark'))) %}
 {% set status_color = 'warning text-dark' if o.status == 'pendente' else ('success' if o.status == 'confirmada' else 'danger') %}
-{% set status_label = 'Pendente' if o.status == 'pendente' else ('Confirmada' if o.status == 'confirmada' else 'Rejeitada') %}
+    {% set status_label = 'Pendente' if o.status == 'pendente' else ('Concluída' if o.status == 'confirmada' else 'Rejeição histórica') %}
 <div class="card mb-2" style="font-size:0.83rem;">
     <div class="card-body py-2 px-3" style="cursor:pointer;" onclick="toggleEventosMob({{ o.id }})">
         <div class="d-flex justify-content-between align-items-start">
@@ -245,13 +264,17 @@
             &nbsp;·&nbsp;<span>{{ o.data.strftime('%d/%m/%Y') if o.data else '—' }}</span>
         </div>
         <div id="mob-eventos-{{ o.id }}" style="display:none; margin-top:8px;">
-            {% if o.status == 'rejeitada' and o.motivo_rejeicao %}
+            {% if o.rececao_estado == 'problema' and o.motivo_problema %}
+            <div class="text-danger small mb-1"><strong>Problema:</strong> {{ o.motivo_problema }}</div>
+            {% elif o.status == 'rejeitada' and o.motivo_rejeicao %}
             <div class="text-danger small mb-1"><strong>Motivo:</strong> {{ o.motivo_rejeicao }}</div>
             {% endif %}
             {% for ev in o.eventos %}
             {% if ev.event_type == 'criado' %}{% set ev_icon = '🆕' %}{% set ev_label = 'Criado' %}
-            {% elif ev.event_type == 'confirmado' %}{% set ev_icon = '✅' %}{% set ev_label = 'Confirmado' %}
-            {% else %}{% set ev_icon = '❌' %}{% set ev_label = 'Rejeitado' %}{% endif %}
+            {% elif ev.event_type == 'executado' %}{% set ev_icon = '🚚' %}{% set ev_label = 'Executado' %}
+            {% elif ev.event_type in ('aceite', 'confirmado') %}{% set ev_icon = '✅' %}{% set ev_label = 'Aceite' %}
+            {% elif ev.event_type == 'problema_reportado' %}{% set ev_icon = '⚠️' %}{% set ev_label = 'Problema' %}
+            {% else %}{% set ev_icon = '❌' %}{% set ev_label = 'Rejeição histórica' %}{% endif %}
             <div class="small text-muted">
                 {{ ev_icon }} {{ ev_label }}
                 {% if ev.utilizador %} · {{ ev.utilizador }}{% endif %}

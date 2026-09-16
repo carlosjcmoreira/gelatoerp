@@ -85,7 +85,9 @@ def widget_pastelaria() -> dict:
         itens_hoje = int(cur.fetchone()[0])
         cur.execute(
             """SELECT COUNT(*) FROM ordens_transferencia
-               WHERE area_origem = 'Pastelaria' AND status = 'pendente'"""
+               WHERE area_origem = 'Pastelaria'
+                 AND status = 'confirmada'
+                 AND rececao_estado = 'por_verificar'"""
         )
         transferencias_pendentes = int(cur.fetchone()[0])
     return {
@@ -158,7 +160,9 @@ def widget_logistica() -> dict:
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT COUNT(*) FROM ordens_transferencia WHERE status = 'pendente'"
+            """SELECT COUNT(*) FROM ordens_transferencia
+               WHERE status = 'confirmada'
+                 AND rececao_estado = 'por_verificar'"""
         )
         pendentes = int(cur.fetchone()[0])
         cur.execute(

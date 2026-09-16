@@ -1,0 +1,241 @@
+import os
+import unittest
+import uuid
+from contextlib import contextmanager
+from datetime import date
+from unittest.mock import patch
+
+import psycopg2
+
+from db import plano, schema
+
+
+class OptionalAcceptanceMigrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            raise unittest.SkipTest("DATABASE_URL is required")
+        cls.database_url = database_url
+        cls.admin = psycopg2.connect(database_url)
+        cls.admin.autocommit = True
+        cls.schema_name = f"test_transfer_optional_{uuid.uuid4().hex}"
+        with cls.admin.cursor() as cursor:
+            cursor.execute(f'CREATE SCHEMA "{cls.schema_name}"')
+            cursor.execute(f'SET search_path TO "{cls.schema_name}"')
+            cursor.execute("""
+                CREATE TABLE ordens_transferencia (
+                    id SERIAL PRIMARY KEY,
+                    data DATE NOT NULL,
+                    area_origem VARCHAR(100) NOT NULL,
+                    produto VARCHAR(255) NOT NULL,
+                    sabor VARCHAR(255),
+                    quantidade REAL NOT NULL,
+                    unidade VARCHAR(50) NOT NULL DEFAULT 'kg',
+                    loja_destino VARCHAR(100) NOT NULL,
+                    loja_origem VARCHAR(100),
+                    status VARCHAR(50) NOT NULL DEFAULT 'pendente',
+                    criado_por VARCHAR(100),
+                    confirmado_por VARCHAR(100),
+                    confirmado_em TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    data_prevista DATE,
+                    batch_id VARCHAR(100),
+                    destino_tipo VARCHAR(20) NOT NULL DEFAULT 'loja',
+                    destino_nome VARCHAR(255),
+                    produto_pastelaria_id INTEGER,
+                    motivo_rejeicao TEXT
+                );
+                CREATE TABLE rececao_mercadoria (
+                    id SERIAL PRIMARY KEY,
+                    data DATE NOT NULL,
+                    loja VARCHAR(100) NOT NULL,
+                    tipo_produto VARCHAR(100) NOT NULL,
+                    produto VARCHAR(255),
+                    sabor VARCHAR(255),
+                    lote VARCHAR(100),
+                    quantidade REAL NOT NULL,
+                    unidade VARCHAR(50) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE contagem_stock (
+                    id SERIAL PRIMARY KEY,
+                    data DATE NOT NULL,
+                    loja VARCHAR(50) NOT NULL,
+                    produto VARCHAR(255) NOT NULL,
+                    quantidade INTEGER NOT NULL,
+                    tipo VARCHAR(50) NOT NULL,
+                    origem VARCHAR(30) NOT NULL DEFAULT 'contagem',
+                    produto_pastelaria_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE transferencias_eventos (
+                    id SERIAL PRIMARY KEY,
+                    ordem_id INTEGER NOT NULL
+                        REFERENCES ordens_transferencia(id) ON DELETE CASCADE,
+                    event_type VARCHAR(30) NOT NULL CHECK (
+                        event_type IN ('criado', 'confirmado', 'rejeitado')
+                    ),
+                    utilizador VARCHAR(100),
+                    motivo TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+
+        @contextmanager
+        def isolated_connection():
+            connection = psycopg2.connect(database_url)
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(f'SET search_path TO "{cls.schema_name}"')
+                yield connection
+            finally:
+                connection.close()
+
+        cls.isolated_connection = staticmethod(isolated_connection)
+
+    @classmethod
+    def tearDownClass(cls):
+        if getattr(cls, "admin", None):
+            with cls.admin.cursor() as cursor:
+                cursor.execute(
+                    f'DROP SCHEMA IF EXISTS "{cls.schema_name}" CASCADE'
+                )
+            cls.admin.close()
+
+    def setUp(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "TRUNCATE transferencias_eventos, rececao_mercadoria, "
+                    "contagem_stock, ordens_transferencia RESTART IDENTITY CASCADE"
+                )
+                cursor.execute("""
+                    INSERT INTO ordens_transferencia (
+                        data, area_origem, produto, sabor, quantidade,
+                        loja_destino, status, criado_por, created_at,
+                        destino_tipo
+                    ) VALUES (
+                        '2026-09-10', 'Gelado', 'Baunilha', 'Baunilha', 3,
+                        'Matosinhos', 'pendente', 'producao',
+                        '2026-09-10 08:00', 'loja'
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO ordens_transferencia (
+                        data, area_origem, produto, sabor, quantidade,
+                        loja_destino, status, criado_por, confirmado_por,
+                        confirmado_em, created_at, destino_tipo
+                    ) VALUES (
+                        '2026-09-09', 'Gelado', 'Chocolate', 'Chocolate', 2,
+                        'Bolhão', 'confirmada', 'producao', 'loja',
+                        '2026-09-09 09:00', '2026-09-09 08:00', 'loja'
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO rececao_mercadoria (
+                        data, loja, tipo_produto, produto, sabor, lote,
+                        quantidade, unidade, created_at
+                    ) VALUES (
+                        '2026-09-09', 'Bolhão', 'gelado', 'Chocolate',
+                        'Chocolate', '', 2, 'kg', '2026-09-09 09:00'
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO ordens_transferencia (
+                        data, area_origem, produto, sabor, quantidade,
+                        loja_destino, status, criado_por, created_at,
+                        destino_tipo, destino_nome
+                    ) VALUES (
+                        '2026-09-11', 'Gelado', 'Limão', 'Limão', 4,
+                        'B2B', 'pendente', 'producao',
+                        '2026-09-11 08:00', 'b2b', 'Cliente'
+                    )
+                """)
+                cursor.execute("""
+                    INSERT INTO transferencias_eventos (
+                        ordem_id, event_type, utilizador, created_at
+                    )
+                    SELECT id, 'criado', criado_por, created_at
+                    FROM ordens_transferencia
+                """)
+                connection.commit()
+
+    def test_migration_is_repeatable_and_never_duplicates_stock(self):
+        with patch("db.schema.db_connection", self.isolated_connection):
+            schema.run_migrations_transferencias_aceitacao_opcional()
+            schema.run_migrations_transferencias_aceitacao_opcional()
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT produto, status, rececao_estado, loja_origem
+                    FROM ordens_transferencia ORDER BY id
+                """)
+                self.assertEqual(cursor.fetchall(), [
+                    ("Baunilha", "confirmada", "por_verificar", None),
+                    ("Chocolate", "confirmada", "aceite", None),
+                    ("Limão", "confirmada", "nao_aplicavel", "Bolhão"),
+                ])
+                cursor.execute("""
+                    SELECT o.produto, COUNT(r.id)
+                    FROM ordens_transferencia o
+                    LEFT JOIN rececao_mercadoria r
+                      ON r.ordem_transferencia_id=o.id
+                    GROUP BY o.id, o.produto ORDER BY o.id
+                """)
+                self.assertEqual(cursor.fetchall(), [
+                    ("Baunilha", 1), ("Chocolate", 1), ("Limão", 0)
+                ])
+                cursor.execute("""
+                    SELECT ordem_id, COUNT(*)
+                    FROM transferencias_eventos
+                    WHERE event_type='executado'
+                    GROUP BY ordem_id ORDER BY ordem_id
+                """)
+                self.assertEqual(cursor.fetchall(), [(1, 1), (3, 1)])
+
+    def test_new_execution_and_acceptance_keep_one_receipt(self):
+        with patch("db.schema.db_connection", self.isolated_connection):
+            schema.run_migrations_transferencias_aceitacao_opcional()
+        with patch("db.plano.db_connection", self.isolated_connection):
+            order_id = plano.criar_ordem_transferencia(
+                date(2026, 9, 12), "Gelado", "Morango", 2.5,
+                loja_destino="Matosinhos", sabor="Morango",
+                criado_por="producao",
+            )
+            self.assertTrue(
+                plano.confirmar_ordem_transferencia(order_id, "loja")
+            )
+            self.assertFalse(
+                plano.confirmar_ordem_transferencia(order_id, "loja")
+            )
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT status, rececao_estado, confirmado_por, aceite_por
+                    FROM ordens_transferencia WHERE id=%s
+                """, (order_id,))
+                self.assertEqual(
+                    cursor.fetchone(),
+                    ("confirmada", "aceite", "producao", "loja"),
+                )
+                cursor.execute("""
+                    SELECT COUNT(*) FROM rececao_mercadoria
+                    WHERE ordem_transferencia_id=%s
+                """, (order_id,))
+                self.assertEqual(cursor.fetchone()[0], 1)
+                cursor.execute("""
+                    SELECT event_type, COUNT(*)
+                    FROM transferencias_eventos
+                    WHERE ordem_id=%s
+                    GROUP BY event_type ORDER BY event_type
+                """, (order_id,))
+                self.assertEqual(cursor.fetchall(), [
+                    ("aceite", 1), ("criado", 1), ("executado", 1)
+                ])
+
+
+if __name__ == "__main__":
+    unittest.main()

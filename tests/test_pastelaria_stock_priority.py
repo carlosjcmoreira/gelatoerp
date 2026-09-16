@@ -1358,6 +1358,7 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     origem VARCHAR(30) NOT NULL DEFAULT 'contagem',
                     produto_pastelaria_id INTEGER
                         REFERENCES produtos_pastelaria(id) ON DELETE SET NULL,
+                    ordem_transferencia_id INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE ordens_transferencia (
@@ -1369,6 +1370,7 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     quantidade REAL NOT NULL,
                     unidade VARCHAR(50) NOT NULL DEFAULT 'kg',
                     loja_destino VARCHAR(100) NOT NULL,
+                    loja_origem VARCHAR(100),
                     status VARCHAR(50) NOT NULL DEFAULT 'pendente',
                     criado_por VARCHAR(100),
                     confirmado_por VARCHAR(100),
@@ -1379,8 +1381,17 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     destino_tipo VARCHAR(20) NOT NULL DEFAULT 'loja',
                     destino_nome VARCHAR(255),
                     produto_pastelaria_id INTEGER
-                        REFERENCES produtos_pastelaria(id) ON DELETE SET NULL
+                        REFERENCES produtos_pastelaria(id) ON DELETE SET NULL,
+                    rececao_estado VARCHAR(30) NOT NULL DEFAULT 'por_verificar',
+                    aceite_por VARCHAR(100),
+                    aceite_em TIMESTAMPTZ,
+                    problema_por VARCHAR(100),
+                    problema_em TIMESTAMPTZ,
+                    motivo_problema TEXT
                 );
+                CREATE UNIQUE INDEX uq_test_contagem_transfer_order
+                    ON contagem_stock(ordem_transferencia_id)
+                    WHERE ordem_transferencia_id IS NOT NULL;
                 CREATE TABLE transferencias_eventos (
                     id SERIAL PRIMARY KEY,
                     ordem_id INTEGER NOT NULL
@@ -1531,7 +1542,7 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     )
                     connection.commit()
 
-    def test_pending_transfer_keeps_product_identity_across_rename(self):
+    def test_completed_transfer_keeps_product_identity_across_rename(self):
         with self.isolated_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("""
@@ -1565,11 +1576,6 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                 connection.commit()
 
         try:
-            with patch('db.plano.db_connection', self.isolated_connection):
-                self.assertTrue(
-                    plano.confirmar_ordem_transferencia(order_id, 'loja')
-                )
-
             with self.isolated_connection() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("""

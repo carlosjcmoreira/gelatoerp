@@ -3428,7 +3428,12 @@ def run_migrations_transferencias_eventos():
                 CREATE TABLE IF NOT EXISTS transferencias_eventos (
                     id          SERIAL PRIMARY KEY,
                     ordem_id    INTEGER NOT NULL REFERENCES ordens_transferencia(id) ON DELETE CASCADE,
-                    event_type  VARCHAR(20) NOT NULL CHECK (event_type IN ('criado', 'confirmado', 'rejeitado')),
+                    event_type  VARCHAR(30) NOT NULL CHECK (
+                        event_type IN (
+                            'criado', 'confirmado', 'rejeitado', 'executado',
+                            'aceite', 'problema_reportado'
+                        )
+                    ),
                     utilizador  VARCHAR(100),
                     motivo      TEXT,
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -3448,6 +3453,206 @@ def run_migrations_transferencias_eventos():
         finally:
             try:
                 cursor.execute("SELECT pg_advisory_unlock(202617)")
+                conn.commit()
+            except Exception:
+                pass
+
+
+def run_migrations_transferencias_aceitacao_opcional():
+    """Complete dispatched transfers immediately and separate store acknowledgement."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_advisory_lock(202645)")
+
+            cursor.execute("""
+                ALTER TABLE ordens_transferencia
+                    ADD COLUMN IF NOT EXISTS rececao_estado VARCHAR(30),
+                    ADD COLUMN IF NOT EXISTS aceite_por VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS aceite_em TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS problema_por VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS problema_em TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS motivo_problema TEXT
+            """)
+            cursor.execute("""
+                ALTER TABLE rececao_mercadoria
+                    ADD COLUMN IF NOT EXISTS ordem_transferencia_id INTEGER
+                        REFERENCES ordens_transferencia(id) ON DELETE SET NULL
+            """)
+            cursor.execute("""
+                ALTER TABLE contagem_stock
+                    ADD COLUMN IF NOT EXISTS ordem_transferencia_id INTEGER
+                        REFERENCES ordens_transferencia(id) ON DELETE SET NULL
+            """)
+            cursor.execute("""
+                ALTER TABLE transferencias_eventos
+                    DROP CONSTRAINT IF EXISTS transferencias_eventos_event_type_check
+            """)
+            cursor.execute("""
+                ALTER TABLE transferencias_eventos
+                    ADD CONSTRAINT transferencias_eventos_event_type_check
+                    CHECK (event_type IN (
+                        'criado', 'confirmado', 'rejeitado', 'executado',
+                        'aceite', 'problema_reportado'
+                    ))
+            """)
+
+            # Link legacy confirmed receipts only when the match is unambiguous.
+            cursor.execute("""
+                WITH candidates AS (
+                    SELECT rm.id AS receipt_id, o.id AS order_id,
+                           COUNT(*) OVER (PARTITION BY rm.id) AS orders_per_receipt,
+                           COUNT(*) OVER (PARTITION BY o.id) AS receipts_per_order
+                    FROM rececao_mercadoria rm
+                    JOIN ordens_transferencia o
+                      ON o.status='confirmada'
+                     AND o.destino_tipo='loja'
+                     AND o.area_origem='Gelado'
+                     AND o.loja_destino=rm.loja
+                     AND COALESCE(o.sabor, o.produto)=rm.sabor
+                     AND o.quantidade=rm.quantidade
+                     AND o.confirmado_em=rm.created_at
+                    WHERE rm.ordem_transferencia_id IS NULL
+                      AND rm.tipo_produto='gelado' AND COALESCE(rm.lote, '')=''
+                )
+                UPDATE rececao_mercadoria rm
+                SET ordem_transferencia_id=c.order_id
+                FROM candidates c
+                WHERE rm.id=c.receipt_id
+                  AND c.orders_per_receipt=1 AND c.receipts_per_order=1
+            """)
+            cursor.execute("""
+                WITH candidates AS (
+                    SELECT cs.id AS receipt_id, o.id AS order_id,
+                           COUNT(*) OVER (PARTITION BY cs.id) AS orders_per_receipt,
+                           COUNT(*) OVER (PARTITION BY o.id) AS receipts_per_order
+                    FROM contagem_stock cs
+                    JOIN ordens_transferencia o
+                      ON o.status='confirmada'
+                     AND o.destino_tipo='loja'
+                     AND LOWER(o.area_origem)=cs.tipo
+                     AND o.loja_destino=cs.loja
+                     AND o.produto=cs.produto
+                     AND o.quantidade::integer=cs.quantidade
+                     AND o.confirmado_em=cs.created_at
+                    WHERE cs.ordem_transferencia_id IS NULL
+                      AND cs.origem='transferencia'
+                )
+                UPDATE contagem_stock cs
+                SET ordem_transferencia_id=c.order_id
+                FROM candidates c
+                WHERE cs.id=c.receipt_id
+                  AND c.orders_per_receipt=1 AND c.receipts_per_order=1
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_rececao_transfer_order
+                ON rececao_mercadoria(ordem_transferencia_id)
+                WHERE ordem_transferencia_id IS NOT NULL
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_contagem_transfer_order
+                ON contagem_stock(ordem_transferencia_id)
+                WHERE ordem_transferencia_id IS NOT NULL
+            """)
+
+            # Existing confirmations were store acceptances in the old flow.
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET rececao_estado = CASE
+                        WHEN destino_tipo='b2b' THEN 'nao_aplicavel'
+                        WHEN status='confirmada' THEN 'aceite'
+                        WHEN status='rejeitada' THEN 'problema'
+                        ELSE 'por_verificar'
+                    END,
+                    aceite_por = CASE WHEN status='confirmada'
+                                      THEN confirmado_por ELSE aceite_por END,
+                    aceite_em = CASE WHEN status='confirmada'
+                                     THEN confirmado_em ELSE aceite_em END,
+                    problema_por = CASE WHEN status='rejeitada'
+                                        THEN confirmado_por ELSE problema_por END,
+                    problema_em = CASE WHEN status='rejeitada'
+                                       THEN confirmado_em ELSE problema_em END,
+                    motivo_problema = CASE WHEN status='rejeitada'
+                                           THEN motivo_rejeicao ELSE motivo_problema END
+                WHERE rececao_estado IS NULL
+            """)
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET loja_origem='Bolhão'
+                WHERE status='pendente' AND destino_tipo='b2b'
+                  AND area_origem='Gelado' AND loja_origem IS NULL
+            """)
+
+            # Materialize every legacy pending internal receipt before completion.
+            cursor.execute("""
+                INSERT INTO rececao_mercadoria (
+                    data, loja, tipo_produto, produto, sabor, lote, quantidade,
+                    unidade, ordem_transferencia_id, created_at
+                )
+                SELECT o.data, o.loja_destino, 'gelado', o.produto,
+                       COALESCE(o.sabor, o.produto), '', o.quantidade, 'kg',
+                       o.id, COALESCE(o.created_at, NOW())
+                FROM ordens_transferencia o
+                WHERE o.status='pendente' AND o.destino_tipo='loja'
+                  AND o.area_origem='Gelado'
+                ON CONFLICT (ordem_transferencia_id)
+                    WHERE ordem_transferencia_id IS NOT NULL DO NOTHING
+            """)
+            cursor.execute("""
+                INSERT INTO contagem_stock (
+                    data, loja, produto, quantidade, tipo, origem,
+                    produto_pastelaria_id, ordem_transferencia_id, created_at
+                )
+                SELECT o.data, o.loja_destino, o.produto, o.quantidade::integer,
+                       LOWER(o.area_origem), 'transferencia',
+                       CASE WHEN o.area_origem='Pastelaria'
+                            THEN o.produto_pastelaria_id ELSE NULL END,
+                       o.id, COALESCE(o.created_at, NOW())
+                FROM ordens_transferencia o
+                WHERE o.status='pendente' AND o.destino_tipo='loja'
+                  AND o.area_origem IN ('Pastelaria', 'Confeitaria')
+                ON CONFLICT (ordem_transferencia_id)
+                    WHERE ordem_transferencia_id IS NOT NULL DO NOTHING
+            """)
+            cursor.execute("""
+                INSERT INTO transferencias_eventos (
+                    ordem_id, event_type, utilizador, created_at
+                )
+                SELECT o.id, 'executado', o.criado_por,
+                       COALESCE(o.created_at, NOW())
+                FROM ordens_transferencia o
+                WHERE o.status='pendente'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM transferencias_eventos e
+                      WHERE e.ordem_id=o.id AND e.event_type='executado'
+                  )
+            """)
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET status='confirmada',
+                    confirmado_por=COALESCE(confirmado_por, criado_por),
+                    confirmado_em=COALESCE(confirmado_em, created_at, NOW())
+                WHERE status='pendente'
+            """)
+            cursor.execute("""
+                ALTER TABLE ordens_transferencia
+                    ALTER COLUMN rececao_estado SET DEFAULT 'por_verificar',
+                    ALTER COLUMN rececao_estado SET NOT NULL
+            """)
+            conn.commit()
+            logger.info(
+                "run_migrations_transferencias_aceitacao_opcional: ready"
+            )
+        except Exception as exc:
+            logger.error(
+                "run_migrations_transferencias_aceitacao_opcional failed: %s",
+                exc,
+            )
+            conn.rollback()
+            raise
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(202645)")
                 conn.commit()
             except Exception:
                 pass

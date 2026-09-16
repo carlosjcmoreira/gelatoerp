@@ -27,6 +27,7 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_migrations_colaboradores_smart,
                         run_migrations_transferencias_motivo,
                         run_migrations_transferencias_eventos,
+                         run_migrations_transferencias_aceitacao_opcional,
                         run_backfill_transferencias_eventos,
                         run_migrations_batch_id,
                         run_migrations_agente,
@@ -238,6 +239,7 @@ def create_app():
         run_migrations_quantidade_kg_to_numeric()
         run_migrations_loja_origem()
         run_migrations_transferencias_destino()
+        run_migrations_transferencias_aceitacao_opcional()
         run_migrations_invoice_status_config()
         run_migrations_produto_aliases()
         run_migrations_pdf_filename_backfill()

@@ -1090,12 +1090,14 @@ def transferir():
                 if qty > 0:
                     reduced = reduzir_stock_producao(today, sabor, stock_loja, qty)
                     if reduced:
-                        add_transferencia(today, sabor, loja_destino, qty)
+                        if destino_tipo == 'loja':
+                            add_transferencia(today, sabor, loja_destino, qty)
                         criar_ordem_transferencia(
                             today, 'Gelado', sabor, qty, 'kg', loja_destino,
                             sabor=sabor, criado_por=username,
                             data_prevista=data_prevista, batch_id=batch_id,
                             destino_tipo=destino_tipo, destino_nome=destino_nome,
+                            loja_origem=stock_loja if destino_tipo == 'b2b' else None,
                         )
                         ordens_count += 1
         except psycopg2.DatabaseError:

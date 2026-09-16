@@ -482,17 +482,16 @@ def get_latest_pesagem_por_sabor(loja: str) -> dict:
 def get_effective_stock_por_sabor(loja: str) -> dict:
     """Return effective available stock per sabor for a store.
 
-    Computes: latest pesagem kg minus the sum of pending outgoing
-    ordens_transferencia (loja_origem = loja, status = 'pendente', area_origem = 'Gelado')
-    whose data is on or after that sabor's latest pesagem date.
+    Computes: latest pesagem kg minus transfer exits written after that
+    flavor's latest weighing.
 
     Orders predating the pesagem are already reflected in the pesagem reading
     and must NOT be subtracted again.
 
     Returns the same shape as get_latest_pesagem_por_sabor:
-      {sabor: {'kg': float, 'data': date, 'pendente_kg': float}}
+      {sabor: {'kg': float, 'data': date, 'transferido_kg': float}}
     where 'kg' is the effective available quantity (floored at 0)
-    and 'pendente_kg' is the total already committed in pending orders
+    and 'transferido_kg' is the total already executed since the weighing
     since the pesagem date.
     """
     pesagens = get_latest_pesagem_por_sabor(loja)
@@ -502,11 +501,11 @@ def get_effective_stock_por_sabor(loja: str) -> dict:
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT sabor, data, SUM(quantidade) AS total_pendente
-            FROM ordens_transferencia
-            WHERE loja_origem = %s
-              AND status = 'pendente'
-              AND area_origem = 'Gelado'
+            SELECT sabor, data, SUM(ABS(quantidade)) AS total_pendente
+            FROM rececao_mercadoria
+            WHERE loja = %s
+              AND tipo_produto = 'gelado'
+              AND lote = 'transferencia_saida'
             GROUP BY sabor, data
         """, (loja,))
         pending_rows = cursor.fetchall()
@@ -521,12 +520,12 @@ def get_effective_stock_por_sabor(loja: str) -> dict:
 
     result = {}
     for sabor, info in pesagens.items():
-        pendente_kg = pending_by_sabor.get(sabor, 0.0)
-        effective_kg = max(0.0, info['kg'] - pendente_kg)
+        transferido_kg = pending_by_sabor.get(sabor, 0.0)
+        effective_kg = max(0.0, info['kg'] - transferido_kg)
         result[sabor] = {
             'kg': effective_kg,
             'data': info['data'],
-            'pendente_kg': pendente_kg,
+            'transferido_kg': transferido_kg,
         }
     return result
 
@@ -590,6 +589,7 @@ def criar_ordem_transferencia(
     batch_id: str = None,
     destino_tipo: str = 'loja',
     destino_nome: str = None,
+    loja_origem: str = None,
 ):
     if destino_tipo not in ('loja', 'b2b'):
         raise ValueError("Tipo de destino inválido")
@@ -629,20 +629,31 @@ def criar_ordem_transferencia(
             INSERT INTO ordens_transferencia (
                 data, area_origem, produto, sabor, quantidade, unidade,
                 loja_destino, criado_por, data_prevista, batch_id,
-                destino_tipo, destino_nome, produto_pastelaria_id
+                destino_tipo, destino_nome, produto_pastelaria_id,
+                status, confirmado_por, confirmado_em, rececao_estado,
+                loja_origem
             )
             VALUES (
                 %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, 'confirmada', %s, NOW(),
+                CASE WHEN %s = 'b2b' THEN 'nao_aplicavel' ELSE 'por_verificar' END,
                 %s
             )
             RETURNING id
         """, (
             data, area_origem, produto, sabor, quantidade, unidade,
             loja_destino, criado_por, data_prevista or data, batch_id,
-            destino_tipo, destino_nome, produto_pastelaria_id,
+            destino_tipo, destino_nome, produto_pastelaria_id, criado_por,
+            destino_tipo, loja_origem,
         ))
         order_id = cursor.fetchone()[0]
         _insert_evento(cursor, order_id, 'criado', criado_por)
+        _insert_evento(cursor, order_id, 'executado', criado_por)
+        if destino_tipo == 'loja':
+            _insert_transfer_receipt(
+                cursor, order_id, data, area_origem, produto, sabor,
+                quantidade, loja_destino, produto_pastelaria_id,
+            )
         conn.commit()
     return order_id
 
@@ -659,7 +670,12 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
     with db_connection() as conn:
         cursor = conn.cursor()
         query = """
-            SELECT id, data, area_origem, produto, sabor, quantidade, unidade, loja_destino, status, criado_por, confirmado_por, confirmado_em, created_at, data_prevista, motivo_rejeicao, batch_id, loja_origem, destino_tipo, destino_nome
+            SELECT id, data, area_origem, produto, sabor, quantidade, unidade,
+                   loja_destino, status, criado_por, confirmado_por,
+                   confirmado_em, created_at, data_prevista, motivo_rejeicao,
+                   batch_id, loja_origem, destino_tipo, destino_nome,
+                   rececao_estado, aceite_por, aceite_em, problema_por,
+                   problema_em, motivo_problema
             FROM ordens_transferencia WHERE 1=1
         """
         params = []
@@ -692,7 +708,10 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
         'quantidade': float(r[5]), 'unidade': r[6], 'loja_destino': r[7], 'status': r[8],
         'criado_por': r[9], 'confirmado_por': r[10], 'confirmado_em': r[11], 'created_at': r[12],
         'data_prevista': r[13], 'motivo_rejeicao': r[14], 'batch_id': r[15], 'loja_origem': r[16],
-        'destino_tipo': r[17] or 'loja', 'destino_nome': r[18]
+        'destino_tipo': r[17] or 'loja', 'destino_nome': r[18],
+        'rececao_estado': r[19] or 'por_verificar', 'aceite_por': r[20],
+        'aceite_em': r[21], 'problema_por': r[22], 'problema_em': r[23],
+        'motivo_problema': r[24],
     } for r in rows]
 
 
@@ -755,7 +774,9 @@ def get_ordens_transferencia_with_events(
             " o.quantidade, o.unidade, o.loja_destino, o.status,"
             " o.criado_por, o.confirmado_por, o.confirmado_em,"
             " o.created_at, o.data_prevista, o.motivo_rejeicao,"
-            " o.destino_tipo, o.destino_nome"
+            " o.destino_tipo, o.destino_nome, o.rececao_estado,"
+            " o.aceite_por, o.aceite_em, o.problema_por, o.problema_em,"
+            " o.motivo_problema"
             f" FROM ordens_transferencia o{where}"
             " ORDER BY o.created_at DESC LIMIT %s OFFSET %s"
         )
@@ -767,6 +788,10 @@ def get_ordens_transferencia_with_events(
             'criado_por': r[9], 'confirmado_por': r[10], 'confirmado_em': r[11],
             'created_at': r[12], 'data_prevista': r[13], 'motivo_rejeicao': r[14],
             'destino_tipo': r[15] or 'loja', 'destino_nome': r[16],
+            'rececao_estado': r[17] or 'por_verificar',
+            'aceite_por': r[18], 'aceite_em': r[19],
+            'problema_por': r[20], 'problema_em': r[21],
+            'motivo_problema': r[22],
             'eventos': [],
         } for r in rows]
 
@@ -810,75 +835,87 @@ def get_ordens_transferencia_with_events(
         }
 
 
+def _insert_transfer_receipt(
+    cursor, ordem_id: int, movement_date: date, area_origem: str,
+    produto: str, sabor: str, quantidade: float, loja_destino: str,
+    produto_pastelaria_id=None,
+):
+    """Materialize an internal destination movement exactly once per order."""
+    if area_origem == 'Gelado':
+        cursor.execute("""
+            INSERT INTO rececao_mercadoria (
+                data, loja, tipo_produto, produto, sabor, lote, quantidade,
+                unidade, ordem_transferencia_id
+            )
+            VALUES (%s, %s, 'gelado', %s, %s, '', %s, 'kg', %s)
+            ON CONFLICT (ordem_transferencia_id)
+                WHERE ordem_transferencia_id IS NOT NULL DO NOTHING
+        """, (
+            movement_date, loja_destino, produto, sabor or produto,
+            float(quantidade), ordem_id,
+        ))
+    elif area_origem in ('Pastelaria', 'Confeitaria'):
+        if area_origem == 'Pastelaria' and movement_date.weekday() == 6:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f'pastelaria-count:{movement_date.isoformat()}',),
+            )
+        cursor.execute("""
+            INSERT INTO contagem_stock (
+                data, loja, produto, quantidade, tipo, origem,
+                produto_pastelaria_id, ordem_transferencia_id
+            )
+            VALUES (
+                %s, %s, %s, %s, %s, 'transferencia',
+                CASE WHEN %s = 'Pastelaria' THEN %s ELSE NULL END, %s
+            )
+            ON CONFLICT (ordem_transferencia_id)
+                WHERE ordem_transferencia_id IS NOT NULL DO NOTHING
+        """, (
+            movement_date, loja_destino, produto, int(quantidade),
+            area_origem.lower(), area_origem, produto_pastelaria_id, ordem_id,
+        ))
+
+
 def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
+    """Record the destination store's optional acceptance without moving stock."""
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT area_origem, produto, sabor, quantidade, unidade, loja_destino,
-                   destino_tipo, produto_pastelaria_id
-            FROM ordens_transferencia
-            WHERE id = %s AND status = 'pendente'
-        """, (ordem_id,))
-        ordem = cursor.fetchone()
-        if not ordem:
-            return False
-        (
-            area_origem, produto, sabor, quantidade, unidade, loja_destino,
-            destino_tipo, produto_pastelaria_id,
-        ) = ordem
-        if destino_tipo == 'b2b':
-            return False
-        cursor.execute("""
             UPDATE ordens_transferencia
-            SET status = 'confirmada', confirmado_por = %s, confirmado_em = NOW()
-            WHERE id = %s AND status = 'pendente'
+            SET rececao_estado = 'aceite', aceite_por = %s, aceite_em = NOW(),
+                problema_por = NULL, problema_em = NULL, motivo_problema = NULL
+            WHERE id = %s AND status = 'confirmada'
+              AND destino_tipo = 'loja' AND rececao_estado = 'por_verificar'
         """, (confirmado_por, ordem_id))
         updated = cursor.rowcount > 0
         if updated:
-            today = date.today()
-            if area_origem == 'Gelado':
-                cursor.execute("""
-                    INSERT INTO rececao_mercadoria (data, loja, tipo_produto, produto, sabor, lote, quantidade, unidade)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (today, loja_destino, 'gelado', produto, sabor or produto, '', float(quantidade), 'kg'))
-            elif area_origem in ('Pastelaria', 'Confeitaria'):
-                if area_origem == 'Pastelaria' and today.weekday() == 6:
-                    cursor.execute(
-                        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                        (f'pastelaria-count:{today.isoformat()}',),
-                    )
-                cursor.execute("""
-                    INSERT INTO contagem_stock
-                        (data, loja, produto, quantidade, tipo, origem,
-                         produto_pastelaria_id)
-                    VALUES (
-                        %s, %s, %s, %s, %s, 'transferencia',
-                        CASE WHEN %s = 'Pastelaria' THEN %s ELSE NULL END
-                    )
-                    ON CONFLICT DO NOTHING
-                """, (
-                    today, loja_destino, produto, int(quantidade),
-                    area_origem.lower(), area_origem,
-                    produto_pastelaria_id,
-                ))
-        if updated:
-            _insert_evento(cursor, ordem_id, 'confirmado', confirmado_por)
+            _insert_evento(cursor, ordem_id, 'aceite', confirmado_por)
         conn.commit()
     return updated
 
 
-def rejeitar_ordem_transferencia(ordem_id: int, confirmado_por: str, motivo: str = None):
+def reportar_problema_ordem_transferencia(
+    ordem_id: int, reportado_por: str, motivo: str,
+):
+    """Record a receipt discrepancy without changing the completed movement."""
+    motivo = (motivo or '').strip()
+    if not motivo:
+        raise ValueError("O motivo do problema é obrigatório")
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             UPDATE ordens_transferencia
-            SET status = 'rejeitada', confirmado_por = %s, confirmado_em = NOW(),
-                motivo_rejeicao = %s
-            WHERE id = %s AND status = 'pendente'
-        """, (confirmado_por, motivo or None, ordem_id))
+            SET rececao_estado = 'problema', problema_por = %s,
+                problema_em = NOW(), motivo_problema = %s
+            WHERE id = %s AND status = 'confirmada'
+              AND destino_tipo = 'loja' AND rececao_estado = 'por_verificar'
+        """, (reportado_por, motivo, ordem_id))
         updated = cursor.rowcount > 0
         if updated:
-            _insert_evento(cursor, ordem_id, 'rejeitado', confirmado_por, motivo)
+            _insert_evento(
+                cursor, ordem_id, 'problema_reportado', reportado_por, motivo
+            )
         conn.commit()
     return updated
 
@@ -893,8 +930,9 @@ def criar_transferencia_entre_lojas(
     Atomically:
     1. Inserts a negative rececao_mercadoria entry (lote='transferencia_saida')
        on the source store so the stock-movement ledger deducts the exit.
-    2. Inserts an ordens_transferencia row with loja_origem set, status='pendente'.
-    3. Records a 'criado' audit event in transferencias_eventos.
+    2. Inserts a completed ordens_transferencia row with loja_origem set.
+    3. Creates the internal destination receipt (except for B2B).
+    4. Records creation and execution audit events.
 
     Returns the new order ID.  Raises on any DB error (caller should handle).
     """
@@ -920,15 +958,25 @@ def criar_transferencia_entre_lojas(
             INSERT INTO ordens_transferencia
                 (data, area_origem, produto, sabor, quantidade, unidade,
                  loja_destino, loja_origem, status, criado_por, data_prevista,
-                 destino_tipo, destino_nome)
-            VALUES (%s, 'Gelado', %s, %s, %s, 'kg', %s, %s, 'pendente', %s, %s, %s, %s)
+                 destino_tipo, destino_nome, confirmado_por, confirmado_em,
+                 rececao_estado)
+            VALUES (%s, 'Gelado', %s, %s, %s, 'kg', %s, %s, 'confirmada',
+                    %s, %s, %s, %s, %s, NOW(),
+                    CASE WHEN %s = 'b2b' THEN 'nao_aplicavel' ELSE 'por_verificar' END)
             RETURNING id
         """, (
             data, sabor, sabor, qty, loja_destino, loja_origem, criado_por,
-            data_prevista or data, destino_tipo, destino_nome,
+            data_prevista or data, destino_tipo, destino_nome, criado_por,
+            destino_tipo,
         ))
         order_id = cursor.fetchone()[0]
         _insert_evento(cursor, order_id, 'criado', criado_por)
+        _insert_evento(cursor, order_id, 'executado', criado_por)
+        if destino_tipo == 'loja':
+            _insert_transfer_receipt(
+                cursor, order_id, data, 'Gelado', sabor, sabor, qty,
+                loja_destino,
+            )
         conn.commit()
     return order_id
 

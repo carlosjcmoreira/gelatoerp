@@ -63,6 +63,13 @@ def transferencias():
             n_pendentes = sum(1 for o in ordens if o['status'] == 'pendente')
             n_confirmadas = sum(1 for o in ordens if o['status'] == 'confirmada')
             n_rejeitadas = sum(1 for o in ordens if o['status'] == 'rejeitada')
+            n_por_verificar = sum(
+                1 for o in ordens
+                if o.get('rececao_estado') == 'por_verificar'
+            )
+            n_problemas = sum(
+                1 for o in ordens if o.get('rececao_estado') == 'problema'
+            )
             areas = sorted(set(o['area_origem'] for o in ordens))
             transferencias_data.append({
                 'data_prevista': dp,
@@ -72,13 +79,18 @@ def transferencias():
                 'n_pendentes': n_pendentes,
                 'n_confirmadas': n_confirmadas,
                 'n_rejeitadas': n_rejeitadas,
+                'n_por_verificar': n_por_verificar,
+                'n_problemas': n_problemas,
                 'areas': areas,
             })
 
     # ── "Histórico" tab data ───────────────────────────────────────────────────
     ordens_result = {'ordens': [], 'total': 0, 'page': 1, 'per_page': 50, 'total_pages': 1}
     areas = ['Gelado', 'Pastelaria', 'Confeitaria', 'Compras']
-    statuses = [('pendente', 'Pendente'), ('confirmada', 'Confirmada'), ('rejeitada', 'Rejeitada')]
+    statuses = [
+        ('confirmada', 'Concluída'),
+        ('rejeitada', 'Rejeição histórica'),
+    ]
     lojas = []
     filtro_area = ''
     filtro_status = ''

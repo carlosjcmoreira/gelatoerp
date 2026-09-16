@@ -12,7 +12,7 @@ from database import (
     add_quebra, get_quebras_df, delete_quebra,
     add_stock_gelado, get_stock_gelado_df, delete_stock_gelado, update_stock_gelado,
     add_stock_gelado_carapinas, get_carapinas_for_stock_ids,
-    get_ordens_transferencia, confirmar_ordem_transferencia, rejeitar_ordem_transferencia,
+    get_ordens_transferencia, confirmar_ordem_transferencia,
     get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
     list_fecho_caixa, list_fecho_caixa_all_stores, delete_fecho_caixa_by_id,
@@ -23,7 +23,11 @@ from database import (
 import flask_app.services.vendas as vendas_svc
 from flask_app.services import ServiceError
 from flask_app.utils.finance import parse_date as _shared_parse_date
-from db.plano import get_ordem_transferencia_by_id, criar_transferencia_entre_lojas, get_latest_pesagem_por_sabor, get_effective_stock_por_sabor
+from db.plano import (
+    get_ordem_transferencia_by_id, criar_transferencia_entre_lojas,
+    get_latest_pesagem_por_sabor, get_effective_stock_por_sabor,
+    reportar_problema_ordem_transferencia,
+)
 from db.pastelaria import (
     get_pastelaria_sunday_count_grid,
     get_pastelaria_store_count_grid,
@@ -739,22 +743,27 @@ def transferencias():
                 if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
                     updated = confirmar_ordem_transferencia(int(ordem_id), username)
                     if updated:
-                        flash('Transferência confirmada e stock atualizado!', 'success')
+                        flash('Receção aceite. O stock já estava atualizado.', 'success')
                     else:
                         flash('Transferência já processada anteriormente.', 'warning')
                 else:
                     flash('Sem permissão para confirmar esta transferência.', 'warning')
-            elif action == 'rejeitar' and ordem_id:
-                motivo = request.form.get('motivo_rejeicao', '').strip() or None
+            elif action == 'reportar_problema' and ordem_id:
+                motivo = request.form.get('motivo_problema', '').strip()
+                if not motivo:
+                    flash('Indique o problema encontrado.', 'warning')
+                    return redirect(url_for('vendas.transferencias', loja_id=loja_id))
                 ordem = get_ordem_transferencia_by_id(int(ordem_id))
                 if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                    updated = rejeitar_ordem_transferencia(int(ordem_id), username, motivo=motivo)
+                    updated = reportar_problema_ordem_transferencia(
+                        int(ordem_id), username, motivo
+                    )
                     if updated:
-                        flash('Transferência rejeitada.', 'info')
+                        flash('Problema reportado. O stock não foi alterado.', 'info')
                     else:
                         flash('Transferência já processada anteriormente.', 'warning')
                 else:
-                    flash('Sem permissão para rejeitar esta transferência.', 'warning')
+                    flash('Sem permissão para reportar esta transferência.', 'warning')
             elif action == 'confirmar_batch':
                 ids_str = request.form.get('ordem_ids', '')
                 ids = [int(x) for x in ids_str.split(',') if x.strip().isdigit()]
@@ -765,32 +774,46 @@ def transferencias():
                         if confirmar_ordem_transferencia(oid, username):
                             success += 1
                 if success:
-                    flash(f'Lote confirmado: {success} artigo(s) atualizado(s)!', 'success')
+                    flash(f'Receção aceite: {success} artigo(s).', 'success')
                 else:
                     flash('Sem transferências a confirmar ou já processadas.', 'warning')
-            elif action == 'rejeitar_batch':
+            elif action == 'reportar_problema_batch':
                 ids_str = request.form.get('ordem_ids', '')
-                motivo = request.form.get('motivo_rejeicao', '').strip() or None
+                motivo = request.form.get('motivo_problema', '').strip()
+                if not motivo:
+                    flash('Indique o problema encontrado.', 'warning')
+                    return redirect(url_for('vendas.transferencias', loja_id=loja_id))
                 ids = [int(x) for x in ids_str.split(',') if x.strip().isdigit()]
                 success = 0
                 for oid in ids:
                     ordem = get_ordem_transferencia_by_id(oid)
                     if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                        if rejeitar_ordem_transferencia(oid, username, motivo=motivo):
+                        if reportar_problema_ordem_transferencia(
+                            oid, username, motivo
+                        ):
                             success += 1
                 if success:
-                    flash(f'Lote rejeitado: {success} artigo(s).', 'info')
+                    flash(
+                        f'Problema reportado em {success} artigo(s). '
+                        'O stock não foi alterado.',
+                        'info',
+                    )
                 else:
-                    flash('Sem transferências a rejeitar ou já processadas.', 'warning')
+                    flash('Sem transferências por verificar.', 'warning')
         except Exception as exc:
             logger.exception('Erro ao processar transferência ordem_id=%s action=%s', ordem_id, action)
             flash('Erro interno ao processar a transferência. Tente novamente.', 'danger')
 
         return redirect(url_for('vendas.transferencias', loja_id=loja_id))
 
-    pendentes = get_ordens_transferencia(status='pendente', loja_destino=loja_nome)
     recentes = get_ordens_transferencia(loja_destino=loja_nome)
-    confirmadas = [o for o in recentes if o['status'] != 'pendente'][:20]
+    pendentes = [
+        o for o in recentes
+        if o['status'] == 'confirmada'
+        and o.get('rececao_estado') == 'por_verificar'
+        and o.get('destino_tipo') == 'loja'
+    ]
+    confirmadas = [o for o in recentes if o not in pendentes][:20]
 
     batch_map = {}
     for o in pendentes:
@@ -873,14 +896,14 @@ def transferir_gelado():
         stock_efectivo = get_effective_stock_por_sabor(loja_nome)
         stock_disponivel = stock_efectivo.get(sabor, {}).get('kg', 0.0)
         if quantidade_kg > stock_disponivel:
-            pendente_kg = stock_efectivo.get(sabor, {}).get('pendente_kg', 0.0)
-            pesagem_kg = stock_disponivel + pendente_kg
+            transferido_kg = stock_efectivo.get(sabor, {}).get('transferido_kg', 0.0)
+            pesagem_kg = stock_disponivel + transferido_kg
             msg = (
                 f'Quantidade ({quantidade_kg:.3f} kg) superior ao stock disponível '
                 f'({stock_disponivel:.3f} kg de {sabor})'
             )
-            if pendente_kg > 0:
-                msg += f' — pesagem: {pesagem_kg:.3f} kg, já em ordens pendentes: {pendente_kg:.3f} kg'
+            if transferido_kg > 0:
+                msg += f' — pesagem: {pesagem_kg:.3f} kg, já transferido: {transferido_kg:.3f} kg'
             flash(msg + '.', 'error')
             return redirect(url_for('vendas.transferir_gelado', loja_id=loja_id))
 
@@ -911,9 +934,9 @@ def transferir_gelado():
     stock_efectivo = get_effective_stock_por_sabor(loja_nome)
     sabores_com_stock = sorted(
         [
-            {'sabor': s, 'kg': v['kg'], 'data': v['data'], 'pendente_kg': v.get('pendente_kg', 0.0)}
+            {'sabor': s, 'kg': v['kg'], 'data': v['data'], 'transferido_kg': v.get('transferido_kg', 0.0)}
             for s, v in stock_efectivo.items()
-            if v['kg'] > 0 or v.get('pendente_kg', 0.0) > 0
+            if v['kg'] > 0 or v.get('transferido_kg', 0.0) > 0
         ],
         key=lambda x: x['sabor'],
     )

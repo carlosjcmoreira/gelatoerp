@@ -29,16 +29,16 @@
                         {% for s in sabores_com_stock %}
                         <option value="{{ s.sabor }}"
                                 data-kg="{{ '%.3f'|format(s.kg) }}"
-                                data-pendente="{{ '%.3f'|format(s.pendente_kg) }}">
-                            {{ s.sabor }} — {{ '%.3f'|format(s.kg) }} kg disponível{% if s.pendente_kg > 0 %} ({{ '%.3f'|format(s.pendente_kg) }} kg em ordens pendentes){% endif %}
+                                data-transferido="{{ '%.3f'|format(s.transferido_kg) }}">
+                            {{ s.sabor }} — {{ '%.3f'|format(s.kg) }} kg disponível{% if s.transferido_kg > 0 %} ({{ '%.3f'|format(s.transferido_kg) }} kg já transferidos){% endif %}
                         </option>
                         {% endfor %}
                     </select>
                     <div id="stock-info" class="form-text text-muted mt-1" style="display:none;">
                         Stock disponível: <strong id="stock-valor">0.000</strong> kg
-                        <span id="stock-pendente-info" style="display:none;">
+                        <span id="stock-transferido-info" style="display:none;">
                             &nbsp;·&nbsp; pesagem: <span id="stock-pesagem">0.000</span> kg,
-                            ordens pendentes: <span id="stock-pendente">0.000</span> kg
+                            já transferido: <span id="stock-transferido">0.000</span> kg
                         </span>
                     </div>
                 </div>
@@ -89,7 +89,7 @@
 
     <p class="text-muted small">
         <strong>Nota:</strong> O stock disponível é calculado a partir da pesagem mais recente,
-        deduzindo já as transferências com estado pendente.
+        deduzindo todas as transferências executadas desde essa pesagem.
     </p>
 
     {% endif %}
@@ -124,7 +124,14 @@
                         {% if o.status == 'pendente' %}
                         <span class="badge bg-warning text-dark">pendente</span>
                         {% elif o.status == 'confirmada' %}
-                        <span class="badge bg-success">confirmado</span>
+                        <span class="badge bg-success">concluída</span>
+                        {% if o.rececao_estado == 'por_verificar' and o.destino_tipo == 'loja' %}
+                        <span class="badge bg-warning text-dark">por verificar</span>
+                        {% elif o.rececao_estado == 'aceite' %}
+                        <span class="badge bg-light text-success border">aceite</span>
+                        {% elif o.rececao_estado == 'problema' %}
+                        <span class="badge bg-danger">problema reportado</span>
+                        {% endif %}
                         {% elif o.status == 'rejeitada' %}
                         <span class="badge bg-danger">rejeitado</span>
                         {% else %}
@@ -147,23 +154,23 @@ function atualizarStock() {
     const opt = sel.options[sel.selectedIndex];
     const info = document.getElementById('stock-info');
     const valor = document.getElementById('stock-valor');
-    const pendenteInfo = document.getElementById('stock-pendente-info');
-    const pendenteSpan = document.getElementById('stock-pendente');
+    const transferidoInfo = document.getElementById('stock-transferido-info');
+    const transferidoSpan = document.getElementById('stock-transferido');
     const pesagemSpan = document.getElementById('stock-pesagem');
     if (opt && opt.dataset.kg) {
         info.style.display = '';
         valor.textContent = opt.dataset.kg;
-        const pendente = parseFloat(opt.dataset.pendente) || 0;
-        if (pendente > 0 && pendenteInfo) {
-            pendenteInfo.style.display = '';
-            pendenteSpan.textContent = opt.dataset.pendente;
-            pesagemSpan.textContent = (parseFloat(opt.dataset.kg) + pendente).toFixed(3);
-        } else if (pendenteInfo) {
-            pendenteInfo.style.display = 'none';
+        const transferido = parseFloat(opt.dataset.transferido) || 0;
+        if (transferido > 0 && transferidoInfo) {
+            transferidoInfo.style.display = '';
+            transferidoSpan.textContent = opt.dataset.transferido;
+            pesagemSpan.textContent = (parseFloat(opt.dataset.kg) + transferido).toFixed(3);
+        } else if (transferidoInfo) {
+            transferidoInfo.style.display = 'none';
         }
     } else {
         info.style.display = 'none';
-        if (pendenteInfo) pendenteInfo.style.display = 'none';
+        if (transferidoInfo) transferidoInfo.style.display = 'none';
     }
     validarQuantidade();
 }

@@ -39,6 +39,31 @@ def cell(result, store, flavor='Extra Noir'):
 
 
 class GelatoStockRotationTests(unittest.TestCase):
+    def test_completed_b2b_transfer_is_outbound_only(self):
+        result = calculate(
+            stock_rows=[
+                {'data': date(2026, 9, 1), 'store_id': 2,
+                 'loja': 'Bolhão', 'sabor': 'Baunilha',
+                 'quantidade_kg': 5, 'tipo': 'fim'},
+                {'data': date(2026, 9, 3), 'store_id': 2,
+                 'loja': 'Bolhão', 'sabor': 'Baunilha',
+                 'quantidade_kg': 3, 'tipo': 'fim'},
+            ],
+            transfer_order_rows=[{
+                'data': date(2026, 9, 2), 'sabor': 'Baunilha',
+                'quantidade': 2, 'loja_destino': 'B2B',
+                'loja_origem': 'Bolhão', 'status': 'confirmada',
+                'confirmado_em': date(2026, 9, 2),
+                'destino_tipo': 'b2b', 'store_id': None,
+                'origin_store_id': None,
+            }],
+        )
+
+        rotation = cell(result, 'Bolhão', 'Baunilha')
+        self.assertEqual(rotation['average_daily_kg'], 0)
+        self.assertEqual(rotation['valid_intervals'], 1)
+        self.assertEqual(rotation['excluded_intervals'], 0)
+
     def test_sales_store_uses_inbound_transfer_and_end_snapshots(self):
         result = calculate(
             stock_rows=[

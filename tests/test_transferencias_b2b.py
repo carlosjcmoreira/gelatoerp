@@ -76,6 +76,11 @@ class TransferenciasB2BTests(unittest.TestCase):
         self.assertEqual(insert_params[6], "B2B")
         self.assertEqual(insert_params[10], "b2b")
         self.assertEqual(insert_params[11], "Sogrape")
+        self.assertIn("'confirmada'", cursor.executions[0][0])
+        self.assertFalse(any(
+            "INSERT INTO rececao_mercadoria" in query
+            for query, _ in cursor.executions
+        ))
         self.assertEqual(connection.commits, 1)
 
     def test_store_order_preserves_internal_destination_behaviour(self):
@@ -118,35 +123,30 @@ class TransferenciasB2BTests(unittest.TestCase):
         self.assertEqual(order_params[8], "b2b")
         self.assertEqual(order_params[9], "Sogrape")
 
-    def test_b2b_order_cannot_create_internal_store_receipt(self):
-        cursor = FakeCursor(
-            fetchone_values=[
-                ("Gelado", "Baunilha", "Baunilha", 5, "kg", "B2B", "b2b", None)
-            ]
-        )
+    def test_optional_acceptance_never_creates_a_store_receipt(self):
+        cursor = FakeCursor()
         connection = FakeConnection(cursor)
 
         with patch.object(plano, "db_connection", connection_factory(connection)):
             confirmed = plano.confirmar_ordem_transferencia(45, "operador")
 
-        self.assertFalse(confirmed)
-        self.assertEqual(len(cursor.executions), 1)
-        self.assertEqual(connection.commits, 0)
+        self.assertTrue(confirmed)
+        self.assertEqual(len(cursor.executions), 2)
+        self.assertIn("rececao_estado = 'aceite'", cursor.executions[0][0])
+        self.assertNotIn("rececao_mercadoria", cursor.executions[0][0])
+        self.assertEqual(connection.commits, 1)
 
-    def test_sunday_pastelaria_receipt_uses_count_date_lock(self):
-        cursor = FakeCursor(fetchone_values=[
-            ("Pastelaria", "Palito antigo", None, 5, "und", "Bolhão", "loja", 17)
-        ])
+    def test_sunday_pastelaria_receipt_uses_count_date_lock_on_execution(self):
+        cursor = FakeCursor(fetchone_values=[(17,), (46,)])
         connection = FakeConnection(cursor)
 
-        with (
-            patch.object(plano, "db_connection", connection_factory(connection)),
-            patch.object(plano, "date") as mocked_date,
-        ):
-            mocked_date.today.return_value = date(2026, 9, 6)
-            confirmed = plano.confirmar_ordem_transferencia(46, "operador")
+        with patch.object(plano, "db_connection", connection_factory(connection)):
+            order_id = plano.criar_ordem_transferencia(
+                date(2026, 9, 6), "Pastelaria", "Palito antigo", 5,
+                "und", "Bolhão", criado_por="operador",
+            )
 
-        self.assertTrue(confirmed)
+        self.assertEqual(order_id, 46)
         statements = [query for query, _ in cursor.executions]
         lock_index = next(
             index for index, query in enumerate(statements)
@@ -162,7 +162,7 @@ class TransferenciasB2BTests(unittest.TestCase):
             ('pastelaria-count:2026-09-06',),
         )
         count_params = cursor.executions[count_index][1]
-        self.assertEqual(count_params[-2:], ('Pastelaria', 17))
+        self.assertEqual(count_params[-3:], ('Pastelaria', 17, 46))
         self.assertIn('produto_pastelaria_id', statements[count_index])
         self.assertNotIn('FROM produtos_pastelaria', statements[count_index])
 
@@ -187,6 +187,12 @@ class TransferenciasB2BTests(unittest.TestCase):
             None,
             "b2b",
             "Sogrape",
+            "nao_aplicavel",
+            None,
+            None,
+            None,
+            None,
+            None,
         )
         cursor = FakeCursor(fetchall_value=[row])
         connection = FakeConnection(cursor)
@@ -196,6 +202,26 @@ class TransferenciasB2BTests(unittest.TestCase):
 
         self.assertEqual(orders[0]["destino_tipo"], "b2b")
         self.assertEqual(orders[0]["destino_nome"], "Sogrape")
+        self.assertEqual(orders[0]["rececao_estado"], "nao_aplicavel")
+
+    def test_reporting_problem_requires_reason_and_does_not_move_stock(self):
+        with self.assertRaisesRegex(ValueError, "motivo"):
+            plano.reportar_problema_ordem_transferencia(47, "loja", " ")
+
+        cursor = FakeCursor()
+        connection = FakeConnection(cursor)
+        with patch.object(plano, "db_connection", connection_factory(connection)):
+            updated = plano.reportar_problema_ordem_transferencia(
+                47, "loja", "Quantidade incorreta"
+            )
+
+        self.assertTrue(updated)
+        statements = [query for query, _ in cursor.executions]
+        self.assertIn("rececao_estado = 'problema'", statements[0])
+        self.assertFalse(any(
+            "rececao_mercadoria" in query or "contagem_stock" in query
+            for query in statements
+        ))
 
 
 if __name__ == "__main__":
