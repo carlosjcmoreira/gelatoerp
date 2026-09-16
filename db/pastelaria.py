@@ -2523,25 +2523,69 @@ def delete_vendas_detalhe_by_dates(data_inicio: date, data_fim: date, loja: str 
 def get_gramas_gelado() -> list:
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT * FROM gramas_gelado ORDER BY artigo")
+        cursor.execute("""
+            SELECT atual.*, COALESCE(hist.tipo_dose, 'fixa') AS tipo_dose
+            FROM gramas_gelado atual
+            LEFT JOIN gramas_gelado_historico hist
+              ON LOWER(BTRIM(hist.artigo)) = LOWER(BTRIM(atual.artigo))
+             AND hist.valid_to IS NULL
+            ORDER BY atual.artigo
+        """)
         return [dict(r) for r in cursor.fetchall()]
 
-def update_gramas_gelado(artigo_id: int, artigo: str, gramas: float) -> bool:
+def update_gramas_gelado(artigo_id: int, artigo: str, gramas: float,
+                         tipo_dose: str = 'fixa') -> bool:
     with db_connection() as conn:
         cursor = conn.cursor()
         try:
+            cursor.execute(
+                "SELECT artigo FROM gramas_gelado WHERE id = %s FOR UPDATE",
+                (artigo_id,),
+            )
+            old = cursor.fetchone()
+            if not old:
+                return False
+            today = date.today()
+            cursor.execute("""
+                UPDATE gramas_gelado_historico
+                SET valid_to = %s
+                WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
+                  AND valid_to IS NULL
+                  AND valid_from < %s
+            """, (today - timedelta(days=1), old[0], today))
+            cursor.execute("""
+                DELETE FROM gramas_gelado_historico
+                WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
+                  AND valid_to IS NULL AND valid_from = %s
+            """, (old[0], today))
             cursor.execute("UPDATE gramas_gelado SET artigo = %s, gramas = %s WHERE id = %s", (artigo, gramas, artigo_id))
+            cursor.execute("""
+                INSERT INTO gramas_gelado_historico
+                    (artigo, gramas, tipo_dose, valid_from)
+                VALUES (%s, %s, %s, %s)
+            """, (artigo, gramas if tipo_dose == 'fixa' else None,
+                  tipo_dose, today))
             conn.commit()
             return True
         except Exception:
             conn.rollback()
             return False
 
-def add_gramas_gelado(artigo: str, gramas: float) -> bool:
+def add_gramas_gelado(artigo: str, gramas: float,
+                      tipo_dose: str = 'fixa') -> bool:
     with db_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute("INSERT INTO gramas_gelado (artigo, gramas) VALUES (%s, %s)", (artigo, gramas))
+            cursor.execute(
+                "INSERT INTO gramas_gelado (artigo, gramas) VALUES (%s, %s)",
+                (artigo, gramas if tipo_dose == 'fixa' else 1),
+            )
+            cursor.execute("""
+                INSERT INTO gramas_gelado_historico
+                    (artigo, gramas, tipo_dose, valid_from)
+                VALUES (%s, %s, %s, %s)
+            """, (artigo, gramas if tipo_dose == 'fixa' else None,
+                  tipo_dose, date.today()))
             conn.commit()
             return True
         except Exception:
@@ -2551,6 +2595,24 @@ def add_gramas_gelado(artigo: str, gramas: float) -> bool:
 def delete_gramas_gelado(artigo_id: int):
     with db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT artigo FROM gramas_gelado WHERE id = %s FOR UPDATE",
+            (artigo_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return
+        today = date.today()
+        cursor.execute("""
+            UPDATE gramas_gelado_historico SET valid_to = %s
+            WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
+              AND valid_to IS NULL AND valid_from < %s
+        """, (today - timedelta(days=1), row[0], today))
+        cursor.execute("""
+            DELETE FROM gramas_gelado_historico
+            WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
+              AND valid_to IS NULL AND valid_from = %s
+        """, (row[0], today))
         cursor.execute("DELETE FROM gramas_gelado WHERE id = %s", (artigo_id,))
         conn.commit()
 
@@ -2558,8 +2620,9 @@ def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
     query = """
         SELECT
             vd.produto,
+            vd.data,
             TO_CHAR(vd.data, 'YYYY-MM') as mes,
-            SUM(vd.quantidade) as quantidade_vendida
+            vd.quantidade as quantidade_vendida
         FROM vendas_detalhe vd
         INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
         WHERE pvc.gelado_kpi = TRUE
@@ -2568,25 +2631,41 @@ def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
     if loja:
         query += " AND vd.loja = %s"
         params.append(loja)
-    query += " GROUP BY vd.produto, TO_CHAR(vd.data, 'YYYY-MM') ORDER BY vd.produto, mes"
+    query += " ORDER BY vd.produto, vd.data"
 
     with db_connection() as conn:
-        gramas_df = pd.read_sql_query("SELECT artigo, gramas FROM gramas_gelado", conn)
+        gramas_df = pd.read_sql_query("""
+            SELECT artigo, gramas, tipo_dose, valid_from, valid_to
+            FROM gramas_gelado_historico
+        """, conn)
         vendas_df = pd.read_sql_query(query, conn, params=params)
 
     if vendas_df.empty:
         return vendas_df
 
-    def find_gramas(produto):
-        for _, row in gramas_df.iterrows():
-            if row['artigo'].lower() in produto.lower():
-                return row['gramas']
-        return 0
-
-    vendas_df['gramas_por_unidade'] = vendas_df['produto'].apply(find_gramas)
-    vendas_df['consumo_kg'] = (vendas_df['quantidade_vendida'] * vendas_df['gramas_por_unidade']) / 1000
-
-    return vendas_df
+    from db.doseamento import _matches
+    history = gramas_df.to_dict('records')
+    def find_rule(row):
+        return _matches(row['produto'], history, row['data'])
+    vendas_df['_rule'] = vendas_df.apply(find_rule, axis=1)
+    vendas_df['tipo_dose'] = vendas_df['_rule'].apply(
+        lambda rule: rule.get('tipo_dose') if rule else None
+    )
+    vendas_df['gramas_por_unidade'] = vendas_df['_rule'].apply(
+        lambda rule: float(rule['gramas'])
+        if rule and rule.get('tipo_dose') == 'fixa' else None
+    )
+    vendas_df['consumo_kg'] = (
+        vendas_df['quantidade_vendida'] *
+        vendas_df['gramas_por_unidade']
+    ) / 1000
+    return vendas_df.drop(columns=['_rule']).groupby(
+        ['produto', 'mes', 'gramas_por_unidade', 'tipo_dose'],
+        dropna=False, as_index=False,
+    ).agg(
+        quantidade_vendida=('quantidade_vendida', 'sum'),
+        consumo_kg=('consumo_kg', lambda values: values.sum(min_count=1)),
+    )
 
 
 def get_product_dashboard_summary(area: str) -> pd.DataFrame:

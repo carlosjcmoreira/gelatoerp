@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, session, redirect, url_for, flash
+from flask import Blueprint, render_template, request, session, redirect, url_for, flash, abort
 from flask_app.auth import perm_required
 import sys, os
 import json
@@ -17,6 +17,7 @@ from db.pastelaria import (
     get_precos_caixa_kg_historico, add_preco_caixa_kg, delete_preco_caixa_kg,
     get_volume_por_produto,
 )
+from db.doseamento import get_doseamento_period
 
 eurokg_bp = Blueprint('eurokg', __name__)
 
@@ -34,6 +35,93 @@ MENU_ITEMS = [
 
 MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
                   'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+
+def _store_context(user):
+    """Resolve an authorized store and the dynamic dashboard switcher."""
+    from db.auth import get_store_by_id, get_vendas_module_stores
+    stores = get_vendas_module_stores()
+    is_gestor = user.get('acesso_gestor', False)
+    requested = request.args.get('loja')
+    if is_gestor:
+        selected = requested or 'Global Porto'
+        names = {store['name'] for store in stores}
+        if selected != 'Global Porto' and selected not in names:
+            selected = 'Global Porto'
+        return selected, None if selected == 'Global Porto' else selected, stores
+    allowed_ids = user.get('vendas_store_ids') or []
+    allowed = [store for store in stores if store['id'] in allowed_ids]
+    fallback = get_store_by_id(user.get('loja_id')) if not allowed else None
+    if fallback and fallback.get('name'):
+        allowed = [fallback]
+    names = {store['name'] for store in allowed}
+    if not names:
+        abort(403)
+    selected = requested if requested in names else (
+        allowed[0]['name'] if allowed else None
+    )
+    return selected, selected, allowed
+
+
+def _build_consumo_teorico_view(consumo_df):
+    """Build the theoretical-consumption matrix without coercing unknowns to zero."""
+    if consumo_df.empty:
+        return [], [], [], []
+    from datetime import datetime
+    meses = sorted(consumo_df['mes'].unique())
+    meses_labels = [
+        datetime.strptime(mes, '%Y-%m').strftime('%b %Y')
+        for mes in meses
+    ]
+    consumo_data = []
+    totals_qty = []
+    totals_kg = []
+    for mes in meses:
+        month_rows = consumo_df[consumo_df['mes'] == mes]
+        totals_qty.append(int(month_rows['quantidade_vendida'].sum()))
+        has_unknown = month_rows.apply(
+            lambda row: (
+                row['quantidade_vendida'] != 0 and
+                pd.isna(row['consumo_kg'])
+            ),
+            axis=1,
+        ).any()
+        totals_kg.append(
+            None if has_unknown
+            else round(float(month_rows['consumo_kg'].sum()), 2)
+        )
+    for produto in sorted(consumo_df['produto'].unique()):
+        product_rows = consumo_df[consumo_df['produto'] == produto]
+        grams = sorted({
+            float(value)
+            for value in product_rows['gramas_por_unidade']
+            if not pd.isna(value)
+        })
+        item = {
+            'produto': produto,
+            'gramas': grams[0] if len(grams) == 1 else (
+                'Varia' if len(grams) > 1 else None
+            ),
+            'months': [],
+        }
+        for mes in meses:
+            rows = product_rows[product_rows['mes'] == mes]
+            qty = int(rows['quantidade_vendida'].sum()) if not rows.empty else 0
+            unknown = not rows.empty and rows.apply(
+                lambda row: (
+                    row['quantidade_vendida'] != 0 and
+                    pd.isna(row['consumo_kg'])
+                ),
+                axis=1,
+            ).any()
+            kg = (
+                None if unknown
+                else round(float(rows['consumo_kg'].sum()), 2)
+                if not rows.empty else 0
+            )
+            item['months'].append({'qty': qty, 'kg': kg})
+        consumo_data.append(item)
+    return consumo_data, meses_labels, totals_qty, totals_kg
 
 
 def _build_tabs(loja_filter, is_gestor, active):
@@ -76,13 +164,7 @@ def dashboard():
     user = session.get('user', {})
     is_gestor = user.get('acesso_gestor', False)
 
-    loja_filter = request.args.get('loja', 'Global Porto' if is_gestor else None)
-    if loja_filter == 'Global Porto':
-        loja_db = None
-    elif loja_filter:
-        loja_db = loja_filter
-    else:
-        loja_db = None
+    loja_filter, loja_db, store_filters = _store_context(user)
 
     today = date.today()
     year_start = date(today.year, 1, 1)
@@ -120,6 +202,10 @@ def dashboard():
     month_name = meses_pt[today.month]
 
     data_inicio_30 = today - timedelta(days=30)
+    intended_stores = [store['name'] for store in store_filters]
+    doseamento_30 = get_doseamento_period(
+        data_inicio_30, today, loja_db, intended_stores
+    )
     kpi_df = calculate_kpi_by_day(loja_db, data_inicio_30, today)
 
     chart_json = None
@@ -179,7 +265,8 @@ def dashboard():
         kpi_ytd=kpi_ytd, kpi_month=kpi_month, kpi_week=kpi_week,
         month_name=month_name, year=today.year,
         chart_json=chart_json, daily_details=daily_details,
-        detail_entrada_label=detail_entrada_label)
+        detail_entrada_label=detail_entrada_label,
+        doseamento=doseamento_30, store_filters=store_filters)
 
 
 @eurokg_bp.route('/resumo')
@@ -188,13 +275,7 @@ def resumo_mensal():
     user = session.get('user', {})
     is_gestor = user.get('acesso_gestor', False)
 
-    loja_filter = request.args.get('loja', 'Global Porto' if is_gestor else None)
-    if loja_filter == 'Global Porto':
-        loja_db = None
-    elif loja_filter:
-        loja_db = loja_filter
-    else:
-        loja_db = None
+    loja_filter, loja_db, store_filters = _store_context(user)
 
     current_year = date.today().year
     meses_nomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -207,12 +288,11 @@ def resumo_mensal():
     else:
         entrada_label = 'Produção (kg)'
 
-    if loja_db == 'Bolhão':
-        formula = "Consumo = Stock Início + Transferências - Stock Fim - Quebras | €/kg = Vendas Gelado / Consumo"
-    elif loja_db == 'Matosinhos':
-        formula = "Consumo = Stock Início + (Produção - Transferências) - Stock Fim - Quebras | €/kg = Vendas Gelado / Consumo"
-    else:
-        formula = "Consumo = Stock Início + Produção - Stock Fim - Quebras | €/kg = Vendas Gelado / Consumo"
+    formula = (
+        "Desvio = Consumo real − Consumo teórico | "
+        "Rendimento = Consumo teórico ÷ Consumo real | "
+        "€/kg = Receita ÷ Consumo real"
+    )
 
     annual_resumo = calculate_kpi_annual(current_year, loja_db)
     resumo_rows = []
@@ -234,7 +314,7 @@ def resumo_mensal():
         total_entrada += entrada_val
         total_quebras += kpi_data['quebras']
 
-        resumo_rows.append({
+        resumo_row = {
             'mes': meses_nomes[m - 1],
             'stock_ini': round(kpi_data['stock_ini'], 2) if kpi_data['stock_ini'] > 0 else 0,
             'entrada': round(entrada_val, 2) if entrada_val > 0 else 0,
@@ -243,7 +323,51 @@ def resumo_mensal():
             'consumo': round(consumo_kg, 2),
             'vendas': round(vendas_eur, 2),
             'euro_kg': round(euro_kg, 2),
-        })
+        }
+        if m <= date.today().month:
+            import calendar
+            period_start = date(current_year, m, 1)
+            period_end = min(
+                date(
+                    current_year, m,
+                    calendar.monthrange(current_year, m)[1],
+                ),
+                date.today(),
+            )
+            dose = get_doseamento_period(
+                period_start, period_end, loja_db,
+                [store['name'] for store in store_filters],
+            )
+            resumo_row.update({
+                'theoretical_kg': (
+                    round(dose['theoretical_kg'], 2)
+                    if dose['theoretical_kg'] is not None else None
+                ),
+                'real_kg': (
+                    round(dose['real_kg'], 2)
+                    if dose['real_kg'] is not None else None
+                ),
+                'variance_kg': (
+                    round(dose['variance_kg'], 2)
+                    if dose['variance_kg'] is not None else None
+                ),
+                'variance_pct': (
+                    round(dose['variance_pct'], 1)
+                    if dose['variance_pct'] is not None else None
+                ),
+                'yield_pct': (
+                    round(dose['yield_pct'], 1)
+                    if dose['yield_pct'] is not None else None
+                ),
+                'revenue_per_kg': (
+                    round(dose['revenue_per_kg'], 2)
+                    if dose['revenue_per_kg'] is not None else None
+                ),
+                'status': dose['status'],
+                'coverage_pct': dose['coverage_pct'],
+                'issues': dose['issues'],
+            })
+        resumo_rows.append(resumo_row)
 
     total_euro_kg = total_vendas / total_consumo if total_consumo > 0 else 0
 
@@ -258,7 +382,8 @@ def resumo_mensal():
         total_quebras=round(total_quebras, 2),
         total_consumo=round(total_consumo, 2),
         total_vendas=round(total_vendas, 2),
-        total_euro_kg=round(total_euro_kg, 2))
+        total_euro_kg=round(total_euro_kg, 2),
+        store_filters=store_filters)
 
 
 @eurokg_bp.route('/consumo')
@@ -267,51 +392,13 @@ def consumo_teorico():
     user = session.get('user', {})
     is_gestor = user.get('acesso_gestor', False)
 
-    loja_filter = request.args.get('loja', 'Global Porto' if is_gestor else None)
-    if loja_filter == 'Global Porto':
-        loja_db = None
-    elif loja_filter:
-        loja_db = loja_filter
-    else:
-        loja_db = None
+    loja_filter, loja_db, store_filters = _store_context(user)
 
     consumo_df = get_consumo_gelado_mensal(loja_db)
 
-    consumo_data = []
-    meses_labels = []
-    if not consumo_df.empty:
-        from datetime import datetime
-        meses = sorted(consumo_df['mes'].unique())
-        meses_labels = [datetime.strptime(m, '%Y-%m').strftime('%b %Y') for m in meses]
-
-        pivot_qty = consumo_df.pivot_table(index='produto', columns='mes', values='quantidade_vendida', aggfunc='sum', fill_value=0)
-        pivot_kg = consumo_df.pivot_table(index='produto', columns='mes', values='consumo_kg', aggfunc='sum', fill_value=0)
-
-        gramas_map = {}
-        for _, row in consumo_df.drop_duplicates('produto').iterrows():
-            gramas_map[row['produto']] = row['gramas_por_unidade']
-
-        totals_qty = [0] * len(meses)
-        totals_kg = [0] * len(meses)
-
-        for produto in pivot_qty.index:
-            row_data = {
-                'produto': produto,
-                'gramas': gramas_map.get(produto, 0),
-                'months': []
-            }
-            for i, mes in enumerate(meses):
-                qty = int(pivot_qty.loc[produto, mes]) if mes in pivot_qty.columns else 0
-                kg = round(float(pivot_kg.loc[produto, mes]), 2) if mes in pivot_kg.columns else 0
-                row_data['months'].append({'qty': qty, 'kg': kg})
-                totals_qty[i] += qty
-                totals_kg[i] += kg
-            consumo_data.append(row_data)
-
-        totals_kg = [round(k, 2) for k in totals_kg]
-    else:
-        totals_qty = []
-        totals_kg = []
+    consumo_data, meses_labels, totals_qty, totals_kg = (
+        _build_consumo_teorico_view(consumo_df)
+    )
 
     gramas_list = get_gramas_gelado()
 
@@ -322,7 +409,7 @@ def consumo_teorico():
         is_gestor=is_gestor, loja_filter=loja_filter,
         consumo_data=consumo_data, meses_labels=meses_labels,
         totals_qty=totals_qty, totals_kg=totals_kg,
-        gramas_list=gramas_list)
+        gramas_list=gramas_list, store_filters=store_filters)
 
 
 @eurokg_bp.route('/vendas-produto')
@@ -361,6 +448,7 @@ def vendas_produto():
 @perm_required('acesso_gestor')
 def add_gramas():
     artigo = request.form.get('artigo', '').strip()
+    tipo_dose = request.form.get('tipo_dose', 'fixa')
     gramas_str = request.form.get('gramas', '0').replace(',', '.')
     loja_filter = request.form.get('loja_filter', 'Global Porto')
 
@@ -369,9 +457,15 @@ def add_gramas():
     except ValueError:
         gramas = 0
 
-    if artigo and gramas > 0:
-        if add_gramas_gelado(artigo, gramas):
-            flash(f"Artigo '{artigo}' adicionado com {gramas}g", 'success')
+    valid = artigo and tipo_dose in ('fixa', 'peso') and (
+        tipo_dose == 'peso' or gramas > 0
+    )
+    if valid:
+        if add_gramas_gelado(artigo, gramas, tipo_dose):
+            description = (
+                f"{gramas}g" if tipo_dose == 'fixa' else "vendido ao peso"
+            )
+            flash(f"Artigo '{artigo}' adicionado: {description}", 'success')
         else:
             flash("Erro ao adicionar. O artigo pode já existir.", 'error')
     else:

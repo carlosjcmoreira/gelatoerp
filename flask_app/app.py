@@ -65,6 +65,7 @@ from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clie
 from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
 from db.schema import run_migrations_drop_supplier_category, run_migrations_acesso_compras
 from db.schema import run_migrations_cost_centers_store_id
+from db.schema import run_migrations_doseamento_gelado
 from db.schema import (
     run_migrations_pastelaria_plano,
     run_migrations_pastelaria_count_product_id,
@@ -240,6 +241,7 @@ def create_app():
         run_migrations_loja_origem()
         run_migrations_transferencias_destino()
         run_migrations_transferencias_aceitacao_opcional()
+        run_migrations_doseamento_gelado()
         run_migrations_invoice_status_config()
         run_migrations_produto_aliases()
         run_migrations_pdf_filename_backfill()

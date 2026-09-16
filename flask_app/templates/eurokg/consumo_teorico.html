@@ -13,14 +13,8 @@
            class="btn btn-sm {% if loja_filter == 'Global Porto' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
             🌍 Global Porto
         </a>
-        <a href="{{ url_for('eurokg.consumo_teorico', loja='Matosinhos') }}"
-           class="btn btn-sm {% if loja_filter == 'Matosinhos' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-            🏭 Matosinhos
-        </a>
-        <a href="{{ url_for('eurokg.consumo_teorico', loja='Bolhão') }}"
-           class="btn btn-sm {% if loja_filter == 'Bolhão' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-            🛒 Bolhão
-        </a>
+        {% for store in store_filters %}<a href="{{ url_for('eurokg.consumo_teorico', loja=store.name) }}"
+           class="btn btn-sm {% if loja_filter == store.name %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ store.name }}</a>{% endfor %}
     </div>
     {% endif %}
 
@@ -46,10 +40,10 @@
                 {% for item in consumo_data %}
                 <tr>
                     <td>{{ item.produto }}</td>
-                    <td>{{ item.gramas }}</td>
+                    <td>{{ item.gramas if item.gramas is not none else '—' }}</td>
                     {% for m in item.months %}
                     <td>{{ m.qty }}</td>
-                    <td>{{ m.kg }}</td>
+                    <td>{{ m.kg if m.kg is not none else '—' }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}
@@ -58,7 +52,7 @@
                     <td></td>
                     {% for i in range(meses_labels|length) %}
                     <td>{{ totals_qty[i] }}</td>
-                    <td>{{ totals_kg[i] }}</td>
+                    <td>{{ totals_kg[i] if totals_kg[i] is not none else '—' }}</td>
                     {% endfor %}
                 </tr>
             </tbody>
@@ -79,6 +73,7 @@
             <thead>
                 <tr>
                     <th>Artigo</th>
+                    <th>Tipo</th>
                     <th>Gramas</th>
                 </tr>
             </thead>
@@ -86,7 +81,8 @@
                 {% for g in gramas_list %}
                 <tr>
                     <td>{{ g.artigo }}</td>
-                    <td>{{ g.gramas }}</td>
+                    <td>{{ 'Ao peso' if g.tipo_dose == 'peso' else 'Dose fixa' }}</td>
+                    <td>{{ '—' if g.tipo_dose == 'peso' else g.gramas }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -107,11 +103,18 @@
                         <label class="form-label small mb-1">Nome do Artigo</label>
                         <input type="text" class="form-control form-control-sm" name="artigo" required>
                     </div>
-                    <div class="col-8 col-sm-4">
+                    <div class="col-6 col-sm-3">
+                        <label class="form-label small mb-1">Tipo de venda</label>
+                        <select class="form-select form-select-sm" name="tipo_dose">
+                            <option value="fixa">Dose fixa</option>
+                            <option value="peso">Ao peso</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-sm-2">
                         <label class="form-label small mb-1">Gramas de Gelado</label>
                         <input type="text" class="form-control form-control-sm" name="gramas" inputmode="decimal" required>
                     </div>
-                    <div class="col-4 col-sm-3">
+                    <div class="col-12 col-sm-2">
                         <button type="submit" class="btn btn-primary btn-sm w-100 mb-4">Adicionar</button>
                     </div>
                 </div>

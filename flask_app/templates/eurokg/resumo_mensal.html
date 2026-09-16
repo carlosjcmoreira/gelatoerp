@@ -2,33 +2,55 @@
 {% set back_url = url_for("eurokg.index") %}
 
 {% block content %}
+<style>
+    :root { --gelato-ink:#24353b; --gelato-mint:#dcefe8; --gelato-teal:#176b63; --gelato-coral:#d97862; --gelato-sand:#f7f3eb; --gelato-line:#d9e4df; }
+    .eurokg-shell { color:var(--gelato-ink); background:linear-gradient(135deg,#fbfaf6 0%,#f5f8f3 100%); border:1px solid var(--gelato-line); border-radius:18px; }
+    .eyebrow { color:var(--gelato-teal); font-size:.7rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
+    .page-title { letter-spacing:-.035em; font-weight:800; }
+    .coaching-note { background:var(--gelato-mint); border:1px solid #c8e3d9; border-radius:12px; }
+    .store-switcher .btn { border-radius:999px; }
+    .formula { background:#f1eadc; border:1px solid #eadcc4; border-radius:11px; }
+    .table thead th { color:#607176; font-size:.7rem; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; border-bottom-width:1px; }
+    .table tbody td { vertical-align:middle; white-space:nowrap; }
+    .status-pill { border-radius:999px; font-size:.7rem; font-weight:700; padding:.3rem .55rem; }
+    .status-reliable { color:#14624f; background:#dcefe8; }
+    .status-incomplete { color:#876322; background:#f8edca; }
+    .status-invalid { color:#994f45; background:#f8ded8; }
+    .section-rule { border-color:var(--gelato-line); opacity:1; }
+    @media (max-width:767.98px) { .eurokg-shell { border-radius:0; border-left:0; border-right:0; } .table { font-size:.78rem; } }
+</style>
 <div class="container-fluid px-3 py-3">
     {% include "components/tabs.html" %}
-    <h5 class="fw-bold mb-1">📊 Euro/kg - Rentabilidade</h5>
-    <p class="text-muted small mb-3">Análise de performance das gelatarias Nivà no Porto</p>
+    <div class="eurokg-shell p-3 p-md-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">
+        <div>
+            <div class="eyebrow mb-1">Resumo mensal · dose e fiabilidade</div>
+            <h1 class="page-title h3 mb-1">O mês em perspectiva</h1>
+            <p class="text-muted mb-0">Veja tendência de consumo, cobertura e qualidade do registo antes de avaliar rendimento.</p>
+        </div>
+        <div class="coaching-note px-3 py-2 small align-self-start">
+            <strong class="d-block">Regra de leitura</strong>
+            <span class="text-muted">Incompleto não é falha de serviço.</span>
+        </div>
+    </div>
 
     {% if is_gestor %}
-    <div class="d-flex gap-2 mb-3">
+    <div class="store-switcher d-flex flex-wrap gap-2 mb-4">
         <a href="{{ url_for('eurokg.resumo_mensal', loja='Global Porto') }}"
            class="btn btn-sm {% if loja_filter == 'Global Porto' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-            🌍 Global Porto
+             Global Porto
         </a>
-        <a href="{{ url_for('eurokg.resumo_mensal', loja='Matosinhos') }}"
-           class="btn btn-sm {% if loja_filter == 'Matosinhos' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-            🏭 Matosinhos
-        </a>
-        <a href="{{ url_for('eurokg.resumo_mensal', loja='Bolhão') }}"
-           class="btn btn-sm {% if loja_filter == 'Bolhão' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
-            🛒 Bolhão
-        </a>
+        {% for store in store_filters %}<a href="{{ url_for('eurokg.resumo_mensal', loja=store.name) }}"
+           class="btn btn-sm {% if loja_filter == store.name %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ store.name }}</a>{% endfor %}
     </div>
     {% endif %}
 
     
 
-    <h6 class="fw-bold mb-1">Resumo Mensal {{ current_year }}</h6>
-    <p class="text-muted small mb-2">Consumo de gelado (kg), vendas de gelado (€) e Euro/kg por mês</p>
-    <div class="alert alert-info small py-2 mb-3">
+    <div class="eyebrow">Histórico anual</div>
+    <h2 class="h5 fw-bold mb-1">Resumo mensal {{ current_year }}</h2>
+    <p class="text-muted small mb-3">Consumo, receita por kg e aderência da dose em cada período.</p>
+    <div class="formula small py-2 px-3 mb-3">
         <strong>Fórmula:</strong> {{ formula }}
     </div>
 
@@ -44,6 +66,8 @@
                     <th>Consumo (kg)</th>
                     <th>Vendas (€)</th>
                     <th>€/kg</th>
+                    <th>Teórico (kg)</th><th>Real (kg)</th><th>Desvio</th><th>Yield</th><th>Receita/kg</th>
+                    <th>Fiabilidade</th>
                 </tr>
             </thead>
             <tbody>
@@ -57,9 +81,15 @@
                     <td>{{ row.consumo }}</td>
                     <td>{{ row.vendas }}</td>
                     <td>{{ row.euro_kg }}</td>
+                    <td>{{ row.get('theoretical_kg') if row.get('theoretical_kg') is not none else '—' }}</td><td>{{ row.get('real_kg') if row.get('real_kg') is not none else '—' }}</td><td>{{ (row.get('variance_kg')|string) + ' kg' if row.get('variance_kg') is not none else '—' }}</td><td>{{ (row.get('yield_pct')|string) + '%' if row.get('yield_pct') is not none else '—' }}</td><td>{{ row.get('revenue_per_kg') if row.get('revenue_per_kg') is not none else '—' }}</td>
+                    {% if row.get('status') is not none %}
+                    <td><span class="status-pill status-{{ row.status }}">{{ row.status|capitalize }}</span>
+                        {% if row.get('coverage_pct') is not none %}<small class="text-muted ms-1">{{ row.coverage_pct }}%</small>{% endif %}
+                    </td>
+                    {% else %}<td>—</td>{% endif %}
                 </tr>
                 {% endfor %}
-                <tr class="fw-bold table-secondary">
+                <tr class="fw-bold" style="background:var(--gelato-mint);">
                     <td>TOTAL</td>
                     <td></td>
                     <td>{{ total_entrada }}</td>
@@ -68,9 +98,13 @@
                     <td>{{ total_consumo }}</td>
                     <td>{{ total_vendas }}</td>
                     <td>{{ total_euro_kg }}</td>
+                    <td colspan="6"></td>
                 </tr>
             </tbody>
         </table>
+    </div>
+    <hr class="section-rule my-4">
+    <p class="small text-muted mb-0"><strong>Fiabilidade:</strong> períodos incompletos ou inválidos devem ser corrigidos na origem antes de comparar dose entre lojas.</p>
     </div>
 </div>
 {% endblock %}

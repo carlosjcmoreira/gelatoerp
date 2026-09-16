@@ -597,6 +597,7 @@ def calculate_gelato_stock_rotation(
                 interval = {
                     'store': store,
                     'sabor': flavor,
+                    'snapshot_type': snapshot_type,
                     'start_date': start,
                     'end_date': end,
                     'days': days,
@@ -648,6 +649,10 @@ def calculate_gelato_stock_rotation(
             else:
                 confidence = 'high'
             cells[key] = {
+                'snapshot_count': len(points),
+                'activity_count': sum(len(source.get(key, [])) for source in (
+                    production, manual_production, inbound, outbound, breakages,
+                )),
                 'average_daily_kg': (
                     round(float(average), 3) if average is not None else None
                 ),

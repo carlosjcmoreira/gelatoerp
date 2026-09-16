@@ -13,6 +13,7 @@
 - [Pastelaria stock identity](pastelaria-stock-identity.md) — catalogue-linked counts use stable IDs; unresolved legacy text must never be matched later by label reuse.
 - [Pastelaria rotation evidence](pastelaria-rotation-evidence.md) — rotation uses physical counts only; transfer receipts are movements, and confidence stays low without complete movement evidence.
 - [Gelato stock rotation evidence](gelato-stock-rotation.md) — calculate from comparable weighings and audited movements; ambiguous intervals never feed averages.
+- [Gelato dose history cutoff](gelato-dose-history-cutoff.md) — current dose rules are not evidence of past grams; pre-cutoff theoretical consumption must stay unknown unless explicitly backfilled.
 - [Multi-worker cache invalidation](multi-worker-cache-invalidation.md) — mutable DB config caches must publish a shared generation so every Gunicorn worker rejects stale local entries.
 - [Photon language parameter](photon-language-parameter.md) — Photon rejects `lang=pt`; omit the language parameter for Portuguese address suggestions.
 - [Event location consolidation](event-location-consolidation.md) — only exact name-and-address matches auto-link; ambiguous historic locations require audited human confirmation.

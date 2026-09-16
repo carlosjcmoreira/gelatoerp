@@ -6013,10 +6013,91 @@ def run_migrations_acesso_compras():
         affected = cursor.rowcount
         if affected:
             logger.info("run_migrations_acesso_compras: backfilled %d user(s)", affected)
-
         cursor.execute("UPDATE users SET acesso_compras = FALSE WHERE acesso_compras IS NULL")
         conn.commit()
 
+
+def run_migrations_doseamento_gelado():
+    """Version gelato dose rules so historical sales keep their original grams."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                ('schema:doseamento-gelado',),
+            )
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS gramas_gelado_historico (
+                    id SERIAL PRIMARY KEY,
+                    artigo VARCHAR(255) NOT NULL,
+                    gramas NUMERIC(10,3),
+                    tipo_dose VARCHAR(20) NOT NULL DEFAULT 'fixa',
+                    valid_from DATE NOT NULL,
+                    valid_to DATE,
+                    created_by VARCHAR(100),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT gramas_gelado_historico_tipo_check
+                        CHECK (tipo_dose IN ('fixa', 'peso')),
+                    CONSTRAINT gramas_gelado_historico_gramas_check
+                        CHECK (
+                            (tipo_dose = 'fixa' AND gramas > 0)
+                            OR (tipo_dose = 'peso' AND gramas IS NULL)
+                        ),
+                    CONSTRAINT gramas_gelado_historico_datas_check
+                        CHECK (valid_to IS NULL OR valid_to >= valid_from)
+                )
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_gramas_gelado_historico_artigo_ativo
+                ON gramas_gelado_historico (LOWER(BTRIM(artigo)))
+                WHERE valid_to IS NULL
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS
+                    idx_gramas_gelado_historico_vigencia
+                ON gramas_gelado_historico (
+                    LOWER(BTRIM(artigo)), valid_from, valid_to
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO gramas_gelado_historico (
+                    artigo, gramas, tipo_dose, valid_from
+                )
+                SELECT artigo, gramas, 'fixa', CURRENT_DATE
+                FROM gramas_gelado atual
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM gramas_gelado_historico hist
+                    WHERE LOWER(BTRIM(hist.artigo)) =
+                          LOWER(BTRIM(atual.artigo))
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_schema_migrations (
+                    name TEXT PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute("""
+                SELECT 1 FROM app_schema_migrations
+                WHERE name = 'doseamento_seed_cutoff_v2'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("""
+                    UPDATE gramas_gelado_historico
+                    SET valid_from = CURRENT_DATE
+                    WHERE valid_from = DATE '2000-01-01'
+                """)
+                cursor.execute("""
+                    INSERT INTO app_schema_migrations (name)
+                    VALUES ('doseamento_seed_cutoff_v2')
+                """)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception("run_migrations_doseamento_gelado failed")
+            raise
 
 _LOCK_COST_CENTERS_STORE_ID = 202695
 
