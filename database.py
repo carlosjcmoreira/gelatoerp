@@ -12,6 +12,7 @@ from db.core import *        # noqa: F401,F403 — connection pool, schema init,
 from db.auth import *        # noqa: F401,F403 — authentication, sessions, users
 from db.config import *      # noqa: F401,F403 — system config, stores, artigos, faturas migrations
 from db.producao import *    # noqa: F401,F403 — gelado production, plano, area, stock, KPIs
+from db.gelato_rotation import *  # noqa: F401,F403 — consumo auditável por sabor e loja
 from db.vendas import *      # noqa: F401,F403 — vendas records, pastelaria/confeitaria, KPIs
 from db.financeiro import *  # noqa: F401,F403 — credit contracts, invoices, suppliers, M0b pagamentos
 from db.eventos import *     # noqa: F401,F403 — eventos, leads, Google Sheets sync

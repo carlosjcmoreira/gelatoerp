@@ -5,6 +5,7 @@ from db.config import *  # noqa: F401,F403
 from db.auth import *  # noqa: F401,F403
 from db.stores import *  # noqa: F401,F403
 from db.producao import *  # noqa: F401,F403
+from db.gelato_rotation import *  # noqa: F401,F403
 from db.pastelaria import *  # noqa: F401,F403
 from db.plano import *  # noqa: F401,F403
 from db.artigos import *  # noqa: F401,F403
