@@ -17,7 +17,11 @@ from db.pastelaria import (
     get_precos_caixa_kg_historico, add_preco_caixa_kg, delete_preco_caixa_kg,
     get_volume_por_produto,
 )
-from db.doseamento import get_doseamento_period
+from db.doseamento import (
+    confirm_historical_dose_preview, create_historical_dose_preview,
+    get_historical_dose_preview,
+    get_doseamento_period, get_historical_dose_coverage,
+)
 
 eurokg_bp = Blueprint('eurokg', __name__)
 
@@ -407,6 +411,11 @@ def consumo_teorico():
     )
 
     gramas_list = get_gramas_gelado()
+    dose_coverage, dose_import_audits = get_historical_dose_coverage(loja_db)
+    actor = session.get("user", {}).get("username", "sistema")
+    dose_import_preview = get_historical_dose_preview(
+        session.get("dose_import_preview_id"), actor
+    )
 
     tabs = _build_tabs(loja_filter, is_gestor, 'consumo')
 
@@ -415,7 +424,9 @@ def consumo_teorico():
         is_gestor=is_gestor, loja_filter=loja_filter,
         consumo_data=consumo_data, meses_labels=meses_labels,
         totals_qty=totals_qty, totals_kg=totals_kg,
-        gramas_list=gramas_list, store_filters=store_filters)
+        gramas_list=gramas_list, store_filters=store_filters,
+        dose_coverage=dose_coverage, dose_import_audits=dose_import_audits,
+        dose_import_preview=dose_import_preview)
 
 
 @eurokg_bp.route('/vendas-produto')
@@ -476,6 +487,51 @@ def add_gramas():
             flash("Erro ao adicionar. O artigo pode já existir.", 'error')
     else:
         flash("Preencha todos os campos.", 'warning')
+    return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
+
+
+@eurokg_bp.route('/consumo/doses-historicas/preview', methods=['POST'])
+@perm_required('acesso_gestor')
+def preview_doses_historicas():
+    upload = request.files.get("dose_csv")
+    loja_filter = request.form.get("loja_filter", "Global Porto")
+    if not upload or not upload.filename:
+        flash("Selecione um ficheiro CSV.", "warning")
+    else:
+        try:
+            actor = session.get("user", {}).get("username", "sistema")
+            preview = create_historical_dose_preview(
+                upload.read(), actor, upload.filename
+            )
+            session["dose_import_preview_id"] = preview["id"]
+            session.modified = True
+            flash(f"Pré-visualização pronta: {len(preview['rows'])} dose(s).", "success")
+        except (UnicodeDecodeError, ValueError) as exc:
+            session.pop("dose_import_preview_id", None)
+            flash(str(exc), "error")
+    return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
+
+
+@eurokg_bp.route('/consumo/doses-historicas/import', methods=['POST'])
+@perm_required('acesso_gestor')
+def confirmar_doses_historicas():
+    loja_filter = request.form.get("loja_filter", "Global Porto")
+    preview_id = request.form.get("preview_id")
+    if not preview_id or preview_id != session.get("dose_import_preview_id"):
+        flash("A pré-visualização expirou. Volte a selecionar o CSV.", "warning")
+    else:
+        try:
+            actor = session.get("user", {}).get("username", "sistema")
+            preview = get_historical_dose_preview(preview_id, actor)
+            if not preview:
+                raise ValueError("A pré-visualização expirou ou já foi utilizada.")
+            confirm_historical_dose_preview(
+                preview_id, actor,
+            )
+            session.pop("dose_import_preview_id", None)
+            flash(f"{len(preview['rows'])} dose(s) históricas importadas.", "success")
+        except ValueError as exc:
+            flash(str(exc), "error")
     return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
 
 

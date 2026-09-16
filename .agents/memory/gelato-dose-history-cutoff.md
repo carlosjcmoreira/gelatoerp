@@ -7,4 +7,4 @@ Do not apply the current grams-per-product rules retroactively. The first versio
 
 **Why:** Assigning today's grams to old sales creates precise-looking but fabricated dose adherence and silently rewrites history whenever current configuration changes.
 
-**How to apply:** Any import or backfill of old dose rules must include an evidenced effective date and preserve non-overlapping versions. Missing historical rules must produce incomplete/unknown metrics, never zero.
+**How to apply:** Any import or backfill of old dose rules must include an evidenced effective date and preserve non-overlapping versions. Enforce that invariant in the database, not only application code. Preview historical changes server-side and reject confirmation if affected history changed. Missing historical rules must produce incomplete/unknown metrics, never zero.

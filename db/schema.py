@@ -6061,6 +6061,68 @@ def run_migrations_doseamento_gelado():
                     LOWER(BTRIM(artigo)), valid_from, valid_to
                 )
             """)
+            cursor.execute("CREATE EXTENSION IF NOT EXISTS btree_gist")
+            cursor.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'gramas_gelado_historico_sem_sobreposicao'
+                    ) THEN
+                        ALTER TABLE gramas_gelado_historico
+                        ADD CONSTRAINT gramas_gelado_historico_sem_sobreposicao
+                        EXCLUDE USING gist (
+                            (LOWER(BTRIM(artigo))) WITH =,
+                            (daterange(
+                                valid_from,
+                                COALESCE(valid_to, 'infinity'::date),
+                                '[]'
+                            )) WITH &&
+                        );
+                    END IF;
+                END
+                $$;
+            """)
+            cursor.execute("""
+                ALTER TABLE gramas_gelado_historico
+                ADD COLUMN IF NOT EXISTS evidence_reference TEXT
+            """)
+            cursor.execute("""
+                ALTER TABLE gramas_gelado_historico
+                ADD COLUMN IF NOT EXISTS import_batch_id UUID
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS gramas_gelado_import_audit (
+                    id UUID PRIMARY KEY,
+                    created_by VARCHAR(100) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    source_name TEXT,
+                    row_count INTEGER NOT NULL CHECK (row_count > 0),
+                    rows_json JSONB NOT NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_gramas_gelado_import_audit_recent
+                ON gramas_gelado_import_audit (created_at DESC)
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS gramas_gelado_import_preview (
+                    id UUID PRIMARY KEY,
+                    created_by VARCHAR(100) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    source_name TEXT,
+                    rows_json JSONB NOT NULL,
+                    changes_json JSONB NOT NULL,
+                    history_hash VARCHAR(64) NOT NULL,
+                    consumed_at TIMESTAMPTZ
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_gramas_gelado_import_preview_expiry
+                ON gramas_gelado_import_preview (expires_at)
+                WHERE consumed_at IS NULL
+            """)
             cursor.execute("""
                 ALTER TABLE vendas_detalhe
                 ADD COLUMN IF NOT EXISTS peso_vendido_kg NUMERIC(12,4)

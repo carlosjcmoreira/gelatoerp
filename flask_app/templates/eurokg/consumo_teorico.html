@@ -92,6 +92,46 @@
 
     {% if is_gestor %}
     <div class="card mb-3">
+        <div class="card-header py-2"><h6 class="mb-0 small">Recuperar doses históricas com evidência</h6></div>
+        <div class="card-body">
+            <p class="small text-muted">CSV: <code>artigo,tipo_dose,gramas,data_efetiva,evidencia</code>. A data usa AAAA-MM-DD. Para venda ao peso, deixe gramas vazio.</p>
+            <form method="POST" enctype="multipart/form-data" action="{{ url_for('eurokg.preview_doses_historicas') }}" class="row g-2 align-items-end">
+                <input type="hidden" name="loja_filter" value="{{ loja_filter }}">
+                <div class="col-md-9"><label class="form-label small">Ficheiro de doses e provas datadas</label><input class="form-control form-control-sm" type="file" name="dose_csv" accept=".csv,text/csv" required></div>
+                <div class="col-md-3"><button class="btn btn-outline-primary btn-sm w-100">Pré-visualizar</button></div>
+            </form>
+            {% if dose_import_preview %}
+            <div class="table-responsive mt-3"><table class="table table-sm">
+                <thead><tr><th>Artigo</th><th>Tipo</th><th>Gramas</th><th>Desde</th><th>Evidência</th></tr></thead>
+                <tbody>{% for row in dose_import_preview.changes %}<tr><td>{{ row.artigo }}</td><td>{{ row.tipo_dose }}</td><td>{{ row.gramas or '—' }}</td><td>{{ row.valid_from }} a {{ row.valid_to or 'presente' }}{% if row.shortens_previous %}<br><small class="text-warning">Encurta a versão {% if row.shortens_imported_row %}anterior deste lote{% else %}existente{% endif %}, iniciada em {{ row.shortens_previous }}</small>{% endif %}</td><td>{{ row.evidence_reference }}</td></tr>{% endfor %}</tbody>
+            </table></div>
+            <form method="POST" action="{{ url_for('eurokg.confirmar_doses_historicas') }}">
+                <input type="hidden" name="loja_filter" value="{{ loja_filter }}">
+                <input type="hidden" name="preview_id" value="{{ dose_import_preview.id }}">
+                <button class="btn btn-primary btn-sm">Confirmar importação de {{ dose_import_preview.rows|length }} dose(s)</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header py-2"><h6 class="mb-0 small">Cobertura histórica das doses</h6></div>
+        <div class="card-body">
+            {% if dose_coverage %}
+            <div class="d-flex flex-wrap gap-2">{% for item in dose_coverage %}
+                <span class="badge {% if item.status == 'recovered' %}text-bg-success{% elif item.status == 'partial' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">
+                    {{ item.month }} · {% if item.status == 'recovered' %}recuperado{% elif item.status == 'partial' %}parcial {{ item.covered }}/{{ item.total }}{% else %}sem evidência{% endif %}
+                </span>
+            {% endfor %}</div>
+            {% else %}<p class="small text-muted mb-0">Ainda não existem vendas históricas para avaliar.</p>{% endif %}
+            {% if dose_import_audits %}
+            <hr><h6 class="small">Últimas importações auditadas</h6>
+            <ul class="small mb-0">{% for audit in dose_import_audits %}<li>{{ audit.created_at.strftime('%d/%m/%Y %H:%M') }} — {{ audit.row_count }} dose(s), {{ audit.created_by }}{% if audit.source_name %} ({{ audit.source_name }}){% endif %}</li>{% endfor %}</ul>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
         <div class="card-header py-2">
             <h6 class="mb-0 small">Adicionar/Editar Artigo</h6>
         </div>

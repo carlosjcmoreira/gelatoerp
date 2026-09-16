@@ -7,6 +7,11 @@ with exports of the two source systems.
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+import csv
+import hashlib
+import io
+import json
+import uuid
 
 from psycopg2.extras import RealDictCursor
 
@@ -46,6 +51,349 @@ def _matches(product, history, sale_date):
     longest = max(length for length, _ in candidates)
     winners = [row for length, row in candidates if length == longest]
     return winners[0] if len(winners) == 1 else None
+
+
+def preview_historical_dose_csv(contents):
+    """Validate and normalize a dated evidence CSV without writing anything."""
+    if isinstance(contents, bytes):
+        contents = contents.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(contents or ""))
+    required = {"artigo", "tipo_dose", "gramas", "data_efetiva", "evidencia"}
+    headers = {
+        str(value or "").lstrip("\ufeff").strip().casefold()
+        for value in (reader.fieldnames or [])
+    }
+    if not required.issubset(headers):
+        raise ValueError(
+            "O CSV deve ter as colunas artigo, tipo_dose, gramas, "
+            "data_efetiva e evidencia."
+        )
+    rows = []
+    seen = set()
+    for line_number, raw in enumerate(reader, start=2):
+        if len(rows) >= 200:
+            raise ValueError("O CSV não pode ter mais de 200 doses.")
+        normalized = {
+            str(key or "").lstrip("\ufeff").strip().casefold(): str(value or "").strip()
+            for key, value in raw.items()
+        }
+        artigo = normalized["artigo"]
+        tipo = normalized["tipo_dose"].casefold()
+        evidencia = normalized["evidencia"]
+        try:
+            effective = date.fromisoformat(normalized["data_efetiva"])
+        except ValueError as exc:
+            raise ValueError(f"Linha {line_number}: data efetiva inválida.") from exc
+        if not artigo or not evidencia:
+            raise ValueError(f"Linha {line_number}: artigo e evidência são obrigatórios.")
+        if len(artigo) > 255 or len(evidencia) > 500:
+            raise ValueError(
+                f"Linha {line_number}: artigo ou evidência excede o tamanho permitido."
+            )
+        if effective > date.today():
+            raise ValueError(f"Linha {line_number}: a data efetiva não pode ser futura.")
+        if tipo not in ("fixa", "peso"):
+            raise ValueError(f"Linha {line_number}: tipo_dose deve ser fixa ou peso.")
+        grams = None
+        if tipo == "fixa":
+            grams = _decimal(normalized["gramas"].replace(",", "."), None)
+            if grams is None or grams <= 0:
+                raise ValueError(f"Linha {line_number}: gramas deve ser maior que zero.")
+        key = (artigo.casefold(), effective)
+        if key in seen:
+            raise ValueError(
+                f"Linha {line_number}: artigo e data efetiva repetidos no ficheiro."
+            )
+        seen.add(key)
+        rows.append({
+            "artigo": artigo,
+            "tipo_dose": tipo,
+            "gramas": str(grams) if grams is not None else None,
+            "valid_from": effective.isoformat(),
+            "evidence_reference": evidencia,
+        })
+    if not rows:
+        raise ValueError("O CSV não contém doses.")
+    return rows
+
+
+def _history_snapshot(cur, rows, lock=False):
+    articles = sorted({row["artigo"].strip().casefold() for row in rows})
+    query = """
+        SELECT id, artigo, gramas, tipo_dose, valid_from, valid_to,
+               evidence_reference
+        FROM gramas_gelado_historico
+        WHERE LOWER(BTRIM(artigo)) = ANY(%s)
+        ORDER BY LOWER(BTRIM(artigo)), valid_from, id
+    """
+    if lock:
+        query += " FOR UPDATE"
+    cur.execute(query, (articles,))
+    snapshot = [dict(value) for value in cur.fetchall()]
+    payload = json.dumps(snapshot, sort_keys=True, default=str, ensure_ascii=False)
+    return snapshot, hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _preview_interval_changes(rows, snapshot):
+    changes = []
+    for row in sorted(rows, key=lambda item: (
+            item["artigo"].casefold(), item["valid_from"])):
+        effective = date.fromisoformat(row["valid_from"])
+        versions = [
+            value for value in snapshot
+            if value["artigo"].strip().casefold() == row["artigo"].strip().casefold()
+        ]
+        if any(_day(value["valid_from"]) == effective for value in versions):
+            raise ValueError(
+                f"Já existe uma versão de '{row['artigo']}' em {effective}."
+            )
+        snapshot.append({
+            "id": None, "artigo": row["artigo"], "gramas": row["gramas"],
+            "tipo_dose": row["tipo_dose"], "valid_from": effective,
+            "valid_to": None, "evidence_reference": row["evidence_reference"],
+            "_imported": True,
+        })
+    for row in sorted(rows, key=lambda item: (
+            item["artigo"].casefold(), item["valid_from"])):
+        effective = date.fromisoformat(row["valid_from"])
+        versions = sorted([
+            value for value in snapshot
+            if value["artigo"].strip().casefold() == row["artigo"].strip().casefold()
+        ], key=lambda value: _day(value["valid_from"]))
+        index = next(
+            i for i, value in enumerate(versions)
+            if _day(value["valid_from"]) == effective and value.get("_imported")
+        )
+        previous = versions[index - 1] if index else None
+        next_version = versions[index + 1] if index + 1 < len(versions) else None
+        end = (
+            _day(next_version["valid_from"]) - timedelta(days=1)
+            if next_version else None
+        )
+        changes.append({
+            **row,
+            "valid_to": end.isoformat() if end else None,
+            "shortens_previous": (
+                _day(previous["valid_from"]).isoformat()
+                if previous and (
+                    previous.get("_imported")
+                    or previous["valid_to"] is None
+                    or _day(previous["valid_to"]) >= effective
+                ) else None
+            ),
+            "shortens_imported_row": bool(previous and previous.get("_imported")),
+        })
+    return changes
+
+
+def create_historical_dose_preview(contents, actor, source_name=None):
+    """Persist a short-lived, actor-bound preview and its exact interval effects."""
+    rows = preview_historical_dose_csv(contents)
+    preview_id = str(uuid.uuid4())
+    with db_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        snapshot, history_hash = _history_snapshot(cur, rows)
+        changes = _preview_interval_changes(rows, list(snapshot))
+        cur.execute("""
+            DELETE FROM gramas_gelado_import_preview
+            WHERE expires_at < NOW() OR consumed_at IS NOT NULL
+        """)
+        cur.execute("""
+            INSERT INTO gramas_gelado_import_preview
+                (id, created_by, expires_at, source_name, rows_json,
+                 changes_json, history_hash)
+            VALUES (%s, %s, NOW() + INTERVAL '30 minutes', %s,
+                    %s::jsonb, %s::jsonb, %s)
+        """, (
+            preview_id, actor[:100], source_name,
+            json.dumps(rows, ensure_ascii=False),
+            json.dumps(changes, ensure_ascii=False), history_hash,
+        ))
+        conn.commit()
+    return {"id": preview_id, "rows": rows, "changes": changes,
+            "source_name": source_name}
+
+
+def get_historical_dose_preview(preview_id, actor):
+    if not preview_id:
+        return None
+    with db_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT id, source_name, rows_json, changes_json
+            FROM gramas_gelado_import_preview
+            WHERE id = %s AND created_by = %s AND consumed_at IS NULL
+              AND expires_at > NOW()
+        """, (preview_id, actor[:100]))
+        row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "id": str(row["id"]), "source_name": row["source_name"],
+        "rows": row["rows_json"], "changes": row["changes_json"],
+    }
+
+
+def confirm_historical_dose_preview(preview_id, actor):
+    """Consume a preview once, rejecting it if affected history has changed."""
+    with db_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cur.execute("""
+                SELECT * FROM gramas_gelado_import_preview
+                WHERE id = %s AND created_by = %s AND consumed_at IS NULL
+                  AND expires_at > NOW()
+                FOR UPDATE
+            """, (preview_id, actor[:100]))
+            preview = cur.fetchone()
+            if not preview:
+                raise ValueError("A pré-visualização expirou ou já foi utilizada.")
+            rows = preview["rows_json"]
+            for article in sorted({row["artigo"].strip().casefold() for row in rows}):
+                cur.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    ("dose-history:" + article,),
+                )
+            _snapshot, current_hash = _history_snapshot(cur, rows, lock=True)
+            if current_hash != preview["history_hash"]:
+                raise ValueError(
+                    "As versões mudaram desde a pré-visualização. "
+                    "Volte a pré-visualizar o ficheiro."
+                )
+            batch_id = _import_historical_doses_tx(
+                cur, rows, actor[:100], preview["source_name"]
+            )
+            cur.execute("""
+                UPDATE gramas_gelado_import_preview
+                SET consumed_at = NOW() WHERE id = %s
+            """, (preview_id,))
+            conn.commit()
+            return batch_id
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def _import_historical_doses_tx(cur, normalized, actor, source_name):
+    batch_id = str(uuid.uuid4())
+    audit_changes = []
+    for row in sorted(normalized, key=lambda item: (
+            item["artigo"].casefold(), item["valid_from"])):
+        effective = date.fromisoformat(row["valid_from"])
+        cur.execute("""
+            SELECT id, valid_from, valid_to
+            FROM gramas_gelado_historico
+            WHERE LOWER(BTRIM(artigo)) = LOWER(BTRIM(%s))
+            ORDER BY valid_from FOR UPDATE
+        """, (row["artigo"],))
+        versions = [dict(value) for value in cur.fetchall()]
+        if any(_day(value["valid_from"]) == effective for value in versions):
+            raise ValueError(
+                f"Já existe uma versão de '{row['artigo']}' em {effective}."
+            )
+        next_version = next(
+            (value for value in versions if _day(value["valid_from"]) > effective),
+            None,
+        )
+        previous = next(
+            (value for value in reversed(versions)
+             if _day(value["valid_from"]) < effective), None,
+        )
+        valid_to = (
+            _day(next_version["valid_from"]) - timedelta(days=1)
+            if next_version else None
+        )
+        if previous and (
+            previous["valid_to"] is None or _day(previous["valid_to"]) >= effective
+        ):
+            old_valid_to = previous["valid_to"]
+            cur.execute(
+                """UPDATE gramas_gelado_historico
+                   SET valid_to = %s WHERE id = %s RETURNING id""",
+                (effective - timedelta(days=1), previous["id"]),
+            )
+            cur.fetchone()
+            audit_changes.append({
+                "action": "shorten", "row_id": previous["id"],
+                "old_valid_to": (
+                    _day(old_valid_to).isoformat() if old_valid_to else None
+                ),
+                "new_valid_to": (effective - timedelta(days=1)).isoformat(),
+            })
+        cur.execute("""
+            INSERT INTO gramas_gelado_historico
+                (artigo, gramas, tipo_dose, valid_from, valid_to,
+                 created_by, evidence_reference, import_batch_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            row["artigo"], row["gramas"], row["tipo_dose"], effective,
+            valid_to, actor, row["evidence_reference"], batch_id,
+        ))
+        inserted_id = cur.fetchone()["id"]
+        audit_changes.append({
+            "action": "insert", "row_id": inserted_id,
+            "artigo": row["artigo"], "valid_from": row["valid_from"],
+            "valid_to": valid_to.isoformat() if valid_to else None,
+            "tipo_dose": row["tipo_dose"], "gramas": row["gramas"],
+            "evidence_reference": row["evidence_reference"],
+        })
+    cur.execute("""
+        INSERT INTO gramas_gelado_import_audit
+            (id, created_by, source_name, row_count, rows_json)
+        VALUES (%s, %s, %s, %s, %s::jsonb)
+    """, (
+        batch_id, actor, source_name, len(normalized),
+        json.dumps(
+            {"inputs": normalized, "changes": audit_changes},
+            ensure_ascii=False,
+        ),
+    ))
+    return batch_id
+
+
+def get_historical_dose_coverage(loja=None):
+    """Return monthly sales-rule evidence coverage and recent import audits."""
+    with db_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        params = []
+        store_clause = ""
+        if loja:
+            store_clause = " AND vd.loja = %s"
+            params.append(loja)
+        cur.execute("""
+            SELECT vd.data, vd.produto
+            FROM vendas_detalhe vd
+            JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
+             AND pvc.gelado_kpi = TRUE
+            WHERE 1=1
+        """ + store_clause + " ORDER BY vd.data", params)
+        sales = [dict(row) for row in cur.fetchall()]
+        cur.execute("""
+            SELECT artigo, gramas, tipo_dose, valid_from, valid_to
+            FROM gramas_gelado_historico
+        """)
+        history = [dict(row) for row in cur.fetchall()]
+        cur.execute("""
+            SELECT id, created_by, created_at, source_name, row_count
+            FROM gramas_gelado_import_audit
+            ORDER BY created_at DESC LIMIT 20
+        """)
+        audits = [dict(row) for row in cur.fetchall()]
+    months = defaultdict(lambda: {"total": 0, "covered": 0})
+    for sale in sales:
+        key = _day(sale["data"]).strftime("%Y-%m")
+        months[key]["total"] += 1
+        if _matches(sale["produto"], history, _day(sale["data"])):
+            months[key]["covered"] += 1
+    coverage = []
+    for month, counts in sorted(months.items(), reverse=True):
+        status = (
+            "recovered" if counts["covered"] == counts["total"]
+            else "partial" if counts["covered"] else "unknown"
+        )
+        coverage.append({"month": month, "status": status, **counts})
+    return coverage, audits
 
 
 def calculate_doseamento(sales, history, rotation, data_inicio=None,
@@ -330,4 +678,9 @@ def get_doseamento_period(data_inicio, data_fim, loja=None, store_names=None):
     )
 
 
-__all__ = ["get_doseamento_period", "calculate_doseamento"]
+__all__ = [
+    "get_doseamento_period", "calculate_doseamento",
+    "preview_historical_dose_csv", "create_historical_dose_preview",
+    "get_historical_dose_preview", "confirm_historical_dose_preview",
+    "get_historical_dose_coverage",
+]
