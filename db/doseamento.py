@@ -65,7 +65,7 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         "theoretical": Decimal("0"), "revenue": Decimal("0"),
         "sales": Decimal("0"), "mapped_sales": Decimal("0"),
         "sale_rows": 0, "fixed_rows": 0,
-        "weighted": 0, "unmapped": [], "weighted_products": [],
+        "weighted_rows": 0, "unmapped": [], "weighted_products": [],
     })
     for sale in sales:
         store = sale.get("loja", sale.get("store", loja))
@@ -86,8 +86,12 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         tipo = str(row.get("tipo_dose", "fixa")).casefold()
         bucket["mapped_sales"] += quantity
         if tipo in ("weight", "peso"):
-            bucket["weighted"] += 1
-            bucket["weighted_products"].append(product)
+            weight = sale.get("peso_vendido_kg")
+            if weight is None:
+                bucket["weighted_products"].append(product)
+                continue
+            bucket["weighted_rows"] += 1
+            bucket["theoretical"] += _decimal(weight)
             continue
         bucket["fixed_rows"] += 1
         bucket["theoretical"] += quantity * _decimal(row.get("gramas")) / 1000
@@ -123,7 +127,10 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         )
         unmapped = sorted(set(bucket["unmapped"]))
         weighted = sorted(set(bucket["weighted_products"]))
-        theoretical_value = theoretical if bucket["fixed_rows"] else None
+        theoretical_value = (
+            theoretical
+            if bucket["fixed_rows"] or bucket["weighted_rows"] else None
+        )
         if unmapped:
             issues.add("unmapped_products")
         if weighted:
@@ -237,6 +244,7 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         "mapped_sales": sum(_decimal(b["mapped_sales"]) for b in buckets.values()),
         "sale_rows": sum(b["sale_rows"] for b in buckets.values()),
         "fixed_rows": sum(b["fixed_rows"] for b in buckets.values()),
+        "weighted_rows": sum(b["weighted_rows"] for b in buckets.values()),
         "unmapped": sum((b["unmapped"] for b in buckets.values()), []),
         "weighted_products": sum((b["weighted_products"] for b in buckets.values()), []),
         "rotation_issues": set().union(*(b.get("rotation_issues", set()) for b in buckets.values())),
@@ -304,7 +312,8 @@ def get_doseamento_period(data_inicio, data_fim, loja=None, store_names=None):
     with db_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
-            SELECT vd.data, vd.loja, vd.produto, vd.quantidade, vd.valor_euros
+            SELECT vd.data, vd.loja, vd.produto, vd.quantidade, vd.valor_euros,
+                   vd.peso_vendido_kg
             FROM vendas_detalhe vd
             JOIN produtos_vendas_config pvc ON pvc.produto = vd.produto
               AND pvc.gelado_kpi = TRUE

@@ -81,8 +81,11 @@ def _build_consumo_teorico_view(consumo_df):
         totals_qty.append(int(month_rows['quantidade_vendida'].sum()))
         has_unknown = month_rows.apply(
             lambda row: (
-                row['quantidade_vendida'] != 0 and
-                pd.isna(row['consumo_kg'])
+                bool(row.get('consumo_incompleto', False))
+                or (
+                    row['quantidade_vendida'] != 0
+                    and pd.isna(row['consumo_kg'])
+                )
             ),
             axis=1,
         ).any()
@@ -109,8 +112,11 @@ def _build_consumo_teorico_view(consumo_df):
             qty = int(rows['quantidade_vendida'].sum()) if not rows.empty else 0
             unknown = not rows.empty and rows.apply(
                 lambda row: (
-                    row['quantidade_vendida'] != 0 and
-                    pd.isna(row['consumo_kg'])
+                    bool(row.get('consumo_incompleto', False))
+                    or (
+                        row['quantidade_vendida'] != 0
+                        and pd.isna(row['consumo_kg'])
+                    )
                 ),
                 axis=1,
             ).any()

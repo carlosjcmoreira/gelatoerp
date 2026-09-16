@@ -17,9 +17,9 @@ def rotation(consumption=10, issues=None):
     }
 
 
-def sale(product, quantity=10, store="A", day=date(2025, 1, 1)):
+def sale(product, quantity=10, store="A", day=date(2025, 1, 1), weight=None):
     return {"produto": product, "quantidade": quantity, "loja": store,
-            "data": day, "valor_euros": 20}
+            "data": day, "valor_euros": 20, "peso_vendido_kg": weight}
 
 
 def test_fixed_formula_and_longest_mapping():
@@ -56,6 +56,38 @@ def test_weight_is_explicitly_incomplete():
     )
     assert result["weighted_products"] == ["Gelado weight"]
     assert "weight_products" in result["issues"]
+
+
+def test_weight_with_kg_is_added_to_fixed_doses_without_double_counting():
+    result = calculate_doseamento(
+        [sale("Copo", 2, weight=9), sale("Gelado weight", 1, weight=1.25)],
+        [{"artigo": "Copo", "gramas": 100, "tipo_dose": "fixed"},
+         {"artigo": "Gelado", "gramas": None, "tipo_dose": "weight"}],
+        rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
+    )
+    assert result["theoretical_kg"] == 1.45
+    assert result["weighted_products"] == []
+    assert "weight_products" not in result["issues"]
+
+
+def test_weight_return_subtracts_from_theoretical_consumption():
+    result = calculate_doseamento(
+        [sale("Gelado weight", -1, weight=-0.4)],
+        [{"artigo": "Gelado", "gramas": None, "tipo_dose": "weight"}],
+        rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
+    )
+    assert result["mapped_theoretical_kg"] == -0.4
+
+
+def test_global_supports_period_with_only_weight_sales():
+    result = calculate_doseamento(
+        [sale("Gelado weight", 1, weight=1.2)],
+        [{"artigo": "Gelado", "gramas": None, "tipo_dose": "weight"}],
+        rotation(), date(2025, 1, 1), date(2025, 1, 1),
+        store_names=["A"],
+    )
+    assert result["status"] == "reliable"
+    assert result["theoretical_kg"] == 1.2
 
 
 def test_invalid_rotation_cannot_be_reliable():

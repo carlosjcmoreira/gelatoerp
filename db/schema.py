@@ -1417,8 +1417,9 @@ def init_database():
                 loja VARCHAR(100) NOT NULL,
                 produto VARCHAR(255) NOT NULL,
                 categoria VARCHAR(100),
-                quantidade INTEGER NOT NULL,
+                quantidade NUMERIC(12,3) NOT NULL,
                 valor_euros REAL,
+                peso_vendido_kg NUMERIC(12,4),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -6059,6 +6060,15 @@ def run_migrations_doseamento_gelado():
                 ON gramas_gelado_historico (
                     LOWER(BTRIM(artigo)), valid_from, valid_to
                 )
+            """)
+            cursor.execute("""
+                ALTER TABLE vendas_detalhe
+                ADD COLUMN IF NOT EXISTS peso_vendido_kg NUMERIC(12,4)
+            """)
+            cursor.execute("""
+                ALTER TABLE vendas_detalhe
+                ALTER COLUMN quantidade TYPE NUMERIC(12,3)
+                USING quantidade::NUMERIC(12,3)
             """)
             cursor.execute("""
                 INSERT INTO gramas_gelado_historico (

@@ -6,6 +6,7 @@ All pandas and DB-import logic lives here so it stays testable and off the route
 """
 import re as _re
 import logging
+import math
 from datetime import datetime
 
 import pandas as pd
@@ -51,6 +52,52 @@ def parse_qty_value(raw_val) -> float:
         return 0.0
 
 
+def parse_weight_kg(raw_val, unit='kg'):
+    """Return a signed kg value, or None when the source cell is empty."""
+    if raw_val is None or pd.isna(raw_val) or str(raw_val).strip() == '':
+        return None
+    normalized_unit = str(unit or 'kg').strip().casefold().replace('.', '')
+    if normalized_unit not in ('kg', 'quilo', 'quilos', 'kilogram', 'kilograms'):
+        raise ValueError(
+            f'Unidade de peso incompatível: {unit!s}. Use kg.'
+        )
+    if isinstance(raw_val, (int, float)):
+        value = float(raw_val)
+    else:
+        normalized_value = str(raw_val).replace(' ', '').strip()
+        if ',' in normalized_value and '.' in normalized_value:
+            normalized_value = normalized_value.replace('.', '').replace(',', '.')
+        elif ',' in normalized_value:
+            normalized_value = normalized_value.replace(',', '.')
+        try:
+            value = float(normalized_value)
+        except ValueError:
+            raise ValueError(
+                f'Peso vendido em kg inválido: {raw_val!s}.'
+            ) from None
+    if not math.isfinite(value):
+        raise ValueError('O peso vendido em kg tem de ser um número finito.')
+    if value == 0:
+        raise ValueError('O peso vendido em kg não pode ser zero.')
+    return value
+
+
+def parse_sales_quantity(raw_val):
+    value = parse_qty_value(raw_val)
+    if not math.isfinite(value):
+        raise ValueError('A quantidade vendida tem de ser um número finito.')
+    return value
+
+
+def _weight_unit(row, weight_column, unit_column):
+    if unit_column:
+        return row.get(unit_column, 'kg')
+    header = str(weight_column or '').casefold()
+    if '(g)' in header or 'grama' in header:
+        return 'g'
+    return 'kg'
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _detect_columns(df_det):
@@ -86,11 +133,26 @@ def _detect_columns(df_det):
         if 'Familia' in c or 'Categoria' in c or 'Família' in c:
             cat_col = c
             break
-    return date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col
+    peso_col = next((
+        c for c in df_det.columns
+        if (
+            ('peso' in str(c).casefold() and 'vend' in str(c).casefold())
+            or str(c).strip().casefold() in ('kg vendidos', 'kg vendido')
+        )
+    ), None)
+    unidade_peso_col = next((
+        c for c in df_det.columns
+        if 'unidade' in str(c).casefold() and 'peso' in str(c).casefold()
+    ), None)
+    return (
+        date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col,
+        peso_col, unidade_peso_col,
+    )
 
 
 def _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col,
-                              pre_delete_pairs=None, valor_sem_iva_col=None):
+                              pre_delete_pairs=None, valor_sem_iva_col=None,
+                              peso_col=None, unidade_peso_col=None):
     import database as db
     skipped_no_loja = 0
     batch = []
@@ -115,24 +177,46 @@ def _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat
                     continue
             produto = str(row.get(prod_col, '')) if prod_col else ''
             categoria = str(row.get(cat_col, '')).replace('/', '').strip() if cat_col else ''
-            quantidade = parse_qty_value(row.get(qtd_col, 0)) if qtd_col else 0
+            quantidade = (
+                parse_sales_quantity(row.get(qtd_col, 0)) if qtd_col else 0
+            )
             valor = parse_euro_value(row.get(valor_col, 0)) if valor_col else 0
             valor_sem_iva = (
                 parse_euro_value(row.get(valor_sem_iva_col, 0))
                 if valor_sem_iva_col else None
             )
-            if produto and quantidade > 0:
+            peso_vendido_kg = (
+                parse_weight_kg(
+                    row.get(peso_col),
+                    _weight_unit(row, peso_col, unidade_peso_col),
+                )
+                if peso_col else None
+            )
+            if (
+                peso_vendido_kg is not None
+                and quantidade != 0
+                and (peso_vendido_kg > 0) != (quantidade > 0)
+            ):
+                raise ValueError(
+                    f'O peso vendido e a quantidade têm sinais incompatíveis '
+                    f'para {produto}.'
+                )
+            if produto and quantidade != 0:
                 batch.append({
                     'data': data_venda,
                     'loja': loja_row,
                     'produto': produto,
-                    'quantidade': int(quantidade),
+                    'quantidade': quantidade,
                     'categoria': categoria,
                     'valor_euros': valor,
                     'valor_sem_iva_euros': valor_sem_iva,
+                    'peso_vendido_kg': peso_vendido_kg,
                 })
+        except ValueError:
+            raise
         except Exception:
             continue
+    batch = db.apply_vendas_weight_rules(batch)
     imported_count = db.add_venda_detalhe_batch(batch, pre_delete_pairs=pre_delete_pairs)
     return imported_count, skipped_no_loja
 
@@ -272,23 +356,28 @@ def import_vendas_xlsx(file_stream, loja_map: dict,
         raise ServiceError('Não foram encontrados dados de vendas no ficheiro.')
 
     df_det = pd.DataFrame(all_data)
-    date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col = _detect_columns(df_det)
+    (date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col,
+     peso_col, unidade_peso_col) = _detect_columns(df_det)
     return _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col,
-                                    pre_delete_pairs=pre_delete_pairs, valor_sem_iva_col=valor_sem_iva_col)
+                                    pre_delete_pairs=pre_delete_pairs,
+                                    valor_sem_iva_col=valor_sem_iva_col,
+                                    peso_col=peso_col,
+                                    unidade_peso_col=unidade_peso_col)
 
 
 # ── Vendas CSV import ─────────────────────────────────────────────────────────
 
 def import_vendas_csv(file_stream, loja: str) -> int:
     """
-    Parse a simple sales CSV (one loja, columns: Data, Produto, Categoria, Quantidade, Valor).
+    Parse a simple sales CSV. Optional weight columns are Peso Vendido and
+    Unidade Peso; weights must be expressed in kg.
 
     Returns the number of imported records.
     """
     import database as db
 
     df = pd.read_csv(file_stream, encoding='utf-8')
-    imported = 0
+    batch = []
     for _, row in df.iterrows():
         try:
             data_str = str(row.get('Data', row.get('data', '')))
@@ -305,14 +394,53 @@ def import_vendas_csv(file_stream, loja: str) -> int:
                 continue
             produto = str(row.get('Produto', row.get('produto', '')))
             categoria = str(row.get('Categoria', row.get('categoria', '')))
-            quantidade = int(row.get('Quantidade', row.get('quantidade', 0)))
+            quantidade = parse_sales_quantity(
+                row.get('Quantidade', row.get('quantidade', 0))
+            )
             valor = parse_euro_value(row.get('Valor', row.get('valor', 0)))
-            if produto and quantidade > 0:
-                db.add_venda_detalhe(data_venda, loja, produto, quantidade, categoria, valor)
-                imported += 1
+            raw_weight = row.get(
+                'Peso Vendido',
+                row.get(
+                    'Peso Vendido (kg)',
+                    row.get('peso_vendido_kg', row.get('Kg Vendidos')),
+                ),
+            )
+            weight_column = next((
+                column for column in (
+                    'Peso Vendido', 'Peso Vendido (kg)', 'peso_vendido_kg',
+                    'Kg Vendidos', 'Peso Vendido (g)',
+                )
+                if column in row.index
+            ), None)
+            if weight_column is not None:
+                raw_weight = row.get(weight_column)
+            unit_column = next((
+                column for column in ('Unidade Peso', 'unidade_peso')
+                if column in row.index
+            ), None)
+            unit = _weight_unit(row, weight_column, unit_column)
+            peso_vendido_kg = parse_weight_kg(raw_weight, unit)
+            if (
+                peso_vendido_kg is not None
+                and quantidade != 0
+                and (peso_vendido_kg > 0) != (quantidade > 0)
+            ):
+                raise ValueError(
+                    f'O peso vendido e a quantidade têm sinais incompatíveis '
+                    f'para {produto}.'
+                )
+            if produto and quantidade != 0:
+                batch.append({
+                    'data': data_venda, 'loja': loja, 'produto': produto,
+                    'quantidade': quantidade, 'categoria': categoria,
+                    'valor_euros': valor, 'peso_vendido_kg': peso_vendido_kg,
+                })
+        except ValueError:
+            raise
         except Exception:
             continue
-    return imported
+    batch = db.apply_vendas_weight_rules(batch)
+    return db.add_venda_detalhe_batch(batch)
 
 
 # ── Vendas HTML import ────────────────────────────────────────────────────────
@@ -383,6 +511,9 @@ def import_vendas_html(file_stream, loja_map: dict) -> tuple[int, int]:
         raise ServiceError('Não foram encontrados dados de vendas no ficheiro HTML.')
 
     df_det = pd.DataFrame(all_data)
-    date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col = _detect_columns(df_det)
+    (date_col, prod_col, qtd_col, valor_col, cat_col, valor_sem_iva_col,
+     peso_col, unidade_peso_col) = _detect_columns(df_det)
     return _import_vendas_from_rows(df_det, date_col, prod_col, qtd_col, valor_col, cat_col,
-                                    valor_sem_iva_col=valor_sem_iva_col)
+                                    valor_sem_iva_col=valor_sem_iva_col,
+                                    peso_col=peso_col,
+                                    unidade_peso_col=unidade_peso_col)

@@ -10,6 +10,7 @@ from db.producao import get_sabores_mapping
 import pandas as pd
 import json
 import os
+import math
 from collections import defaultdict
 from bisect import bisect_right
 
@@ -1779,15 +1780,20 @@ def delete_rececao_mercadoria(id: int):
         cursor.execute("DELETE FROM rececao_mercadoria WHERE id = %s", (id,))
         conn.commit()
 
-def add_venda_detalhe(data: date, loja: str, produto: str, quantidade: int, categoria: str = None,
-                       valor_euros: float = None, valor_sem_iva_euros: float = None):
+def add_venda_detalhe(data: date, loja: str, produto: str, quantidade: float, categoria: str = None,
+                       valor_euros: float = None, valor_sem_iva_euros: float = None,
+                       peso_vendido_kg: float = None):
     store_id = get_store_id_by_name(loja)
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO vendas_detalhe (data, loja, produto, categoria, quantidade, valor_euros, store_id, valor_sem_iva_euros)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        ''', (data, loja, produto, categoria, quantidade, valor_euros, store_id, valor_sem_iva_euros))
+            INSERT INTO vendas_detalhe (
+                data, loja, produto, categoria, quantidade, valor_euros,
+                store_id, valor_sem_iva_euros, peso_vendido_kg
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (data, loja, produto, categoria, quantidade, valor_euros,
+              store_id, valor_sem_iva_euros, peso_vendido_kg))
         conn.commit()
 
 
@@ -1795,7 +1801,8 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
     """Insert multiple vendas_detalhe records in a single transaction.
 
     Each record is a dict with keys: data, loja, produto, quantidade,
-    categoria (optional), valor_euros (optional), valor_sem_iva_euros (optional —
+    categoria (optional), valor_euros (optional), peso_vendido_kg (optional),
+    valor_sem_iva_euros (optional —
     the real net-of-VAT amount, when the source file provides it; NULL means the
     row's IVA is estimated rather than real, see compute_vat_period).
 
@@ -1822,6 +1829,7 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
             rec.get('valor_euros'),
             store_id_cache[loja],
             rec.get('valor_sem_iva_euros'),
+            rec.get('peso_vendido_kg'),
         ))
     if pre_delete_pairs and not rows:
         raise ValueError(
@@ -1842,7 +1850,8 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
                 execute_values(
                     cursor,
                     '''INSERT INTO vendas_detalhe
-                       (data, loja, produto, categoria, quantidade, valor_euros, store_id, valor_sem_iva_euros)
+                       (data, loja, produto, categoria, quantidade, valor_euros,
+                        store_id, valor_sem_iva_euros, peso_vendido_kg)
                        VALUES %s''',
                     rows,
                     page_size=500,
@@ -1852,6 +1861,39 @@ def add_venda_detalhe_batch(records: list, pre_delete_pairs: list = None) -> int
             conn.rollback()
             raise
     return len(rows)
+
+
+def _apply_vendas_weight_rules(records: list, history: list) -> list:
+    from db.doseamento import _matches
+    enriched = []
+    for record in records:
+        item = dict(record)
+        if item.get('peso_vendido_kg') is None:
+            rule = _matches(item.get('produto'), history, item.get('data'))
+            if rule and rule.get('tipo_dose') == 'peso':
+                quantity = float(item.get('quantidade'))
+                if not math.isfinite(quantity) or quantity == 0:
+                    raise ValueError(
+                        'A quantidade vendida ao peso tem de ser um número '
+                        'finito e diferente de zero.'
+                    )
+                item['peso_vendido_kg'] = quantity
+        enriched.append(item)
+    return enriched
+
+
+def apply_vendas_weight_rules(records: list) -> list:
+    """Copy actual kg from Quantidade for rows historically configured by weight."""
+    if not records:
+        return records
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT artigo, gramas, tipo_dose, valid_from, valid_to
+            FROM gramas_gelado_historico
+        """)
+        history = [dict(row) for row in cursor.fetchall()]
+    return _apply_vendas_weight_rules(records, history)
 
 
 def get_vendas_detalhe_df(loja: str = None, data_inicio: date = None, data_fim: date = None, categoria: str = None, limit: int = 500) -> list:
@@ -2622,7 +2664,8 @@ def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
             vd.produto,
             vd.data,
             TO_CHAR(vd.data, 'YYYY-MM') as mes,
-            vd.quantidade as quantidade_vendida
+            vd.quantidade as quantidade_vendida,
+            vd.peso_vendido_kg
         FROM vendas_detalhe vd
         INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
         WHERE pvc.gelado_kpi = TRUE
@@ -2655,16 +2698,30 @@ def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
         lambda rule: float(rule['gramas'])
         if rule and rule.get('tipo_dose') == 'fixa' else None
     )
-    vendas_df['consumo_kg'] = (
-        vendas_df['quantidade_vendida'] *
-        vendas_df['gramas_por_unidade']
-    ) / 1000
+    def row_consumption(row):
+        rule = row['_rule']
+        if not rule:
+            return None
+        if rule.get('tipo_dose') == 'peso':
+            weight = row['peso_vendido_kg']
+            return None if pd.isna(weight) else float(weight)
+        return (
+            float(row['quantidade_vendida']) * float(rule['gramas']) / 1000
+        )
+    vendas_df['consumo_kg'] = vendas_df.apply(row_consumption, axis=1)
+    vendas_df['consumo_incompleto'] = vendas_df['consumo_kg'].isna()
     return vendas_df.drop(columns=['_rule']).groupby(
         ['produto', 'mes', 'gramas_por_unidade', 'tipo_dose'],
         dropna=False, as_index=False,
     ).agg(
         quantidade_vendida=('quantidade_vendida', 'sum'),
-        consumo_kg=('consumo_kg', lambda values: values.sum(min_count=1)),
+        consumo_kg=(
+            'consumo_kg',
+            lambda values: (
+                values.sum() if not values.isna().any() else float('nan')
+            ),
+        ),
+        consumo_incompleto=('consumo_incompleto', 'any'),
     )
 
 

@@ -40,3 +40,19 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         _rows, _labels, qty, totals_kg = _build_consumo_teorico_view(frame)
         self.assertEqual(qty, [3])
         self.assertIsNone(totals_kg[0])
+
+    def test_zero_net_quantity_stays_unknown_when_weight_is_missing(self):
+        frame = pd.DataFrame([
+            {
+                "produto": "Gelado ao peso",
+                "mes": "2026-09",
+                "quantidade_vendida": 0,
+                "gramas_por_unidade": float("nan"),
+                "consumo_kg": float("nan"),
+                "consumo_incompleto": True,
+            },
+        ])
+        rows, _labels, qty, totals_kg = _build_consumo_teorico_view(frame)
+        self.assertEqual(qty, [0])
+        self.assertIsNone(rows[0]["months"][0]["kg"])
+        self.assertIsNone(totals_kg[0])

@@ -504,7 +504,10 @@ def vendas_detalhe():
     loja_query = None if loja_hist == 'Todas' else loja_hist
     export_all = request.args.get('export_all') == '1'
     query_limit = None if export_all else 500
-    _cols = {'id', 'data', 'loja', 'produto', 'categoria', 'quantidade', 'valor_euros'}
+    _cols = {
+        'id', 'data', 'loja', 'produto', 'categoria', 'quantidade',
+        'valor_euros', 'peso_vendido_kg',
+    }
     vendas_list = [{k: v for k, v in r.items() if k in _cols}
                    for r in db.get_vendas_detalhe_df(loja_query, limit=query_limit)]
 
