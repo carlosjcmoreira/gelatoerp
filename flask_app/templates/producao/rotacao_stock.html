@@ -1,0 +1,341 @@
+{% extends "producao/tabs.html" %}
+
+{% block head %}
+<style>
+  .rotation-table-wrap {
+    max-height: 68vh;
+    overflow: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+  }
+  .rotation-table {
+    min-width: 680px;
+    margin: 0;
+    font-size: .82rem;
+  }
+  .rotation-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--bs-dark);
+    color: var(--bs-white);
+    vertical-align: middle;
+  }
+  .rotation-table th:first-child,
+  .rotation-table td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    min-width: 150px;
+    max-width: 210px;
+    background: var(--bs-body-bg);
+    box-shadow: 1px 0 0 var(--bs-border-color);
+  }
+  .rotation-table thead th:first-child {
+    z-index: 4;
+    background: var(--bs-dark);
+  }
+  .rotation-cell {
+    min-width: 155px;
+    width: 175px;
+    vertical-align: top;
+  }
+  .rotation-detail summary {
+    cursor: pointer;
+    list-style: none;
+    border-radius: .35rem;
+    padding: .35rem .4rem;
+  }
+  .rotation-detail summary::-webkit-details-marker { display: none; }
+  .rotation-detail summary:hover,
+  .rotation-detail[open] summary { background: var(--bs-tertiary-bg); }
+  .rotation-detail[open] { min-width: 315px; }
+  .rotation-detail-body {
+    min-width: 145px;
+    padding: .45rem .4rem .2rem;
+    border-top: 1px solid var(--bs-border-color);
+    margin-top: .2rem;
+    line-height: 1.35;
+  }
+  .rotation-interval {
+    border: 1px solid var(--bs-border-color);
+    border-radius: .35rem;
+    padding: .45rem;
+    margin-top: .45rem;
+    background: var(--bs-body-bg);
+  }
+  .rotation-formula {
+    font-family: var(--bs-font-monospace);
+    font-size: .68rem;
+    overflow-wrap: anywhere;
+  }
+  .rotation-value { font-size: 1rem; font-weight: 700; white-space: nowrap; }
+  .rotation-unit { font-size: .68rem; color: var(--bs-secondary-color); }
+  .rotation-dash { font-size: 1.25rem; line-height: 1; color: var(--bs-secondary-color); }
+  @media (max-width: 575.98px) {
+    .rotation-table-wrap { max-height: 72vh; margin-inline: -.75rem; border-radius: 0; }
+    .rotation-table { font-size: .76rem; }
+    .rotation-table th:first-child,
+    .rotation-table td:first-child { min-width: 125px; max-width: 145px; }
+    .rotation-cell { min-width: 142px; }
+  }
+</style>
+{% endblock %}
+
+{% block tab_content %}
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+  <div>
+    <h5 class="mb-1 fw-bold">📈 Rotação de Stock</h5>
+    <p class="text-body-secondary small mb-0">
+      Consumo médio diário calculado entre pesagens físicas comparáveis.
+    </p>
+  </div>
+  <span class="badge text-bg-light border">
+    {{ data_inicio[8:10] }}/{{ data_inicio[5:7] }}–{{ data_fim[8:10] }}/{{ data_fim[5:7] }}
+  </span>
+</div>
+
+<form method="get" class="card card-body bg-body-secondary border-0 mb-3 p-3">
+  <div class="row g-2 align-items-end">
+    <div class="col-6 col-md-3">
+      <label for="rotation-start" class="form-label small fw-semibold mb-1">De</label>
+      <input id="rotation-start" type="date" name="data_inicio" value="{{ data_inicio }}"
+             class="form-control form-control-sm" required>
+    </div>
+    <div class="col-6 col-md-3">
+      <label for="rotation-end" class="form-label small fw-semibold mb-1">Até</label>
+      <input id="rotation-end" type="date" name="data_fim" value="{{ data_fim }}"
+             class="form-control form-control-sm" required>
+    </div>
+    <div class="col-12 col-md-2">
+      <button type="submit" class="btn btn-primary btn-sm w-100">Atualizar</button>
+    </div>
+    <div class="col-12 col-md-4 d-flex flex-wrap gap-1 justify-content-md-end">
+      {% for label, start in quick_periods %}
+      <a class="btn btn-outline-secondary btn-sm"
+         href="{{ url_for('producao.rotacao_stock', data_inicio=start, data_fim=today_iso) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</form>
+
+{% if not load_error and unresolved_total %}
+<details class="alert alert-warning py-2 small">
+  <summary class="fw-semibold">
+    {{ unresolved_total }} registo(s) de origem exigem atenção ou foram ignorados pelas regras do cálculo
+  </summary>
+  <p class="mb-1 mt-2">
+    Estes registos podem não pertencer a um intervalo completo, por isso são mostrados separadamente.
+  </p>
+  <ul class="mb-0 ps-3">
+    {% for key, count in rotation.unresolved.items() %}
+    <li>
+      <strong>{{ count }}</strong> — {{ unresolved_labels.get(key, key|replace('_', ' ')) }}
+    </li>
+    {% endfor %}
+  </ul>
+</details>
+{% endif %}
+
+{% if load_error %}
+<div class="alert alert-danger">
+  Não foi possível calcular a rotação neste momento. Nenhum valor estimado foi apresentado.
+</div>
+{% elif not rotation.rows %}
+<div class="alert alert-info">
+  Ainda não existem pesagens suficientes para calcular a rotação no período selecionado.
+</div>
+{% else %}
+{% set coverage = rotation.coverage %}
+<div class="row g-2 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <div class="small text-body-secondary">Células calculadas</div>
+        <div class="fw-bold fs-5">{{ coverage.cells_with_value }} / {{ coverage.cells_total }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <div class="small text-body-secondary">Intervalos excluídos</div>
+        <div class="fw-bold fs-5">{{ excluded_intervals }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <div class="small text-body-secondary mb-1">Cobertura por loja</div>
+        <div class="d-flex flex-wrap gap-1">
+          {% for store in rotation.stores %}
+          {% set counts = coverage.by_store.get(store.name, {}) %}
+          {% set available = counts.get('high', 0) + counts.get('medium', 0) + counts.get('low', 0) %}
+          {% set store_summary = store_summaries.get(store.name, {}) %}
+          <span class="badge {% if not store_summary.get('has_comparable_weighings') %}text-bg-warning{% elif store_summary.get('anomaly_count') %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+            {{ store.name }}:
+            {% if not store_summary.get('has_comparable_weighings') %}
+              sem pesagens comparáveis
+            {% else %}
+              {{ available }}/{{ rotation.rows|length }}
+              {% if store_summary.get('anomaly_count') %} · {{ store_summary.anomaly_count }} incoerência(s){% endif %}
+            {% endif %}
+          </span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if coverage.cells_with_value < coverage.cells_total %}
+<div class="alert alert-warning py-2 small">
+  <strong>Cobertura incompleta.</strong>
+  As células sem intervalos fiáveis mostram “—”. Abra cada célula para consultar o motivo.
+</div>
+{% endif %}
+
+<div class="rotation-table-wrap" role="region" aria-label="Rotação de stock por sabor e loja" tabindex="0">
+  <table class="table table-bordered table-hover align-middle rotation-table">
+    <thead>
+      <tr>
+        <th scope="col">Sabor</th>
+        {% for store in rotation.stores %}
+        {% set store_summary = store_summaries.get(store.name, {}) %}
+        <th scope="col" class="text-center">
+          {{ '🏭' if store.is_production else '🏪' }} {{ store.name }}
+          <div class="fw-normal opacity-75">kg/dia</div>
+          {% if not store_summary.get('has_comparable_weighings') %}
+          <div class="fw-normal text-warning">Sem pesagens</div>
+          {% elif store_summary.get('anomaly_count') %}
+          <div class="fw-normal text-warning">⚠ Dados incoerentes</div>
+          {% endif %}
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rotation.rows %}
+      <tr>
+        <th scope="row" class="fw-semibold text-wrap">{{ row.sabor }}</th>
+        {% for store in rotation.stores %}
+        {% set cell = row.stores.get(store.name) %}
+        {% set cell_has_anomaly = cell and (cell.issues|select('in', anomaly_issues)|list|length > 0) %}
+        <td class="rotation-cell text-center {% if cell_has_anomaly %}table-warning{% endif %}">
+          <details class="rotation-detail">
+            <summary aria-label="Detalhes de {{ row.sabor }} em {{ store.name }}">
+              {% if cell and cell.average_daily_kg is not none %}
+              <div class="rotation-value">{{ "%.3f"|format(cell.average_daily_kg) }}</div>
+              <div class="rotation-unit">kg/dia</div>
+              <span class="badge mt-1
+                {% if cell.confidence == 'high' %}text-bg-success
+                {% elif cell.confidence == 'medium' %}text-bg-info
+                {% else %}text-bg-warning{% endif %}">
+                {% if cell.confidence == 'high' %}Confiança alta
+                {% elif cell.confidence == 'medium' %}Confiança média
+                {% else %}Confiança baixa{% endif %}
+              </span>
+              {% else %}
+              <div class="rotation-dash">—</div>
+              <div class="rotation-unit">Sem base suficiente</div>
+              {% endif %}
+              {% if cell_has_anomaly %}
+              <span class="badge text-bg-danger mt-1">⚠ Dados incoerentes</span>
+              {% endif %}
+            </summary>
+            <div class="rotation-detail-body text-start small">
+              {% if cell and cell.average_daily_kg is not none %}
+              <div><strong>Observado:</strong>
+                {{ cell.first_observation.strftime('%d/%m/%Y') }}–{{ cell.last_observation.strftime('%d/%m/%Y') }}
+              </div>
+              <div><strong>Dias:</strong> {{ cell.days_observed }}</div>
+              <div><strong>Intervalos válidos:</strong> {{ cell.valid_intervals }}</div>
+              <div><strong>Cobertura:</strong> {{ "%.1f"|format(cell.coverage_pct) }}%</div>
+              {% else %}
+              <div class="fw-semibold mb-1">Porque não há valor:</div>
+              <div><strong>Observado:</strong>
+                {% if cell and cell.first_observation and cell.last_observation %}
+                  {{ cell.first_observation.strftime('%d/%m/%Y') }}–{{ cell.last_observation.strftime('%d/%m/%Y') }}
+                {% else %}—{% endif %}
+              </div>
+              <div><strong>Dias:</strong> {{ cell.days_observed if cell else 0 }}</div>
+              <div><strong>Intervalos válidos:</strong> {{ cell.valid_intervals if cell else 0 }}</div>
+              <div><strong>Cobertura:</strong> {{ "%.1f"|format(cell.coverage_pct) if cell else "0,0" }}%</div>
+              <div><strong>Confiança:</strong> Sem confiança calculável</div>
+              {% endif %}
+              {% if cell and cell.issues %}
+              <ul class="mb-1 ps-3">
+                {% for issue in cell.issues %}
+                <li>{{ issue_labels.get(issue, issue|replace('_', ' ')) }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+              {% if cell and cell.flags %}
+              <div class="text-body-secondary mt-1">
+                {% for flag in cell.flags %}
+                <div>ⓘ {{ flag_labels.get(flag, flag|replace('_', ' ')) }}</div>
+                {% endfor %}
+              </div>
+              {% endif %}
+              {% if cell and cell.intervals %}
+              <div class="fw-semibold mt-2">Intervalos auditáveis</div>
+              {% for interval in cell.intervals %}
+              {% set raw_result = interval.opening_kg + interval.production_kg + interval.inbound_kg - interval.outbound_kg - interval.breakage_kg - interval.closing_kg %}
+              <div class="rotation-interval {% if not interval.usable %}border-warning{% endif %}">
+                <div class="d-flex justify-content-between gap-2">
+                  <strong>{{ interval.start_date.strftime('%d/%m') }}–{{ interval.end_date.strftime('%d/%m') }}</strong>
+                  <span class="badge {% if interval.usable %}text-bg-success{% else %}text-bg-warning{% endif %}">
+                    {{ 'Incluído' if interval.usable else 'Excluído' }}
+                  </span>
+                </div>
+                <div>{{ interval.days }} dia(s)</div>
+                <div class="rotation-formula mt-1">
+                  {{ "%.3f"|format(interval.opening_kg) }} stock inicial
+                  + {{ "%.3f"|format(interval.production_kg) }} produção
+                  + {{ "%.3f"|format(interval.inbound_kg) }} entradas
+                  − {{ "%.3f"|format(interval.outbound_kg) }} saídas
+                  − {{ "%.3f"|format(interval.breakage_kg) }} quebras
+                  − {{ "%.3f"|format(interval.closing_kg) }} stock final
+                  = <strong>{{ "%.3f"|format(raw_result) }} kg</strong>
+                </div>
+                {% if interval.usable %}
+                <div class="mt-1">
+                  <strong>Consumo usado:</strong> {{ "%.3f"|format(interval.consumption_kg) }} kg
+                </div>
+                {% else %}
+                <div class="mt-1 fw-semibold">Motivo da exclusão:</div>
+                <ul class="mb-0 ps-3">
+                  {% for issue in interval.issues %}
+                  <li>{{ issue_labels.get(issue, issue|replace('_', ' ')) }}</li>
+                  {% endfor %}
+                </ul>
+                {% endif %}
+                {% if interval.flags %}
+                <div class="text-body-secondary mt-1">
+                  {% for flag in interval.flags %}
+                  <div>ⓘ {{ flag_labels.get(flag, flag|replace('_', ' ')) }}</div>
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </div>
+              {% endfor %}
+              {% elif cell %}
+              <div class="text-body-secondary mt-2">Sem intervalos completos para auditar.</div>
+              {% endif %}
+            </div>
+          </details>
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="text-body-secondary small mt-2 mb-0">
+  Um valor de 0,000 kg/dia só aparece quando foi calculado a partir de intervalos válidos.
+  Dados ausentes nunca são convertidos em zero.
+</p>
+{% endif %}
+{% endblock %}

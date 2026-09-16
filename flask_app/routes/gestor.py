@@ -1936,6 +1936,7 @@ _TILE_MASTER = {
         {'id': 'quebra',            'icon': '⚠️',  'default_label': 'Registar Quebra de Produção',  'description': 'Registar perdas ou desperdícios de gelado com motivo justificativo'},
         {'id': 'dashboard',         'icon': '📊',  'default_label': 'Dashboard Produção',           'description': 'Resumo visual de produção, transferências e stock por período'},
         {'id': 'sabores_receitas',   'icon': '🍦',  'default_label': 'Sabores e Receitas',           'description': 'Gerir sabores de gelado: nome da equipa, ativar/desativar e adicionar novos sabores'},
+        {'id': 'rotacao_stock',      'icon': '📈',  'default_label': 'Rotação de Stock',             'description': 'Consultar o consumo médio diário calculado por sabor e loja, com cobertura e confiança'},
     ],
     'vendas': [
         {'id': 'dashboard',         'icon': '📊',  'default_label': 'Resumo Diário',                'description': 'Resumo das vendas do dia por loja com totais e indicadores de performance'},

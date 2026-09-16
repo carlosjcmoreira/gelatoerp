@@ -31,6 +31,7 @@ from database import (
     delete_producao_record, get_pesagens_loja_3dias,
     add_stock_gelado,
     get_movimentos_stock_gelado,
+    get_gelato_stock_rotation,
     add_producao,
 )
 from datetime import date, timedelta
@@ -66,6 +67,7 @@ TABS = [
     {'id': 'dashboard', 'label': 'Dashboard Produção', 'icon': '📊', 'url_endpoint': 'producao.dashboard'},
     {'id': 'sabores_receitas', 'label': 'Sabores e Receitas', 'icon': '🍦', 'url_endpoint': 'producao.sabores_receitas'},
     {'id': 'movimentos_stock', 'label': 'Movimentos de Stock', 'icon': '📦', 'url_endpoint': 'producao.movimentos_stock'},
+    {'id': 'rotacao_stock', 'label': 'Rotação de Stock', 'icon': '📈', 'url_endpoint': 'producao.rotacao_stock'},
 ]
 
 def _tabs_with_urls():
@@ -1340,4 +1342,174 @@ def movimentos_stock():
         sabor_filtro=sabor_filtro or '',
         all_sabores=all_sabores,
         ledger_items=ledger_items,
+    )
+
+
+_ROTATION_ISSUE_LABELS = {
+    'insufficient_snapshots': 'Pesagens comparáveis insuficientes',
+    'no_intervals_in_period': 'Sem intervalos completos neste período',
+    'negative_stock_residual': 'Movimentos incoerentes: o consumo calculado seria negativo',
+    'manual_only_production': 'Existe produção de controlo sem produção física importada',
+    'duplicate_snapshot': 'Existem pesagens duplicadas',
+    'unassigned_transfer_origin': 'Origem de transferência não identificada',
+    'unknown_transfer_destination': 'Destino de transferência não identificado',
+    'unknown_transfer_status': 'Estado de transferência não reconhecido',
+    'missing_transfer_confirmation_date': 'Transferência confirmada sem data de confirmação',
+    'ambiguous_transfer_overlap': 'Sobreposição ambígua entre fontes de transferência',
+    'invalid_snapshot_quantity': 'Pesagem com quantidade inválida',
+    'invalid_production_quantity': 'Produção com quantidade inválida',
+    'invalid_transfer_quantity': 'Transferência com quantidade inválida',
+    'invalid_receipt_quantity': 'Receção com quantidade inválida',
+    'invalid_breakage_quantity': 'Quebra com quantidade inválida',
+    'unresolved_snapshot_identity': 'Loja ou sabor de uma pesagem não identificado',
+    'unresolved_production_identity': 'Loja ou sabor de uma produção não identificado',
+    'unresolved_transfer_identity': 'Loja ou sabor de uma transferência não identificado',
+    'unresolved_receipt_identity': 'Loja ou sabor de uma receção não identificado',
+    'unresolved_breakage_identity': 'Loja ou sabor de uma quebra não identificado',
+    'invalid_snapshot_order': 'Ordem temporal das pesagens inválida',
+}
+
+_ROTATION_FLAG_LABELS = {
+    'long_interval': 'Intervalo superior a 3 dias',
+    'inferred_transfer_origin': 'Origem da transferência inferida',
+    'legacy_transfer_source': 'Movimento recuperado da fonte histórica',
+    'receipt_transfer_source': 'Saída recuperada do registo de receções',
+}
+
+_ROTATION_UNRESOLVED_LABELS = {
+    'ambiguous_transfer_overlap': 'Sobreposições ambíguas entre fontes de transferência',
+    'breakage_flavor': 'Quebras com sabor não identificado',
+    'breakage_quantity': 'Quebras com quantidade inválida',
+    'breakage_store': 'Quebras com loja não identificada',
+    'duplicate_snapshot': 'Pesagens duplicadas',
+    'pending_transfer_ignored': 'Ordens pendentes ignoradas (não são movimento físico)',
+    'production_flavor': 'Produções com sabor não identificado',
+    'production_quantity': 'Produções com quantidade inválida',
+    'production_store': 'Produções com loja não identificada',
+    'production_type': 'Produções com tipo não reconhecido',
+    'receipt_flavor': 'Receções com sabor não identificado',
+    'receipt_quantity': 'Receções com quantidade inválida',
+    'receipt_store': 'Receções com loja não identificada',
+    'stock_flavor': 'Pesagens com sabor não identificado',
+    'stock_quantity': 'Pesagens com quantidade inválida',
+    'stock_store': 'Pesagens com loja não identificada',
+    'transfer_confirmation_date': 'Transferências confirmadas sem data de confirmação',
+    'transfer_destination': 'Transferências com destino não identificado',
+    'transfer_flavor': 'Transferências com sabor não identificado',
+    'transfer_origin': 'Transferências com origem não identificada',
+    'transfer_quantity': 'Transferências com quantidade inválida',
+    'transfer_status': 'Transferências com estado não reconhecido',
+}
+
+_ROTATION_ANOMALY_ISSUES = (
+    set(_ROTATION_ISSUE_LABELS)
+    - {'insufficient_snapshots', 'no_intervals_in_period'}
+)
+
+
+def _rotation_period(args, today):
+    default_start = today - timedelta(days=29)
+    try:
+        start = date.fromisoformat(args.get('data_inicio', ''))
+        end = date.fromisoformat(args.get('data_fim', ''))
+    except (TypeError, ValueError):
+        return default_start, today, False
+    if start > end or end > today or (end - start).days > 366:
+        return default_start, today, False
+    return start, end, True
+
+
+def _rotation_store_summaries(rotation):
+    summaries = {}
+    for store in rotation.get('stores', []):
+        cells = [
+            row.get('stores', {}).get(store['name'])
+            for row in rotation.get('rows', [])
+        ]
+        cells = [cell for cell in cells if cell]
+        summaries[store['name']] = {
+            'has_comparable_weighings': any(
+                cell.get('first_observation') is not None
+                or cell.get('last_observation') is not None
+                or cell.get('valid_intervals', 0) > 0
+                or cell.get('excluded_intervals', 0) > 0
+                for cell in cells
+            ),
+            'anomaly_count': sum(
+                bool(set(cell.get('issues', ())) & _ROTATION_ANOMALY_ISSUES)
+                for cell in cells
+            ),
+        }
+    return summaries
+
+
+def _attach_rotation_intervals(rotation):
+    by_cell = {}
+    for interval in rotation.get('intervals', []):
+        by_cell.setdefault(
+            (interval.get('store'), interval.get('sabor')),
+            [],
+        ).append(interval)
+    for row in rotation.get('rows', []):
+        for store_name, cell in row.get('stores', {}).items():
+            cell['intervals'] = by_cell.get((store_name, row.get('sabor')), [])
+
+
+@producao_bp.route('/rotacao-stock')
+@perm_required('acesso_producao')
+def rotacao_stock():
+    today = date.today()
+    data_inicio, data_fim, valid_period = _rotation_period(request.args, today)
+    if request.args and not valid_period:
+        flash('Período inválido. A mostrar os últimos 30 dias.', 'warning')
+
+    load_error = False
+    try:
+        rotation = get_gelato_stock_rotation(data_inicio, data_fim)
+    except Exception:
+        logger.exception(
+            'Erro ao calcular rotação de stock entre %s e %s',
+            data_inicio,
+            data_fim,
+        )
+        load_error = True
+        rotation = {
+            'stores': [],
+            'rows': [],
+            'intervals': [],
+            'coverage': {
+                'cells_total': 0,
+                'cells_with_value': 0,
+                'by_store': {},
+            },
+            'unresolved': {},
+        }
+
+    excluded_intervals = sum(
+        1 for interval in rotation.get('intervals', [])
+        if not interval.get('usable')
+    )
+    _attach_rotation_intervals(rotation)
+    store_summaries = _rotation_store_summaries(rotation)
+    return render_template(
+        'producao/rotacao_stock.html',
+        active_tab='rotacao_stock',
+        tabs=_tabs_with_urls(),
+        rotation=rotation,
+        data_inicio=data_inicio.isoformat(),
+        data_fim=data_fim.isoformat(),
+        excluded_intervals=excluded_intervals,
+        issue_labels=_ROTATION_ISSUE_LABELS,
+        flag_labels=_ROTATION_FLAG_LABELS,
+        load_error=load_error,
+        quick_periods=[
+            ('7 dias', (today - timedelta(days=6)).isoformat()),
+            ('30 dias', (today - timedelta(days=29)).isoformat()),
+            ('90 dias', (today - timedelta(days=89)).isoformat()),
+        ],
+        today_iso=today.isoformat(),
+        store_summaries=store_summaries,
+        anomaly_issues=_ROTATION_ANOMALY_ISSUES,
+        unresolved_labels=_ROTATION_UNRESOLVED_LABELS,
+        unresolved_total=sum(rotation.get('unresolved', {}).values()),
     )
