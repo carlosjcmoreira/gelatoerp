@@ -1074,15 +1074,28 @@ def _handle_config_post(action, config_option):
             tip_new = request.form.get(f'gelado_tip_nome_{gid}', '')
             qtd_new = parse_decimal_input(request.form.get(f'gelado_tip_qtd_{gid}'))
             if tip_new != item['tipologia'] or qtd_new != item['quantidade_gelado_g']:
-                db.update_gelado_por_tipologia(gid, tip_new, qtd_new)
+                from db.doseamento import set_typology_dose
+                set_typology_dose(
+                    tip_new,
+                    qtd_new,
+                    session.get('user', {}).get('username', 'sistema'),
+                    source='Gestor',
+                    old_typology=item['tipologia'],
+                )
         flash('Alterações guardadas!', 'success')
 
     elif action == 'add_gelado_tip':
         tip = request.form.get('nova_tip_gelado', '').strip()
         qtd = parse_decimal_input(request.form.get('nova_qtd_gelado'))
         if tip:
-            success = db.add_gelado_por_tipologia(tip, qtd)
-            flash(f"Tipologia '{tip}' adicionada!" if success else 'Tipologia já existe.', 'success' if success else 'warning')
+            from db.doseamento import set_typology_dose
+            set_typology_dose(
+                tip,
+                qtd,
+                session.get('user', {}).get('username', 'sistema'),
+                source='Gestor',
+            )
+            flash(f"Tipologia '{tip}' adicionada!", 'success')
         else:
             flash('Por favor, insira uma tipologia.', 'warning')
 

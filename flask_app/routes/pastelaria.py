@@ -32,6 +32,7 @@ from db.pastelaria import (
     list_pastelaria_priority_plans,
     get_pastelaria_intelligence,
 )
+from db.doseamento import set_typology_dose
 
 pastelaria_bp = Blueprint('pastelaria', __name__)
 
@@ -826,7 +827,12 @@ def gelado_tipologia():
             for tip in tipologias:
                 nome = tip['nome']
                 qtd_new = _parse_decimal(request.form.get(f'gelado_tip_qtd_{nome}'))
-                db.update_gelado_peso_by_tipologia(nome, qtd_new)
+                set_typology_dose(
+                    nome,
+                    qtd_new,
+                    session.get('user', {}).get('username', 'sistema'),
+                    source='Pastelaria',
+                )
             flash('Alterações guardadas!', 'success')
         return redirect(url_for('pastelaria.gelado_tipologia'))
     

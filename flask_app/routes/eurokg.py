@@ -10,7 +10,7 @@ import plotly
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     calculate_kpi_annual, calculate_kpi_by_day, get_target_by_month,
-    get_gramas_gelado, add_gramas_gelado, get_consumo_gelado_mensal,
+    get_consumo_gelado_mensal,
     get_vendas_produto_mensal,
 )
 from db.pastelaria import (
@@ -18,7 +18,7 @@ from db.pastelaria import (
     get_volume_por_produto,
 )
 from db.doseamento import (
-    configure_dose_product, get_dose_product_configuration_queue,
+    get_dose_product_configuration_queue, set_product_dose,
     confirm_historical_dose_preview, create_historical_dose_preview,
     get_historical_dose_preview,
     get_doseamento_period, get_historical_dose_coverage,
@@ -428,7 +428,6 @@ def consumo_teorico():
         _build_consumo_teorico_view(consumo_df)
     )
 
-    gramas_list = get_gramas_gelado()
     dose_coverage, dose_import_audits = get_historical_dose_coverage(
         loja_db, data_inicio=data_inicio, data_fim=data_fim
     )
@@ -436,7 +435,7 @@ def consumo_teorico():
     dose_import_preview = get_historical_dose_preview(
         session.get("dose_import_preview_id"), actor
     )
-    dose_pending_products, dose_rules = (
+    dose_products, _unused_rules = (
         get_dose_product_configuration_queue() if is_gestor else ([], [])
     )
 
@@ -447,11 +446,11 @@ def consumo_teorico():
         is_gestor=is_gestor, loja_filter=loja_filter,
         consumo_data=consumo_data, meses_labels=meses_labels,
         totals_qty=totals_qty, totals_kg=totals_kg,
-        gramas_list=gramas_list, store_filters=store_filters,
+        store_filters=store_filters,
         data_inicio=data_inicio.isoformat(), data_fim=data_fim.isoformat(),
         dose_coverage=dose_coverage, dose_import_audits=dose_import_audits,
         dose_import_preview=dose_import_preview,
-        dose_pending_products=dose_pending_products, dose_rules=dose_rules)
+        dose_products=dose_products)
 
 
 @eurokg_bp.route('/vendas-produto')
@@ -486,48 +485,27 @@ def vendas_produto():
     )
 
 
-@eurokg_bp.route('/consumo/add_gramas', methods=['POST'])
-@perm_required('acesso_gestor')
-def add_gramas():
-    artigo = request.form.get('artigo', '').strip()
-    tipo_dose = request.form.get('tipo_dose', 'fixa')
-    gramas_str = request.form.get('gramas', '0').replace(',', '.')
-    loja_filter = request.form.get('loja_filter', 'Global Porto')
-
-    try:
-        gramas = float(gramas_str)
-    except ValueError:
-        gramas = 0
-
-    valid = artigo and tipo_dose in ('fixa', 'peso') and (
-        tipo_dose == 'peso' or gramas > 0
-    )
-    if valid:
-        if add_gramas_gelado(artigo, gramas, tipo_dose):
-            description = (
-                f"{gramas}g" if tipo_dose == 'fixa' else "vendido ao peso"
-            )
-            flash(f"Artigo '{artigo}' adicionado: {description}", 'success')
-        else:
-            flash("Erro ao adicionar. O artigo pode já existir.", 'error')
-    else:
-        flash("Preencha todos os campos.", 'warning')
-    return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
-
-
 @eurokg_bp.route('/consumo/configurar-produto', methods=['POST'])
 @perm_required('acesso_gestor')
 def configurar_produto_dose():
     loja_filter = request.form.get('loja_filter', 'Global Porto')
     try:
-        configure_dose_product(
+        dose_type = request.form.get('tipo_dose', 'fixa')
+        grams_raw = request.form.get('gramas', '').strip().replace(',', '.')
+        grams = None if dose_type == 'peso' else float(grams_raw)
+        set_product_dose(
             int(request.form.get('product_id', '')),
-            int(request.form.get('rule_id', '')),
+            grams,
+            dose_type,
             session.get('user', {}).get('username', 'sistema'),
+            source='Euro/kg',
         )
-        flash('Produto associado à regra de dose e incluído no indicador.', 'success')
+        flash(
+            'Gramas atualizadas. O novo valor vigora a partir de hoje.',
+            'success',
+        )
     except (TypeError, ValueError) as exc:
-        flash(str(exc) or 'Selecione uma regra de dose válida.', 'error')
+        flash(str(exc) or 'Indique um valor de gramas válido.', 'error')
     return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
 
 

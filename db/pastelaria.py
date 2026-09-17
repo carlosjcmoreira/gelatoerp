@@ -1610,7 +1610,25 @@ def delete_gelado_por_tipologia(id: int):
 def get_gelado_peso_by_tipologia(tipologia_nome: str) -> float:
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT quantidade_gelado_g FROM gelado_por_tipologia WHERE tipologia = %s", (tipologia_nome,))
+        cursor.execute("""
+            SELECT COALESCE(
+                (
+                    SELECT hist.gramas
+                    FROM gramas_gelado_historico hist
+                    WHERE LOWER(BTRIM(hist.artigo))=LOWER(BTRIM(%s))
+                      AND CURRENT_DATE BETWEEN hist.valid_from
+                          AND COALESCE(hist.valid_to, 'infinity'::date)
+                      AND hist.tipo_dose='fixa'
+                    ORDER BY hist.valid_from DESC LIMIT 1
+                ),
+                (
+                    SELECT quantidade_gelado_g
+                    FROM gelado_por_tipologia
+                    WHERE tipologia=%s
+                ),
+                0
+            )
+        """, (tipologia_nome, tipologia_nome))
         row = cursor.fetchone()
     return row[0] if row else 0
 
@@ -2543,7 +2561,17 @@ def sync_produtos_vendas_config():
 def get_produtos_vendas_config() -> list:
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        cursor.execute("SELECT * FROM produtos_vendas_config ORDER BY produto")
+        cursor.execute("""
+            SELECT pvc.*, alias.nome_atual AS alias_target
+            FROM produtos_vendas_config pvc
+            LEFT JOIN produtos_vendas_aliases alias
+              ON alias.nome_antigo=pvc.produto
+             AND EXISTS (
+                SELECT 1 FROM produtos_vendas_config canonical
+                WHERE canonical.produto=alias.nome_atual
+             )
+            ORDER BY pvc.produto
+        """)
         return [dict(r) for r in cursor.fetchall()]
 
 def update_produto_vendas_config(produto_id: int, gelado_kpi: bool, pastelaria: bool, confeitaria: bool):
@@ -2553,15 +2581,7 @@ def update_produto_vendas_config(produto_id: int, gelado_kpi: bool, pastelaria: 
             close_current_association(cursor, produto_id, date.today())
         cursor.execute("""
             UPDATE produtos_vendas_config
-            SET gelado_kpi = (
-                    %(gelado)s AND EXISTS (
-                        SELECT 1 FROM produto_regra_dose_historico prd
-                        WHERE prd.produto_vendas_config_id =
-                              produtos_vendas_config.id
-                          AND CURRENT_DATE BETWEEN prd.valid_from
-                              AND COALESCE(prd.valid_to, 'infinity'::date)
-                    )
-                ),
+            SET gelado_kpi = %(gelado)s,
                 dose_config_pendente = CASE
                     WHEN NOT %(gelado)s THEN FALSE
                     WHEN EXISTS (
@@ -2591,17 +2611,7 @@ def update_produtos_vendas_config_batch(updates: list):
                 close_current_association(cursor, u['id'], date.today())
             cursor.execute("""
                 UPDATE produtos_vendas_config
-                SET gelado_kpi = (
-                        %(gelado)s AND EXISTS (
-                            SELECT 1 FROM produto_regra_dose_historico prd
-                            WHERE prd.produto_vendas_config_id =
-                                  produtos_vendas_config.id
-                              AND CURRENT_DATE BETWEEN prd.valid_from
-                                  AND COALESCE(
-                                      prd.valid_to, 'infinity'::date
-                                  )
-                        )
-                    ),
+                SET gelado_kpi = %(gelado)s,
                     dose_config_pendente = CASE
                         WHEN NOT %(gelado)s THEN FALSE
                         WHEN EXISTS (

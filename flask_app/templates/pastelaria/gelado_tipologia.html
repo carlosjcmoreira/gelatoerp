@@ -4,7 +4,7 @@
 {% block content %}
 <div class="container-fluid px-3 py-3">
     <h5 class="mb-3">⚖️ Peso de Gelado por Tipologia</h5>
-    <p class="text-muted small mb-3">Defina o peso de gelado (gramas) utilizado em cada tipologia de pastelaria. As tipologias são geridas em <a href="{{ url_for('pastelaria.tipologias') }}">Tipologias</a>.</p>
+    <p class="text-muted small mb-3">Defina o peso de gelado (gramas) utilizado em cada tipologia de pastelaria. O valor passa a vigorar hoje nos artigos Euro/kg já associados a esta tipologia; períodos anteriores não são alterados. As tipologias são geridas em <a href="{{ url_for('pastelaria.tipologias') }}">Tipologias</a>.</p>
 
     {% if tipologias %}
     <form method="POST">

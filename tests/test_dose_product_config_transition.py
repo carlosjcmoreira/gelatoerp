@@ -170,7 +170,7 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
                            )
                     FROM produtos_vendas_config WHERE id=%s
                 """, (product_id, product_id))
-                self.assertEqual(cur.fetchone(), (False, True, False))
+                self.assertEqual(cur.fetchone(), (True, True, False))
         finally:
             with db_connection() as conn:
                 cur = conn.cursor()
@@ -531,7 +531,7 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
                     SELECT gelado_kpi, dose_config_pendente
                     FROM produtos_vendas_config WHERE id=%s
                 """, (product_id,))
-                self.assertEqual(cur.fetchone(), (False, True))
+                self.assertEqual(cur.fetchone(), (True, False))
         finally:
             with db_connection() as conn:
                 cur = conn.cursor()

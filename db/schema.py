@@ -6361,42 +6361,102 @@ def run_migrations_doseamento_gelado():
                     VALUES ('doseamento_explicit_product_rules_v2')
                 """)
             cursor.execute("""
-                UPDATE produtos_vendas_config pvc
-                SET gelado_kpi=FALSE, dose_config_pendente=TRUE
-                WHERE pvc.gelado_kpi=TRUE
-                  AND NOT EXISTS (
-                      SELECT 1 FROM produto_regra_dose_historico prd
-                      WHERE prd.produto_vendas_config_id=pvc.id
-                        AND CURRENT_DATE BETWEEN prd.valid_from
-                            AND COALESCE(prd.valid_to, 'infinity'::date)
-                  )
-            """)
-            cursor.execute("""
-                CREATE OR REPLACE FUNCTION enforce_gelado_kpi_dose_rule()
-                RETURNS TRIGGER AS $$
-                BEGIN
-                    IF NEW.gelado_kpi AND NOT EXISTS (
-                        SELECT 1 FROM produto_regra_dose_historico prd
-                        WHERE prd.produto_vendas_config_id=NEW.id
-                          AND CURRENT_DATE BETWEEN prd.valid_from
-                              AND COALESCE(prd.valid_to, 'infinity'::date)
-                    ) THEN
-                        RAISE EXCEPTION
-                            'produto de gelado requer associação de dose explícita';
-                    END IF;
-                    RETURN NEW;
-                END;
-                $$ LANGUAGE plpgsql
-            """)
-            cursor.execute("""
                 DROP TRIGGER IF EXISTS trg_enforce_gelado_kpi_dose_rule
                 ON produtos_vendas_config
             """)
             cursor.execute("""
-                CREATE TRIGGER trg_enforce_gelado_kpi_dose_rule
-                BEFORE INSERT OR UPDATE OF gelado_kpi
-                ON produtos_vendas_config
-                FOR EACH ROW EXECUTE FUNCTION enforce_gelado_kpi_dose_rule()
+                DROP FUNCTION IF EXISTS enforce_gelado_kpi_dose_rule()
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS produtos_vendas_aliases (
+                    id SERIAL PRIMARY KEY,
+                    nome_antigo TEXT NOT NULL UNIQUE,
+                    nome_atual TEXT NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute("""
+                INSERT INTO produtos_vendas_aliases (nome_antigo, nome_atual)
+                VALUES
+                    ('Açai Bow', 'Açaí Bowl'),
+                    ('Açai Bowl', 'Açaí Bowl')
+                ON CONFLICT (nome_antigo) DO UPDATE
+                SET nome_atual=EXCLUDED.nome_atual
+            """)
+            cursor.execute("""
+                SELECT 1 FROM app_schema_migrations
+                WHERE name='doseamento_acai_identity_v1'
+            """)
+            if not cursor.fetchone():
+                cursor.execute("""
+                    UPDATE produtos_vendas_config canonical
+                    SET gelado_kpi=TRUE
+                    WHERE canonical.produto='Açaí Bowl'
+                      AND EXISTS (
+                        SELECT 1
+                        FROM produtos_vendas_config variant
+                        WHERE variant.produto IN (
+                            'Açai Bow', 'Açai Bowl', 'Açaí Bowl'
+                        )
+                          AND (
+                            variant.gelado_kpi=TRUE
+                            OR EXISTS (
+                              SELECT 1
+                              FROM produto_regra_dose_historico prd
+                              WHERE prd.produto_vendas_config_id=variant.id
+                                AND CURRENT_DATE BETWEEN prd.valid_from
+                                    AND COALESCE(
+                                        prd.valid_to, 'infinity'::date
+                                    )
+                            )
+                          )
+                      )
+                """)
+                cursor.execute("""
+                    UPDATE produtos_vendas_config
+                    SET gelado_kpi=FALSE, dose_config_pendente=FALSE
+                    WHERE produto IN ('Açai Bow', 'Açai Bowl')
+                      AND EXISTS (
+                        SELECT 1 FROM produtos_vendas_config canonical
+                        WHERE canonical.produto='Açaí Bowl'
+                      )
+                """)
+                cursor.execute("""
+                    INSERT INTO app_schema_migrations (name)
+                    VALUES ('doseamento_acai_identity_v1')
+                """)
+            cursor.execute("""
+                UPDATE produtos_vendas_config pvc
+                SET gelado_kpi=TRUE, dose_config_pendente=FALSE
+                WHERE EXISTS (
+                    SELECT 1 FROM produto_regra_dose_historico prd
+                    WHERE prd.produto_vendas_config_id=pvc.id
+                      AND CURRENT_DATE BETWEEN prd.valid_from
+                          AND COALESCE(prd.valid_to, 'infinity'::date)
+                )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM produtos_vendas_aliases alias
+                    JOIN produtos_vendas_config canonical
+                      ON canonical.produto=alias.nome_atual
+                    WHERE alias.nome_antigo=pvc.produto
+                  )
+            """)
+            cursor.execute("""
+                UPDATE produtos_vendas_config pvc
+                SET dose_config_pendente=TRUE
+                WHERE pvc.gelado_kpi=TRUE
+                  AND NOT EXISTS (
+                    SELECT 1 FROM produto_regra_dose_historico prd
+                    WHERE prd.produto_vendas_config_id=pvc.id
+                      AND CURRENT_DATE BETWEEN prd.valid_from
+                          AND COALESCE(prd.valid_to, 'infinity'::date)
+                )
+            """)
+            cursor.execute("""
+                UPDATE produtos_vendas_config
+                SET dose_config_pendente=FALSE
+                WHERE gelado_kpi=FALSE
             """)
             conn.commit()
         except Exception:
