@@ -5,7 +5,7 @@
 <div class="container-fluid px-3 py-3">
 
     <h5 class="fw-bold mb-1">🔍 Diagnóstico de Vendas</h5>
-    <p class="text-muted small mb-3">Totais diários de vendas gelado (produtos com gelado_kpi=TRUE) por loja. Detecta dias com dados em falta ou valores anormalmente baixos.</p>
+    <p class="text-muted small mb-3">Verifique os totais diários dos produtos incluídos no Euro/kg. Filtre por loja e período para encontrar dias sem importação, vendas anormalmente baixas ou falhas que tornam o doseamento incompleto.</p>
 
     <form method="get" action="{{ url_for('eurokg.diagnostico_vendas') }}" class="mb-4">
         <div class="card card-body py-3">

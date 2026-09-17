@@ -2874,33 +2874,23 @@ def delete_gramas_gelado(artigo_id: int):
         conn.commit()
 
 def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
-    query = """
-        SELECT
-            vd.produto,
-            vd.data,
-            TO_CHAR(vd.data, 'YYYY-MM') as mes,
-            vd.quantidade as quantidade_vendida,
-            vd.peso_vendido_kg,
-            hist.gramas AS gramas_por_unidade,
-            hist.tipo_dose
-        FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc
-          ON vd.produto_vendas_config_id = pvc.id
-        INNER JOIN produto_regra_dose_historico prd
-          ON prd.produto_vendas_config_id = pvc.id
-         AND vd.data BETWEEN prd.valid_from
-             AND COALESCE(prd.valid_to, 'infinity'::date)
-        INNER JOIN gramas_gelado_historico hist ON hist.id = prd.regra_dose_id
-        WHERE TRUE
-    """
-    params = []
-    if loja:
-        query += " AND vd.loja = %s"
-        params.append(loja)
-    query += " ORDER BY vd.produto, vd.data"
-
-    with db_connection() as conn:
-        vendas_df = pd.read_sql_query(query, conn, params=params)
+    from db.doseamento import load_dose_sales_with_rules
+    sales, _history = load_dose_sales_with_rules(loja=loja)
+    vendas_df = pd.DataFrame([{
+        'produto': row.get('canonical_produto') or row['produto'],
+        'data': row['data'],
+        'mes': row['data'].strftime('%Y-%m'),
+        'quantidade_vendida': row['quantidade'],
+        'peso_vendido_kg': row.get('peso_vendido_kg'),
+        'gramas_por_unidade': (
+            row.get('dose_rule', {}).get('gramas')
+            if row.get('dose_rule') else None
+        ),
+        'tipo_dose': (
+            row.get('dose_rule', {}).get('tipo_dose')
+            if row.get('dose_rule') else None
+        ),
+    } for row in sales])
 
     if vendas_df.empty:
         return vendas_df

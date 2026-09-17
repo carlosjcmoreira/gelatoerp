@@ -484,6 +484,13 @@ body {
     max-width: 100%;
 }
 
+.nav-card-description {
+    margin-top: 0.45rem;
+    max-width: 24rem;
+    font-weight: 400;
+    line-height: 1.35;
+}
+
 .tab-nav {
     display: flex;
     gap: 0.4rem;

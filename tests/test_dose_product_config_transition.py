@@ -472,7 +472,7 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
                 """, (article_a, article_b))
                 conn.commit()
 
-    def test_expired_association_excludes_new_sales_from_indicator(self):
+    def test_expired_association_keeps_new_sale_visible_as_unknown(self):
         suffix = uuid.uuid4().hex
         article = "__EXPIRY_RULE_" + suffix + "__"
         product_name = "__EXPIRY_PRODUCT_" + suffix + "__"
@@ -516,8 +516,12 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
 
             result = get_consumo_gelado_mensal("Teste Expiração")
             product_rows = result[result["produto"] == product_name]
-            self.assertEqual(len(product_rows), 1)
-            self.assertEqual(float(product_rows.iloc[0]["quantidade_vendida"]), 1)
+            self.assertEqual(len(product_rows), 2)
+            self.assertEqual(
+                float(product_rows["quantidade_vendida"].sum()), 2
+            )
+            unknown = product_rows[product_rows["consumo_incompleto"]]
+            self.assertEqual(float(unknown.iloc[0]["quantidade_vendida"]), 1)
             pending, _rules = get_dose_product_configuration_queue()
             pending_row = next(row for row in pending if row["id"] == product_id)
             self.assertTrue(pending_row["dose_config_pendente"])
@@ -549,6 +553,99 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
                         "DELETE FROM produtos_vendas_config WHERE id=%s",
                         (product_id,),
                     )
+                cur.execute(
+                    "DELETE FROM gramas_gelado_historico WHERE artigo=%s",
+                    (article,),
+                )
+                conn.commit()
+
+    def test_confirmed_product_alias_uses_canonical_dated_dose(self):
+        suffix = uuid.uuid4().hex
+        article = "__ALIAS_RULE_" + suffix + "__"
+        old_name = "__ALIAS_OLD_" + suffix + "__"
+        canonical_name = "__ALIAS_CURRENT_" + suffix + "__"
+        unrelated_name = "__NOT_GELATO_" + suffix + "__"
+        old_product_id = canonical_product_id = unrelated_product_id = None
+        try:
+            with db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO gramas_gelado_historico (
+                        artigo, gramas, tipo_dose, valid_from
+                    ) VALUES (%s, 125, 'fixa', CURRENT_DATE)
+                    RETURNING id
+                """, (article,))
+                rule_id = cur.fetchone()[0]
+                cur.execute("""
+                    INSERT INTO produtos_vendas_config (produto)
+                    VALUES (%s), (%s), (%s) RETURNING id, produto
+                """, (old_name, canonical_name, unrelated_name))
+                ids = {name: row_id for row_id, name in cur.fetchall()}
+                old_product_id = ids[old_name]
+                canonical_product_id = ids[canonical_name]
+                unrelated_product_id = ids[unrelated_name]
+                cur.execute("""
+                    INSERT INTO produtos_vendas_aliases (nome_antigo, nome_atual)
+                    VALUES (%s, %s)
+                """, (old_name, canonical_name))
+                conn.commit()
+            configure_dose_product(
+                canonical_product_id, rule_id, "sistema:test"
+            )
+            with db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    INSERT INTO vendas_detalhe (
+                        data, loja, produto, quantidade,
+                        produto_vendas_config_id
+                    ) VALUES
+                        (CURRENT_DATE, 'Teste Alias Dose', %s, 4, %s),
+                        (CURRENT_DATE, 'Teste Alias Dose', %s, 99, %s)
+                """, (
+                    old_name, old_product_id,
+                    unrelated_name, unrelated_product_id,
+                ))
+                conn.commit()
+
+            result = get_consumo_gelado_mensal("Teste Alias Dose")
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result.iloc[0]["produto"], canonical_name)
+            self.assertEqual(
+                float(result.iloc[0]["quantidade_vendida"]), 4
+            )
+            self.assertEqual(float(result.iloc[0]["consumo_kg"]), 0.5)
+            coverage, _audits = get_historical_dose_coverage(
+                "Teste Alias Dose"
+            )
+            self.assertEqual(coverage[0]["total"], 1)
+            self.assertEqual(coverage[0]["covered"], 1)
+        finally:
+            with db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "DELETE FROM vendas_detalhe WHERE loja='Teste Alias Dose'"
+                )
+                cur.execute(
+                    "DELETE FROM produtos_vendas_aliases WHERE nome_antigo=%s",
+                    (old_name,),
+                )
+                for config_id in (
+                    canonical_product_id, old_product_id, unrelated_product_id
+                ):
+                    if config_id is not None:
+                        cur.execute("""
+                            UPDATE produtos_vendas_config
+                            SET gelado_kpi=FALSE, dose_config_pendente=FALSE
+                            WHERE id=%s
+                        """, (config_id,))
+                        cur.execute("""
+                            DELETE FROM produto_regra_dose_historico
+                            WHERE produto_vendas_config_id=%s
+                        """, (config_id,))
+                        cur.execute(
+                            "DELETE FROM produtos_vendas_config WHERE id=%s",
+                            (config_id,),
+                        )
                 cur.execute(
                     "DELETE FROM gramas_gelado_historico WHERE artigo=%s",
                     (article,),

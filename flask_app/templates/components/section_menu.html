@@ -12,6 +12,9 @@
         <a href="{{ item.url }}" class="nav-card">
             <span class="nav-card-icon">{{ item.icon }}</span>
             <span class="nav-card-label">{{ item.label }}</span>
+            {% if item.description %}
+            <span class="nav-card-description small text-muted">{{ item.description }}</span>
+            {% endif %}
             {% if item.badge %}
             <span class="badge {{ item.badge.cls }} mt-1" style="font-size:0.6rem;">{{ item.badge.text }}</span>
             {% endif %}

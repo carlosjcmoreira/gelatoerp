@@ -32,6 +32,137 @@ def _day(value):
     return value.date() if isinstance(value, datetime) else value
 
 
+def resolve_product_alias(product, aliases):
+    """Resolve exact rename aliases; invalid or ambiguous chains stay unmapped."""
+    targets = defaultdict(dict)
+    for old_name, new_name in aliases:
+        old_key = str(old_name or "")
+        new_key = str(new_name or "")
+        if old_key and new_key:
+            targets[old_key][new_key] = new_key
+    current_key = str(product or "")
+    current_label = current_key
+    visited = set()
+    used_alias = False
+    while current_key in targets:
+        if current_key in visited or len(targets[current_key]) != 1:
+            return None, "invalid_alias"
+        visited.add(current_key)
+        next_key, next_label = next(iter(targets[current_key].items()))
+        if next_key == current_key or next_key in visited:
+            return None, "invalid_alias"
+        current_key, current_label = next_key, next_label
+        used_alias = True
+    return current_label, "alias" if used_alias else "original"
+
+
+def load_dose_sales_with_rules(data_inicio=None, data_fim=None, loja=None):
+    """Load Euro/kg sales and attach one explicit dated rule after alias resolution."""
+    with db_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conditions = []
+        params = []
+        if data_inicio is not None:
+            conditions.append("vd.data >= %s")
+            params.append(data_inicio)
+        if data_fim is not None:
+            conditions.append("vd.data <= %s")
+            params.append(data_fim)
+        if loja:
+            conditions.append("vd.loja = %s")
+            params.append(loja)
+        where = " AND ".join(conditions) if conditions else "TRUE"
+        cur.execute(f"""
+            SELECT vd.data, vd.loja, vd.produto, vd.quantidade,
+                   vd.valor_euros, vd.peso_vendido_kg,
+                   vd.produto_vendas_config_id
+            FROM vendas_detalhe vd
+            WHERE {where}
+            ORDER BY vd.data, vd.produto
+        """, params)
+        sales = [dict(row) for row in cur.fetchall()]
+        cur.execute("""
+            SELECT nome_antigo, nome_atual
+            FROM produtos_vendas_aliases
+            ORDER BY nome_antigo
+        """)
+        aliases = [(row["nome_antigo"], row["nome_atual"]) for row in cur.fetchall()]
+        cur.execute("""
+            SELECT id, produto, gelado_kpi, dose_config_pendente
+            FROM produtos_vendas_config
+        """)
+        configs = [dict(row) for row in cur.fetchall()]
+        cur.execute("""
+            SELECT prd.produto_vendas_config_id, prd.valid_from AS assoc_from,
+                   prd.valid_to AS assoc_to, hist.id, hist.artigo, hist.gramas,
+                   hist.tipo_dose, hist.valid_from, hist.valid_to
+            FROM produto_regra_dose_historico prd
+            JOIN gramas_gelado_historico hist ON hist.id=prd.regra_dose_id
+            ORDER BY prd.produto_vendas_config_id, prd.valid_from
+        """)
+        associations = [dict(row) for row in cur.fetchall()]
+        cur.execute("""
+            SELECT id, artigo, gramas, tipo_dose, valid_from, valid_to
+            FROM gramas_gelado_historico ORDER BY artigo, valid_from
+        """)
+        history = [dict(row) for row in cur.fetchall()]
+
+    config_candidates = defaultdict(list)
+    for config in configs:
+        config_candidates[config["produto"]].append(config)
+    associations_by_product = defaultdict(list)
+    for association in associations:
+        associations_by_product[association["produto_vendas_config_id"]].append(
+            association
+        )
+    associated_ids = set(associations_by_product)
+    configs_by_id = {config["id"]: config for config in configs}
+    eligible_ids = {
+        config["id"] for config in configs
+        if config.get("gelado_kpi") or config.get("dose_config_pendente")
+        or config["id"] in associated_ids
+    }
+    eligible_sales = []
+    for sale in sales:
+        canonical, alias_status = resolve_product_alias(sale["produto"], aliases)
+        sale["canonical_produto"] = canonical or sale["produto"]
+        sale["alias_status"] = alias_status
+        if alias_status == "original":
+            candidates = [
+                configs_by_id[sale["produto_vendas_config_id"]]
+            ] if sale.get("produto_vendas_config_id") in configs_by_id else []
+        else:
+            candidates = (
+                config_candidates.get(canonical, [])
+                if canonical is not None else []
+            )
+        resolved_config = candidates[0] if len(candidates) == 1 else None
+        source_config = configs_by_id.get(sale.get("produto_vendas_config_id"))
+        if not (
+            (resolved_config and resolved_config["id"] in eligible_ids)
+            or (source_config and source_config["id"] in eligible_ids)
+        ):
+            continue
+        eligible_sales.append(sale)
+        if len(candidates) != 1:
+            sale["regra_dose_id"] = None
+            continue
+        sale_day = _day(sale["data"])
+        dated = [
+            row for row in associations_by_product[candidates[0]["id"]]
+            if _day(row["assoc_from"]) <= sale_day
+            and (row["assoc_to"] is None or _day(row["assoc_to"]) >= sale_day)
+            and _day(row["valid_from"]) <= sale_day
+            and (row["valid_to"] is None or _day(row["valid_to"]) >= sale_day)
+        ]
+        if len(dated) == 1:
+            sale["regra_dose_id"] = dated[0]["id"]
+            sale["dose_rule"] = dated[0]
+        else:
+            sale["regra_dose_id"] = None
+    return eligible_sales, history
+
+
 def _matches(product, history, sale_date):
     """Migration-only textual suggestion; KPI calculations never call this."""
     product = str(product or "").casefold()
@@ -569,31 +700,9 @@ def _import_historical_doses_tx(cur, normalized, actor, source_name):
 
 def get_historical_dose_coverage(loja=None):
     """Return monthly sales-rule evidence coverage and recent import audits."""
+    sales, _history = load_dose_sales_with_rules(loja=loja)
     with db_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        params = []
-        store_clause = ""
-        if loja:
-            store_clause = " AND vd.loja = %s"
-            params.append(loja)
-        cur.execute("""
-            SELECT vd.data, vd.produto, prd.regra_dose_id
-            FROM vendas_detalhe vd
-            JOIN produtos_vendas_config pvc
-              ON pvc.id = vd.produto_vendas_config_id
-            LEFT JOIN produto_regra_dose_historico prd
-              ON prd.produto_vendas_config_id = pvc.id
-             AND vd.data BETWEEN prd.valid_from
-                 AND COALESCE(prd.valid_to, 'infinity'::date)
-            WHERE (
-                pvc.gelado_kpi=TRUE OR pvc.dose_config_pendente=TRUE
-                OR EXISTS (
-                    SELECT 1 FROM produto_regra_dose_historico any_prd
-                    WHERE any_prd.produto_vendas_config_id=pvc.id
-                )
-            )
-        """ + store_clause + " ORDER BY vd.data", params)
-        sales = [dict(row) for row in cur.fetchall()]
         cur.execute("""
             SELECT id, created_by, created_at, source_name, row_count
             FROM gramas_gelado_import_audit
@@ -877,27 +986,7 @@ def get_doseamento_period(data_inicio, data_fim, loja=None, store_names=None):
     """Load auditable sales and stock sources and return template data."""
     if data_inicio > data_fim:
         raise ValueError("A data inicial não pode ser posterior à data final.")
-    with db_connection() as conn:
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
-            SELECT vd.data, vd.loja, vd.produto, vd.quantidade, vd.valor_euros,
-                    vd.peso_vendido_kg, hist.id AS regra_dose_id
-            FROM vendas_detalhe vd
-            JOIN produtos_vendas_config pvc
-              ON pvc.id = vd.produto_vendas_config_id
-            JOIN produto_regra_dose_historico prd
-              ON prd.produto_vendas_config_id = pvc.id
-             AND vd.data BETWEEN prd.valid_from
-                 AND COALESCE(prd.valid_to, 'infinity'::date)
-            JOIN gramas_gelado_historico hist
-              ON hist.id = prd.regra_dose_id
-            WHERE vd.data >= %s AND vd.data <= %s
-        """ + (" AND vd.loja = %s" if loja else ""), 
-                   (data_inicio, data_fim, loja) if loja else (data_inicio, data_fim))
-        sales = [dict(row) for row in cur.fetchall()]
-        cur.execute("SELECT id, artigo, gramas, tipo_dose, valid_from, valid_to "
-                    "FROM gramas_gelado_historico ORDER BY artigo")
-        history = [dict(row) for row in cur.fetchall()]
+    sales, history = load_dose_sales_with_rules(data_inicio, data_fim, loja)
     rotation = get_gelato_stock_rotation(data_inicio, data_fim)
     return calculate_doseamento(
         sales, history, rotation, data_inicio, data_fim, loja, store_names

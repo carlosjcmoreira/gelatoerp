@@ -1,7 +1,7 @@
 from datetime import date
 import unittest
 
-from db.doseamento import calculate_doseamento
+from db.doseamento import calculate_doseamento, resolve_product_alias
 
 
 def rotation(consumption=10, issues=None):
@@ -228,6 +228,42 @@ def test_overlapping_names_do_not_affect_explicit_rule():
         rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
     )
     assert result["theoretical_kg"] == 0.2
+
+
+def test_product_alias_chain_resolves_to_terminal_name():
+    resolved, status = resolve_product_alias(
+        "Copo antigo",
+        [("Copo antigo", "Copo intermédio"), ("Copo intermédio", "Copo atual")],
+    )
+    assert resolved == "Copo atual"
+    assert status == "alias"
+
+
+def test_product_alias_cycle_stays_unmapped():
+    resolved, status = resolve_product_alias(
+        "Copo A", [("Copo A", "Copo B"), ("Copo B", "Copo A")]
+    )
+    assert resolved is None
+    assert status == "invalid_alias"
+
+
+def test_exact_alias_conflict_stays_unmapped():
+    resolved, status = resolve_product_alias(
+        "Copo antigo",
+        [("Copo antigo", "Copo A"), ("Copo antigo", "Copo B")],
+    )
+    assert resolved is None
+    assert status == "invalid_alias"
+
+
+def test_case_and_whitespace_lookalikes_do_not_inherit_alias():
+    aliases = [("Copo antigo", "Copo atual")]
+    assert resolve_product_alias("copo antigo", aliases) == (
+        "copo antigo", "original"
+    )
+    assert resolve_product_alias(" Copo antigo", aliases) == (
+        " Copo antigo", "original"
+    )
 
 
 def load_tests(_loader, _tests, _pattern):

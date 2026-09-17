@@ -28,14 +28,14 @@ eurokg_bp = Blueprint('eurokg', __name__)
 
 
 MENU_ITEMS = [
-    {'id': 'dashboard',    'icon': '📊', 'label': 'Dashboard Euro/kg', 'url_endpoint': 'eurokg.dashboard'},
-    {'id': 'resumo',       'icon': '📅', 'label': 'Resumo Mensal', 'url_endpoint': 'eurokg.resumo_mensal'},
-    {'id': 'consumo',      'icon': '🧮', 'label': 'Consumo Teórico', 'url_endpoint': 'eurokg.consumo_teorico'},
-    {'id': 'vendas',       'icon': '💶', 'label': 'Vendas por Produto', 'url_endpoint': 'eurokg.vendas_produto'},
-    {'id': 'pesagens',     'icon': '⚖️', 'label': 'Pesagens', 'url_endpoint': 'eurokg.pesagens'},
-    {'id': 'diagnostico',  'icon': '🔍', 'label': 'Diagnóstico de Vendas', 'url_endpoint': 'eurokg.diagnostico_vendas', 'gestor_only': True},
-    {'id': 'volume',       'icon': '📦', 'label': 'Volume por Produto', 'url_endpoint': 'eurokg.volume_produtos', 'gestor_only': True},
-    {'id': 'config_preco', 'icon': '⚙️', 'label': 'Preço/kg Caixas Loja', 'url_endpoint': 'eurokg.config_preco_caixa', 'gestor_only': True},
+    {'id': 'dashboard', 'icon': '📊', 'label': 'Dashboard Euro/kg', 'description': 'Compare consumo teórico e real, desvio, rendimento, receita/kg e fiabilidade dos últimos 30 dias.', 'url_endpoint': 'eurokg.dashboard'},
+    {'id': 'resumo', 'icon': '📅', 'label': 'Resumo Mensal', 'description': 'Acompanhe por mês a dose, o consumo, a receita/kg e a qualidade dos dados.', 'url_endpoint': 'eurokg.resumo_mensal'},
+    {'id': 'consumo', 'icon': '🧮', 'label': 'Consumo Teórico', 'description': 'Consulte e configure as doses usadas para converter vendas em kg teóricos.', 'url_endpoint': 'eurokg.consumo_teorico'},
+    {'id': 'vendas', 'icon': '💶', 'label': 'Vendas por Produto', 'description': 'Veja unidades e valor vendido por produto e por mês.', 'url_endpoint': 'eurokg.vendas_produto'},
+    {'id': 'pesagens', 'icon': '⚖️', 'label': 'Pesagens', 'description': 'Consulte as pesagens que sustentam o cálculo do consumo real.', 'url_endpoint': 'eurokg.pesagens'},
+    {'id': 'diagnostico', 'icon': '🔍', 'label': 'Diagnóstico de Vendas', 'description': 'Detete dias sem vendas importadas ou com valores anormalmente baixos.', 'url_endpoint': 'eurokg.diagnostico_vendas', 'gestor_only': True},
+    {'id': 'volume', 'icon': '📦', 'label': 'Volume por Produto', 'description': 'Analise unidades, vendas e kg estimados por produto no período escolhido.', 'url_endpoint': 'eurokg.volume_produtos', 'gestor_only': True},
+    {'id': 'config_preco', 'icon': '⚙️', 'label': 'Preço/kg Caixas Loja', 'description': 'Configure o histórico de preço/kg usado para estimar caixas vendidas.', 'url_endpoint': 'eurokg.config_preco_caixa', 'gestor_only': True},
 ]
 
 MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
@@ -161,7 +161,7 @@ def index():
     icons = get_tile_icons('eurokg')
     custom_mod = get_module_labels().get('eurokg')
     items = [
-        {'icon': icons.get(m['id']) or m['icon'], 'label': labels.get(m['id']) or m['label'], 'url': url_for(m['url_endpoint'])}
+        {'icon': icons.get(m['id']) or m['icon'], 'label': labels.get(m['id']) or m['label'], 'description': m['description'], 'url': url_for(m['url_endpoint'])}
         for m in MENU_ITEMS
         if (not m.get('gestor_only') or is_gestor) and visibility.get(m['id'], True)
     ]
