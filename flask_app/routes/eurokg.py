@@ -405,14 +405,33 @@ def consumo_teorico():
 
     loja_filter, loja_db, store_filters = _store_context(user)
 
-    consumo_df = get_consumo_gelado_mensal(loja_db)
+    today = date.today()
+    default_start = date(today.year, 1, 1)
+    try:
+        data_inicio = date.fromisoformat(
+            request.args.get('data_inicio', default_start.isoformat())
+        )
+        data_fim = date.fromisoformat(
+            request.args.get('data_fim', today.isoformat())
+        )
+        if data_inicio > data_fim:
+            raise ValueError
+    except (TypeError, ValueError):
+        flash('Escolha um período de consulta válido.', 'warning')
+        data_inicio, data_fim = default_start, today
+
+    consumo_df = get_consumo_gelado_mensal(
+        loja_db, data_inicio=data_inicio, data_fim=data_fim
+    )
 
     consumo_data, meses_labels, totals_qty, totals_kg = (
         _build_consumo_teorico_view(consumo_df)
     )
 
     gramas_list = get_gramas_gelado()
-    dose_coverage, dose_import_audits = get_historical_dose_coverage(loja_db)
+    dose_coverage, dose_import_audits = get_historical_dose_coverage(
+        loja_db, data_inicio=data_inicio, data_fim=data_fim
+    )
     actor = session.get("user", {}).get("username", "sistema")
     dose_import_preview = get_historical_dose_preview(
         session.get("dose_import_preview_id"), actor
@@ -429,6 +448,7 @@ def consumo_teorico():
         consumo_data=consumo_data, meses_labels=meses_labels,
         totals_qty=totals_qty, totals_kg=totals_kg,
         gramas_list=gramas_list, store_filters=store_filters,
+        data_inicio=data_inicio.isoformat(), data_fim=data_fim.isoformat(),
         dose_coverage=dose_coverage, dose_import_audits=dose_import_audits,
         dose_import_preview=dose_import_preview,
         dose_pending_products=dose_pending_products, dose_rules=dose_rules)

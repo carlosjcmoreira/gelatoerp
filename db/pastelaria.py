@@ -2873,9 +2873,17 @@ def delete_gramas_gelado(artigo_id: int):
             """, (affected_product_ids,))
         conn.commit()
 
-def get_consumo_gelado_mensal(loja: str = None) -> pd.DataFrame:
+def get_consumo_gelado_mensal(
+    loja: str = None,
+    data_inicio: date = None,
+    data_fim: date = None,
+) -> pd.DataFrame:
     from db.doseamento import load_dose_sales_with_rules
-    sales, _history = load_dose_sales_with_rules(loja=loja)
+    if data_inicio is not None and data_fim is not None and data_inicio > data_fim:
+        raise ValueError('A data inicial não pode ser posterior à data final.')
+    sales, _history = load_dose_sales_with_rules(
+        data_inicio=data_inicio, data_fim=data_fim, loja=loja
+    )
     vendas_df = pd.DataFrame([{
         'produto': row.get('canonical_produto') or row['produto'],
         'data': row['data'],

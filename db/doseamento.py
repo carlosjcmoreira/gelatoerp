@@ -92,19 +92,54 @@ def load_dose_sales_with_rules(data_inicio=None, data_fim=None, loja=None):
             FROM produtos_vendas_config
         """)
         configs = [dict(row) for row in cur.fetchall()]
-        cur.execute("""
+        reference_conditions = []
+        reference_params = []
+        if data_fim is not None:
+            reference_conditions.append("prd.valid_from <= %s")
+            reference_params.append(data_fim)
+            reference_conditions.append("hist.valid_from <= %s")
+            reference_params.append(data_fim)
+        if data_inicio is not None:
+            reference_conditions.append(
+                "(prd.valid_to IS NULL OR prd.valid_to >= %s)"
+            )
+            reference_params.append(data_inicio)
+            reference_conditions.append(
+                "(hist.valid_to IS NULL OR hist.valid_to >= %s)"
+            )
+            reference_params.append(data_inicio)
+        reference_where = (
+            "WHERE " + " AND ".join(reference_conditions)
+            if reference_conditions else ""
+        )
+        cur.execute(f"""
             SELECT prd.produto_vendas_config_id, prd.valid_from AS assoc_from,
                    prd.valid_to AS assoc_to, hist.id, hist.artigo, hist.gramas,
                    hist.tipo_dose, hist.valid_from, hist.valid_to
             FROM produto_regra_dose_historico prd
             JOIN gramas_gelado_historico hist ON hist.id=prd.regra_dose_id
+            {reference_where}
             ORDER BY prd.produto_vendas_config_id, prd.valid_from
-        """)
+        """, reference_params)
         associations = [dict(row) for row in cur.fetchall()]
-        cur.execute("""
+        history_conditions = []
+        history_params = []
+        if data_fim is not None:
+            history_conditions.append("valid_from <= %s")
+            history_params.append(data_fim)
+        if data_inicio is not None:
+            history_conditions.append("(valid_to IS NULL OR valid_to >= %s)")
+            history_params.append(data_inicio)
+        history_where = (
+            "WHERE " + " AND ".join(history_conditions)
+            if history_conditions else ""
+        )
+        cur.execute(f"""
             SELECT id, artigo, gramas, tipo_dose, valid_from, valid_to
-            FROM gramas_gelado_historico ORDER BY artigo, valid_from
-        """)
+            FROM gramas_gelado_historico
+            {history_where}
+            ORDER BY artigo, valid_from
+        """, history_params)
         history = [dict(row) for row in cur.fetchall()]
 
     config_candidates = defaultdict(list)
@@ -698,9 +733,11 @@ def _import_historical_doses_tx(cur, normalized, actor, source_name):
     return batch_id
 
 
-def get_historical_dose_coverage(loja=None):
+def get_historical_dose_coverage(loja=None, data_inicio=None, data_fim=None):
     """Return monthly sales-rule evidence coverage and recent import audits."""
-    sales, _history = load_dose_sales_with_rules(loja=loja)
+    sales, _history = load_dose_sales_with_rules(
+        data_inicio=data_inicio, data_fim=data_fim, loja=loja
+    )
     with db_connection() as conn:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
