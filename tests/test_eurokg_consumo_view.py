@@ -1,11 +1,56 @@
 import unittest
+from pathlib import Path
 
 import pandas as pd
+from werkzeug.datastructures import MultiDict
 
-from flask_app.routes.eurokg import _build_consumo_teorico_view
+from flask_app.routes.eurokg import (
+    _build_consumo_teorico_view,
+    _parse_product_dose_batch,
+)
 
 
 class ConsumoTeoricoViewTests(unittest.TestCase):
+    def test_batch_parser_validates_all_rows_before_saving(self):
+        form = MultiDict([
+            ("product_id", "11"),
+            ("product_id", "12"),
+            ("tipo_dose", "fixa"),
+            ("tipo_dose", "peso"),
+            ("gramas", "125,5"),
+            ("gramas", ""),
+        ])
+
+        self.assertEqual(
+            _parse_product_dose_batch(form),
+            [(11, 125.5, "fixa"), (12, None, "peso")],
+        )
+
+    def test_batch_parser_rejects_invalid_row(self):
+        form = MultiDict([
+            ("product_id", "11"),
+            ("product_id", "12"),
+            ("tipo_dose", "fixa"),
+            ("tipo_dose", "fixa"),
+            ("gramas", "125"),
+            ("gramas", ""),
+        ])
+
+        with self.assertRaisesRegex(ValueError, "gramas válido"):
+            _parse_product_dose_batch(form)
+
+    def test_configuration_table_has_one_submit_button_and_shared_headers(self):
+        template = Path(
+            "flask_app/templates/eurokg/consumo_teorico.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(">Artigo faturado</th>", template)
+        self.assertIn(">Tipo</th>", template)
+        self.assertIn(">Gramas por unidade</th>", template)
+        self.assertIn("Guardar configurações", template)
+        self.assertNotIn('for="type-{{ product.id }}"', template)
+        self.assertNotIn('for="grams-{{ product.id }}"', template)
+
     def test_unknown_historical_rule_is_not_rendered_as_zero(self):
         frame = pd.DataFrame([
             {

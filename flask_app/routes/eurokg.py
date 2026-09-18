@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, session, redirect, url_fo
 from flask_app.auth import perm_required
 import sys, os
 import json
+import math
 from datetime import date, timedelta
 import pandas as pd
 import plotly.graph_objects as go
@@ -40,6 +41,52 @@ MENU_ITEMS = [
 
 MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
                   'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+
+def _parse_product_dose_batch(form):
+    """Validate every product row before any dose configuration is saved."""
+    product_ids = form.getlist('product_id')
+    dose_types = form.getlist('tipo_dose')
+    grams_values = form.getlist('gramas')
+    if not product_ids:
+        raise ValueError('Não há artigos para guardar.')
+    if not (
+        len(product_ids) == len(dose_types) == len(grams_values)
+    ):
+        raise ValueError('A configuração dos artigos está incompleta.')
+
+    changes = []
+    seen_ids = set()
+    for product_id_raw, dose_type_raw, grams_raw in zip(
+        product_ids, dose_types, grams_values
+    ):
+        try:
+            product_id = int(product_id_raw)
+        except (TypeError, ValueError):
+            raise ValueError('Artigo faturado inválido.')
+        if product_id in seen_ids:
+            raise ValueError('O mesmo artigo aparece mais do que uma vez.')
+        seen_ids.add(product_id)
+
+        dose_type = str(dose_type_raw or 'fixa').strip()
+        if dose_type not in {'fixa', 'peso'}:
+            raise ValueError('Tipo de venda inválido.')
+        if dose_type == 'peso':
+            grams = None
+        else:
+            grams_text = str(grams_raw or '').strip().replace(',', '.')
+            try:
+                grams = float(grams_text)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    'Indique um valor de gramas válido para todos os artigos.'
+                )
+            if not math.isfinite(grams) or grams <= 0:
+                raise ValueError(
+                    'Indique um valor de gramas superior a zero para todos os artigos.'
+                )
+        changes.append((product_id, grams, dose_type))
+    return changes
 
 
 def _store_context(user):
@@ -490,18 +537,17 @@ def vendas_produto():
 def configurar_produto_dose():
     loja_filter = request.form.get('loja_filter', 'Global Porto')
     try:
-        dose_type = request.form.get('tipo_dose', 'fixa')
-        grams_raw = request.form.get('gramas', '').strip().replace(',', '.')
-        grams = None if dose_type == 'peso' else float(grams_raw)
-        set_product_dose(
-            int(request.form.get('product_id', '')),
-            grams,
-            dose_type,
-            session.get('user', {}).get('username', 'sistema'),
-            source='Euro/kg',
-        )
+        changes = _parse_product_dose_batch(request.form)
+        actor = session.get('user', {}).get('username', 'sistema')
+        # Parsing and validating the complete form happens before this loop,
+        # so an invalid row cannot leave earlier rows saved.
+        for product_id, grams, dose_type in changes:
+            set_product_dose(
+                product_id, grams, dose_type, actor, source='Euro/kg'
+            )
         flash(
-            'Gramas atualizadas. O novo valor vigora a partir de hoje.',
+            f'{len(changes)} configuração(ões) atualizada(s). '
+            'O novo valor vigora a partir de hoje.',
             'success',
         )
     except (TypeError, ValueError) as exc:

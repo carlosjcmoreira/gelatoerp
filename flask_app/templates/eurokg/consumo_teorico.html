@@ -90,29 +90,42 @@
         <div class="card-body">
             <p class="small text-muted">Só aparecem artigos selecionados no tile Euro/kg do Gestor. Indique diretamente as gramas usadas por unidade faturada. Uma alteração vigora a partir de hoje e não modifica períodos anteriores.</p>
             {% if dose_products %}
-            {% for product in dose_products %}
-            <form method="POST" action="{{ url_for('eurokg.configurar_produto_dose') }}" class="row g-2 align-items-end mb-3 pb-2 border-bottom">
+            <form method="POST" action="{{ url_for('eurokg.configurar_produto_dose') }}">
                 <input type="hidden" name="loja_filter" value="{{ loja_filter }}">
-                <input type="hidden" name="product_id" value="{{ product.id }}">
-                <div class="col-md-5">
-                    <strong class="small">{{ product.produto }}</strong>
-                    <span class="badge {{ 'text-bg-warning' if product.dose_config_pendente else 'text-bg-success' }}">{{ 'Faltam gramas' if product.dose_config_pendente else 'Configurado' }}</span>
-                    {% if product.valid_from %}<div class="text-muted small">Valor atual desde {{ product.valid_from.strftime('%d/%m/%Y') }}</div>{% endif %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-3">
+                        <thead>
+                            <tr>
+                                <th scope="col">Artigo faturado</th>
+                                <th scope="col" style="width:20%">Tipo</th>
+                                <th scope="col" style="width:25%">Gramas por unidade</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for product in dose_products %}
+                            <tr>
+                                <td>
+                                    <input type="hidden" name="product_id" value="{{ product.id }}">
+                                    <strong class="small">{{ product.produto }}</strong>
+                                    <span class="badge {{ 'text-bg-warning' if product.dose_config_pendente else 'text-bg-success' }}">{{ 'Faltam gramas' if product.dose_config_pendente else 'Configurado' }}</span>
+                                    {% if product.valid_from %}<div class="text-muted small">Valor atual desde {{ product.valid_from.strftime('%d/%m/%Y') }}</div>{% endif %}
+                                </td>
+                                <td>
+                                    <select id="type-{{ product.id }}" class="form-select form-select-sm" name="tipo_dose">
+                                        <option value="fixa" {% if product.tipo_dose != 'peso' %}selected{% endif %}>Dose fixa</option>
+                                        <option value="peso" {% if product.tipo_dose == 'peso' %}selected{% endif %}>Ao peso</option>
+                                    </select>
+                                </td>
+                                <td>
+                                    <input id="grams-{{ product.id }}" class="form-control form-control-sm" type="number" min="0.001" step="0.001" inputmode="decimal" name="gramas" value="{{ product.gramas or '' }}">
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
-                <div class="col-md-2">
-                    <label class="form-label small mb-1" for="type-{{ product.id }}">Tipo</label>
-                    <select id="type-{{ product.id }}" class="form-select form-select-sm" name="tipo_dose">
-                        <option value="fixa" {% if product.tipo_dose != 'peso' %}selected{% endif %}>Dose fixa</option>
-                        <option value="peso" {% if product.tipo_dose == 'peso' %}selected{% endif %}>Ao peso</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label small mb-1" for="grams-{{ product.id }}">Gramas por unidade</label>
-                    <input id="grams-{{ product.id }}" class="form-control form-control-sm" type="number" min="0.001" step="0.001" inputmode="decimal" name="gramas" value="{{ product.gramas or '' }}">
-                </div>
-                <div class="col-md-2"><button class="btn btn-primary btn-sm w-100">Guardar</button></div>
+                <button class="btn btn-primary btn-sm" type="submit">Guardar configurações</button>
             </form>
-            {% endfor %}
             {% else %}
             <p class="small text-muted mb-0">Não há artigos selecionados. Escolha-os primeiro no tile Euro/kg do Gestor.</p>
             {% endif %}
