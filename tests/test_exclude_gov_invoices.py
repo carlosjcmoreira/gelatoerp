@@ -13,6 +13,7 @@ Run with:
     python -m unittest tests.test_exclude_gov_invoices -v
 """
 import unittest
+from functools import lru_cache
 from unittest.mock import MagicMock, patch, call
 
 
@@ -166,6 +167,7 @@ class TestGetInvoicesExcludeGovPassthrough(unittest.TestCase):
 # 4. Financeiro route group views call underlying functions with exclude_gov=True
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=1)
 def _make_app():
     """Return a Flask test app with TESTING=True and no CSRF."""
     import sys, os
