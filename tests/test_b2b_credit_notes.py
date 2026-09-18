@@ -221,7 +221,7 @@ class B2BCreditNoteTotalsTests(unittest.TestCase):
         self.assertAlmostEqual(invoices[0]["total_assinado"], -449.39)
 
     def test_invoice_list_can_filter_by_b2b_or_events_channel(self):
-        cursor = FakeCursor(fetchall_value=[])
+        cursor = FakeCursor(fetchall_value=[], fetchone_values=[(0,)])
         connection = FakeConnection(cursor)
         with patch.object(
             faturas_clientes, "db_connection", connection_factory(connection)
@@ -230,7 +230,7 @@ class B2BCreditNoteTotalsTests(unittest.TestCase):
             faturas_clientes.count_faturas(cliente_tipo="b2b")
 
         self.assertIn("c.tipo = %s", cursor.executions[0][0])
-        self.assertEqual(cursor.executions[0][1][-1], "eventos")
+        self.assertEqual(cursor.executions[0][1][-3], "eventos")
         self.assertIn("c.tipo = %s", cursor.executions[1][0])
         self.assertEqual(cursor.executions[1][1][-1], "b2b")
 
