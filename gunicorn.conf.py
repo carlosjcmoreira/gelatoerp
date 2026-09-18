@@ -50,6 +50,27 @@ def post_fork(server, worker):
         start_onedrive_scheduler()
 
 
+def post_worker_init(worker):
+    """Run non-schema startup maintenance without delaying port readiness."""
+    if worker.age != 1:
+        return
+
+    import threading
+    from flask_app.app import run_deferred_startup_maintenance
+
+    worker.log.info(
+        "Starting deferred startup maintenance in worker %s (age=%s)",
+        worker.pid,
+        worker.age,
+    )
+    threading.Thread(
+        target=run_deferred_startup_maintenance,
+        args=(worker.wsgi,),
+        name="deferred-startup-maintenance",
+        daemon=True,
+    ).start()
+
+
 def worker_exit(server, worker):
     """Release process-local workers and database connections on graceful exit."""
     try:

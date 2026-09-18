@@ -150,6 +150,45 @@ def _seed_all_tiles():
         logger.error("_seed_all_tiles failed: %s", exc)
 
 
+def run_deferred_startup_maintenance(app):
+    """Run non-schema corrections after Gunicorn is ready to serve."""
+    logger.info("Starting deferred startup maintenance")
+    with app.app_context():
+        # Legacy corrections swallow/log their own failures, so they remain
+        # retryable on every boot rather than being marked complete.
+        run_data_fix_delete_auto_quebras()
+        run_data_fix_quebras_march2026()
+        run_data_fix_pesagem_april2026()
+        run_data_fix_march1_dedup()
+        run_data_fix_gelado_kpi_classification()
+        run_data_fix_normalise_sabor_names()
+        run_data_fix_cremino_stock_producao()
+        run_data_fix_stock_gelado_march2026_dedup()
+        run_data_fix_pesagem_matosinhos_backfill()
+        run_backfill_transferencias_eventos()
+        from db.custos_recorrentes import run_backfill_custos_recorrentes
+        run_backfill_custos_recorrentes()
+        try:
+            from db.faturas import backfill_supplier_ids as _backfill_suppliers
+            _backfill_suppliers()
+        except Exception as exc:
+            logger.warning('backfill_supplier_ids startup failed: %s', exc)
+        try:
+            run_backfill_invoice_categoria_custo()
+        except Exception as exc:
+            logger.warning('run_backfill_invoice_categoria_custo startup failed: %s', exc)
+
+        # These are recurring reconciliations, not historical one-off fixes.
+        _seed_all_tiles()
+        sync_produtos_vendas_config()
+        seed_artigos_administrativos()
+        try:
+            _promote_overdue_faturas_clientes()
+        except Exception as exc:
+            logger.warning('promote_overdue (faturas_clientes) startup failed: %s', exc)
+    logger.info("Deferred startup maintenance completed")
+
+
 def create_app():
     app = Flask(__name__, static_folder='static', template_folder='templates')
     app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
@@ -259,37 +298,6 @@ def create_app():
         run_migrations_supplier_categoria_custo()
         run_migrations_drop_supplier_category()
         run_migrations_acesso_compras()
-        # Legacy corrections swallow/log their own failures, so they must
-        # remain retryable on every boot rather than being marked complete.
-        run_data_fix_delete_auto_quebras()
-        run_data_fix_quebras_march2026()
-        run_data_fix_pesagem_april2026()
-        run_data_fix_march1_dedup()
-        run_data_fix_gelado_kpi_classification()
-        run_data_fix_normalise_sabor_names()
-        run_data_fix_cremino_stock_producao()
-        run_data_fix_stock_gelado_march2026_dedup()
-        run_data_fix_pesagem_matosinhos_backfill()
-        run_backfill_transferencias_eventos()
-        from db.custos_recorrentes import run_backfill_custos_recorrentes
-        run_backfill_custos_recorrentes()
-        try:
-            from db.faturas import backfill_supplier_ids as _backfill_suppliers
-            _backfill_suppliers()
-        except Exception as exc:
-            logger.warning('backfill_supplier_ids startup failed: %s', exc)
-        try:
-            run_backfill_invoice_categoria_custo()
-        except Exception as exc:
-            logger.warning('run_backfill_invoice_categoria_custo startup failed: %s', exc)
-        # These are recurring reconciliations, not historical one-off fixes.
-        _seed_all_tiles()
-        sync_produtos_vendas_config()
-        seed_artigos_administrativos()
-        try:
-            _promote_overdue_faturas_clientes()
-        except Exception as exc:
-            logger.warning('promote_overdue (faturas_clientes) startup failed: %s', exc)
 
     from flask_app.routes.auth import auth_bp
     from flask_app.routes.home import home_bp
