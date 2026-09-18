@@ -22,3 +22,4 @@
 - [Map provider rate limits](map-provider-rate-limits.md) — batch geocoding must serialize across all web workers, not only delay calls within one request.
 - [iOS form scroll recovery](ios-form-scroll-recovery.md) — never reveal a distant submit after intermediate-field blur; cancel stale focus work and respect nested scroll containers.
 - [Pastelaria access boundary](pastelaria-access-boundary.md) — module access intentionally grants every Pastelaria function; do not add role-only gates inside it.
+- [Partial batch configuration](partial-batch-configuration.md) — blank or invalid rows must not discard valid operator-entered rows in bulk forms.

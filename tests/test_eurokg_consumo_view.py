@@ -40,7 +40,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
     def setUp(self):
         self.app = _make_eurokg_test_app()
 
-    def test_batch_parser_validates_all_rows_before_saving(self):
+    def test_batch_parser_keeps_valid_rows_and_weight_rows(self):
         form = MultiDict([
             ("product_id", "11"),
             ("product_id", "12"),
@@ -52,10 +52,10 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
 
         self.assertEqual(
             _parse_product_dose_batch(form),
-            [(11, 125.5, "fixa"), (12, None, "peso")],
+            ([(11, 125.5, "fixa"), (12, None, "peso")], 0, []),
         )
 
-    def test_batch_parser_rejects_invalid_row(self):
+    def test_batch_parser_skips_empty_fixed_row(self):
         form = MultiDict([
             ("product_id", "11"),
             ("product_id", "12"),
@@ -65,8 +65,28 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
             ("gramas", ""),
         ])
 
-        with self.assertRaisesRegex(ValueError, "gramas válido"):
-            _parse_product_dose_batch(form)
+        self.assertEqual(
+            _parse_product_dose_batch(form),
+            ([(11, 125.0, "fixa")], 1, []),
+        )
+
+    def test_batch_parser_reports_invalid_row_without_discarding_valid_row(self):
+        form = MultiDict([
+            ("product_id", "11"),
+            ("product_id", "12"),
+            ("tipo_dose", "fixa"),
+            ("tipo_dose", "fixa"),
+            ("gramas", "125"),
+            ("gramas", "abc"),
+        ])
+
+        changes, skipped_empty, invalid_rows = _parse_product_dose_batch(form)
+
+        self.assertEqual(changes, [(11, 125.0, "fixa")])
+        self.assertEqual(skipped_empty, 0)
+        self.assertEqual(invalid_rows, [
+            "Artigo 12: indique um valor de gramas válido."
+        ])
 
     def test_authenticated_batch_post_saves_fixed_and_weight_rows(self):
         with self.app.test_client() as client:
@@ -151,7 +171,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         conn.rollback.assert_called_once_with()
         conn.commit.assert_not_called()
 
-    def test_authenticated_batch_post_with_invalid_row_does_not_save_any_row(self):
+    def test_authenticated_batch_post_saves_valid_row_and_warns_about_invalid_row(self):
         with self.app.test_client() as client:
             with client.session_transaction() as session:
                 session["user"] = {
@@ -159,28 +179,88 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
                     "acesso_gestor": True,
                 }
 
-            with patch(
-                "flask_app.routes.eurokg.set_product_dose"
-            ) as set_product_dose:
-                response = client.post(
-                    "/eurokg/consumo/configurar-produto",
-                    data=MultiDict([
-                        ("loja_filter", "Global Porto"),
-                        ("product_id", "11"),
-                        ("product_id", "12"),
-                        ("tipo_dose", "fixa"),
-                        ("tipo_dose", "fixa"),
-                        ("gramas", "125,5"),
-                        ("gramas", ""),
-                    ]),
-                )
+            with patch("flask_app.routes.eurokg.db_connection") as db_connection:
+                conn = MagicMock(name="batch-connection")
+                db_connection.return_value.__enter__.return_value = conn
+                with patch(
+                    "flask_app.routes.eurokg.set_product_dose"
+                ) as set_product_dose:
+                    response = client.post(
+                        "/eurokg/consumo/configurar-produto",
+                        data=MultiDict([
+                            ("loja_filter", "Global Porto"),
+                            ("product_id", "11"),
+                            ("product_id", "12"),
+                            ("tipo_dose", "fixa"),
+                            ("tipo_dose", "fixa"),
+                            ("gramas", "125,5"),
+                            ("gramas", "abc"),
+                        ]),
+                    )
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
-            response.location,
-            "/eurokg/consumo?loja=Global+Porto",
+            set_product_dose.call_args_list,
+            [call(
+                11, 125.5, "fixa", "testuser",
+                source="Euro/kg", conn=conn
+            )],
         )
+        conn.commit.assert_called_once_with()
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "testuser",
+                    "acesso_gestor": True,
+                }
+            with patch("flask_app.routes.eurokg.db_connection") as db_connection:
+                db_connection.return_value.__enter__.return_value = MagicMock()
+                with patch("flask_app.routes.eurokg.set_product_dose"):
+                    client.post(
+                        "/eurokg/consumo/configurar-produto",
+                        data=MultiDict([
+                            ("loja_filter", "Global Porto"),
+                            ("product_id", "11"),
+                            ("product_id", "12"),
+                            ("tipo_dose", "fixa"),
+                            ("tipo_dose", "fixa"),
+                            ("gramas", "125,5"),
+                            ("gramas", "abc"),
+                        ]),
+                    )
+            with client.session_transaction() as session:
+                flashes = session.get("_flashes", [])
+        self.assertTrue(any(category == "success" for category, _ in flashes))
+        self.assertTrue(any(category == "warning" for category, _ in flashes))
+
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "testuser",
+                    "acesso_gestor": True,
+                }
+            with patch("flask_app.routes.eurokg.db_connection") as db_connection:
+                conn = MagicMock(name="empty-batch-connection")
+                db_connection.return_value.__enter__.return_value = conn
+                with patch(
+                    "flask_app.routes.eurokg.set_product_dose"
+                ) as set_product_dose:
+                    response = client.post(
+                        "/eurokg/consumo/configurar-produto",
+                        data=MultiDict([
+                            ("loja_filter", "Global Porto"),
+                            ("product_id", "11"),
+                            ("product_id", "12"),
+                            ("tipo_dose", "fixa"),
+                            ("tipo_dose", "fixa"),
+                            ("gramas", ""),
+                            ("gramas", ""),
+                        ]),
+                    )
+
+        self.assertEqual(response.status_code, 302)
         set_product_dose.assert_not_called()
+        db_connection.assert_not_called()
 
     def test_configuration_table_has_one_submit_button_and_shared_headers(self):
         template = Path(
