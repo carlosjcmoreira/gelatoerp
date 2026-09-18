@@ -285,6 +285,8 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         self.assertIn('aria-expanded="false"', template)
         self.assertIn('aria-controls="{{ item.group_id }}"', template)
         self.assertIn('<tbody id="{{ item.group_id }}" hidden>', template)
+        self.assertIn("aparecem provisoriamente como 0", template)
+        self.assertNotIn("else '—'", template)
 
     def test_repeated_normalized_first_token_builds_collapsible_family(self):
         frame = pd.DataFrame([
@@ -333,7 +335,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
             with self.subTest(product_name=product_name):
                 self.assertEqual(_consumo_family_parts(product_name), expected)
 
-    def test_family_kg_is_unknown_when_one_variant_is_unknown(self):
+    def test_family_kg_adds_known_variants_and_zero_for_unknown_variants(self):
         frame = pd.DataFrame([
             {
                 "produto": "Palito Chocolate",
@@ -355,9 +357,9 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
 
         rows, _labels, totals_qty, totals_kg = _build_consumo_teorico_view(frame)
 
-        self.assertEqual(rows[0]["months"], [{"qty": 3, "kg": None}])
+        self.assertEqual(rows[0]["months"], [{"qty": 3, "kg": 0.2}])
         self.assertEqual(totals_qty, [3])
-        self.assertEqual(totals_kg, [None])
+        self.assertEqual(totals_kg, [0.2])
 
     def test_single_product_family_stays_an_individual_row(self):
         frame = pd.DataFrame([{
@@ -404,7 +406,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         self.assertEqual(len(invalid_rows), 1)
         self.assertIn("não pode ser futura", invalid_rows[0])
 
-    def test_unknown_historical_rule_is_not_rendered_as_zero(self):
+    def test_unknown_historical_rule_is_rendered_as_provisional_zero(self):
         frame = pd.DataFrame([
             {
                 "produto": "Copo",
@@ -415,10 +417,10 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
             },
         ])
         rows, _labels, _qty, totals_kg = _build_consumo_teorico_view(frame)
-        self.assertIsNone(rows[0]["months"][0]["kg"])
-        self.assertIsNone(totals_kg[0])
+        self.assertEqual(rows[0]["months"][0]["kg"], 0)
+        self.assertEqual(totals_kg[0], 0)
 
-    def test_mixed_known_and_unknown_month_keeps_total_unknown(self):
+    def test_mixed_known_and_unknown_month_keeps_known_total(self):
         frame = pd.DataFrame([
             {
                 "produto": "Copo",
@@ -437,9 +439,9 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         ])
         _rows, _labels, qty, totals_kg = _build_consumo_teorico_view(frame)
         self.assertEqual(qty, [3])
-        self.assertIsNone(totals_kg[0])
+        self.assertEqual(totals_kg, [0.2])
 
-    def test_zero_net_quantity_stays_unknown_when_weight_is_missing(self):
+    def test_zero_net_quantity_with_missing_weight_is_provisional_zero(self):
         frame = pd.DataFrame([
             {
                 "produto": "Gelado ao peso",
@@ -452,5 +454,5 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         ])
         rows, _labels, qty, totals_kg = _build_consumo_teorico_view(frame)
         self.assertEqual(qty, [0])
-        self.assertIsNone(rows[0]["months"][0]["kg"])
-        self.assertIsNone(totals_kg[0])
+        self.assertEqual(rows[0]["months"][0]["kg"], 0)
+        self.assertEqual(totals_kg[0], 0)

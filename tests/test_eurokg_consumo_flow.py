@@ -206,12 +206,12 @@ class EurokgConsumptionFlowTests(unittest.TestCase):
             "Bolhão"
         )
         self.assertEqual(bolhao_qty, [6])
-        self.assertEqual(bolhao_kg, [None])
+        self.assertEqual(bolhao_kg, [0.3])
         bolhao_group = next(
             row for row in bolhao_rows if row["kind"] == "group"
         )
         self.assertEqual(bolhao_group["product_count"], 2)
-        self.assertEqual(bolhao_group["months"], [{"qty": 6, "kg": None}])
+        self.assertEqual(bolhao_group["months"], [{"qty": 6, "kg": 0.3}])
 
         matosinhos_rows, _months, matosinhos_qty, matosinhos_kg = (
             self._product_view("Matosinhos")
@@ -231,7 +231,7 @@ class EurokgConsumptionFlowTests(unittest.TestCase):
 
         global_rows, _months, global_qty, global_kg = self._product_view(None)
         self.assertEqual(global_qty, [15])
-        self.assertEqual(global_kg, [None])
+        self.assertEqual(global_kg, [1.7])
         self.assertEqual(
             sum(
                 row["months"][0]["qty"]
@@ -324,7 +324,7 @@ class EurokgConsumptionFlowTests(unittest.TestCase):
             "Bolhão"
         )
         self.assertEqual(bolhao_qty, [6])
-        self.assertEqual(bolhao_kg, [None])
+        self.assertEqual(bolhao_kg, [0.35])
         group = next(row for row in bolhao_rows if row["kind"] == "group")
         product_a = next(
             child for child in group["products"]

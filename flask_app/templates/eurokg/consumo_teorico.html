@@ -5,7 +5,7 @@
 <div class="container-fluid px-3 py-3">
     {% include "components/tabs.html" %}
     <h5 class="fw-bold mb-1">🧮 Consumo Teórico</h5>
-    <p class="text-muted small mb-3">Veja quantas unidades foram vendidas e os kg de gelado previstos pela dose válida em cada data. A primeira gramagem configurada para um artigo cobre as vendas já registadas; uma alteração posterior pede a data de entrada em vigor. “—” indica vendas sem dose completa.</p>
+    <p class="text-muted small mb-3">Veja quantas unidades foram vendidas e os kg de gelado previstos pela dose válida em cada data. A primeira gramagem configurada para um artigo cobre as vendas já registadas; uma alteração posterior pede a data de entrada em vigor. Quando falta uma dose válida ou o peso de uma venda ao peso, os kg sem informação aparecem provisoriamente como 0; a cobertura continua assinalada como incompleta e o histórico é recalculado quando configurar a dose.</p>
 
     {% if is_gestor %}
     <div class="d-flex gap-2 mb-3">
@@ -38,7 +38,7 @@
     </form>
 
     <h6 class="fw-bold mb-1">🍦 Consumo Teórico de Gelado por Produto</h6>
-    <p class="text-muted small mb-3">Quantidade vendida por mês e estimativa de gelado consumido. Famílias com vários artigos aparecem recolhidas; abra uma família para consultar as variantes.</p>
+    <p class="text-muted small mb-3">Quantidade vendida por mês e estimativa de gelado consumido. Os valores sem gramagem ou peso calculável contam provisoriamente como 0 kg, sem criar uma regra de dose. Famílias com vários artigos aparecem recolhidas; abra uma família para consultar as variantes.</p>
 
     {% if consumo_data %}
     <div class="table-responsive">
@@ -69,7 +69,7 @@
                     </td>
                     {% for m in item.months %}
                     <td>{{ m.qty }}</td>
-                    <td>{{ m.kg if m.kg is not none else '—' }}</td>
+                    <td>{{ m.kg }}</td>
                     {% endfor %}
                 </tr>
                 {% else %}
@@ -77,7 +77,7 @@
                     <td>{{ item.produto }}</td>
                     {% for m in item.months %}
                     <td>{{ m.qty }}</td>
-                    <td>{{ m.kg if m.kg is not none else '—' }}</td>
+                    <td>{{ m.kg }}</td>
                     {% endfor %}
                 </tr>
                 {% endif %}
@@ -89,7 +89,7 @@
                     <td class="ps-4"><span class="text-muted" aria-hidden="true">↳</span> {{ product.produto }}</td>
                     {% for m in product.months %}
                     <td>{{ m.qty }}</td>
-                    <td>{{ m.kg if m.kg is not none else '—' }}</td>
+                    <td>{{ m.kg }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}
@@ -101,7 +101,7 @@
                     <td>TOTAL</td>
                     {% for i in range(meses_labels|length) %}
                     <td>{{ totals_qty[i] }}</td>
-                    <td>{{ totals_kg[i] if totals_kg[i] is not none else '—' }}</td>
+                    <td>{{ totals_kg[i] }}</td>
                     {% endfor %}
                 </tr>
             </tfoot>

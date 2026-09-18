@@ -174,7 +174,12 @@ def _consumo_family_parts(product_name):
 
 
 def _build_consumo_teorico_view(consumo_df):
-    """Build the theoretical-consumption matrix without coercing unknowns to zero."""
+    """Build the theoretical-consumption matrix with provisional zeroes.
+
+    Missing consumption remains marked as incomplete in the source data and in
+    the historical coverage view.  Only the displayed kg matrix treats those
+    missing contributions as zero so known values can still be summed.
+    """
     if consumo_df.empty:
         return [], [], [], []
     from datetime import datetime
@@ -189,20 +194,9 @@ def _build_consumo_teorico_view(consumo_df):
     for mes in meses:
         month_rows = consumo_df[consumo_df['mes'] == mes]
         totals_qty.append(int(month_rows['quantidade_vendida'].sum()))
-        has_unknown = month_rows.apply(
-            lambda row: (
-                bool(row.get('consumo_incompleto', False))
-                or (
-                    row['quantidade_vendida'] != 0
-                    and pd.isna(row['consumo_kg'])
-                )
-            ),
-            axis=1,
-        ).any()
-        totals_kg.append(
-            None if has_unknown
-            else round(float(month_rows['consumo_kg'].sum()), 2)
-        )
+        totals_kg.append(round(
+            float(month_rows['consumo_kg'].fillna(0).sum()), 2
+        ))
     for produto in sorted(consumo_df['produto'].unique()):
         product_rows = consumo_df[consumo_df['produto'] == produto]
         item = {
@@ -213,19 +207,8 @@ def _build_consumo_teorico_view(consumo_df):
         for mes in meses:
             rows = product_rows[product_rows['mes'] == mes]
             qty = int(rows['quantidade_vendida'].sum()) if not rows.empty else 0
-            unknown = not rows.empty and rows.apply(
-                lambda row: (
-                    bool(row.get('consumo_incompleto', False))
-                    or (
-                        row['quantidade_vendida'] != 0
-                        and pd.isna(row['consumo_kg'])
-                    )
-                ),
-                axis=1,
-            ).any()
             kg = (
-                None if unknown
-                else round(float(rows['consumo_kg'].sum()), 2)
+                round(float(rows['consumo_kg'].fillna(0).sum()), 2)
                 if not rows.empty else 0
             )
             item['months'].append({'qty': qty, 'kg': kg})
@@ -257,10 +240,7 @@ def _build_consumo_teorico_view(consumo_df):
             ]
             group_months.append({
                 'qty': sum(month['qty'] for month in child_months),
-                'kg': (
-                    None if any(month['kg'] is None for month in child_months)
-                    else round(sum(month['kg'] for month in child_months), 2)
-                ),
+                'kg': round(sum(month['kg'] for month in child_months), 2),
             })
         consumo_data.append({
             'kind': 'group',
