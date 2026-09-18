@@ -52,7 +52,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
 
         self.assertEqual(
             _parse_product_dose_batch(form),
-            ([(11, 125.5, "fixa"), (12, None, "peso")], 0, []),
+            ([(11, 125.5, "fixa", None), (12, None, "peso", None)], 0, []),
         )
 
     def test_batch_parser_skips_empty_fixed_row(self):
@@ -67,7 +67,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
 
         self.assertEqual(
             _parse_product_dose_batch(form),
-            ([(11, 125.0, "fixa")], 1, []),
+            ([(11, 125.0, "fixa", None)], 1, []),
         )
 
     def test_batch_parser_reports_invalid_row_without_discarding_valid_row(self):
@@ -82,7 +82,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
 
         changes, skipped_empty, invalid_rows = _parse_product_dose_batch(form)
 
-        self.assertEqual(changes, [(11, 125.0, "fixa")])
+        self.assertEqual(changes, [(11, 125.0, "fixa", None)])
         self.assertEqual(skipped_empty, 0)
         self.assertEqual(invalid_rows, [
             "Artigo 12: indique um valor de gramas válido."
@@ -273,6 +273,34 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         self.assertIn("Guardar configurações", template)
         self.assertNotIn('for="type-{{ product.id }}"', template)
         self.assertNotIn('for="grams-{{ product.id }}"', template)
+
+    def test_batch_parser_accepts_an_effective_date_for_existing_rule(self):
+        form = MultiDict([
+            ("product_id", "11"),
+            ("tipo_dose", "fixa"),
+            ("gramas", "125"),
+            ("data_efetiva", "2026-01-15"),
+        ])
+
+        changes, skipped_empty, invalid_rows = _parse_product_dose_batch(form)
+
+        self.assertEqual(changes[0][:3], (11, 125.0, "fixa"))
+        self.assertEqual(changes[0][3].isoformat(), "2026-01-15")
+        self.assertEqual(skipped_empty, 0)
+        self.assertEqual(invalid_rows, [])
+
+    def test_batch_parser_rejects_future_effective_date(self):
+        form = MultiDict([
+            ("product_id", "11"),
+            ("tipo_dose", "fixa"),
+            ("gramas", "125"),
+            ("data_efetiva", "2999-01-15"),
+        ])
+
+        _changes, _skipped_empty, invalid_rows = _parse_product_dose_batch(form)
+
+        self.assertEqual(len(invalid_rows), 1)
+        self.assertIn("não pode ser futura", invalid_rows[0])
 
     def test_unknown_historical_rule_is_not_rendered_as_zero(self):
         frame = pd.DataFrame([

@@ -272,7 +272,13 @@ def get_dose_product_configuration_queue():
                    current_rule.regra_dose_id AS current_rule_id,
                    current_rule.gramas,
                    current_rule.tipo_dose,
-                   current_rule.valid_from
+                   current_rule.valid_from,
+                   EXISTS (
+                       SELECT 1
+                       FROM produto_regra_dose_historico prd_any
+                       WHERE prd_any.produto_vendas_config_id=pvc.id
+                   ) AS dose_history_exists,
+                   first_sale.first_sale
             FROM produtos_vendas_config pvc
             LEFT JOIN LATERAL (
                 SELECT prd.regra_dose_id, hist.gramas, hist.tipo_dose,
@@ -287,6 +293,11 @@ def get_dose_product_configuration_queue():
                       AND COALESCE(hist.valid_to, 'infinity'::date)
                 ORDER BY prd.valid_from DESC LIMIT 1
             ) current_rule ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT MIN(vd.data) AS first_sale
+                FROM vendas_detalhe vd
+                WHERE vd.produto_vendas_config_id=pvc.id
+            ) first_sale ON TRUE
             WHERE pvc.gelado_kpi=TRUE
               AND NOT EXISTS (
                 SELECT 1
@@ -422,11 +433,27 @@ def set_typology_dose(
 
 
 def _set_product_dose_with_connection(
-    conn, product_id, grams, dose_type, actor, source
+    conn, product_id, grams, dose_type, actor, source, effective_from=None
 ):
-    """Apply one product dose without committing the surrounding transaction."""
+    """Apply one product dose without committing the surrounding transaction.
+
+    A product's first dose is the rule for all sales already recorded for that
+    stable product ID. Later changes are dated versions and preserve the
+    previous rule before their effective date.
+    """
     cur = conn.cursor(cursor_factory=RealDictCursor)
     today = date.today()
+    if effective_from is not None and not isinstance(effective_from, date):
+        try:
+            effective_from = date.fromisoformat(str(effective_from))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Indique uma data de entrada em vigor válida."
+            ) from exc
+    if effective_from is not None and effective_from > today:
+        raise ValueError(
+            "A data de entrada em vigor não pode ser futura."
+        )
     cur.execute(
         "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
         ("dose-config-writes",),
@@ -458,6 +485,16 @@ def _set_product_dose_with_connection(
         ORDER BY prd.valid_from DESC LIMIT 1
     """, (product_id,))
     current = cur.fetchone()
+
+    cur.execute("""
+        SELECT EXISTS (
+            SELECT 1
+            FROM produto_regra_dose_historico
+            WHERE produto_vendas_config_id=%s
+        ) AS has_history
+    """, (product_id,))
+    has_history = bool(cur.fetchone()["has_history"])
+
     if current and current["tipo_dose"] == dose_type and (
         dose_type == "peso" or _decimal(current["gramas"]) == grams
     ):
@@ -468,40 +505,102 @@ def _set_product_dose_with_connection(
         """, (product_id,))
         return current["regra_dose_id"]
 
-    close_current_association(cur, product_id, today)
     article = product["produto"]
+
+    if not has_history:
+        cur.execute("""
+            SELECT MIN(data) AS first_sale
+            FROM vendas_detalhe
+            WHERE produto_vendas_config_id=%s
+        """, (product_id,))
+        first_sale = cur.fetchone()["first_sale"]
+        effective_from = _day(first_sale) if first_sale is not None else today
+    elif effective_from is None:
+        raise ValueError(
+            "Este artigo já tem uma dose configurada. "
+            "Indique a data a partir da qual o novo valor vigora."
+        )
+
+    cur.execute("""
+        SELECT MIN(valid_from) AS next_start
+        FROM produto_regra_dose_historico
+        WHERE produto_vendas_config_id=%s AND valid_from > %s
+    """, (product_id, effective_from))
+    next_association_start = cur.fetchone()["next_start"]
+
+    cur.execute("""
+        SELECT MIN(valid_from) AS next_start
+        FROM gramas_gelado_historico
+        WHERE LOWER(BTRIM(artigo))=LOWER(BTRIM(%s))
+          AND valid_from > %s
+    """, (article, effective_from))
+    next_rule_start = cur.fetchone()["next_start"]
+
+    next_starts = [
+        value for value in (next_association_start, next_rule_start)
+        if value is not None
+    ]
+    new_valid_to = (
+        min(_day(value) for value in next_starts) - timedelta(days=1)
+        if next_starts else None
+    )
+
+    # Keep already scheduled versions after the selected date. The exclusion
+    # constraint below then guarantees that this new interval cannot overlap.
+    cur.execute("""
+        DELETE FROM produto_regra_dose_historico
+        WHERE produto_vendas_config_id=%s
+          AND valid_from=%s
+    """, (product_id, effective_from))
+    cur.execute("""
+        UPDATE produto_regra_dose_historico
+        SET valid_to=%s
+        WHERE produto_vendas_config_id=%s
+          AND valid_from < %s
+          AND (valid_to IS NULL OR valid_to >= %s)
+    """, (
+        effective_from - timedelta(days=1), product_id,
+        effective_from, effective_from,
+    ))
+
     cur.execute("""
         UPDATE gramas_gelado_historico
         SET valid_to=%s
         WHERE LOWER(BTRIM(artigo))=LOWER(BTRIM(%s))
-          AND valid_to IS NULL AND valid_from < %s
-    """, (today - timedelta(days=1), article, today))
+          AND valid_from < %s
+          AND (valid_to IS NULL OR valid_to >= %s)
+    """, (
+        effective_from - timedelta(days=1), article,
+        effective_from, effective_from,
+    ))
     cur.execute("""
         DELETE FROM gramas_gelado_historico
         WHERE LOWER(BTRIM(artigo))=LOWER(BTRIM(%s))
-          AND valid_to IS NULL AND valid_from=%s
+          AND valid_from=%s
           AND NOT EXISTS (
               SELECT 1 FROM produto_regra_dose_historico prd
               WHERE prd.regra_dose_id=gramas_gelado_historico.id
           )
-    """, (article, today))
+    """, (article, effective_from))
     cur.execute("""
         INSERT INTO gramas_gelado_historico (
-            artigo, gramas, tipo_dose, valid_from,
+            artigo, gramas, tipo_dose, valid_from, valid_to,
             created_by, evidence_reference
-        ) VALUES (%s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """, (
-        article, grams, dose_type, today, actor,
+        article, grams, dose_type, effective_from, new_valid_to, actor,
         f"Configuração direta: {source}",
     ))
     rule_id = cur.fetchone()["id"]
     cur.execute("""
         INSERT INTO produto_regra_dose_historico (
             produto_vendas_config_id, regra_dose_id,
-            valid_from, created_by
-        ) VALUES (%s, %s, %s, %s)
-    """, (product_id, rule_id, today, actor))
+            valid_from, valid_to, created_by
+        ) VALUES (%s, %s, %s, %s, %s)
+    """, (
+        product_id, rule_id, effective_from, new_valid_to, actor,
+    ))
     cur.execute("""
         INSERT INTO gramas_gelado (artigo, gramas)
         VALUES (%s, %s)
@@ -519,9 +618,14 @@ def _set_product_dose_with_connection(
 
 
 def set_product_dose(
-    product_id, grams, dose_type, actor, source="Euro/kg", conn=None
+    product_id, grams, dose_type, actor, source="Euro/kg", conn=None,
+    effective_from=None,
 ):
-    """Set today's dose directly, optionally inside a caller-owned transaction."""
+    """Set a product dose, optionally inside a caller-owned transaction.
+
+    The first rule starts at the product's first recorded sale. A later
+    replacement requires ``effective_from`` so the prior period is preserved.
+    """
     dose_type = str(dose_type or "fixa")
     if dose_type not in {"fixa", "peso"}:
         raise ValueError("Tipo de venda inválido.")
@@ -531,13 +635,14 @@ def set_product_dose(
 
     if conn is not None:
         return _set_product_dose_with_connection(
-            conn, product_id, grams, dose_type, actor, source
+            conn, product_id, grams, dose_type, actor, source, effective_from
         )
 
     with db_connection() as owned_conn:
         try:
             rule_id = _set_product_dose_with_connection(
-                owned_conn, product_id, grams, dose_type, actor, source
+                owned_conn, product_id, grams, dose_type, actor, source,
+                effective_from,
             )
             owned_conn.commit()
             return rule_id

@@ -49,10 +49,14 @@ def _parse_product_dose_batch(form):
     product_ids = form.getlist('product_id')
     dose_types = form.getlist('tipo_dose')
     grams_values = form.getlist('gramas')
+    effective_values = form.getlist('data_efetiva')
     if not product_ids:
         raise ValueError('Não há artigos para guardar.')
+    if not effective_values:
+        effective_values = [None] * len(product_ids)
     if not (
         len(product_ids) == len(dose_types) == len(grams_values)
+        == len(effective_values)
     ):
         raise ValueError('A configuração dos artigos está incompleta.')
 
@@ -60,8 +64,8 @@ def _parse_product_dose_batch(form):
     skipped_empty = 0
     invalid_rows = []
     seen_ids = set()
-    for product_id_raw, dose_type_raw, grams_raw in zip(
-        product_ids, dose_types, grams_values
+    for product_id_raw, dose_type_raw, grams_raw, effective_raw in zip(
+        product_ids, dose_types, grams_values, effective_values
     ):
         try:
             product_id = int(product_id_raw)
@@ -101,7 +105,22 @@ def _parse_product_dose_batch(form):
                     f'Artigo {product_id}: indique gramas superiores a zero.'
                 )
                 continue
-        changes.append((product_id, grams, dose_type))
+        effective_from = None
+        effective_text = str(effective_raw or '').strip()
+        if effective_text:
+            try:
+                effective_from = date.fromisoformat(effective_text)
+            except ValueError:
+                invalid_rows.append(
+                    f'Artigo {product_id}: indique uma data de entrada em vigor válida.'
+                )
+                continue
+            if effective_from > date.today():
+                invalid_rows.append(
+                    f'Artigo {product_id}: a data de entrada em vigor não pode ser futura.'
+                )
+                continue
+        changes.append((product_id, grams, dose_type, effective_from))
     return changes, skipped_empty, invalid_rows
 
 
@@ -562,10 +581,12 @@ def configurar_produto_dose():
             # cannot leave a partially applied batch behind.
             with db_connection() as conn:
                 try:
-                    for product_id, grams, dose_type in changes:
+                    for product_id, grams, dose_type, effective_from in changes:
+                        kwargs = {'source': 'Euro/kg', 'conn': conn}
+                        if effective_from is not None:
+                            kwargs['effective_from'] = effective_from
                         set_product_dose(
-                            product_id, grams, dose_type, actor,
-                            source='Euro/kg', conn=conn
+                            product_id, grams, dose_type, actor, **kwargs
                         )
                     conn.commit()
                 except Exception:
@@ -574,7 +595,8 @@ def configurar_produto_dose():
 
             flash(
                 f'{len(changes)} configuração(ões) atualizada(s). '
-                'O novo valor vigora a partir de hoje.',
+                'A primeira configuração cobre as vendas já registadas; '
+                'as alterações usam a data de entrada em vigor indicada.',
                 'success',
             )
         elif not invalid_rows:

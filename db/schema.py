@@ -6034,6 +6034,100 @@ def run_migrations_acesso_compras():
         conn.commit()
 
 
+def _backfill_initial_product_dose_ranges(cursor, product_ids=None):
+    """Extend only each product/article's first dose to its first stable-ID sale.
+
+    Later versions remain untouched. A shared first rule is extended to the
+    earliest sale among the products whose first association uses that rule.
+    """
+    product_scope = ""
+    params = ()
+    if product_ids:
+        product_scope = "AND produto_vendas_config_id=ANY(%s)"
+        params = (list(product_ids),)
+
+    cursor.execute(f"""
+        WITH first_sales AS (
+            SELECT produto_vendas_config_id AS product_id,
+                   MIN(data) AS first_sale
+            FROM vendas_detalhe
+            WHERE produto_vendas_config_id IS NOT NULL
+              {product_scope}
+            GROUP BY produto_vendas_config_id
+        ),
+        first_associations AS (
+            SELECT DISTINCT ON (prd.produto_vendas_config_id)
+                   prd.id AS association_id,
+                   prd.produto_vendas_config_id AS product_id,
+                   prd.regra_dose_id,
+                   prd.valid_from AS association_start
+            FROM produto_regra_dose_historico prd
+            ORDER BY prd.produto_vendas_config_id, prd.valid_from, prd.id
+        ),
+        eligible AS (
+            SELECT first_assoc.regra_dose_id,
+                   MIN(first_sales.first_sale) AS new_start
+            FROM first_associations first_assoc
+            JOIN first_sales
+              ON first_sales.product_id=first_assoc.product_id
+            JOIN gramas_gelado_historico hist
+              ON hist.id=first_assoc.regra_dose_id
+            WHERE first_sales.first_sale < hist.valid_from
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM gramas_gelado_historico earlier
+                  WHERE LOWER(BTRIM(earlier.artigo))=
+                        LOWER(BTRIM(hist.artigo))
+                    AND earlier.valid_from < hist.valid_from
+              )
+            GROUP BY first_assoc.regra_dose_id
+        )
+        UPDATE gramas_gelado_historico hist
+        SET valid_from=eligible.new_start
+        FROM eligible
+        WHERE hist.id=eligible.regra_dose_id
+          AND eligible.new_start < hist.valid_from
+    """, params)
+    rules_extended = cursor.rowcount
+
+    cursor.execute(f"""
+        WITH first_sales AS (
+            SELECT produto_vendas_config_id AS product_id,
+                   MIN(data) AS first_sale
+            FROM vendas_detalhe
+            WHERE produto_vendas_config_id IS NOT NULL
+              {product_scope}
+            GROUP BY produto_vendas_config_id
+        ),
+        first_associations AS (
+            SELECT DISTINCT ON (prd.produto_vendas_config_id)
+                   prd.id AS association_id,
+                   prd.produto_vendas_config_id AS product_id,
+                   prd.regra_dose_id,
+                   prd.valid_from AS association_start
+            FROM produto_regra_dose_historico prd
+            ORDER BY prd.produto_vendas_config_id, prd.valid_from, prd.id
+        )
+        UPDATE produto_regra_dose_historico prd
+        SET valid_from=first_sales.first_sale
+        FROM first_associations first_assoc
+        JOIN first_sales
+          ON first_sales.product_id=first_assoc.product_id
+        JOIN gramas_gelado_historico hist
+          ON hist.id=first_assoc.regra_dose_id
+        WHERE prd.id=first_assoc.association_id
+          AND first_sales.first_sale < first_assoc.association_start
+          AND NOT EXISTS (
+              SELECT 1
+              FROM gramas_gelado_historico earlier
+              WHERE LOWER(BTRIM(earlier.artigo))=LOWER(BTRIM(hist.artigo))
+                AND earlier.valid_from < hist.valid_from
+          )
+    """, params)
+    associations_extended = cursor.rowcount
+    return rules_extended, associations_extended
+
+
 def run_migrations_doseamento_gelado():
     """Version gelato dose rules so historical sales keep their original grams."""
     with db_connection() as conn:
@@ -6360,6 +6454,28 @@ def run_migrations_doseamento_gelado():
                     INSERT INTO app_schema_migrations (name)
                     VALUES ('doseamento_explicit_product_rules_v2')
                 """)
+            cursor.execute("""
+                SELECT 1 FROM app_schema_migrations
+                WHERE name='doseamento_first_rule_full_history_v1'
+            """)
+            if not cursor.fetchone():
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    ("dose-config-writes",),
+                )
+                rules_extended, associations_extended = (
+                    _backfill_initial_product_dose_ranges(cursor)
+                )
+                cursor.execute("""
+                    INSERT INTO app_schema_migrations (name)
+                    VALUES ('doseamento_first_rule_full_history_v1')
+                """)
+                logger.info(
+                    "run_migrations_doseamento_gelado: extended %d first "
+                    "dose rule(s) and %d product association(s)",
+                    rules_extended,
+                    associations_extended,
+                )
             cursor.execute("""
                 DROP TRIGGER IF EXISTS trg_enforce_gelado_kpi_dose_rule
                 ON produtos_vendas_config
