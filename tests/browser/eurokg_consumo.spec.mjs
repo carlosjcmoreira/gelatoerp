@@ -29,3 +29,34 @@ test('grupos de consumo teórico abrem e fecham com estado acessível sincroniza
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await expect(details).toBeHidden();
 });
+
+test('grupos de consumo teórico continuam sincronizados depois de trocar de loja', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/eurokg/consumo');
+
+  await expect(page.getByRole('link', { name: 'Bolhão', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Matosinhos', exact: true })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Matosinhos', exact: true }).click();
+  await expect(page).toHaveURL(/\/eurokg\/consumo\?loja=Matosinhos/);
+
+  const storeToggle = page.locator('[data-consumo-family-toggle]').first();
+  await expect(storeToggle).toContainText('Palito');
+
+  const detailId = await storeToggle.getAttribute('aria-controls');
+  expect(detailId).toBeTruthy();
+  const storeDetails = page.locator(`tbody#${detailId}`);
+
+  await expect(storeToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(storeDetails).toBeHidden();
+  await expect(storeDetails.locator('tr')).toHaveCount(2);
+
+  await storeToggle.press('Enter');
+  await expect(storeToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(storeDetails).toBeVisible();
+  await expect(storeDetails).toHaveAttribute('id', detailId);
+
+  await storeToggle.click();
+  await expect(storeToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(storeDetails).toBeHidden();
+});

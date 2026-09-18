@@ -185,24 +185,37 @@ def _configure_eventos_data():
 
 def _configure_eurokg_data():
     """Replace Euro/kg database calls with a deterministic grouped table."""
-    eurokg_routes.get_consumo_gelado_mensal = lambda *_args, **_kwargs: pd.DataFrame([
-        {
-            "produto": "Palito Chocolate",
-            "mes": "2026-01",
-            "quantidade_vendida": 4,
-            "gramas_por_unidade": 100,
-            "consumo_kg": 0.4,
-            "consumo_incompleto": False,
-        },
-        {
-            "produto": "Palito Morango",
-            "mes": "2026-01",
-            "quantidade_vendida": 3,
-            "gramas_por_unidade": 100,
-            "consumo_kg": 0.3,
-            "consumo_incompleto": False,
-        },
-    ])
+    stores = [
+        {"id": 1, "name": "Bolhão", "store_type": "loja"},
+        {"id": 2, "name": "Matosinhos", "store_type": "loja"},
+    ]
+
+    def consumo_data(loja, **_kwargs):
+        quantities = {
+            "Bolhão": (4, 3),
+            "Matosinhos": (5, 2),
+        }
+        chocolate_qty, morango_qty = quantities.get(loja, (4, 3))
+        return pd.DataFrame([
+            {
+                "produto": "Palito Chocolate",
+                "mes": "2026-01",
+                "quantidade_vendida": chocolate_qty,
+                "gramas_por_unidade": 100,
+                "consumo_kg": chocolate_qty / 10,
+                "consumo_incompleto": False,
+            },
+            {
+                "produto": "Palito Morango",
+                "mes": "2026-01",
+                "quantidade_vendida": morango_qty,
+                "gramas_por_unidade": 100,
+                "consumo_kg": morango_qty / 10,
+                "consumo_incompleto": False,
+            },
+        ])
+
+    eurokg_routes.get_consumo_gelado_mensal = consumo_data
     eurokg_routes.get_historical_dose_coverage = (
         lambda *_args, **_kwargs: ([], [])
     )
@@ -213,7 +226,7 @@ def _configure_eurokg_data():
     eurokg_routes._build_tabs = lambda _loja, _is_gestor, _active: []
 
     from db import auth as auth_db
-    auth_db.get_vendas_module_stores = lambda: []
+    auth_db.get_vendas_module_stores = lambda: stores
     auth_db.get_store_by_id = lambda _store_id: None
 
 
