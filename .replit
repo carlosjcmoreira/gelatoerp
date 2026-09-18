@@ -95,3 +95,13 @@ FLASK_SECRET_KEY = "niva-porto-flask-secret-key-2026-fixed"
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 60000
+[[workflows.workflow]]
+name = "test-suite-clean-database"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python scripts/test_clean_database.py"
+
+[workflows.workflow.metadata]
+isValidation = true

@@ -467,6 +467,10 @@ class TestLiveDbEurokgConsistency(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+        if os.environ.get("SKIP_LIVE_DB_CHECKS") == "1":
+            raise unittest.SkipTest(
+                "live historical-data checks are excluded from the clean database run"
+            )
         cls.live_conn = _get_live_conn()
         if cls.live_conn is None:
             raise unittest.SkipTest(

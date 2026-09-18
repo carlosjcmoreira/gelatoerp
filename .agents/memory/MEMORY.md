@@ -23,3 +23,4 @@
 - [iOS form scroll recovery](ios-form-scroll-recovery.md) — never reveal a distant submit after intermediate-field blur; cancel stale focus work and respect nested scroll containers.
 - [Pastelaria access boundary](pastelaria-access-boundary.md) — module access intentionally grants every Pastelaria function; do not add role-only gates inside it.
 - [Partial batch configuration](partial-batch-configuration.md) — blank or invalid rows must not discard valid operator-entered rows in bulk forms.
+- [Clean database validation](clean-database-validation.md) — isolated PostgreSQL runs must bootstrap through the app and separate live-data assertions from empty-schema checks.

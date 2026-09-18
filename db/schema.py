@@ -1934,10 +1934,19 @@ def run_migrations():
             )
         ''')
 
+        # cost_categories is created by run_migrations_centros_custo(), which
+        # runs after this legacy migration in the application bootstrap. On a
+        # brand-new database the referenced table is not available yet; the
+        # centros de custo migration adds this column once its dependency
+        # exists.
         cursor.execute(
-            "ALTER TABLE credit_contracts ADD COLUMN IF NOT EXISTS "
-            "categoria_custo_id INTEGER REFERENCES cost_categories(id)"
+            "SELECT to_regclass('public.cost_categories')"
         )
+        if cursor.fetchone()[0] is not None:
+            cursor.execute(
+                "ALTER TABLE credit_contracts ADD COLUMN IF NOT EXISTS "
+                "categoria_custo_id INTEGER REFERENCES cost_categories(id)"
+            )
 
         # ── Eventos / CRM ──────────────────────────────────────────────────────────
         cursor.execute('''
@@ -2298,6 +2307,9 @@ def run_faturas_migrations():
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS paid_date DATE")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ocr_raw JSONB")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS pdf_data BYTEA")
+        cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS onedrive_subfolder VARCHAR(255)")
+        cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS onedrive_path TEXT")
+        cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS pdf_filename VARCHAR(500)")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS onedrive_web_url TEXT")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS categoria VARCHAR(100)")
         cursor.execute("ALTER TABLE invoices ADD COLUMN IF NOT EXISTS document_type VARCHAR(20) DEFAULT 'fatura'")
@@ -2600,6 +2612,10 @@ def run_migrations_centros_custo():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            cursor.execute(
+                "ALTER TABLE credit_contracts ADD COLUMN IF NOT EXISTS "
+                "categoria_custo_id INTEGER REFERENCES cost_categories(id)"
+            )
             # Add unique index for (name, COALESCE(parent_id::text,'')) to make seed idempotent.
             # IMPORTANT: we use a text cast (parent_id::text) rather than COALESCE(parent_id,-1).
             # The integer sentinel caused the Replit deployment platform to apply int4_ops to ALL

@@ -234,8 +234,8 @@ def create_app():
     with app.app_context():
         init_database()
         run_migrations()
-        run_faturas_migrations()
         run_migrations_m0()
+        run_faturas_migrations()
         run_migrations_forecast()
         run_migrations_wind_config()
         run_migrations_cashflow()
