@@ -8,6 +8,7 @@ from werkzeug.datastructures import MultiDict
 
 from flask_app.routes.eurokg import (
     _build_consumo_teorico_view,
+    _consumo_incomplete_totals,
     _consumo_family_parts,
     _parse_product_dose_batch,
     eurokg_bp,
@@ -325,7 +326,11 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
             [product["produto"] for product in group["products"]],
             ["biscoito Bolt", "Bíscoito   Gelado"],
         )
-        self.assertEqual(group["months"], [{"qty": 5, "kg": 0.5}])
+        self.assertEqual(group["months"], [{
+            "qty": 5,
+            "kg": 0.5,
+            "incomplete": False,
+        }])
         self.assertEqual(totals_qty, [5])
         self.assertEqual(totals_kg, [0.5])
 
@@ -363,9 +368,96 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
 
         rows, _labels, totals_qty, totals_kg = _build_consumo_teorico_view(frame)
 
-        self.assertEqual(rows[0]["months"], [{"qty": 3, "kg": 0.2}])
+        self.assertEqual(rows[0]["months"], [{
+            "qty": 3,
+            "kg": 0.2,
+            "incomplete": True,
+        }])
         self.assertEqual(totals_qty, [3])
         self.assertEqual(totals_kg, [0.2])
+
+    def test_incomplete_consumption_is_kept_on_product_and_family_months(self):
+        frame = pd.DataFrame([
+            {
+                "produto": "Palito Chocolate",
+                "mes": "2026-01",
+                "quantidade_vendida": 2,
+                "gramas_por_unidade": 100,
+                "consumo_kg": 0.2,
+                "consumo_incompleto": False,
+            },
+            {
+                "produto": "PALITO Morango",
+                "mes": "2026-01",
+                "quantidade_vendida": 1,
+                "gramas_por_unidade": float("nan"),
+                "consumo_kg": float("nan"),
+                "consumo_incompleto": True,
+            },
+        ])
+
+        rows, _labels, _qty, _kg = _build_consumo_teorico_view(frame)
+
+        group = rows[0]
+        self.assertTrue(group["months"][0]["incomplete"])
+        self.assertEqual(
+            {
+                product["produto"]: product["months"][0]["incomplete"]
+                for product in group["products"]
+            },
+            {
+                "PALITO Morango": True,
+                "Palito Chocolate": False,
+            },
+        )
+
+    def test_known_zero_is_not_marked_as_incomplete(self):
+        frame = pd.DataFrame([{
+            "produto": "Copo",
+            "mes": "2026-01",
+            "quantidade_vendida": 0,
+            "gramas_por_unidade": 100,
+            "consumo_kg": 0,
+            "consumo_incompleto": False,
+        }])
+
+        rows, _labels, _qty, _kg = _build_consumo_teorico_view(frame)
+
+        self.assertEqual(rows[0]["months"], [{
+            "qty": 0,
+            "kg": 0,
+            "incomplete": False,
+        }])
+
+    def test_totals_keep_monthly_incomplete_signal_separate_from_kg(self):
+        frame = pd.DataFrame([
+            {
+                "produto": "Copo",
+                "mes": "2026-01",
+                "quantidade_vendida": 2,
+                "consumo_kg": 0.2,
+                "consumo_incompleto": False,
+            },
+            {
+                "produto": "Novo",
+                "mes": "2026-01",
+                "quantidade_vendida": 1,
+                "consumo_kg": float("nan"),
+                "consumo_incompleto": True,
+            },
+            {
+                "produto": "Copo",
+                "mes": "2026-02",
+                "quantidade_vendida": 0,
+                "consumo_kg": 0,
+                "consumo_incompleto": False,
+            },
+        ])
+
+        _rows, _labels, _qty, totals_kg = _build_consumo_teorico_view(frame)
+
+        self.assertEqual(totals_kg, [0.2, 0])
+        self.assertEqual(_consumo_incomplete_totals(frame), [True, False])
 
     def test_single_product_family_stays_an_individual_row(self):
         frame = pd.DataFrame([{
@@ -424,6 +516,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         ])
         rows, _labels, _qty, totals_kg = _build_consumo_teorico_view(frame)
         self.assertEqual(rows[0]["months"][0]["kg"], 0)
+        self.assertTrue(rows[0]["months"][0]["incomplete"])
         self.assertEqual(totals_kg[0], 0)
 
     def test_mixed_known_and_unknown_month_keeps_known_total(self):
@@ -461,4 +554,5 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         rows, _labels, qty, totals_kg = _build_consumo_teorico_view(frame)
         self.assertEqual(qty, [0])
         self.assertEqual(rows[0]["months"][0]["kg"], 0)
+        self.assertTrue(rows[0]["months"][0]["incomplete"])
         self.assertEqual(totals_kg[0], 0)

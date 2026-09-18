@@ -2,6 +2,26 @@
 {% set back_url = url_for("eurokg.index") %}
 
 {% block content %}
+{% macro consumo_kg_value(month) -%}
+    {{ month.kg }}
+    {% if month.incomplete %}
+    <span class="badge text-bg-warning"
+          data-consumo-incompleto
+          title="Valor provisório: falta uma dose válida ou um peso calculável"
+          aria-label="valor provisório por cobertura incompleta">provisório</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro consumo_total_kg_value(value, incomplete) -%}
+    {{ value }}
+    {% if incomplete %}
+    <span class="badge text-bg-warning"
+          data-consumo-incompleto
+          title="Valor provisório: falta uma dose válida ou um peso calculável"
+          aria-label="valor provisório por cobertura incompleta">provisório</span>
+    {% endif %}
+{%- endmacro %}
+
 <div class="container-fluid px-3 py-3">
     {% include "components/tabs.html" %}
     <h5 class="fw-bold mb-1">🧮 Consumo Teórico</h5>
@@ -69,7 +89,7 @@
                     </td>
                     {% for m in item.months %}
                     <td>{{ m.qty }}</td>
-                    <td>{{ m.kg }}</td>
+                    <td>{{ consumo_kg_value(m) }}</td>
                     {% endfor %}
                 </tr>
                 {% else %}
@@ -77,7 +97,7 @@
                     <td>{{ item.produto }}</td>
                     {% for m in item.months %}
                     <td>{{ m.qty }}</td>
-                    <td>{{ m.kg }}</td>
+                    <td>{{ consumo_kg_value(m) }}</td>
                     {% endfor %}
                 </tr>
                 {% endif %}
@@ -89,7 +109,7 @@
                     <td class="ps-4"><span class="text-muted" aria-hidden="true">↳</span> {{ product.produto }}</td>
                     {% for m in product.months %}
                     <td>{{ m.qty }}</td>
-                    <td>{{ m.kg }}</td>
+                    <td>{{ consumo_kg_value(m) }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}
@@ -101,7 +121,7 @@
                     <td>TOTAL</td>
                     {% for i in range(meses_labels|length) %}
                     <td>{{ totals_qty[i] }}</td>
-                    <td>{{ totals_kg[i] }}</td>
+                    <td>{{ consumo_total_kg_value(totals_kg[i], totals_incomplete[i]) }}</td>
                     {% endfor %}
                 </tr>
             </tfoot>

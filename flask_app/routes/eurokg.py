@@ -174,6 +174,16 @@ def _consumo_family_parts(product_name):
     return family_key, preferred_labels.get(family_key, display_family)
 
 
+def _consumo_rows_incomplete(rows):
+    if rows.empty:
+        return False
+    if 'consumo_incompleto' in rows:
+        return bool(rows['consumo_incompleto'].fillna(False).any())
+    # Keep the view defensive for older callers that do not provide the
+    # source flag; the database query always does.
+    return bool(rows['consumo_kg'].isna().any())
+
+
 def _build_consumo_teorico_view(consumo_df):
     """Build the theoretical-consumption matrix with provisional zeroes.
 
@@ -192,6 +202,7 @@ def _build_consumo_teorico_view(consumo_df):
     product_items = []
     totals_qty = []
     totals_kg = []
+
     for mes in meses:
         month_rows = consumo_df[consumo_df['mes'] == mes]
         totals_qty.append(int(month_rows['quantidade_vendida'].sum()))
@@ -212,7 +223,11 @@ def _build_consumo_teorico_view(consumo_df):
                 round(float(rows['consumo_kg'].fillna(0).sum()), 2)
                 if not rows.empty else 0
             )
-            item['months'].append({'qty': qty, 'kg': kg})
+            item['months'].append({
+                'qty': qty,
+                'kg': kg,
+                'incomplete': _consumo_rows_incomplete(rows),
+            })
         family_key, family_label = _consumo_family_parts(produto)
         item['family_key'] = family_key
         item['family_label'] = family_label
@@ -242,6 +257,9 @@ def _build_consumo_teorico_view(consumo_df):
             group_months.append({
                 'qty': sum(month['qty'] for month in child_months),
                 'kg': round(sum(month['kg'] for month in child_months), 2),
+                'incomplete': any(
+                    month['incomplete'] for month in child_months
+                ),
             })
         consumo_data.append({
             'kind': 'group',
@@ -257,6 +275,18 @@ def _build_consumo_teorico_view(consumo_df):
             group_number += 1
             item['group_id'] = f'consumo-family-{group_number}'
     return consumo_data, meses_labels, totals_qty, totals_kg
+
+
+def _consumo_incomplete_totals(consumo_df):
+    """Return the source incomplete flag for each displayed month."""
+    if consumo_df.empty:
+        return []
+    incomplete = []
+    for mes in sorted(consumo_df['mes'].unique()):
+        incomplete.append(
+            _consumo_rows_incomplete(consumo_df[consumo_df['mes'] == mes])
+        )
+    return incomplete
 
 
 def _build_tabs(loja_filter, is_gestor, active):
@@ -551,6 +581,7 @@ def consumo_teorico():
     consumo_data, meses_labels, totals_qty, totals_kg = (
         _build_consumo_teorico_view(consumo_df)
     )
+    totals_incomplete = _consumo_incomplete_totals(consumo_df)
 
     dose_coverage, dose_import_audits = get_historical_dose_coverage(
         loja_db, data_inicio=data_inicio, data_fim=data_fim
@@ -576,6 +607,7 @@ def consumo_teorico():
         is_gestor=is_gestor, loja_filter=loja_filter,
         consumo_data=consumo_data, meses_labels=meses_labels,
         totals_qty=totals_qty, totals_kg=totals_kg,
+        totals_incomplete=totals_incomplete,
         store_filters=store_filters,
         data_inicio=data_inicio.isoformat(), data_fim=data_fim.isoformat(),
         dose_coverage=dose_coverage, dose_import_audits=dose_import_audits,

@@ -211,7 +211,11 @@ class EurokgConsumptionFlowTests(unittest.TestCase):
             row for row in bolhao_rows if row["kind"] == "group"
         )
         self.assertEqual(bolhao_group["product_count"], 2)
-        self.assertEqual(bolhao_group["months"], [{"qty": 6, "kg": 0.3}])
+        self.assertEqual(bolhao_group["months"], [{
+            "qty": 6,
+            "kg": 0.3,
+            "incomplete": True,
+        }])
 
         matosinhos_rows, _months, matosinhos_qty, matosinhos_kg = (
             self._product_view("Matosinhos")
@@ -330,7 +334,11 @@ class EurokgConsumptionFlowTests(unittest.TestCase):
             child for child in group["products"]
             if child["produto"] == self.product_a
         )
-        self.assertEqual(product_a["months"], [{"qty": 3, "kg": 0.35}])
+        self.assertEqual(product_a["months"], [{
+            "qty": 3,
+            "kg": 0.35,
+            "incomplete": False,
+        }])
 
         with self._client() as client:
             responses = {
@@ -366,6 +374,14 @@ class EurokgConsumptionFlowTests(unittest.TestCase):
         for response in responses.values():
             self.assertNotIn(b"Gramas/Un.", response.data)
             self.assertIn(b'data-consumo-family-toggle', response.data)
+        self.assertIn(
+            b'data-consumo-incompleto',
+            responses["Bolhão"].data,
+        )
+        self.assertNotIn(
+            b'data-consumo-incompleto',
+            responses["Matosinhos"].data,
+        )
 
 
 if __name__ == "__main__":
