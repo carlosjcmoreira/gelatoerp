@@ -3,6 +3,8 @@ from flask_app.auth import perm_required
 import sys, os
 import json
 import math
+import re
+import unicodedata
 from datetime import date, timedelta
 import pandas as pd
 import plotly.graph_objects as go
@@ -150,6 +152,27 @@ def _store_context(user):
     return selected, selected, allowed
 
 
+def _consumo_family_parts(product_name):
+    """Return a conservative display family based on the first name token."""
+    compact_name = ' '.join(str(product_name or '').split())
+    if not compact_name:
+        return '', ''
+    display_family = compact_name.split(' ', 1)[0].strip('.,;:()[]{}')
+    normalized = unicodedata.normalize('NFKD', display_family.casefold())
+    family_key = ''.join(
+        character for character in normalized
+        if not unicodedata.combining(character)
+    )
+    family_key = re.sub(r'^[^\w]+|[^\w/+-]+$', '', family_key)
+    preferred_labels = {
+        'biscoito': 'Biscoito',
+        'caixa': 'Caixa',
+        'nivotto': 'Nivotto',
+        'palito': 'Palito',
+    }
+    return family_key, preferred_labels.get(family_key, display_family)
+
+
 def _build_consumo_teorico_view(consumo_df):
     """Build the theoretical-consumption matrix without coercing unknowns to zero."""
     if consumo_df.empty:
@@ -160,7 +183,7 @@ def _build_consumo_teorico_view(consumo_df):
         datetime.strptime(mes, '%Y-%m').strftime('%b %Y')
         for mes in meses
     ]
-    consumo_data = []
+    product_items = []
     totals_qty = []
     totals_kg = []
     for mes in meses:
@@ -182,16 +205,9 @@ def _build_consumo_teorico_view(consumo_df):
         )
     for produto in sorted(consumo_df['produto'].unique()):
         product_rows = consumo_df[consumo_df['produto'] == produto]
-        grams = sorted({
-            float(value)
-            for value in product_rows['gramas_por_unidade']
-            if not pd.isna(value)
-        })
         item = {
+            'kind': 'product',
             'produto': produto,
-            'gramas': grams[0] if len(grams) == 1 else (
-                'Varia' if len(grams) > 1 else None
-            ),
             'months': [],
         }
         for mes in meses:
@@ -213,7 +229,52 @@ def _build_consumo_teorico_view(consumo_df):
                 if not rows.empty else 0
             )
             item['months'].append({'qty': qty, 'kg': kg})
-        consumo_data.append(item)
+        family_key, family_label = _consumo_family_parts(produto)
+        item['family_key'] = family_key
+        item['family_label'] = family_label
+        product_items.append(item)
+
+    family_products = {}
+    for item in product_items:
+        family_products.setdefault(item['family_key'], []).append(item)
+
+    consumo_data = []
+    for family_key, products in sorted(
+        family_products.items(),
+        key=lambda value: (
+            value[1][0]['family_label'].casefold(),
+            value[0],
+        ),
+    ):
+        products.sort(key=lambda item: item['produto'].casefold())
+        if not family_key or len(products) == 1:
+            consumo_data.extend(products)
+            continue
+        group_months = []
+        for month_index in range(len(meses)):
+            child_months = [
+                product['months'][month_index] for product in products
+            ]
+            group_months.append({
+                'qty': sum(month['qty'] for month in child_months),
+                'kg': (
+                    None if any(month['kg'] is None for month in child_months)
+                    else round(sum(month['kg'] for month in child_months), 2)
+                ),
+            })
+        consumo_data.append({
+            'kind': 'group',
+            'family': products[0]['family_label'],
+            'product_count': len(products),
+            'months': group_months,
+            'products': products,
+        })
+
+    group_number = 0
+    for item in consumo_data:
+        if item['kind'] == 'group':
+            group_number += 1
+            item['group_id'] = f'consumo-family-{group_number}'
     return consumo_data, meses_labels, totals_qty, totals_kg
 
 

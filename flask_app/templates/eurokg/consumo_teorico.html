@@ -38,41 +38,73 @@
     </form>
 
     <h6 class="fw-bold mb-1">🍦 Consumo Teórico de Gelado por Produto</h6>
-    <p class="text-muted small mb-3">Quantidade vendida por mês e estimativa de gelado consumido com base nas gramas configuradas por artigo.</p>
+    <p class="text-muted small mb-3">Quantidade vendida por mês e estimativa de gelado consumido. Famílias com vários artigos aparecem recolhidas; abra uma família para consultar as variantes.</p>
 
     {% if consumo_data %}
     <div class="table-responsive">
-        <table class="table table-sm table-striped">
+        <table class="table table-sm table-striped align-middle" id="consumo-teorico-table">
             <thead>
                 <tr>
                     <th>Produto</th>
-                    <th>Gramas/Un.</th>
                     {% for mes in meses_labels %}
                     <th>Qty {{ mes }}</th>
                     <th>Kg {{ mes }}</th>
                     {% endfor %}
                 </tr>
             </thead>
+            {% for item in consumo_data %}
             <tbody>
-                {% for item in consumo_data %}
-                <tr>
-                    <td>{{ item.produto }}</td>
-                    <td>{{ item.gramas if item.gramas is not none else '—' }}</td>
+                {% if item.kind == 'group' %}
+                <tr class="table-secondary fw-semibold">
+                    <td>
+                        <button type="button"
+                                class="btn btn-sm btn-link text-body text-decoration-none p-0 d-inline-flex align-items-center gap-1 text-start"
+                                data-consumo-family-toggle
+                                aria-expanded="false"
+                                aria-controls="{{ item.group_id }}">
+                            <span aria-hidden="true" data-consumo-family-icon>▸</span>
+                            <span>{{ item.family }}</span>
+                            <span class="badge text-bg-light border">{{ item.product_count }} artigos</span>
+                        </button>
+                    </td>
                     {% for m in item.months %}
                     <td>{{ m.qty }}</td>
                     <td>{{ m.kg if m.kg is not none else '—' }}</td>
                     {% endfor %}
                 </tr>
+                {% else %}
+                <tr>
+                    <td>{{ item.produto }}</td>
+                    {% for m in item.months %}
+                    <td>{{ m.qty }}</td>
+                    <td>{{ m.kg if m.kg is not none else '—' }}</td>
+                    {% endfor %}
+                </tr>
+                {% endif %}
+            </tbody>
+            {% if item.kind == 'group' %}
+            <tbody id="{{ item.group_id }}" hidden>
+                {% for product in item.products %}
+                <tr>
+                    <td class="ps-4"><span class="text-muted" aria-hidden="true">↳</span> {{ product.produto }}</td>
+                    {% for m in product.months %}
+                    <td>{{ m.qty }}</td>
+                    <td>{{ m.kg if m.kg is not none else '—' }}</td>
+                    {% endfor %}
+                </tr>
                 {% endfor %}
+            </tbody>
+            {% endif %}
+            {% endfor %}
+            <tfoot>
                 <tr class="fw-bold table-secondary">
                     <td>TOTAL</td>
-                    <td></td>
                     {% for i in range(meses_labels|length) %}
                     <td>{{ totals_qty[i] }}</td>
                     <td>{{ totals_kg[i] if totals_kg[i] is not none else '—' }}</td>
                     {% endfor %}
                 </tr>
-            </tbody>
+            </tfoot>
         </table>
     </div>
     {% else %}
@@ -180,4 +212,19 @@
 
     {% endif %}
 </div>
+<script>
+(function () {
+    document.querySelectorAll('[data-consumo-family-toggle]').forEach(function (button) {
+        button.addEventListener('click', function () {
+            var details = document.getElementById(button.getAttribute('aria-controls'));
+            if (!details) return;
+            var willExpand = button.getAttribute('aria-expanded') !== 'true';
+            button.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
+            details.hidden = !willExpand;
+            var icon = button.querySelector('[data-consumo-family-icon]');
+            if (icon) icon.textContent = willExpand ? '▾' : '▸';
+        });
+    });
+})();
+</script>
 {% endblock %}

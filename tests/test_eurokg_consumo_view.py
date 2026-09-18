@@ -8,6 +8,7 @@ from werkzeug.datastructures import MultiDict
 
 from flask_app.routes.eurokg import (
     _build_consumo_teorico_view,
+    _consumo_family_parts,
     _parse_product_dose_batch,
     eurokg_bp,
 )
@@ -273,6 +274,107 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         self.assertIn("Guardar configurações", template)
         self.assertNotIn('for="type-{{ product.id }}"', template)
         self.assertNotIn('for="grams-{{ product.id }}"', template)
+
+    def test_consumption_table_removes_grams_and_has_accessible_family_toggle(self):
+        template = Path(
+            "flask_app/templates/eurokg/consumo_teorico.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("<th>Gramas/Un.</th>", template)
+        self.assertIn("data-consumo-family-toggle", template)
+        self.assertIn('aria-expanded="false"', template)
+        self.assertIn('aria-controls="{{ item.group_id }}"', template)
+        self.assertIn('<tbody id="{{ item.group_id }}" hidden>', template)
+
+    def test_repeated_normalized_first_token_builds_collapsible_family(self):
+        frame = pd.DataFrame([
+            {
+                "produto": "Bíscoito   Gelado",
+                "mes": "2026-01",
+                "quantidade_vendida": 2,
+                "gramas_por_unidade": 100,
+                "consumo_kg": 0.2,
+                "consumo_incompleto": False,
+            },
+            {
+                "produto": "biscoito Bolt",
+                "mes": "2026-01",
+                "quantidade_vendida": 3,
+                "gramas_por_unidade": 100,
+                "consumo_kg": 0.3,
+                "consumo_incompleto": False,
+            },
+        ])
+
+        rows, _labels, totals_qty, totals_kg = _build_consumo_teorico_view(frame)
+
+        self.assertEqual(len(rows), 1)
+        group = rows[0]
+        self.assertEqual(group["kind"], "group")
+        self.assertEqual(group["family"], "Biscoito")
+        self.assertEqual(group["product_count"], 2)
+        self.assertEqual(
+            [product["produto"] for product in group["products"]],
+            ["biscoito Bolt", "Bíscoito   Gelado"],
+        )
+        self.assertEqual(group["months"], [{"qty": 5, "kg": 0.5}])
+        self.assertEqual(totals_qty, [5])
+        self.assertEqual(totals_kg, [0.5])
+
+    def test_named_families_ignore_case_accents_and_extra_spaces(self):
+        cases = {
+            "  BÍSCOITO   Gelado": ("biscoito", "Biscoito"),
+            "nIVOTTO Chocolate": ("nivotto", "Nivotto"),
+            "CAIXA  0,5L": ("caixa", "Caixa"),
+            "Pálito Morango": ("palito", "Palito"),
+        }
+
+        for product_name, expected in cases.items():
+            with self.subTest(product_name=product_name):
+                self.assertEqual(_consumo_family_parts(product_name), expected)
+
+    def test_family_kg_is_unknown_when_one_variant_is_unknown(self):
+        frame = pd.DataFrame([
+            {
+                "produto": "Palito Chocolate",
+                "mes": "2026-01",
+                "quantidade_vendida": 2,
+                "gramas_por_unidade": 100,
+                "consumo_kg": 0.2,
+                "consumo_incompleto": False,
+            },
+            {
+                "produto": "PALITO Morango",
+                "mes": "2026-01",
+                "quantidade_vendida": 1,
+                "gramas_por_unidade": float("nan"),
+                "consumo_kg": float("nan"),
+                "consumo_incompleto": True,
+            },
+        ])
+
+        rows, _labels, totals_qty, totals_kg = _build_consumo_teorico_view(frame)
+
+        self.assertEqual(rows[0]["months"], [{"qty": 3, "kg": None}])
+        self.assertEqual(totals_qty, [3])
+        self.assertEqual(totals_kg, [None])
+
+    def test_single_product_family_stays_an_individual_row(self):
+        frame = pd.DataFrame([{
+            "produto": "Caixa 0,5L",
+            "mes": "2026-01",
+            "quantidade_vendida": 1,
+            "gramas_por_unidade": 500,
+            "consumo_kg": 0.5,
+            "consumo_incompleto": False,
+        }])
+
+        rows, _labels, _totals_qty, _totals_kg = (
+            _build_consumo_teorico_view(frame)
+        )
+
+        self.assertEqual(rows[0]["kind"], "product")
+        self.assertEqual(rows[0]["produto"], "Caixa 0,5L")
 
     def test_batch_parser_accepts_an_effective_date_for_existing_rule(self):
         form = MultiDict([
