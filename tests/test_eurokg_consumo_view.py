@@ -1,16 +1,45 @@
 import unittest
 from pathlib import Path
+from unittest.mock import call, patch
 
 import pandas as pd
+from flask import Blueprint, Flask
 from werkzeug.datastructures import MultiDict
 
 from flask_app.routes.eurokg import (
     _build_consumo_teorico_view,
     _parse_product_dose_batch,
+    eurokg_bp,
 )
 
 
+def _make_eurokg_test_app():
+    app = Flask(__name__)
+    app.secret_key = "test-secret-key"
+    app.config["TESTING"] = True
+
+    auth_bp = Blueprint("auth", __name__)
+
+    @auth_bp.route("/login")
+    def login():
+        return "login", 200
+
+    home_bp = Blueprint("home", __name__)
+
+    @home_bp.route("/")
+    def index():
+        return "home", 200
+
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(home_bp)
+    app.register_blueprint(eurokg_bp, url_prefix="/eurokg")
+    return app
+
+
 class ConsumoTeoricoViewTests(unittest.TestCase):
+    def setUp(self):
+        self.app = _make_eurokg_test_app()
+
     def test_batch_parser_validates_all_rows_before_saving(self):
         form = MultiDict([
             ("product_id", "11"),
@@ -38,6 +67,74 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "gramas válido"):
             _parse_product_dose_batch(form)
+
+    def test_authenticated_batch_post_saves_fixed_and_weight_rows(self):
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "testuser",
+                    "acesso_gestor": True,
+                }
+
+            with patch(
+                "flask_app.routes.eurokg.set_product_dose"
+            ) as set_product_dose:
+                response = client.post(
+                    "/eurokg/consumo/configurar-produto",
+                    data=MultiDict([
+                        ("loja_filter", "Global Porto"),
+                        ("product_id", "11"),
+                        ("product_id", "12"),
+                        ("tipo_dose", "fixa"),
+                        ("tipo_dose", "peso"),
+                        ("gramas", "125,5"),
+                        ("gramas", ""),
+                    ]),
+                )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.location,
+            "/eurokg/consumo?loja=Global+Porto",
+        )
+        self.assertEqual(
+            set_product_dose.call_args_list,
+            [
+                call(11, 125.5, "fixa", "testuser", source="Euro/kg"),
+                call(12, None, "peso", "testuser", source="Euro/kg"),
+            ],
+        )
+
+    def test_authenticated_batch_post_with_invalid_row_does_not_save_any_row(self):
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "testuser",
+                    "acesso_gestor": True,
+                }
+
+            with patch(
+                "flask_app.routes.eurokg.set_product_dose"
+            ) as set_product_dose:
+                response = client.post(
+                    "/eurokg/consumo/configurar-produto",
+                    data=MultiDict([
+                        ("loja_filter", "Global Porto"),
+                        ("product_id", "11"),
+                        ("product_id", "12"),
+                        ("tipo_dose", "fixa"),
+                        ("tipo_dose", "fixa"),
+                        ("gramas", "125"),
+                        ("gramas", ""),
+                    ]),
+                )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.location,
+            "/eurokg/consumo?loja=Global+Porto",
+        )
+        set_product_dose.assert_not_called()
 
     def test_configuration_table_has_one_submit_button_and_shared_headers(self):
         template = Path(
