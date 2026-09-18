@@ -214,6 +214,44 @@ def load_dose_sales_with_rules(data_inicio=None, data_fim=None, loja=None):
     return eligible_sales, history
 
 
+def get_vendas_ao_peso_sem_peso_calculavel(
+    data_inicio=None, data_fim=None, loja=None
+):
+    """Return weight-configured sales whose stored kg cannot be calculated.
+
+    This is intentionally a read-only diagnostic.  The source upload remains
+    the authority for the weight, so this function never copies quantity into
+    ``peso_vendido_kg`` or updates a sale.
+    """
+    if data_inicio is not None and data_fim is not None and data_inicio > data_fim:
+        raise ValueError("A data inicial não pode ser posterior à data final.")
+
+    sales, _history = load_dose_sales_with_rules(
+        data_inicio=data_inicio, data_fim=data_fim, loja=loja
+    )
+    incomplete = []
+    for sale in sales:
+        rule = _explicit_rule(sale, _history)
+        if not rule or str(rule.get("tipo_dose", "")).casefold() not in {
+            "peso", "weight"
+        }:
+            continue
+        weight = sale.get("peso_vendido_kg")
+        if weight is not None:
+            try:
+                if Decimal(str(weight)).is_finite():
+                    continue
+            except (InvalidOperation, TypeError, ValueError):
+                pass
+        incomplete.append({
+            "data": _day(sale.get("data")),
+            "loja": sale.get("loja"),
+            "artigo": sale.get("produto"),
+            "quantidade": sale.get("quantidade"),
+        })
+    return incomplete
+
+
 def _matches(product, history, sale_date):
     """Migration-only textual suggestion; KPI calculations never call this."""
     product = str(product or "").casefold()
@@ -1395,6 +1433,7 @@ def get_doseamento_period(data_inicio, data_fim, loja=None, store_names=None):
 
 __all__ = [
     "get_doseamento_period", "calculate_doseamento",
+    "get_vendas_ao_peso_sem_peso_calculavel",
     "preview_historical_dose_csv", "create_historical_dose_preview",
     "get_historical_dose_preview", "confirm_historical_dose_preview",
     "get_historical_dose_coverage",

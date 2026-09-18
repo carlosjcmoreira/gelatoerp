@@ -114,6 +114,49 @@
     {% endif %}
 
     {% if is_gestor %}
+    <div class="card mb-3 border-warning">
+        <div class="card-header py-2">
+            <h6 class="mb-0 small">⚠️ Vendas ao peso sem peso calculável</h6>
+        </div>
+        <div class="card-body">
+            <p class="small text-muted mb-2">
+                Estas vendas têm uma dose configurada <strong>ao peso</strong>,
+                mas o registo não tem um peso utilizável. Corrija a origem do
+                peso no ficheiro ou sistema de vendas e volte a importar os
+                dados; esta página não altera vendas automaticamente.
+            </p>
+            {% if vendas_peso_sem_peso %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Data</th>
+                            <th>Loja</th>
+                            <th>Artigo</th>
+                            <th class="text-end">Quantidade</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for venda in vendas_peso_sem_peso %}
+                        <tr>
+                            <td>{{ venda.data.strftime('%d/%m/%Y') }}</td>
+                            <td>{{ venda.loja }}</td>
+                            <td>{{ venda.artigo }}</td>
+                            <td class="text-end">{{ venda.quantidade }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="small text-success mb-0">
+                Não foram encontradas vendas ao peso sem peso calculável neste
+                período e loja.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
     <hr>
     <div class="card mb-3">
         <div class="card-header py-2">

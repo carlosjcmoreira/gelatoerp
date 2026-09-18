@@ -281,6 +281,12 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertNotIn("<th>Gramas/Un.</th>", template)
+        self.assertIn("Vendas ao peso sem peso calculável", template)
+        self.assertIn(">Data</th>", template)
+        self.assertIn(">Loja</th>", template)
+        self.assertIn(">Artigo</th>", template)
+        self.assertIn(">Quantidade</th>", template)
+        self.assertIn("não altera vendas automaticamente", template)
         self.assertIn("data-consumo-family-toggle", template)
         self.assertIn('aria-expanded="false"', template)
         self.assertIn('aria-controls="{{ item.group_id }}"', template)

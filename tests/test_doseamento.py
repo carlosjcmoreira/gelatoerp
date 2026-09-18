@@ -1,7 +1,12 @@
 from datetime import date
 import unittest
+from unittest.mock import patch
 
-from db.doseamento import calculate_doseamento, resolve_product_alias
+from db.doseamento import (
+    calculate_doseamento,
+    get_vendas_ao_peso_sem_peso_calculavel,
+    resolve_product_alias,
+)
 
 
 def rotation(consumption=10, issues=None):
@@ -71,6 +76,49 @@ def test_weight_with_kg_is_added_to_fixed_doses_without_double_counting():
     assert result["theoretical_kg"] == 1.45
     assert result["weighted_products"] == []
     assert "weight_products" not in result["issues"]
+
+
+def test_weight_sales_without_calculable_kg_are_listed_without_mutation():
+    missing = {
+        "data": date(2025, 1, 2),
+        "loja": "A",
+        "produto": "Gelado weight",
+        "quantidade": 3,
+        "peso_vendido_kg": None,
+        "dose_rule": {
+            "id": 2, "tipo_dose": "peso",
+            "valid_from": date(2025, 1, 1), "valid_to": None,
+        },
+    }
+    known = dict(missing, peso_vendido_kg=1.25)
+    fixed = dict(
+        missing,
+        produto="Copo",
+        dose_rule={
+            "id": 3, "tipo_dose": "fixa",
+            "valid_from": date(2025, 1, 1), "valid_to": None,
+        },
+    )
+    with patch(
+        "db.doseamento.load_dose_sales_with_rules",
+        return_value=([missing, known, fixed], []),
+    ) as load_sales:
+        result = get_vendas_ao_peso_sem_peso_calculavel(
+            date(2025, 1, 1), date(2025, 1, 31), "A"
+        )
+
+    assert result == [{
+        "data": date(2025, 1, 2),
+        "loja": "A",
+        "artigo": "Gelado weight",
+        "quantidade": 3,
+    }]
+    assert missing["peso_vendido_kg"] is None
+    load_sales.assert_called_once_with(
+        data_inicio=date(2025, 1, 1),
+        data_fim=date(2025, 1, 31),
+        loja="A",
+    )
 
 
 def test_weight_return_subtracts_from_theoretical_consumption():
