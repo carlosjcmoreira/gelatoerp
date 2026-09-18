@@ -43,6 +43,14 @@ author = "agent"
 task = "shell.exec"
 args = "python -m unittest tests.test_mapa_exploracao_cc_attribution -v"
 
+[[workflows.workflow]]
+name = "test-suite"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python -m unittest discover -s tests -p 'test*.py'"
+
 [workflows.workflow.metadata]
 isValidation = true
 
