@@ -26,9 +26,7 @@ Three complementary checks are exercised:
 """
 
 import os
-import pytest
-from datetime import date
-from unittest.mock import patch, MagicMock
+import unittest
 
 
 # ---------------------------------------------------------------------------
@@ -161,34 +159,44 @@ def _apply_fixes_in_memory(sabor, fixes, receitas):
 # ---------------------------------------------------------------------------
 # Check 1: every (old_name → new_name) pair preserves conta_eurokg status
 # ---------------------------------------------------------------------------
-class TestMappingEurokgConsistency:
+class TestMappingEurokgConsistency(unittest.TestCase):
     """Each explicit fix pair must not change the Euro/kg inclusion status."""
 
     lookup = _build_lookup(RECEITAS_FIXTURE)
 
-    @pytest.mark.parametrize("old_name,new_name", MIGRATION_FIXES)
-    def test_fix_pair_same_eurokg_status(self, old_name, new_name):
+    def test_fix_pairs_same_eurokg_status(self):
         """Old and new sabor names must share the same Euro/kg inclusion status."""
         lookup = self.lookup
-        old_included = lookup.get(old_name.strip(), True)   # default: included
-        new_included = lookup.get(new_name.strip(), True)   # default: included
-        assert old_included == new_included, (
-            f"Mapping {old_name!r} → {new_name!r} changes Euro/kg status: "
-            f"old={old_included}, new={new_included}. "
-            "If the new canonical name should be excluded, add it to receitas_gelado "
-            "with conta_eurokg=FALSE — and vice-versa."
-        )
+        for old_name, new_name in MIGRATION_FIXES:
+            with self.subTest(old_name=old_name, new_name=new_name):
+                old_included = lookup.get(old_name.strip(), True)   # default: included
+                new_included = lookup.get(new_name.strip(), True)   # default: included
+                self.assertEqual(
+                    old_included,
+                    new_included,
+                    msg=(
+                        f"Mapping {old_name!r} → {new_name!r} changes Euro/kg status: "
+                        f"old={old_included}, new={new_included}. "
+                        "If the new canonical name should be excluded, add it to "
+                        "receitas_gelado with conta_eurokg=FALSE — and vice-versa."
+                    ),
+                )
 
-    @pytest.mark.parametrize("old_name,new_name", RECEITA_FIXES_NOME_TO_CORRENTE)
-    def test_receita_fix_same_eurokg_status(self, old_name, new_name):
+    def test_receita_fixes_same_eurokg_status(self):
         """receitas_gelado nome→nome_corrente pairs must share the same Euro/kg status."""
         lookup = self.lookup
-        old_included = lookup.get(old_name.strip(), True)
-        new_included = lookup.get(new_name.strip(), True)
-        assert old_included == new_included, (
-            f"receitas_gelado fix {old_name!r} → {new_name!r} changes Euro/kg status: "
-            f"old={old_included}, new={new_included}."
-        )
+        for old_name, new_name in RECEITA_FIXES_NOME_TO_CORRENTE:
+            with self.subTest(old_name=old_name, new_name=new_name):
+                old_included = lookup.get(old_name.strip(), True)
+                new_included = lookup.get(new_name.strip(), True)
+                self.assertEqual(
+                    old_included,
+                    new_included,
+                    msg=(
+                        f"receitas_gelado fix {old_name!r} → {new_name!r} changes "
+                        f"Euro/kg status: old={old_included}, new={new_included}."
+                    ),
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +230,7 @@ def _compute_eurokg_total(rows, excluidos):
 _FIXTURE_EXPECTED_TOTAL = 107.5
 
 
-class TestTotalPreservation:
+class TestTotalPreservation(unittest.TestCase):
     """
     Build a fixture producao dataset using old sabor names, compute the Euro/kg
     total, then apply every normalisation step in-memory and confirm the total
@@ -281,15 +289,25 @@ class TestTotalPreservation:
         rows_after   = self._rows_after_migration()
         total_after  = _compute_eurokg_total(rows_after, self.EXCLUIDOS)
 
-        assert total_before == _FIXTURE_EXPECTED_TOTAL, (
-            f"Pre-migration fixture total {total_before} does not match expected "
-            f"{_FIXTURE_EXPECTED_TOTAL}. Check FIXTURE_ROWS_BEFORE and _FIXTURE_EXPECTED_TOTAL."
+        self.assertEqual(
+            total_before,
+            _FIXTURE_EXPECTED_TOTAL,
+            msg=(
+                f"Pre-migration fixture total {total_before} does not match expected "
+                f"{_FIXTURE_EXPECTED_TOTAL}. Check FIXTURE_ROWS_BEFORE and "
+                "_FIXTURE_EXPECTED_TOTAL."
+            ),
         )
-        assert total_after == _FIXTURE_EXPECTED_TOTAL, (
-            f"Euro/kg total changed after sabor normalisation! "
-            f"Before: {total_before} kg  After: {total_after} kg  "
-            f"Difference: {total_after - total_before:+.4f} kg. "
-            "A migration fix pair is changing the Euro/kg inclusion status of some rows."
+        self.assertEqual(
+            total_after,
+            _FIXTURE_EXPECTED_TOTAL,
+            msg=(
+                "Euro/kg total changed after sabor normalisation! "
+                f"Before: {total_before} kg  After: {total_after} kg  "
+                f"Difference: {total_after - total_before:+.4f} kg. "
+                "A migration fix pair is changing the Euro/kg inclusion status "
+                "of some rows."
+            ),
         )
 
     def test_manual_entries_excluded_before_and_after(self):
@@ -298,16 +316,24 @@ class TestTotalPreservation:
         expected = _FIXTURE_EXPECTED_TOTAL  # does NOT include the 999 kg manual row
 
         total_before = _compute_eurokg_total(self.FIXTURE_ROWS_BEFORE, self.EXCLUIDOS)
-        assert total_before == expected, (
-            f"manual-tipo row leaked into Euro/kg total before migration. "
-            f"Expected {expected}, got {total_before}"
+        self.assertEqual(
+            total_before,
+            expected,
+            msg=(
+                "manual-tipo row leaked into Euro/kg total before migration. "
+                f"Expected {expected}, got {total_before}"
+            ),
         )
 
         rows_after  = self._rows_after_migration()
         total_after = _compute_eurokg_total(rows_after, self.EXCLUIDOS)
-        assert total_after == expected, (
-            f"manual-tipo row leaked into Euro/kg total after migration. "
-            f"Expected {expected}, got {total_after}"
+        self.assertEqual(
+            total_after,
+            expected,
+            msg=(
+                "manual-tipo row leaked into Euro/kg total after migration. "
+                f"Expected {expected}, got {total_after}"
+            ),
         )
 
     def test_null_sabor_excluded_before_and_after(self):
@@ -316,16 +342,24 @@ class TestTotalPreservation:
         expected = _FIXTURE_EXPECTED_TOTAL  # does NOT include the 50 kg NULL row
 
         total_before = _compute_eurokg_total(self.FIXTURE_ROWS_BEFORE, self.EXCLUIDOS)
-        assert total_before == expected, (
-            f"NULL-sabor row leaked into Euro/kg total before migration. "
-            f"Expected {expected}, got {total_before}"
+        self.assertEqual(
+            total_before,
+            expected,
+            msg=(
+                "NULL-sabor row leaked into Euro/kg total before migration. "
+                f"Expected {expected}, got {total_before}"
+            ),
         )
 
         rows_after = self._rows_after_migration()
         total_after = _compute_eurokg_total(rows_after, self.EXCLUIDOS)
-        assert total_after == expected, (
-            f"NULL-sabor row leaked into Euro/kg total after migration. "
-            f"Expected {expected}, got {total_after}"
+        self.assertEqual(
+            total_after,
+            expected,
+            msg=(
+                "NULL-sabor row leaked into Euro/kg total after migration. "
+                f"Expected {expected}, got {total_after}"
+            ),
         )
 
     def test_canonical_names_unchanged(self):
@@ -343,16 +377,20 @@ class TestTotalPreservation:
         }
         # Every already-canonical name should survive unchanged.
         for name in canonical_before:
-            assert name in canonical_after or any(
-                r['sabor'] == name for r in rows_after
-            ), f"Canonical sabor {name!r} was unexpectedly renamed by the migration."
+            with self.subTest(name=name):
+                self.assertTrue(
+                    name in canonical_after or any(
+                        r['sabor'] == name for r in rows_after
+                    ),
+                    msg=f"Canonical sabor {name!r} was unexpectedly renamed by the migration.",
+                )
 
 
 # ---------------------------------------------------------------------------
 # Check 3: excluded-sabor scenario — ensure a sabor in the excluidos list is
 # treated consistently before and after migration.
 # ---------------------------------------------------------------------------
-class TestExcludedSaborPreservation:
+class TestExcludedSaborPreservation(unittest.TestCase):
     """If an old name maps to an excluded canonical name, those kg stay out."""
 
     # Imagine 'Carapina de controlo' is excluded from Euro/kg.
@@ -365,8 +403,10 @@ class TestExcludedSaborPreservation:
 
     def test_excluded_sabor_stays_out(self):
         total = _compute_eurokg_total(self.ROWS, self.EXCLUIDOS_WITH_CANONICAL)
-        assert total == 10.0, (
-            f"Excluded sabor leaked into total. Expected 10.0, got {total}"
+        self.assertEqual(
+            total,
+            10.0,
+            msg=f"Excluded sabor leaked into total. Expected 10.0, got {total}",
         )
 
     def test_migration_does_not_include_excluded(self):
@@ -377,9 +417,13 @@ class TestExcludedSaborPreservation:
             for r in self.ROWS
         ]
         total_after = _compute_eurokg_total(rows_after, self.EXCLUIDOS_WITH_CANONICAL)
-        assert total_after == 10.0, (
-            f"Migration changed exclusion status of 'Carapina de controlo'. "
-            f"Expected 10.0, got {total_after}"
+        self.assertEqual(
+            total_after,
+            10.0,
+            msg=(
+                "Migration changed exclusion status of 'Carapina de controlo'. "
+                f"Expected 10.0, got {total_after}"
+            ),
         )
 
 
@@ -413,39 +457,37 @@ def _build_live_lookup(conn):
     return by_nome, by_corrente
 
 
-@pytest.mark.skipif(
-    _get_live_conn() is None,
-    reason="DATABASE_URL not available — live DB checks skipped"
-)
-class TestLiveDbEurokgConsistency:
+class TestLiveDbEurokgConsistency(unittest.TestCase):
     """
     Reads the real receitas_gelado table and verifies the migration fix pairs
     produce no change in Euro/kg inclusion status.  Also confirms zero producao
     rows still carry any old/alias names (i.e. the migration ran to completion).
     """
 
-    @pytest.fixture(scope="class")
     @classmethod
-    def live_conn(cls):
-        import psycopg2
-        conn = psycopg2.connect(os.environ['DATABASE_URL'])
-        yield conn
-        conn.close()
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.live_conn = _get_live_conn()
+        if cls.live_conn is None:
+            raise unittest.SkipTest(
+                "DATABASE_URL not available — live DB checks skipped"
+            )
+        cls.live_lookup = _build_live_lookup(cls.live_conn)
 
-    @pytest.fixture(scope="class")
     @classmethod
-    def live_lookup(cls, live_conn):
-        return _build_live_lookup(live_conn)
+    def tearDownClass(cls):
+        if getattr(cls, "live_conn", None) is not None:
+            cls.live_conn.close()
+        super().tearDownClass()
 
     # --- a) Mapping pairs: conta_eurokg consistency from real DB ---
 
-    @pytest.mark.parametrize("old_name,new_name", MIGRATION_FIXES + RECEITA_FIXES_NOME_TO_CORRENTE)
-    def test_live_fix_pair_same_eurokg_status(self, live_lookup, old_name, new_name):
+    def test_live_fix_pairs_same_eurokg_status(self):
         """
         Real DB: each (old, new) mapping pair must have the same conta_eurokg value.
         The canonical target name must exist in receitas_gelado.
         """
-        by_nome, by_corrente = live_lookup
+        by_nome, by_corrente = self.live_lookup
 
         def lookup(name):
             name = name.strip()
@@ -455,40 +497,60 @@ class TestLiveDbEurokgConsistency:
                 return by_nome[name]
             return None
 
-        new_status = lookup(new_name)
-        assert new_status is not None, (
-            f"Canonical target {new_name!r} is not in receitas_gelado on the live DB. "
-            "The migration may have mapped producao rows to an unknown sabor name."
-        )
+        for old_name, new_name in (
+            MIGRATION_FIXES + RECEITA_FIXES_NOME_TO_CORRENTE
+        ):
+            with self.subTest(old_name=old_name, new_name=new_name):
+                new_status = lookup(new_name)
+                self.assertIsNotNone(
+                    new_status,
+                    msg=(
+                        f"Canonical target {new_name!r} is not in receitas_gelado "
+                        "on the live DB. The migration may have mapped producao "
+                        "rows to an unknown sabor name."
+                    ),
+                )
 
-        old_status = lookup(old_name)
-        if old_status is None:
-            # Old name purged from receitas_gelado — that's fine post-migration.
-            # What matters is the canonical target exists (asserted above).
-            return
+                old_status = lookup(old_name)
+                if old_status is None:
+                    # Old name purged from receitas_gelado — that's fine post-migration.
+                    # What matters is the canonical target exists (asserted above).
+                    continue
 
-        assert old_status == new_status, (
-            f"Live DB: mapping {old_name!r} → {new_name!r} changes Euro/kg status: "
-            f"old conta_eurokg={old_status}, new={new_status}. "
-            "A recipe's conta_eurokg flag is mismatched between its old and canonical name."
-        )
+                self.assertEqual(
+                    old_status,
+                    new_status,
+                    msg=(
+                        f"Live DB: mapping {old_name!r} → {new_name!r} changes "
+                        f"Euro/kg status: old conta_eurokg={old_status}, "
+                        f"new={new_status}. A recipe's conta_eurokg flag is "
+                        "mismatched between its old and canonical name."
+                    ),
+                )
 
     # --- b) Zero stale old-name rows in producao ---
 
-    @pytest.mark.parametrize("old_name,new_name", MIGRATION_FIXES)
-    def test_live_no_old_name_rows_in_producao(self, live_conn, old_name, new_name):
+    def test_live_no_old_name_rows_in_producao(self):
         """
         Real DB: after the migration, producao must have zero rows with the old sabor name.
         Any stale rows mean the migration did not complete or was partially rolled back.
         """
-        with live_conn.cursor() as cur:
-            cur.execute(
-                "SELECT COUNT(*) FROM producao WHERE sabor = %s",
-                (old_name,)
-            )
-            count = cur.fetchone()[0]
-        assert count == 0, (
-            f"Live DB: {count} row(s) in producao still use old sabor name {old_name!r}. "
-            f"These should have been migrated to {new_name!r}. "
-            "Re-run run_migrations_normalise_producao_sabores to complete the migration."
-        )
+        for old_name, new_name in MIGRATION_FIXES:
+            with self.subTest(old_name=old_name, new_name=new_name):
+                with self.live_conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM producao WHERE sabor = %s",
+                        (old_name,)
+                    )
+                    count = cur.fetchone()[0]
+                self.assertEqual(
+                    count,
+                    0,
+                    msg=(
+                        f"Live DB: {count} row(s) in producao still use old sabor "
+                        f"name {old_name!r}. These should have been migrated to "
+                        f"{new_name!r}. Re-run "
+                        "run_migrations_normalise_producao_sabores to complete "
+                        "the migration."
+                    ),
+                )
