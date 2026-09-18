@@ -220,6 +220,20 @@ class B2BCreditNoteTotalsTests(unittest.TestCase):
         self.assertEqual(invoices[0]["document_type_label"], "Nota de Crédito")
         self.assertAlmostEqual(invoices[0]["total_assinado"], -449.39)
 
+    def test_invoice_list_can_filter_by_b2b_or_events_channel(self):
+        cursor = FakeCursor(fetchall_value=[])
+        connection = FakeConnection(cursor)
+        with patch.object(
+            faturas_clientes, "db_connection", connection_factory(connection)
+        ):
+            faturas_clientes.list_faturas(cliente_tipo="eventos")
+            faturas_clientes.count_faturas(cliente_tipo="b2b")
+
+        self.assertIn("c.tipo = %s", cursor.executions[0][0])
+        self.assertEqual(cursor.executions[0][1][-1], "eventos")
+        self.assertIn("c.tipo = %s", cursor.executions[1][0])
+        self.assertEqual(cursor.executions[1][1][-1], "b2b")
+
     def test_finance_template_displays_credit_note_and_net_page_total(self):
         template = Path(
             "flask_app/templates/financeiro/faturas_clientes.html"

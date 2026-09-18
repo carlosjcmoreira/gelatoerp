@@ -168,7 +168,8 @@ def get_summary_totals(cliente_id: int = None, data_inicio: date = None,
 
 def list_faturas(cliente_id: int = None, data_inicio: date = None,
                  data_fim: date = None, incluir_anuladas: bool = False,
-                 limit: int = 500, offset: int = 0) -> list:
+                 limit: int = 500, offset: int = 0,
+                 cliente_tipo: str = None) -> list:
     """Return invoices with optional filters. Joins client name/tipo."""
     conditions = []
     vals = []
@@ -183,6 +184,9 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
     if data_fim:
         conditions.append("fc.data <= %s")
         vals.append(data_fim)
+    if cliente_tipo in ('b2b', 'eventos'):
+        conditions.append("c.tipo = %s")
+        vals.append(cliente_tipo)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     vals += [limit, offset]
     with db_connection() as conn:
@@ -231,7 +235,8 @@ def list_faturas(cliente_id: int = None, data_inicio: date = None,
 
 
 def count_faturas(cliente_id: int = None, data_inicio: date = None,
-                  data_fim: date = None, incluir_anuladas: bool = False) -> int:
+                  data_fim: date = None, incluir_anuladas: bool = False,
+                  cliente_tipo: str = None) -> int:
     conditions = []
     vals = []
     if not incluir_anuladas:
@@ -245,6 +250,9 @@ def count_faturas(cliente_id: int = None, data_inicio: date = None,
     if data_fim:
         conditions.append("fc.data <= %s")
         vals.append(data_fim)
+    if cliente_tipo in ('b2b', 'eventos'):
+        conditions.append("c.tipo = %s")
+        vals.append(cliente_tipo)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     with db_connection() as conn:
         cur = conn.cursor()

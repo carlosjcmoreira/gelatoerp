@@ -510,13 +510,70 @@ def vendas_detalhe():
     }
     vendas_list = [{k: v for k, v in r.items() if k in _cols}
                    for r in db.get_vendas_detalhe_df(loja_query, limit=query_limit)]
+    faturas_canal = request.args.get('faturas_canal', 'todos')
+    if faturas_canal not in ('todos', 'b2b', 'eventos'):
+        faturas_canal = 'todos'
+    faturas_data_inicio = request.args.get('faturas_data_inicio', '')
+    faturas_data_fim = request.args.get('faturas_data_fim', '')
+    faturas_page = max(
+        1, request.args.get('faturas_page', 1, type=int) or 1
+    )
+    faturas_per_page = 50
+    faturas_start = (faturas_page - 1) * faturas_per_page
+    faturas_date_start = None
+    faturas_date_end = None
+    try:
+        if faturas_data_inicio:
+            faturas_date_start = datetime.strptime(
+                faturas_data_inicio, '%Y-%m-%d'
+            ).date()
+        if faturas_data_fim:
+            faturas_date_end = datetime.strptime(
+                faturas_data_fim, '%Y-%m-%d'
+            ).date()
+    except ValueError:
+        faturas_data_inicio = ''
+        faturas_data_fim = ''
+    from db.faturas_clientes import count_faturas, list_faturas
+    faturas_total = count_faturas(
+        data_inicio=faturas_date_start,
+        data_fim=faturas_date_end,
+        cliente_tipo=None if faturas_canal == 'todos' else faturas_canal,
+    )
+    faturas_list = list_faturas(
+        data_inicio=faturas_date_start,
+        data_fim=faturas_date_end,
+        cliente_tipo=None if faturas_canal == 'todos' else faturas_canal,
+        limit=faturas_per_page,
+        offset=faturas_start,
+    )
+    faturas_total_pages = max(
+        1, (faturas_total + faturas_per_page - 1) // faturas_per_page
+    )
+    if faturas_page > faturas_total_pages:
+        faturas_page = faturas_total_pages
+        faturas_list = list_faturas(
+            data_inicio=faturas_date_start,
+            data_fim=faturas_date_end,
+            cliente_tipo=None if faturas_canal == 'todos' else faturas_canal,
+            limit=faturas_per_page,
+            offset=(faturas_page - 1) * faturas_per_page,
+        )
 
     return render_template('gestor/vendas_detalhe.html',
                            active_tab='vendas_detalhe', tabs=tabs,
                            vendas_list=vendas_list,
                            loja_hist=loja_hist,
                            export_all=export_all,
-                           default_limit=500)
+                           default_limit=500,
+                           faturas_list=faturas_list,
+                           faturas_total=faturas_total,
+                           faturas_page=faturas_page,
+                           faturas_total_pages=faturas_total_pages,
+                           faturas_per_page=faturas_per_page,
+                           faturas_canal=faturas_canal,
+                           faturas_data_inicio=faturas_data_inicio,
+                           faturas_data_fim=faturas_data_fim)
 
 
 # Q1 2026 confirmed sales data gaps (identified 2026-04-06 via production DB query):

@@ -35,6 +35,70 @@
 
     <div class="card mb-3">
         <div class="card-body">
+            <h6 class="card-title">🧾 Histórico de Faturas B2B / Eventos</h6>
+            <p class="text-muted small">
+                Documentos importados no Gestor, ordenados dos mais recentes para os mais antigos.
+            </p>
+            <form method="GET" class="row g-2 mb-3 align-items-end">
+                <input type="hidden" name="loja_hist" value="{{ loja_hist }}">
+                {% if export_all %}<input type="hidden" name="export_all" value="1">{% endif %}
+                <div class="col-auto">
+                    <label class="form-label form-label-sm mb-0">Canal</label>
+                    <select name="faturas_canal" class="form-select form-select-sm">
+                        <option value="todos" {% if faturas_canal == 'todos' %}selected{% endif %}>B2B e Eventos</option>
+                        <option value="b2b" {% if faturas_canal == 'b2b' %}selected{% endif %}>B2B</option>
+                        <option value="eventos" {% if faturas_canal == 'eventos' %}selected{% endif %}>Eventos</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label form-label-sm mb-0">Data início</label>
+                    <input type="date" name="faturas_data_inicio" class="form-control form-control-sm" value="{{ faturas_data_inicio }}">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label form-label-sm mb-0">Data fim</label>
+                    <input type="date" name="faturas_data_fim" class="form-control form-control-sm" value="{{ faturas_data_fim }}">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+                    <a href="{{ url_for('gestor.vendas_detalhe', loja_hist=loja_hist, export_all='1' if export_all else '') }}" class="btn btn-outline-secondary btn-sm">Limpar</a>
+                </div>
+            </form>
+            <p class="text-muted small mb-2">{{ faturas_total }} documento(s) encontrado(s).</p>
+            {% if faturas_list %}
+            <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                <table class="table table-sm table-striped align-middle">
+                    <thead><tr><th>Data</th><th>Cliente</th><th>Canal</th><th>Número</th><th>Tipo</th><th>Estado</th><th class="text-end">Total</th></tr></thead>
+                    <tbody>
+                    {% for f in faturas_list %}
+                    <tr {% if f.anulado %}class="text-decoration-line-through text-muted"{% endif %}>
+                        <td class="small">{{ f.data.strftime('%d/%m/%Y') if f.data else '—' }}</td>
+                        <td class="small">{{ f.cliente_nome }}<br><span class="text-muted">{{ f.cliente_nif }}</span></td>
+                        <td><span class="badge {% if f.cliente_tipo == 'eventos' %}bg-info text-dark{% else %}bg-primary{% endif %}">{{ 'Eventos' if f.cliente_tipo == 'eventos' else 'B2B' }}</span></td>
+                        <td class="small">{{ f.numero }}</td>
+                        <td><span class="badge {% if f.document_type == 'nota_credito' %}bg-success-subtle text-success-emphasis{% elif f.document_type == 'nota_debito' %}bg-warning-subtle text-warning-emphasis{% else %}bg-light text-dark border{% endif %}">{{ f.document_type_label }}</span></td>
+                        <td class="small">{% if f.anulado %}Anulado{% elif f.status == 'pago' %}Pago{% elif f.status == 'vencido' %}Vencido{% else %}Pendente{% endif %}</td>
+                        <td class="text-end small fw-semibold {% if f.total_assinado < 0 %}text-success{% endif %}">{{ "%.2f"|format(f.total_assinado) }} €</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                    <tfoot><tr><td colspan="6" class="text-end fw-semibold">Total da página:</td><td class="text-end fw-bold">{{ "%.2f"|format(faturas_list|sum(attribute='total_assinado')) }} €</td></tr></tfoot>
+                </table>
+            </div>
+            {% if faturas_total_pages > 1 %}
+            <nav class="mt-2"><ul class="pagination pagination-sm justify-content-center mb-0">
+                {% if faturas_page > 1 %}<li class="page-item"><a class="page-link" href="{{ url_for('gestor.vendas_detalhe', loja_hist=loja_hist, export_all='1' if export_all else '', faturas_canal=faturas_canal, faturas_data_inicio=faturas_data_inicio, faturas_data_fim=faturas_data_fim, faturas_page=faturas_page-1) }}">«</a></li>{% endif %}
+                <li class="page-item disabled"><span class="page-link">{{ faturas_page }}/{{ faturas_total_pages }}</span></li>
+                {% if faturas_page < faturas_total_pages %}<li class="page-item"><a class="page-link" href="{{ url_for('gestor.vendas_detalhe', loja_hist=loja_hist, export_all='1' if export_all else '', faturas_canal=faturas_canal, faturas_data_inicio=faturas_data_inicio, faturas_data_fim=faturas_data_fim, faturas_page=faturas_page+1) }}">»</a></li>{% endif %}
+            </ul></nav>
+            {% endif %}
+            {% else %}
+            <p class="text-muted small mb-0">Nenhuma fatura B2B ou Evento encontrada com estes filtros.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
             <h6 class="card-title">🏢 Upload de Faturas B2B / Eventos</h6>
             <p class="text-muted small">
                 Importa a listagem de documentos exportada do PHC/Primavera em formato <strong>.xlsx</strong>.<br>
