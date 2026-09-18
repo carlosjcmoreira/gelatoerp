@@ -14,6 +14,7 @@ from database import (
     get_consumo_gelado_mensal,
     get_vendas_produto_mensal,
 )
+from db.connection import db_connection
 from db.pastelaria import (
     get_precos_caixa_kg_historico, add_preco_caixa_kg, delete_preco_caixa_kg,
     get_volume_por_produto,
@@ -539,12 +540,19 @@ def configurar_produto_dose():
     try:
         changes = _parse_product_dose_batch(request.form)
         actor = session.get('user', {}).get('username', 'sistema')
-        # Parsing and validating the complete form happens before this loop,
-        # so an invalid row cannot leave earlier rows saved.
-        for product_id, grams, dose_type in changes:
-            set_product_dose(
-                product_id, grams, dose_type, actor, source='Euro/kg'
-            )
+        # Keep every row in one transaction so a later database failure cannot
+        # leave an incomplete batch behind.
+        with db_connection() as conn:
+            try:
+                for product_id, grams, dose_type in changes:
+                    set_product_dose(
+                        product_id, grams, dose_type, actor,
+                        source='Euro/kg', conn=conn
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
         flash(
             f'{len(changes)} configuração(ões) atualizada(s). '
             'O novo valor vigora a partir de hoje.',
