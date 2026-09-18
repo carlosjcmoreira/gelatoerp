@@ -3,8 +3,10 @@
 from datetime import date
 from pathlib import Path
 
+import pandas as pd
 from flask import Blueprint, Flask, jsonify, redirect, session, url_for
 from flask_app.routes import eventos as eventos_routes
+from flask_app.routes import eurokg as eurokg_routes
 
 
 STATE = {
@@ -181,8 +183,43 @@ def _configure_eventos_data():
     google_sheets_sync.get_sheet_sync_status = lambda: None
 
 
+def _configure_eurokg_data():
+    """Replace Euro/kg database calls with a deterministic grouped table."""
+    eurokg_routes.get_consumo_gelado_mensal = lambda *_args, **_kwargs: pd.DataFrame([
+        {
+            "produto": "Palito Chocolate",
+            "mes": "2026-01",
+            "quantidade_vendida": 4,
+            "gramas_por_unidade": 100,
+            "consumo_kg": 0.4,
+            "consumo_incompleto": False,
+        },
+        {
+            "produto": "Palito Morango",
+            "mes": "2026-01",
+            "quantidade_vendida": 3,
+            "gramas_por_unidade": 100,
+            "consumo_kg": 0.3,
+            "consumo_incompleto": False,
+        },
+    ])
+    eurokg_routes.get_historical_dose_coverage = (
+        lambda *_args, **_kwargs: ([], [])
+    )
+    eurokg_routes.get_historical_dose_preview = (
+        lambda _preview_id, _actor: None
+    )
+    eurokg_routes.get_dose_product_configuration_queue = lambda: ([], [])
+    eurokg_routes._build_tabs = lambda _loja, _is_gestor, _active: []
+
+    from db import auth as auth_db
+    auth_db.get_vendas_module_stores = lambda: []
+    auth_db.get_store_by_id = lambda _store_id: None
+
+
 def create_test_app():
     _configure_eventos_data()
+    _configure_eurokg_data()
     project_root = Path(__file__).resolve().parents[2]
     app = Flask(
         __name__,
@@ -216,6 +253,7 @@ def create_test_app():
         return f"<h1>Editar orçamento do evento {event_id}</h1>"
 
     app.register_blueprint(eventos_routes.eventos_bp, url_prefix="/eventos")
+    app.register_blueprint(eurokg_routes.eurokg_bp, url_prefix="/eurokg")
 
     @app.context_processor
     def inject_user():
@@ -228,6 +266,8 @@ def create_test_app():
             "id": user_id,
             "username": f"browser-{user_id}",
             "acesso_eventos": True,
+            "acesso_eurokg": True,
+            "acesso_gestor": True,
         }
         return redirect(url_for("eventos.pipeline"))
 
