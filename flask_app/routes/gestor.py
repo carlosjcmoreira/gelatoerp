@@ -283,7 +283,13 @@ def upload_pesagem():
 _PESAGEM_UPLOAD_LIMIAR_KG = 15.0
 
 
-def _do_import_pesagem(entries: list, loja: str, tipo_pesagem: str) -> int:
+def _do_import_pesagem(
+    entries: list,
+    loja: str,
+    tipo_pesagem: str,
+    actor_id=None,
+    actor_username='sistema',
+) -> int:
     """Save a list of parsed pesagem entries to stock_gelado atomically.
 
     Each entry must have keys: data_iso (str ISO date), sabor (str), quantidade (float).
@@ -299,7 +305,13 @@ def _do_import_pesagem(entries: list, loja: str, tipo_pesagem: str) -> int:
         }
         for e in entries
     ]
-    return add_stock_gelado_bulk(bulk, loja)
+    return add_stock_gelado_bulk(
+        bulk,
+        loja,
+        actor_id=actor_id,
+        actor_username=actor_username,
+        origin='gestor_import',
+    )
 
 
 def _sign_pesagem_payload(payload_json: str) -> str:
@@ -421,7 +433,14 @@ def _handle_upload_pesagem_post(loja_pesagem):
             )
 
         # No suspicious values — import atomically
-        _do_import_pesagem(entries, loja, tipo_pesagem)
+        user = session.get('user', {})
+        _do_import_pesagem(
+            entries,
+            loja,
+            tipo_pesagem,
+            actor_id=user.get('id'),
+            actor_username=user.get('username') or 'sistema',
+        )
         flash(f'{len(entries)} registos importados com sucesso! ({skipped} já existentes, ignorados)', 'success')
         invalidate_prefix('kpi_annual')
         invalidate_prefix('kpi_monthly')
@@ -473,7 +492,14 @@ def pesagem_confirmacao():
         if not entries:
             flash('Nenhum registo válido para importar.', 'error')
             return redirect(url_for('gestor.upload_pesagem', loja=loja))
-        saved = _do_import_pesagem(entries, loja, tipo_pesagem)
+        user = session.get('user', {})
+        saved = _do_import_pesagem(
+            entries,
+            loja,
+            tipo_pesagem,
+            actor_id=user.get('id'),
+            actor_username=user.get('username') or 'sistema',
+        )
         skipped = int(request.form.get('skipped', 0))
         flash(f'{saved} registos importados com sucesso! ({skipped} já existentes, ignorados)', 'success')
         invalidate_prefix('kpi_annual')

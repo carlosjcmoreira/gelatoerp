@@ -1,6 +1,6 @@
 import psycopg2
 import hashlib
-from psycopg2.extras import RealDictCursor, DictCursor, execute_values
+from psycopg2.extras import Json, RealDictCursor, DictCursor, execute_values
 from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, get_connection, release_connection, logger, db_retry
@@ -2015,21 +2015,107 @@ def _ensure_pesagem_days_not_justified(cursor, store_id, days):
         )
 
 
-def add_stock_gelado(data: date, loja: str, sabor: str, quantidade_kg: float, tipo: str, local: str = None) -> int:
+def _pesagem_stock_snapshot(row):
+    if not row:
+        return None
+    return {
+        'id': row.get('id'),
+        'data': (
+            row.get('data').isoformat()
+            if row.get('data') else None
+        ),
+        'sabor': row.get('sabor'),
+        'quantidade_kg': (
+            float(row.get('quantidade_kg'))
+            if row.get('quantidade_kg') is not None else None
+        ),
+        'tipo': row.get('tipo'),
+        'local': row.get('local'),
+        'is_active': bool(row.get('is_active', True)),
+    }
+
+
+def _write_pesagem_audit(
+    cursor,
+    event_type,
+    loja,
+    origin,
+    actor_id=None,
+    actor_username='sistema',
+    store_id=None,
+    event_date=None,
+    stock_id=None,
+    batch_id=None,
+    reason=None,
+    affected_count=0,
+    expected_count=None,
+    before_data=None,
+    after_data=None,
+    outcome='success',
+    safe_cause=None,
+):
+    cursor.execute("""
+        INSERT INTO pesagem_audit_events (
+            event_type, outcome, stock_id, batch_id, store_id,
+            loja, event_date, actor_id, actor_username, origin,
+            reason, affected_count, expected_count,
+            before_data, after_data, safe_cause
+        ) VALUES (
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s
+        )
+    """, (
+        event_type, outcome, stock_id, batch_id, store_id,
+        loja, event_date, actor_id,
+        (actor_username or 'sistema')[:100], origin,
+        reason, affected_count, expected_count,
+        Json(before_data) if before_data is not None else None,
+        Json(after_data) if after_data is not None else None,
+        (safe_cause or '')[:500] or None,
+    ))
+
+
+def add_stock_gelado(
+    data: date,
+    loja: str,
+    sabor: str,
+    quantidade_kg: float,
+    tipo: str,
+    local: str = None,
+    actor_id=None,
+    actor_username: str = 'sistema',
+    origin: str = 'system',
+    batch_id=None,
+) -> int:
     store_id = get_store_id_by_name(loja)
     with db_connection() as conn:
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         if tipo == 'fim':
             _lock_pesagem_days(cursor, store_id, [data])
             _ensure_pesagem_days_not_justified(
                 cursor, store_id, [data]
             )
         cursor.execute('''
-            INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, local, store_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        ''', (data, loja, sabor, quantidade_kg, tipo, local, store_id))
-        new_id = cursor.fetchone()[0]
+            INSERT INTO stock_gelado (
+                data, loja, sabor, quantidade_kg, tipo, local,
+                store_id, source_batch_id
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+        ''', (
+            data, loja, sabor, quantidade_kg, tipo, local,
+            store_id, batch_id,
+        ))
+        row = cursor.fetchone()
+        new_id = row['id']
+        _write_pesagem_audit(
+            cursor, 'create', loja, origin,
+            actor_id=actor_id, actor_username=actor_username,
+            store_id=store_id, event_date=data, stock_id=new_id,
+            batch_id=batch_id, affected_count=1,
+            after_data=_pesagem_stock_snapshot(row),
+        )
         conn.commit()
     return new_id
 
@@ -2077,7 +2163,13 @@ def get_carapinas_for_stock_ids(stock_ids: list) -> dict:
     return result
 
 
-def add_stock_gelado_bulk(entries: list, loja: str) -> int:
+def add_stock_gelado_bulk(
+    entries: list,
+    loja: str,
+    actor_id=None,
+    actor_username: str = 'sistema',
+    origin: str = 'bulk',
+) -> int:
     """
     Insert multiple stock_gelado records atomically in a single transaction.
     Each entry is a dict with keys: data (date), sabor (str), quantidade_kg (float), tipo (str).
@@ -2099,7 +2191,7 @@ def add_stock_gelado_bulk(entries: list, loja: str) -> int:
     ]
     with db_connection() as conn:
         try:
-            cursor = conn.cursor()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             _lock_pesagem_days(
                 cursor,
                 store_id,
@@ -2110,19 +2202,31 @@ def add_stock_gelado_bulk(entries: list, loja: str) -> int:
                 store_id,
                 [entry['data'] for entry in entries if entry['tipo'] == 'fim'],
             )
-            execute_values(
+            inserted_rows = execute_values(
                 cursor,
-                '''INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, local, store_id)
+                '''INSERT INTO stock_gelado (
+                       data, loja, sabor, quantidade_kg, tipo, local, store_id
+                   )
                    VALUES %s
-                   ON CONFLICT DO NOTHING''',
+                   ON CONFLICT DO NOTHING
+                   RETURNING *''',
                 rows,
+                fetch=True,
             )
-            inserted = cursor.rowcount
+            for row in inserted_rows:
+                _write_pesagem_audit(
+                    cursor, 'create', loja, origin,
+                    actor_id=actor_id, actor_username=actor_username,
+                    store_id=store_id, event_date=row['data'],
+                    stock_id=row['id'], affected_count=1,
+                    after_data=_pesagem_stock_snapshot(row),
+                )
+            inserted = len(inserted_rows)
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-    return inserted if inserted >= 0 else len(rows)
+    return inserted
 
 
 def _pesagem_batch_dict(row, entries):
@@ -2220,7 +2324,11 @@ def save_pesagem_draft(
         try:
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtext(%s))",
-                (f'pesagem-draft:{loja}',),
+                (
+                    f'pesagem-draft-store:{resolved_store_id}'
+                    if resolved_store_id
+                    else f'pesagem-draft-legacy:{loja.lower()}',
+                ),
             )
             cursor.execute("""
                 SELECT status, revision
@@ -2430,10 +2538,13 @@ def confirm_pesagem_draft(
     expected_revision,
     loja: str,
     actor_username: str,
+    actor_id=None,
 ):
     """Confirm a draft exactly once and create all stock rows atomically."""
     username = (actor_username or 'sistema')[:100]
     conflict_message = None
+    validated_batch = None
+    current_store_id = None
     try:
         with db_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -2460,6 +2571,7 @@ def confirm_pesagem_draft(
             batch = cursor.fetchone()
             if not batch:
                 raise ValueError('O lote de pesagens já não existe.')
+            validated_batch = dict(batch)
             try:
                 client_revision = int(expected_revision)
             except (ValueError, TypeError):
@@ -2520,13 +2632,13 @@ def confirm_pesagem_draft(
                 cursor.execute("""
                     INSERT INTO stock_gelado (
                         data, loja, sabor, quantidade_kg,
-                        tipo, local, store_id
+                        tipo, local, store_id, source_batch_id
                     )
-                    SELECT %s, b.loja, %s, %s, 'fim', NULL, b.store_id
+                    SELECT %s, b.loja, %s, %s, 'fim', NULL, b.store_id, b.id
                     FROM pesagem_draft_batches b
                     WHERE b.id = %s
-                    ON CONFLICT (data, loja, sabor, tipo) DO NOTHING
-                    RETURNING id
+                    ON CONFLICT DO NOTHING
+                    RETURNING *
                 """, (
                     entry['data'], entry['sabor'],
                     entry['quantidade_kg'], batch['id'],
@@ -2534,6 +2646,16 @@ def confirm_pesagem_draft(
                 inserted = cursor.fetchone()
                 if inserted:
                     inserted_ids.append(inserted['id'])
+                    _write_pesagem_audit(
+                        cursor, 'create', loja, 'batch_confirmation',
+                        actor_id=actor_id, actor_username=username,
+                        store_id=effective_store_id,
+                        event_date=inserted['data'],
+                        stock_id=inserted['id'],
+                        batch_id=batch['id'],
+                        affected_count=1,
+                        after_data=_pesagem_stock_snapshot(inserted),
+                    )
 
             if len(inserted_ids) != expected_count:
                 conflict_message = (
@@ -2553,10 +2675,48 @@ def confirm_pesagem_draft(
                     confirmed_at = NOW()
                 WHERE id = %s
             """, (expected_count, username, batch['id']))
+            _write_pesagem_audit(
+                cursor, 'batch_confirm', loja, 'manual_draft',
+                actor_id=actor_id, actor_username=username,
+                store_id=effective_store_id,
+                batch_id=batch['id'],
+                affected_count=expected_count,
+                expected_count=expected_count,
+                after_data={
+                    'revision': int(batch['revision']),
+                    'stock_ids': inserted_ids,
+                },
+            )
             conn.commit()
             return _load_pesagem_batch(cursor, loja, batch_id)
     except Exception as exc:
-        message = conflict_message or str(exc)
+        message = (
+            conflict_message
+            or (
+                str(exc)
+                if isinstance(exc, ValueError)
+                else 'Falha técnica interna durante a confirmação.'
+            )
+        )
+        import uuid
+        try:
+            audited_batch_id = str(uuid.UUID(str(batch_id)))
+        except (ValueError, TypeError, AttributeError):
+            audited_batch_id = None
+        if not validated_batch:
+            with db_connection() as conn:
+                cursor = conn.cursor()
+                _write_pesagem_audit(
+                    cursor, 'failure', loja, 'batch_confirmation',
+                    actor_id=actor_id, actor_username=username,
+                    store_id=current_store_id,
+                    batch_id=audited_batch_id,
+                    affected_count=0,
+                    outcome='failed',
+                    safe_cause=message,
+                )
+                conn.commit()
+            raise
         with db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -2565,7 +2725,28 @@ def confirm_pesagem_draft(
                     updated_by = %s, updated_at = NOW()
                 WHERE id = %s
                   AND status <> 'confirmed'
-            """, (message[:1000], username, str(batch_id)))
+                  AND (
+                      (%s IS NOT NULL AND store_id = %s)
+                      OR (store_id IS NULL AND lower(loja) = lower(%s))
+                  )
+            """, (
+                message[:1000], username, str(batch_id),
+                current_store_id, current_store_id, loja,
+            ))
+            if cursor.rowcount:
+                _write_pesagem_audit(
+                    cursor, 'failure', loja, 'batch_confirmation',
+                    actor_id=actor_id, actor_username=username,
+                    store_id=(
+                        validated_batch.get('store_id')
+                        or current_store_id
+                    ),
+                    batch_id=audited_batch_id,
+                    affected_count=0,
+                    expected_count=validated_batch.get('expected_count'),
+                    outcome='failed',
+                    safe_cause=message,
+                )
             conn.commit()
         raise
 
@@ -2590,14 +2771,38 @@ def upsert_stock_gelado_matosinhos(data: date, sabor: str, quantidade_kg: float)
     sabor = normalise_sabor(sabor)
     store_id = get_store_id_by_name('Matosinhos')
     with db_connection() as conn:
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT * FROM stock_gelado
+            WHERE data = %s AND store_id = %s
+              AND sabor = %s AND tipo = 'inicio'
+              AND is_active = TRUE
+            FOR UPDATE
+        """, (data, store_id, sabor))
+        before = cursor.fetchone()
         cursor.execute('''
             INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
             VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (data, loja, sabor, tipo)
+            ON CONFLICT (data, store_id, sabor, tipo)
+            WHERE is_active = TRUE AND store_id IS NOT NULL
             DO UPDATE SET quantidade_kg = EXCLUDED.quantidade_kg,
                           store_id     = EXCLUDED.store_id
+            RETURNING *
         ''', (data, 'Matosinhos', sabor, quantidade_kg, 'inicio', store_id))
+        after = cursor.fetchone()
+        _write_pesagem_audit(
+            cursor,
+            'edit' if before else 'create',
+            'Matosinhos',
+            'production_start',
+            actor_username='sistema',
+            store_id=store_id,
+            event_date=data,
+            stock_id=after['id'],
+            affected_count=1,
+            before_data=_pesagem_stock_snapshot(before),
+            after_data=_pesagem_stock_snapshot(after),
+        )
         conn.commit()
 
 
@@ -2619,6 +2824,7 @@ def get_pesagem_comparison(loja: str, tipo: str, data_atual: date = None, local:
         cursor.execute(f"""
             SELECT DISTINCT data FROM stock_gelado
             WHERE loja = %s AND tipo = %s AND data < %s
+              AND is_active = TRUE
               AND sabor IS NOT NULL
               {local_filter}
             ORDER BY data DESC LIMIT 1
@@ -2629,6 +2835,7 @@ def get_pesagem_comparison(loja: str, tipo: str, data_atual: date = None, local:
         cursor.execute(f"""
             SELECT sabor, SUM(quantidade_kg) FROM stock_gelado
             WHERE loja = %s AND tipo = %s AND data = %s
+              AND is_active = TRUE
               AND sabor IS NOT NULL
               {local_filter}
             GROUP BY sabor
@@ -2640,6 +2847,7 @@ def get_pesagem_comparison(loja: str, tipo: str, data_atual: date = None, local:
             cursor.execute(f"""
                 SELECT sabor, SUM(quantidade_kg) FROM stock_gelado
                 WHERE loja = %s AND tipo = %s AND data = %s
+                  AND is_active = TRUE
                   AND sabor IS NOT NULL
                   {local_filter}
                 GROUP BY sabor
@@ -2652,11 +2860,21 @@ def get_pesagem_comparison(loja: str, tipo: str, data_atual: date = None, local:
 def get_stock_gelado_df(loja: str = None, tipo: str = None, data_inicio: date = None, data_fim: date = None) -> list:
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        query = "SELECT * FROM stock_gelado WHERE 1=1"
+        query = "SELECT * FROM stock_gelado WHERE is_active = TRUE"
         params = []
         if loja:
-            query += " AND loja = %s"
-            params.append(loja)
+            store_id = get_store_id_by_name(loja)
+            if store_id:
+                query += """
+                    AND (
+                        store_id = %s
+                        OR (store_id IS NULL AND lower(loja) = lower(%s))
+                    )
+                """
+                params.extend([store_id, loja])
+            else:
+                query += " AND lower(loja) = lower(%s)"
+                params.append(loja)
         if tipo:
             query += " AND tipo = %s"
             params.append(tipo)
@@ -2670,51 +2888,187 @@ def get_stock_gelado_df(loja: str = None, tipo: str = None, data_inicio: date = 
         cursor.execute(query, params)
         return [dict(r) for r in cursor.fetchall()]
 
-def get_stock_gelado_by_id(stock_id: int):
+def get_stock_gelado_by_id(stock_id: int, include_inactive: bool = False):
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=DictCursor)
-        cursor.execute("SELECT * FROM stock_gelado WHERE id = %s", (stock_id,))
+        query = "SELECT * FROM stock_gelado WHERE id = %s"
+        if not include_inactive:
+            query += " AND is_active = TRUE"
+        cursor.execute(query, (stock_id,))
         row = cursor.fetchone()
     return dict(row) if row else None
 
-def delete_stock_gelado(stock_id: int):
+def delete_stock_gelado(
+    stock_id: int,
+    reason: str,
+    actor_id=None,
+    actor_username: str = 'sistema',
+    origin: str = 'vendas',
+):
+    clean_reason = (reason or '').strip()
+    if len(clean_reason) < 5:
+        raise ValueError('Indique o motivo da eliminação (mínimo 5 caracteres).')
     with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM stock_gelado WHERE id = %s", (stock_id,))
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT * FROM stock_gelado
+            WHERE id = %s AND is_active = TRUE
+            FOR UPDATE
+        """, (stock_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError('Esta pesagem já não está ativa.')
+        if row['tipo'] == 'fim':
+            _lock_pesagem_days(cursor, row['store_id'], [row['data']])
+        cursor.execute("""
+            UPDATE stock_gelado
+            SET is_active = FALSE,
+                deactivated_at = NOW(),
+                deactivated_by_id = %s,
+                deactivated_by = %s,
+                deactivation_reason = %s
+            WHERE id = %s AND is_active = TRUE
+        """, (
+            actor_id, (actor_username or 'sistema')[:100],
+            clean_reason, stock_id,
+        ))
+        _write_pesagem_audit(
+            cursor, 'delete', row['loja'], origin,
+            actor_id=actor_id, actor_username=actor_username,
+            store_id=row['store_id'], event_date=row['data'],
+            stock_id=row['id'], batch_id=row['source_batch_id'],
+            reason=clean_reason, affected_count=1,
+            before_data=_pesagem_stock_snapshot(row),
+            after_data={**_pesagem_stock_snapshot(row), 'is_active': False},
+        )
         conn.commit()
 
-def delete_stock_gelado_by_date(loja: str, data_date) -> int:
+def delete_stock_gelado_by_date(
+    loja: str,
+    data_date,
+    reason: str,
+    expected_count: int,
+    actor_id=None,
+    actor_username: str = 'sistema',
+) -> int:
     """Delete all fim-de-dia stock_gelado rows for a given loja + date.
 
     Returns the number of rows deleted.
     """
+    clean_reason = (reason or '').strip()
+    if len(clean_reason) < 5:
+        raise ValueError('Indique o motivo da eliminação (mínimo 5 caracteres).')
+    try:
+        expected_count = int(expected_count)
+    except (TypeError, ValueError):
+        raise ValueError('Confirme o número de linhas a eliminar.') from None
+    store_id = get_store_id_by_name(loja)
     with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "DELETE FROM stock_gelado WHERE loja = %s AND data = %s AND tipo = 'fim'",
-            (loja, data_date),
-        )
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        _lock_pesagem_days(cursor, store_id, [data_date])
+        cursor.execute("""
+            SELECT * FROM stock_gelado
+            WHERE (
+                    store_id = %s
+                    OR (store_id IS NULL AND lower(loja) = lower(%s))
+                  )
+              AND data = %s AND tipo = 'fim'
+              AND is_active = TRUE
+            ORDER BY id
+            FOR UPDATE
+        """, (store_id, loja, data_date))
+        rows = cursor.fetchall()
+        if len(rows) != expected_count:
+            raise ValueError(
+                f'A data tem agora {len(rows)} linha(s) ativa(s). '
+                'Recarregue antes de confirmar.'
+            )
+        if not rows:
+            raise ValueError('Não existem pesagens ativas para eliminar.')
+        cursor.execute("""
+            UPDATE stock_gelado
+            SET is_active = FALSE,
+                deactivated_at = NOW(),
+                deactivated_by_id = %s,
+                deactivated_by = %s,
+                deactivation_reason = %s
+            WHERE (
+                    store_id = %s
+                    OR (store_id IS NULL AND lower(loja) = lower(%s))
+                  )
+              AND data = %s AND tipo = 'fim'
+              AND is_active = TRUE
+        """, (
+            actor_id, (actor_username or 'sistema')[:100],
+            clean_reason, store_id, loja, data_date,
+        ))
         deleted = cursor.rowcount
+        for row in rows:
+            _write_pesagem_audit(
+                cursor, 'delete', loja, 'vendas_delete_day',
+                actor_id=actor_id, actor_username=actor_username,
+                store_id=row['store_id'], event_date=row['data'],
+                stock_id=row['id'], batch_id=row['source_batch_id'],
+                reason=clean_reason, affected_count=1,
+                before_data=_pesagem_stock_snapshot(row),
+                after_data={
+                    **_pesagem_stock_snapshot(row),
+                    'is_active': False,
+                },
+            )
+        _write_pesagem_audit(
+            cursor, 'delete_day', loja, 'vendas_delete_day',
+            actor_id=actor_id, actor_username=actor_username,
+            store_id=store_id, event_date=data_date,
+            reason=clean_reason, affected_count=deleted,
+            expected_count=expected_count,
+        )
         conn.commit()
     return deleted
 
 
-def update_stock_gelado(stock_id: int, quantidade_kg: float, loja: str = None, nova_data: date = None):
+def update_stock_gelado(
+    stock_id: int,
+    quantidade_kg: float,
+    loja: str = None,
+    nova_data: date = None,
+    actor_id=None,
+    actor_username: str = 'sistema',
+    reason: str = None,
+    origin: str = 'vendas',
+    expected_store_id=None,
+):
+    clean_reason = (reason or '').strip()
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         try:
             cursor.execute("""
-                SELECT sg.data, sg.loja, sg.tipo, sg.store_id,
+                SELECT sg.*,
                        s.name AS current_store_name
                 FROM stock_gelado sg
                 LEFT JOIN stores s ON s.id = sg.store_id
-                WHERE sg.id = %s
+                WHERE sg.id = %s AND sg.is_active = TRUE
                 FOR UPDATE OF sg
             """, (stock_id,))
             current = cursor.fetchone()
             if not current:
-                conn.commit()
-                return
+                raise ValueError('A pesagem já não está ativa.')
+            effective_current_store_id = current['store_id']
+            if effective_current_store_id is None:
+                cursor.execute("""
+                    SELECT id FROM stores
+                    WHERE lower(name) = lower(%s)
+                    LIMIT 1
+                """, (current['loja'],))
+                legacy_store = cursor.fetchone()
+                effective_current_store_id = (
+                    legacy_store['id'] if legacy_store else None
+                )
+            if (
+                expected_store_id is not None
+                and effective_current_store_id != int(expected_store_id)
+            ):
+                raise ValueError('A pesagem não pertence à loja selecionada.')
             if loja and loja not in (
                 current['loja'],
                 current['current_store_name'],
@@ -2753,15 +3107,123 @@ def update_stock_gelado(stock_id: int, quantidade_kg: float, loja: str = None, n
                     effective_store_id,
                     [destination],
                 )
+            if len(clean_reason) < 5:
+                raise ValueError(
+                    'Indique o motivo da edição (mínimo 5 caracteres).'
+                )
             cursor.execute("""
                 UPDATE stock_gelado
                 SET quantidade_kg = %s, data = %s
                 WHERE id = %s
+                RETURNING *
             """, (quantidade_kg, destination, stock_id))
+            updated = cursor.fetchone()
+            _write_pesagem_audit(
+                cursor, 'edit', current['loja'], origin,
+                actor_id=actor_id, actor_username=actor_username,
+                store_id=current['store_id'], event_date=destination,
+                stock_id=stock_id,
+                reason=clean_reason,
+                affected_count=1,
+                before_data=_pesagem_stock_snapshot(current),
+                after_data=_pesagem_stock_snapshot(updated),
+            )
             conn.commit()
         except Exception:
             conn.rollback()
             raise
+
+
+def restore_stock_gelado(
+    stock_id: int,
+    reason: str,
+    actor_id=None,
+    actor_username: str = 'sistema',
+):
+    clean_reason = (reason or '').strip()
+    if len(clean_reason) < 5:
+        raise ValueError('Indique o motivo da reposição (mínimo 5 caracteres).')
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        try:
+            cursor.execute("""
+                SELECT * FROM stock_gelado
+                WHERE id = %s AND is_active = FALSE
+                FOR UPDATE
+            """, (stock_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError('Esta pesagem não está disponível para reposição.')
+            if row['tipo'] == 'fim':
+                _lock_pesagem_days(cursor, row['store_id'], [row['data']])
+                _ensure_pesagem_days_not_justified(
+                    cursor, row['store_id'], [row['data']]
+                )
+            cursor.execute("""
+                UPDATE stock_gelado
+                SET is_active = TRUE,
+                    restored_at = NOW(),
+                    restored_by_id = %s,
+                    restored_by = %s
+                WHERE id = %s AND is_active = FALSE
+                RETURNING *
+            """, (
+                actor_id, (actor_username or 'sistema')[:100], stock_id,
+            ))
+            restored = cursor.fetchone()
+            _write_pesagem_audit(
+                cursor, 'restore', row['loja'], 'manager_history',
+                actor_id=actor_id, actor_username=actor_username,
+                store_id=row['store_id'], event_date=row['data'],
+                stock_id=row['id'], batch_id=row['source_batch_id'],
+                reason=clean_reason, affected_count=1,
+                before_data=_pesagem_stock_snapshot(row),
+                after_data=_pesagem_stock_snapshot(restored),
+            )
+            conn.commit()
+            return dict(restored)
+        except psycopg2.IntegrityError:
+            conn.rollback()
+            raise ValueError(
+                'Já existe uma pesagem ativa com a mesma data e sabor.'
+            ) from None
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def get_pesagem_audit_history(
+    store_id: int,
+    data_inicio: date = None,
+    data_fim: date = None,
+    batch_id=None,
+    limit: int = 250,
+):
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        query = """
+            SELECT id, event_uuid, occurred_at, event_type, outcome,
+                   stock_id, batch_id, store_id, loja, event_date,
+                   actor_id, actor_username, origin, reason,
+                   affected_count, expected_count, before_data,
+                   after_data, safe_cause
+            FROM pesagem_audit_events
+            WHERE store_id = %s
+        """
+        params = [store_id]
+        if data_inicio:
+            query += " AND event_date >= %s"
+            params.append(data_inicio)
+        if data_fim:
+            query += " AND event_date <= %s"
+            params.append(data_fim)
+        if batch_id:
+            query += " AND batch_id = %s"
+            params.append(str(batch_id))
+        query += " ORDER BY occurred_at DESC, id DESC LIMIT %s"
+        params.append(max(1, min(int(limit), 500)))
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
 
 def get_pesagens_recentes(n: int = 3) -> dict:
     """Return the last n pesagem dates and per-sabor kg.
@@ -2795,6 +3257,7 @@ def get_pesagens_recentes(n: int = 3) -> dict:
         cursor.execute("""
             SELECT DISTINCT data FROM stock_gelado
             WHERE loja = 'Bolhão' AND tipo = 'fim' AND sabor IS NOT NULL
+              AND is_active = TRUE
             ORDER BY data DESC LIMIT %s
         """, (n,))
         datas_bol = [r[0] for r in cursor.fetchall()]
@@ -2804,6 +3267,7 @@ def get_pesagens_recentes(n: int = 3) -> dict:
                 SELECT data, sabor, SUM(quantidade_kg)
                 FROM stock_gelado
                 WHERE loja = 'Bolhão' AND tipo = 'fim' AND sabor IS NOT NULL AND data = ANY(%s)
+                  AND is_active = TRUE
                 GROUP BY data, sabor
                 ORDER BY sabor, data
             """, (datas_bol,))
@@ -2834,6 +3298,7 @@ def get_latest_stock_by_sabor(loja: str, tipo: str) -> pd.DataFrame:
             SELECT sg.id, sg.sabor, sg.quantidade_kg, sg.data
             FROM stock_gelado sg
             WHERE sg.loja = %s AND sg.tipo = %s
+              AND sg.is_active = TRUE
             ORDER BY sg.id DESC
         """, (loja, tipo))
         rows = cursor.fetchall()
@@ -2863,15 +3328,19 @@ def get_latest_stock_by_sabor(loja: str, tipo: str) -> pd.DataFrame:
     return pd.DataFrame(result)
 
 def add_stock_gelado_batch(data: date, loja: str, stocks: list, tipo: str):
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        for stock in stocks:
-            if stock['quantidade'] is not None and stock['quantidade'] >= 0:
-                cursor.execute('''
-                    INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo)
-                    VALUES (%s, %s, %s, %s, %s)
-                ''', (data, loja, stock['sabor'], stock['quantidade'], tipo))
-        conn.commit()
+    entries = [
+        {
+            'data': data,
+            'sabor': stock['sabor'],
+            'quantidade_kg': stock['quantidade'],
+            'tipo': tipo,
+        }
+        for stock in stocks
+        if stock['quantidade'] is not None and stock['quantidade'] >= 0
+    ]
+    return add_stock_gelado_bulk(
+        entries, loja, actor_username='sistema', origin='legacy_batch'
+    )
 
 def get_vendas_bolhao_dashboard_data(loja: str = 'Bolhão') -> list:
     today = date.today()
@@ -2890,6 +3359,7 @@ def get_vendas_bolhao_dashboard_data(loja: str = 'Bolhão') -> list:
             SELECT DISTINCT ON (sabor) sabor, quantidade_kg
             FROM stock_gelado
             WHERE loja = %s AND tipo IN ('fim', 'inicio') AND data = %s
+              AND is_active = TRUE
             ORDER BY sabor, CASE WHEN tipo = 'fim' THEN 0 ELSE 1 END, id DESC
         """, (loja, yesterday))
         pesagem_ontem_raw = {}
@@ -2913,6 +3383,7 @@ def get_vendas_bolhao_dashboard_data(loja: str = 'Bolhão') -> list:
             SELECT DISTINCT ON (sabor) sabor, quantidade_kg
             FROM stock_gelado
             WHERE loja = %s AND tipo IN ('fim', 'inicio') AND data = %s
+              AND is_active = TRUE
             ORDER BY sabor, CASE WHEN tipo = 'fim' THEN 0 ELSE 1 END, id DESC
         """, (loja, today))
         pesagem_hoje_raw = {}

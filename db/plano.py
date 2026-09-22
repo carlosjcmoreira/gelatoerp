@@ -294,6 +294,7 @@ def get_latest_bolhao_pesagem(sabor: str):
             SELECT quantidade_kg, data FROM stock_gelado
             WHERE loja = 'Bolhão'
               AND sabor = %s
+              AND is_active = TRUE
             ORDER BY data DESC, id DESC LIMIT 1
         """, (sabor,))
         row = cursor.fetchone()
@@ -472,7 +473,7 @@ def get_latest_pesagem_por_sabor(loja: str) -> dict:
         cursor.execute("""
             SELECT DISTINCT ON (sabor) sabor, quantidade_kg, data
             FROM stock_gelado
-            WHERE loja = %s
+            WHERE loja = %s AND is_active = TRUE
             ORDER BY sabor, data DESC, id DESC
         """, (loja,))
         rows = cursor.fetchall()
@@ -1007,20 +1008,8 @@ def upsert_pesagem_matosinhos_inicio(data: date, sabor: str, quantidade_kg: floa
     inserts the new measurement.  This is the correct replacement semantics for
     the daily production start weighing.
     """
-    from sabor_utils import normalise_sabor
-    sabor = normalise_sabor(sabor)
-    store_id = get_store_id_by_name('Matosinhos')
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            DELETE FROM stock_gelado
-            WHERE data = %s AND loja = 'Matosinhos' AND sabor = %s AND tipo = 'inicio'
-        """, (data, sabor))
-        cursor.execute("""
-            INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (data, 'Matosinhos', sabor, quantidade_kg, 'inicio', store_id))
-        conn.commit()
+    from db.pastelaria import upsert_stock_gelado_matosinhos
+    upsert_stock_gelado_matosinhos(data, sabor, quantidade_kg)
 
 
 def get_latest_pesagem_por_sabor_all_lojas() -> dict:
@@ -1047,6 +1036,7 @@ def get_latest_pesagem_por_sabor_all_lojas() -> dict:
             SELECT DISTINCT ON (loja, sabor) id, loja, sabor, quantidade_kg, data
             FROM stock_gelado
             WHERE data >= CURRENT_DATE - INTERVAL '1 day'
+              AND is_active = TRUE
             ORDER BY loja, sabor, data DESC, id DESC
         """)
         rows = cursor.fetchall()
@@ -1080,6 +1070,7 @@ def get_pesagens_loja_range(days: int = 7) -> list:
             SELECT id, loja, sabor, quantidade_kg, data
             FROM stock_gelado
             WHERE data >= CURRENT_DATE - (%s * INTERVAL '1 day')
+              AND is_active = TRUE
             ORDER BY data DESC, loja, sabor
         """, (days,))
         rows = cursor.fetchall()
@@ -1130,6 +1121,7 @@ def get_pesagens_loja_3dias(
             SELECT DISTINCT ON (sabor, data) id, sabor, quantidade_kg, data
             FROM stock_gelado
             WHERE loja = %s AND data = ANY(%s)
+              AND is_active = TRUE
             ORDER BY sabor, data, id DESC
         """, (loja_nome, dates))
         entries = cursor.fetchall()
@@ -1239,7 +1231,8 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
         cursor.execute(f"""
             SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
             FROM stock_gelado
-            WHERE loja = %s AND data BETWEEN %s AND %s {sabor_cond}
+            WHERE loja = %s AND data BETWEEN %s AND %s
+              AND is_active = TRUE {sabor_cond}
             ORDER BY sabor, data DESC, id DESC
         """, params_in)
         in_period = {r[0]: (float(r[1]), r[2], False) for r in cursor.fetchall()}
@@ -1258,7 +1251,8 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
             cursor.execute(f"""
                 SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
                 FROM stock_gelado
-                WHERE loja = %s AND data < %s {sabor_cond}
+                WHERE loja = %s AND data < %s
+                  AND is_active = TRUE {sabor_cond}
                 ORDER BY sabor, data DESC, id DESC
             """, params_pre)
             pre_period = {r[0]: (float(r[1]), r[2], True) for r in cursor.fetchall()}
@@ -1274,7 +1268,8 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
                 cursor.execute("""
                     SELECT DISTINCT ON (sabor) sabor, quantidade_kg::float, data
                     FROM stock_gelado
-                    WHERE loja = %s AND data < %s AND sabor != ALL(%s)
+                    WHERE loja = %s AND data < %s
+                      AND is_active = TRUE AND sabor != ALL(%s)
                     ORDER BY sabor, data DESC, id DESC
                 """, [loja, data_inicio, in_sabores])
                 pre_period = {r[0]: (float(r[1]), r[2], True) for r in cursor.fetchall()}
@@ -1430,6 +1425,7 @@ def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sa
                 SELECT quantidade_kg::float, data
                 FROM stock_gelado
                 WHERE loja = %s AND sabor = %s AND data > %s AND data <= %s
+                  AND is_active = TRUE
                 ORDER BY data DESC, id DESC
                 LIMIT 1
             """, (loja, sabor, baseline_dt, data_fim))

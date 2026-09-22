@@ -79,6 +79,7 @@ def get_daily_weighing_statuses(
               )
             WHERE s.id = ANY(%s)
               AND sg.tipo = 'fim'
+              AND sg.is_active = TRUE
               AND sg.data = ANY(%s)
             GROUP BY s.id, s.name, sg.data
         """, (store_ids, unique_days))
@@ -213,6 +214,7 @@ def justify_missing_weighing(
                         )
                     )
                       AND data = %s AND tipo = 'fim'
+                      AND is_active = TRUE
                 ) OR EXISTS (
                     SELECT 1
                     FROM pesagem_draft_batches b
@@ -255,6 +257,20 @@ def justify_missing_weighing(
             if not row:
                 raise ValueError('Este dia já tem uma justificação registada.')
             result = dict(row)
+            from db.pastelaria import _write_pesagem_audit
+            _write_pesagem_audit(
+                cursor,
+                'justify',
+                store['name'],
+                'production_justification',
+                actor_id=actor_id,
+                actor_username=actor_username,
+                store_id=store_id,
+                event_date=day,
+                reason=clean_reason,
+                affected_count=1,
+                after_data={'state': 'justified'},
+            )
             conn.commit()
             return result
         except Exception:

@@ -28,7 +28,8 @@ def widget_eurokg() -> dict:
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            "SELECT MAX(data) FROM stock_gelado WHERE tipo IN ('fim','inicio')"
+            "SELECT MAX(data) FROM stock_gelado "
+            "WHERE tipo IN ('fim','inicio') AND is_active = TRUE"
         )
         ultima_pesagem = cur.fetchone()[0]
         cur.execute(

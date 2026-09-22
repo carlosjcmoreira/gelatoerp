@@ -10,7 +10,8 @@ from database import (
     get_motivos_quebra, get_produtos_pastelaria, get_produtos_confeitaria,
     get_vendas_bolhao_dashboard_data,
     add_quebra, get_quebras_df, delete_quebra,
-    add_stock_gelado, get_stock_gelado_df, delete_stock_gelado, update_stock_gelado,
+    add_stock_gelado, get_stock_gelado_df, get_stock_gelado_by_id,
+    delete_stock_gelado, update_stock_gelado,
     add_stock_gelado_carapinas, get_carapinas_for_stock_ids,
     get_ordens_transferencia, confirmar_ordem_transferencia,
     get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
@@ -37,6 +38,8 @@ from db.pastelaria import (
     save_pesagem_draft,
     confirm_pesagem_draft,
     get_pesagem_batch_receipt,
+    get_pesagem_audit_history,
+    restore_stock_gelado,
 )
 from sabor_utils import normalise_sabor
 from db.weighing_status import get_daily_weighing_statuses, portugal_today
@@ -247,6 +250,18 @@ def _user_owns_loja(loja_nome):
         if store['name'] == loja_nome and store['id'] in vendas_store_ids:
             return True
     return False
+
+
+def _user_owns_stock_record(record):
+    if not record:
+        return False
+    user = session.get('user', {})
+    if user.get('acesso_gestor'):
+        return True
+    store_id = record.get('store_id')
+    if store_id is not None:
+        return store_id in (user.get('vendas_store_ids') or [])
+    return _user_owns_loja(record.get('loja', ''))
 
 
 def _get_count_store():
@@ -555,8 +570,12 @@ def pesagem():
 
             if pesagem_kg >= 0 and sabor:
                 try:
+                    user = session.get('user', {})
                     stock_id = add_stock_gelado(
-                        data_reg, loja_nome, sabor, pesagem_kg, 'fim'
+                        data_reg, loja_nome, sabor, pesagem_kg, 'fim',
+                        actor_id=user.get('id'),
+                        actor_username=user.get('username') or 'sistema',
+                        origin='vendas_single',
                     )
                     individual = [v for v in qtds_parsed if v > 0]
                     if len(individual) > 1:
@@ -591,6 +610,7 @@ def pesagem():
             if entries:
                 try:
                     from database import add_stock_gelado_bulk
+                    user = session.get('user', {})
                     existing_set = set()
                     existing_records = get_stock_gelado_df(
                         loja=loja_nome, tipo='fim',
@@ -605,7 +625,13 @@ def pesagem():
                             new_entries.append(e)
                             existing_set.add(key)
                     skipped_dup = len(entries) - len(new_entries)
-                    bulk_saved = add_stock_gelado_bulk(new_entries, loja_nome) if new_entries else 0
+                    bulk_saved = add_stock_gelado_bulk(
+                        new_entries,
+                        loja_nome,
+                        actor_id=user.get('id'),
+                        actor_username=user.get('username') or 'sistema',
+                        origin='vendas_ocr',
+                    ) if new_entries else 0
                     if bulk_saved > 0 and skipped_dup == 0:
                         flash(f'{bulk_saved} pesagem(ns) registada(s) via fotografia!', 'success')
                     elif bulk_saved > 0:
@@ -650,6 +676,7 @@ def pesagem():
             if entries:
                 try:
                     from database import add_stock_gelado_bulk
+                    user = session.get('user', {})
                     all_dates = set(e['data'] for e in entries)
                     existing_set = set()
                     existing_records = get_stock_gelado_df(
@@ -665,7 +692,13 @@ def pesagem():
                             new_entries.append(e)
                             existing_set.add(key)
                     skipped_dup = len(entries) - len(new_entries)
-                    bulk_saved = add_stock_gelado_bulk(new_entries, loja_nome) if new_entries else 0
+                    bulk_saved = add_stock_gelado_bulk(
+                        new_entries,
+                        loja_nome,
+                        actor_id=user.get('id'),
+                        actor_username=user.get('username') or 'sistema',
+                        origin='vendas_manual_bulk',
+                    ) if new_entries else 0
                     if bulk_saved > 0 and skipped_dup == 0:
                         flash(f'{bulk_saved} pesagem(ns) confirmada(s) e registada(s)!', 'success')
                     elif bulk_saved > 0:
@@ -690,9 +723,21 @@ def pesagem():
             if s_id:
                 from database import get_stock_gelado_by_id
                 record = get_stock_gelado_by_id(int(s_id))
-                if record and _user_owns_loja(record.get('loja', '')):
-                    delete_stock_gelado(int(s_id))
-                    flash('Pesagem eliminada!', 'success')
+                if _user_owns_stock_record(record):
+                    try:
+                        user = session.get('user', {})
+                        delete_stock_gelado(
+                            int(s_id),
+                            request.form.get('reason', ''),
+                            actor_id=user.get('id'),
+                            actor_username=user.get('username') or 'sistema',
+                        )
+                        flash(
+                            'Pesagem desativada. Pode ser reposta no histórico.',
+                            'success',
+                        )
+                    except ValueError as exc:
+                        flash(str(exc), 'error')
                 else:
                     flash('Sem permissão para eliminar este registo.', 'error')
             data_redirect = request.form.get('data', '').strip()
@@ -706,10 +751,22 @@ def pesagem():
                 try:
                     from datetime import datetime as _dt
                     day = _dt.strptime(raw_data, '%Y-%m-%d').date()
-                    deleted = delete_stock_gelado_by_date(loja_nome, day)
-                    flash(f'Pesagens de {day.strftime("%d/%m/%Y")} eliminadas ({deleted} registo(s)).', 'success')
-                except (ValueError, TypeError):
-                    flash('Data inválida.', 'error')
+                    user = session.get('user', {})
+                    deleted = delete_stock_gelado_by_date(
+                        loja_nome,
+                        day,
+                        request.form.get('reason', ''),
+                        request.form.get('expected_count'),
+                        actor_id=user.get('id'),
+                        actor_username=user.get('username') or 'sistema',
+                    )
+                    flash(
+                        f'Pesagens de {day.strftime("%d/%m/%Y")} '
+                        f'desativadas ({deleted} registo(s)).',
+                        'success',
+                    )
+                except (ValueError, TypeError) as exc:
+                    flash(str(exc) or 'Data inválida.', 'error')
             else:
                 flash('Sem permissão ou data em falta.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id))
@@ -724,7 +781,7 @@ def pesagem():
             if s_id:
                 from database import get_stock_gelado_by_id
                 record = get_stock_gelado_by_id(s_id)
-                if record and _user_owns_loja(record.get('loja', '')):
+                if _user_owns_stock_record(record):
                     try:
                         nova_kg = round(float(request.form.get('quantidade', '0').replace(',', '.')), 3)
                         if nova_kg < 0:
@@ -743,11 +800,18 @@ def pesagem():
                                 return redirect(url_for('vendas.pesagem', loja_id=loja_id,
                                                         data=data_redirect if data_redirect else None))
                         try:
+                            user = session.get('user', {})
                             update_stock_gelado(
                                 s_id,
                                 nova_kg,
                                 loja=record.get('loja'),
                                 nova_data=nova_data,
+                                actor_id=user.get('id'),
+                                actor_username=(
+                                    user.get('username') or 'sistema'
+                                ),
+                                reason=request.form.get('reason'),
+                                expected_store_id=loja_id,
                             )
                             flash(
                                 f'Pesagem actualizada para {nova_kg:.3f} kg.',
@@ -795,6 +859,12 @@ def pesagem():
     daily_status = get_daily_weighing_statuses(
         [data_sel], [loja_nome]
     ).get((loja_nome, data_sel))
+    audit_events = get_pesagem_audit_history(
+        loja_id,
+        data_inicio=data_sel,
+        data_fim=data_sel,
+        limit=100,
+    )
 
     return render_template('vendas/pesagem.html',
                            active_tab='pesagem',
@@ -805,6 +875,10 @@ def pesagem():
                            pesagens_hoje=pesagens_hoje,
                            receipt=receipt,
                            daily_status=daily_status,
+                           audit_events=audit_events,
+                           can_restore=bool(
+                               session.get('user', {}).get('acesso_gestor')
+                           ),
                            data_sel=data_sel,
                            today=str(portugal_today()))
 
@@ -880,6 +954,7 @@ def confirmar_pesagem_rascunho():
             payload.get('revision'),
             loja_nome,
             session.get('user', {}).get('username') or 'sistema',
+            session.get('user', {}).get('id'),
         )
         return jsonify({'ok': True, 'receipt': receipt})
     except ValueError as exc:
@@ -941,6 +1016,45 @@ def pesagem_historico():
             'linhas': sorted(linhas, key=lambda x: x['sabor']),
         })
     return jsonify({'ok': True, 'dias': dias})
+
+
+@vendas_bp.route('/pesagem/auditoria/restaurar', methods=['POST'])
+@login_required
+def restaurar_pesagem():
+    user = session.get('user', {})
+    if not user.get('acesso_gestor'):
+        abort(403)
+    loja_id, loja_nome = _get_user_loja()
+    try:
+        stock_id = int(request.form.get('stock_id', ''))
+        record = get_stock_gelado_by_id(stock_id, include_inactive=True)
+        if not record or (
+            (
+                record.get('store_id') is not None
+                and record.get('store_id') != loja_id
+            )
+            or (
+                record.get('store_id') is None
+                and record.get('loja') != loja_nome
+            )
+        ):
+            abort(404)
+        restored = restore_stock_gelado(
+            stock_id,
+            request.form.get('reason', ''),
+            actor_id=user.get('id'),
+            actor_username=user.get('username') or 'sistema',
+        )
+        flash('Pesagem reposta e novamente incluída nos cálculos.', 'success')
+        data_redirect = restored['data'].isoformat()
+    except ValueError as exc:
+        flash(str(exc), 'error')
+        data_redirect = request.form.get('data', '')
+    return redirect(url_for(
+        'vendas.pesagem',
+        loja_id=loja_id,
+        data=data_redirect or None,
+    ))
 
 
 @vendas_bp.route('/transferencias', methods=['GET', 'POST'])

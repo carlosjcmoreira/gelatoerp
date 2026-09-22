@@ -128,7 +128,8 @@ def get_producao_sabor_overview() -> pd.DataFrame:
             SELECT DISTINCT sabor FROM (
                 SELECT sabor FROM producao WHERE loja = 'Matosinhos' AND sabor IS NOT NULL
                 UNION
-                SELECT sabor FROM stock_gelado WHERE sabor IS NOT NULL
+                SELECT sabor FROM stock_gelado
+                WHERE sabor IS NOT NULL AND is_active = TRUE
             ) AS combined ORDER BY sabor
         """)
         sabores = [r[0] for r in cursor.fetchall()]
@@ -136,12 +137,14 @@ def get_producao_sabor_overview() -> pd.DataFrame:
         cursor.execute("""
             SELECT MAX(data) FROM stock_gelado
             WHERE loja = 'Bolhão' AND tipo IN ('fim', 'inicio')
+              AND is_active = TRUE
         """)
         ultima_data_pesagem_bolhao = cursor.fetchone()[0]
 
         cursor.execute("""
             SELECT MAX(data) FROM stock_gelado
             WHERE loja = 'Matosinhos' AND tipo = 'inicio'
+              AND is_active = TRUE
         """)
         ultima_data_pesagem_mat = cursor.fetchone()[0]
 
@@ -160,6 +163,7 @@ def get_producao_sabor_overview() -> pd.DataFrame:
             cursor.execute("""
                 SELECT DISTINCT ON (sabor) sabor, quantidade_kg FROM stock_gelado
                 WHERE loja = 'Matosinhos' AND tipo = 'inicio' AND data = %s
+                  AND is_active = TRUE
                 ORDER BY sabor, id DESC
             """, (ultima_data_pesagem_mat,))
             stock_mat_pesagem = {r[0]: float(r[1]) for r in cursor.fetchall()}
@@ -187,6 +191,7 @@ def get_producao_sabor_overview() -> pd.DataFrame:
                 SELECT DISTINCT ON (sabor) sabor, quantidade_kg
                 FROM stock_gelado
                 WHERE loja = 'Bolhão' AND tipo IN ('fim', 'inicio') AND data = %s
+                  AND is_active = TRUE
                 ORDER BY sabor, CASE WHEN tipo = 'fim' THEN 0 ELSE 1 END, id DESC
             """, (ultima_data_pesagem_bolhao,))
             pesagem_bolhao_map = {r[0]: float(r[1]) for r in cursor.fetchall()}
@@ -618,7 +623,8 @@ def calculate_kpi_by_day(loja: str = None, data_inicio: date = None, data_fim: d
             query = f"""
                 SELECT data, SUM(quantidade_kg) as total
                 FROM stock_gelado
-                WHERE loja = %s AND tipo = %s{stock_excl_clause}
+                WHERE loja = %s AND tipo = %s
+                  AND is_active = TRUE{stock_excl_clause}
             """
             params = [loja_name, tipo] + list(excluidos)
             if extended_inicio:
@@ -802,6 +808,7 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
                     SELECT data, COALESCE(SUM(quantidade_kg), 0)
                     FROM stock_gelado
                     WHERE loja = %s AND tipo = 'fim' AND data = %s
+                      AND is_active = TRUE
                       {stock_excl}
                     GROUP BY data
                 """, [loja_name, prev_month_last] + list(excluidos))
@@ -810,6 +817,7 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
                     SELECT data, COALESCE(SUM(quantidade_kg), 0)
                     FROM stock_gelado
                     WHERE loja = %s AND tipo = %s AND data >= %s AND data <= %s
+                      AND is_active = TRUE
                       {stock_excl}
                     GROUP BY data
                     ORDER BY data ASC
@@ -826,6 +834,7 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
                     SELECT data, COALESCE(SUM(quantidade_kg), 0)
                     FROM stock_gelado
                     WHERE loja = %s AND tipo = 'inicio' AND data = %s
+                      AND is_active = TRUE
                       {stock_excl}
                     GROUP BY data
                 """, [loja_name, next_month_first] + list(excluidos))
@@ -834,6 +843,7 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
                     SELECT data, COALESCE(SUM(quantidade_kg), 0)
                     FROM stock_gelado
                     WHERE loja = %s AND tipo = 'fim' AND data = %s
+                      AND is_active = TRUE
                       {stock_excl}
                     GROUP BY data
                 """, [loja_name, last_day] + list(excluidos))
@@ -964,6 +974,7 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
                 SELECT data, SUM(quantidade_kg) as total
                 FROM stock_gelado
                 WHERE loja = %s AND tipo = %s
+                  AND is_active = TRUE
                   AND data >= %s AND data <= %s
                   {stock_excl}
                 GROUP BY data ORDER BY data

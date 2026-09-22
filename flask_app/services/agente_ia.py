@@ -735,6 +735,7 @@ def _handle_get_daily_briefing() -> str:
                 SELECT loja, sabor, quantidade_kg
                 FROM stock_gelado
                 WHERE data = %s AND tipo = 'fim' AND quantidade_kg < 3
+                  AND is_active = TRUE
                 ORDER BY quantidade_kg ASC
                 LIMIT 10
             """, (ontem,))

@@ -43,6 +43,7 @@ from db.weighing_status import (
     portugal_today,
 )
 import pandas as pd
+from db.stores import get_store_id_by_name
 import json
 import plotly
 import plotly.graph_objects as go
@@ -462,6 +463,7 @@ def pesagens_loja():
                     revision,
                     loja,
                     user.get('username') or 'sistema',
+                    user.get('id'),
                 )
                 flash(
                     f'{receipt["inserted_count"]} pesagem(ns) confirmada(s) '
@@ -484,7 +486,18 @@ def pesagens_loja():
                         flash("A data não pode ser no futuro.", "danger")
                         return redirect(url_for('producao.pesagens_loja', days=days))
                 if stock_id and kg >= 0:
-                    update_stock_gelado(stock_id, kg, loja, nova_data=nova_data)
+                    user = session.get('user', {})
+                    expected_store_id = get_store_id_by_name(loja)
+                    if not expected_store_id:
+                        raise ValueError('Loja inválida.')
+                    update_stock_gelado(
+                        stock_id, kg, loja, nova_data=nova_data,
+                        actor_id=user.get('id'),
+                        actor_username=user.get('username') or 'sistema',
+                        origin='production_review',
+                        reason=request.form.get('reason'),
+                        expected_store_id=expected_store_id,
+                    )
                     flash("Pesagem atualizada com sucesso.", "success")
                 else:
                     flash("Dados inválidos.", "danger")
@@ -493,6 +506,7 @@ def pesagens_loja():
         elif action == 'edit_3d':
             try:
                 from datetime import date as _date, datetime as _datetime
+                user = session.get('user', {})
                 updated = 0
                 created = 0
                 for i in range(3):
@@ -504,7 +518,20 @@ def pesagens_loja():
                     if kg < 0:
                         continue
                     if sid_str and int(sid_str) > 0:
-                        update_stock_gelado(int(sid_str), kg, loja=None, nova_data=None)
+                        loja_i = request.form.get(
+                            f'loja_{i}', ''
+                        ).strip()
+                        expected_store_id = get_store_id_by_name(loja_i)
+                        if not expected_store_id:
+                            raise ValueError('Loja inválida.')
+                        update_stock_gelado(
+                            int(sid_str), kg, loja=loja_i, nova_data=None,
+                            actor_id=user.get('id'),
+                            actor_username=user.get('username') or 'sistema',
+                            origin='production_three_day',
+                            reason=request.form.get('reason'),
+                            expected_store_id=expected_store_id,
+                        )
                         updated += 1
                     else:
                         sabor_i = request.form.get(f'sabor_{i}', '').strip()
@@ -515,7 +542,14 @@ def pesagens_loja():
                             if record_date > _date.today():
                                 flash(f"Data inválida para nova pesagem (slot {i+1}).", "danger")
                                 continue
-                            add_stock_gelado(record_date, loja_i, sabor_i, kg, 'fim')
+                            add_stock_gelado(
+                                record_date, loja_i, sabor_i, kg, 'fim',
+                                actor_id=user.get('id'),
+                                actor_username=(
+                                    user.get('username') or 'sistema'
+                                ),
+                                origin='production_three_day',
+                            )
                             created += 1
                 parts = []
                 if updated:

@@ -762,6 +762,7 @@ def get_gelato_stock_rotation(data_inicio, data_fim):
             SELECT data, loja, store_id, sabor, quantidade_kg, tipo
             FROM stock_gelado
             WHERE data >= %s AND data <= %s
+              AND is_active = TRUE
             ORDER BY data, id
         """, (baseline, load_until))
         stock_rows = [dict(row) for row in cursor.fetchall()]

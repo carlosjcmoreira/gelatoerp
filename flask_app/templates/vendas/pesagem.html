@@ -242,10 +242,11 @@
                                 style="font-size:0.72rem;" title="Editar"
                                 onclick="abrirEdit({{ p.id }}, '{{ '%.3f'|format(p.quantidade_kg) }}', '{{ data_sel.isoformat() }}')">✏️</button>
                         <form method="POST" style="display:inline;"
-                              onsubmit="return confirm('Eliminar esta pesagem?')">
+                              onsubmit="return prepararEliminacao(this, 'esta pesagem')">
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="id" value="{{ p.id }}">
                             <input type="hidden" name="data" value="{{ data_sel.isoformat() }}">
+                            <input type="hidden" name="reason" value="">
                             <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"
                                     style="font-size:0.72rem;" title="Eliminar">🗑</button>
                         </form>
@@ -266,6 +267,83 @@
     </div>
     {% else %}
     <div class="alert alert-info mb-3">Sem pesagens registadas para {{ data_sel.strftime('%d/%m/%Y') }}.</div>
+    {% endif %}
+
+    <hr>
+    <h6 class="mb-3">🧾 Histórico de alterações — {{ data_sel.strftime('%d/%m/%Y') }}</h6>
+    {% if audit_events %}
+    <div class="accordion mb-3" id="audit-history">
+        {% for event in audit_events %}
+        <div class="accordion-item">
+            <h2 class="accordion-header">
+                <button class="accordion-button collapsed py-2" type="button"
+                        data-bs-toggle="collapse" data-bs-target="#audit-{{ event.id }}">
+                    <span class="badge me-2 {% if event.outcome == 'failed' %}bg-danger{% elif event.event_type in ('delete', 'delete_day') %}bg-warning text-dark{% elif event.event_type == 'restore' %}bg-success{% else %}bg-secondary{% endif %}">
+                        {% if event.event_type == 'create' %}Criação
+                        {% elif event.event_type == 'batch_confirm' %}Confirmação de lote
+                        {% elif event.event_type == 'edit' %}Edição
+                        {% elif event.event_type == 'delete' %}Desativação
+                        {% elif event.event_type == 'delete_day' %}Desativação do dia
+                        {% elif event.event_type == 'restore' %}Reposição
+                        {% elif event.event_type == 'justify' %}Justificação
+                        {% else %}Falha de confirmação{% endif %}
+                    </span>
+                    <span class="small">
+                        {{ event.actor_username }} ·
+                        {{ event.occurred_at.astimezone().strftime('%d/%m/%Y %H:%M') }}
+                    </span>
+                </button>
+            </h2>
+            <div id="audit-{{ event.id }}" class="accordion-collapse collapse">
+                <div class="accordion-body small">
+                    {% if event.batch_id %}
+                    <div><strong>Lote:</strong> <code>{{ event.batch_id }}</code></div>
+                    {% endif %}
+                    {% if event.stock_id %}
+                    <div><strong>Registo:</strong> #{{ event.stock_id }}</div>
+                    {% endif %}
+                    {% if event.before_data %}
+                    <div>
+                        <strong>Antes:</strong>
+                        {{ event.before_data.sabor or '—' }} ·
+                        {{ event.before_data.quantidade_kg if event.before_data.quantidade_kg is not none else '—' }} kg ·
+                        {{ event.before_data.data or '—' }}
+                    </div>
+                    {% endif %}
+                    {% if event.after_data %}
+                    <div>
+                        <strong>Depois:</strong>
+                        {{ event.after_data.sabor or '—' }} ·
+                        {{ event.after_data.quantidade_kg if event.after_data.quantidade_kg is not none else '—' }} kg ·
+                        {{ event.after_data.data or '—' }}
+                    </div>
+                    {% endif %}
+                    {% if event.reason %}
+                    <div><strong>Motivo:</strong> {{ event.reason }}</div>
+                    {% endif %}
+                    {% if event.event_type == 'failure' %}
+                    <div class="text-danger">A confirmação falhou; o rascunho foi preservado.</div>
+                    {% endif %}
+                    {% if can_restore and event.event_type == 'delete' and event.stock_id %}
+                    <form method="POST"
+                          action="{{ url_for('vendas.restaurar_pesagem', loja_id=loja_id) }}"
+                          class="mt-2"
+                          onsubmit="return prepararReposicao(this)">
+                        <input type="hidden" name="stock_id" value="{{ event.stock_id }}">
+                        <input type="hidden" name="data" value="{{ data_sel.isoformat() }}">
+                        <input type="hidden" name="reason" value="">
+                        <button type="submit" class="btn btn-sm btn-outline-success">
+                            Repor este registo
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted small">Ainda não existem alterações auditadas para este dia.</p>
     {% endif %}
 
     <!-- ── Histórico de Pesagens (últimos 30 dias) ─────────── -->
@@ -311,6 +389,44 @@ const DRAFT_URL = "{{ url_for('vendas.pesagem_rascunho', loja_id=loja_id) }}";
 const CONFIRM_DRAFT_URL = "{{ url_for('vendas.confirmar_pesagem_rascunho', loja_id=loja_id) }}";
 const LOJA_ID_HIST = {{ loja_id or 'null' }};
 const TODAY = "{{ today }}";
+
+function pedirMotivo(label) {
+    const reason = window.prompt('Indique o motivo para ' + label + ' (mínimo 5 caracteres):');
+    if (reason === null) return null;
+    const clean = reason.trim();
+    if (clean.length < 5) {
+        window.alert('O motivo deve ter pelo menos 5 caracteres.');
+        return null;
+    }
+    return clean;
+}
+
+function prepararEliminacao(form, label) {
+    const reason = pedirMotivo('desativar ' + label);
+    if (!reason) return false;
+    if (!window.confirm('Esta ação retira o registo dos cálculos, mas preserva o histórico. Continuar?')) {
+        return false;
+    }
+    form.querySelector('[name="reason"]').value = reason;
+    return true;
+}
+
+function prepararEliminacaoDia(form, label, count) {
+    const reason = pedirMotivo('desativar todas as ' + count + ' linhas de ' + label);
+    if (!reason) return false;
+    if (!window.confirm('Confirma a desativação das ' + count + ' linhas deste dia?')) {
+        return false;
+    }
+    form.querySelector('[name="reason"]').value = reason;
+    return true;
+}
+
+function prepararReposicao(form) {
+    const reason = pedirMotivo('repor esta pesagem');
+    if (!reason) return false;
+    form.querySelector('[name="reason"]').value = reason;
+    return true;
+}
 
 const LIMIAR_TOTAL_KG    = 15;
 const LIMIAR_CARAPINA_KG = 8;
@@ -666,10 +782,11 @@ function renderHistorico(dias) {
                     ' style="font-size:0.72rem;" title="Editar"' +
                     ' onclick="abrirEdit(' + linha.id + ', \'' + linha.quantidade_kg.toFixed(3) + '\', \'' + escHtml(dia.data_iso) + '\')">\u270f\ufe0f</button>' +
                     '<form method="POST" style="display:inline;"' +
-                    ' onsubmit="return confirm(\'Eliminar esta pesagem?\')">' +
+                    ' onsubmit="return prepararEliminacao(this, \'esta pesagem\')">' +
                     '<input type="hidden" name="action" value="delete">' +
                     '<input type="hidden" name="id" value="' + linha.id + '">' +
                     '<input type="hidden" name="data" value="' + escHtml(dia.data_iso) + '">' +
+                    '<input type="hidden" name="reason" value="">' +
                     '<button type="submit" class="btn btn-outline-danger btn-sm py-0 px-1"' +
                     ' style="font-size:0.72rem;" title="Eliminar">\uD83D\uDDD1</button>' +
                     '</form>' +
@@ -693,9 +810,11 @@ function renderHistorico(dias) {
             '<span class="badge bg-primary ms-auto">' + dia.total_kg.toFixed(3) + ' kg</span>' +
             '</button>' +
             '<form method="POST" class="d-flex align-items-center px-2 border-start flex-shrink-0"' +
-            ' onsubmit="return confirm(\'Eliminar todas as pesagens de ' + escHtml(dia.data_str) + '?\')">' +
+            ' onsubmit="return prepararEliminacaoDia(this, \'' + escHtml(dia.data_str) + '\', ' + n + ')">' +
             '<input type="hidden" name="action" value="delete_day">' +
             '<input type="hidden" name="data" value="' + escHtml(dia.data_iso) + '">' +
+            '<input type="hidden" name="expected_count" value="' + n + '">' +
+            '<input type="hidden" name="reason" value="">' +
             '<button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"' +
             ' style="font-size:0.78rem;" title="Eliminar dia inteiro">\uD83D\uDDD1</button>' +
             '</form>' +
@@ -1144,6 +1263,11 @@ function abrirEdit(id, currentKg, dataStr) {
       <input type="text" name="quantidade" id="edit-input" class="form-control"
              value="${currentKg}" inputmode="decimal" required>
     </div>
+    <div class="mb-3">
+      <label class="form-label">Motivo da alteração</label>
+      <textarea name="reason" class="form-control" minlength="5" maxlength="500"
+                required placeholder="Explique o que está a corrigir"></textarea>
+    </div>
     <div class="d-flex gap-2">
       <button type="submit" class="btn btn-primary flex-grow-1">Guardar</button>
       <button type="button" class="btn btn-outline-secondary flex-grow-1"
@@ -1157,6 +1281,11 @@ function abrirEdit(id, currentKg, dataStr) {
 }
 
 function validarEdicao(form) {
+    const reason = form.querySelector('[name="reason"]').value.trim();
+    if (reason.length < 5) {
+        alert('Indique um motivo com pelo menos 5 caracteres.');
+        return false;
+    }
     const val = parseKg(document.getElementById('edit-input').value);
     if (val > LIMIAR_TOTAL_KG) {
         return confirm(

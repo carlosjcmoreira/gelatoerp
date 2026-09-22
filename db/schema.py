@@ -3350,10 +3350,9 @@ def run_data_fix_pesagem_matosinhos_backfill():
     Idempotent backfill: mirror all plano_producao rows where
     pesagem_matosinhos > 0 into stock_gelado (loja='Matosinhos', tipo='inicio').
 
-    Must run AFTER run_data_fix_stock_gelado_dedup_and_unique so that the
-    UNIQUE constraint uq_stock_gelado_data_loja_sabor_tipo already exists —
-    the INSERT uses ON CONFLICT (data, loja, sabor, tipo) DO NOTHING which
-    requires that constraint and is safe against concurrent writers.
+    Runs after stock uniqueness is installed. The INSERT targets the active-row
+    partial unique index and is safe against concurrent writers while preserving
+    inactive historical rows.
 
     Sabor names are normalised with normalise_sabor before insert so that
     case variants ('Chocolate branco' vs 'Chocolate Branco') are collapsed to
@@ -3400,7 +3399,9 @@ def run_data_fix_pesagem_matosinhos_backfill():
                 cursor,
                 """INSERT INTO stock_gelado (data, loja, sabor, quantidade_kg, tipo, store_id)
                    VALUES %s
-                   ON CONFLICT (data, loja, sabor, tipo) DO NOTHING""",
+                   ON CONFLICT (data, store_id, sabor, tipo)
+                       WHERE is_active = TRUE AND store_id IS NOT NULL
+                   DO NOTHING""",
                 rows,
             )
             inserted = cursor.rowcount
@@ -4068,6 +4069,244 @@ def run_migrations_pesagem_day_justifications():
                 pass
 
 
+_LOCK_PESAGEM_AUDIT = 202695
+
+
+def run_migrations_pesagem_audit():
+    """Add soft deletion and immutable weighing audit events."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s)",
+                (_LOCK_PESAGEM_AUDIT,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_pesagem_audit: "
+                    "lock held by another worker, skipping"
+                )
+                return
+
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS is_active BOOLEAN
+                    NOT NULL DEFAULT TRUE
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS source_batch_id UUID
+                    REFERENCES pesagem_draft_batches(id)
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS deactivated_by_id INTEGER
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS deactivated_by VARCHAR(100)
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS deactivation_reason TEXT
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS restored_at TIMESTAMPTZ
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS restored_by_id INTEGER
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                ADD COLUMN IF NOT EXISTS restored_by VARCHAR(100)
+            """)
+            cursor.execute("""
+                ALTER TABLE stock_gelado
+                DROP CONSTRAINT IF EXISTS
+                    uq_stock_gelado_data_loja_sabor_tipo
+            """)
+            cursor.execute("""
+                WITH unique_store_names AS (
+                    SELECT lower(name) AS normalized_name, MIN(id) AS store_id
+                    FROM stores
+                    GROUP BY lower(name)
+                    HAVING COUNT(*) = 1
+                )
+                UPDATE stock_gelado sg
+                SET store_id = usn.store_id
+                FROM unique_store_names usn
+                WHERE sg.store_id IS NULL
+                  AND lower(sg.loja) = usn.normalized_name
+            """)
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pesagem_audit_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_uuid UUID NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+                    occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    event_type VARCHAR(30) NOT NULL CHECK (
+                        event_type IN (
+                            'create', 'batch_confirm', 'edit', 'delete',
+                            'delete_day', 'restore', 'justify', 'failure'
+                        )
+                    ),
+                    outcome VARCHAR(20) NOT NULL DEFAULT 'success'
+                        CHECK (outcome IN ('success', 'failed')),
+                    stock_id INTEGER,
+                    batch_id UUID,
+                    store_id INTEGER,
+                    loja VARCHAR(100) NOT NULL,
+                    event_date DATE,
+                    actor_id INTEGER,
+                    actor_username VARCHAR(100) NOT NULL,
+                    origin VARCHAR(50) NOT NULL,
+                    reason TEXT,
+                    affected_count INTEGER NOT NULL DEFAULT 0,
+                    expected_count INTEGER,
+                    before_data JSONB,
+                    after_data JSONB,
+                    safe_cause TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pesagem_audit_store_date
+                ON pesagem_audit_events(
+                    store_id, event_date, occurred_at DESC
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pesagem_audit_batch
+                ON pesagem_audit_events(batch_id, occurred_at DESC)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pesagem_audit_stock
+                ON pesagem_audit_events(stock_id, occurred_at DESC)
+            """)
+            cursor.execute("""
+                WITH ranked AS (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY
+                                   CASE
+                                       WHEN store_id IS NOT NULL
+                                           THEN 'store:' || store_id::text
+                                       ELSE 'legacy:' || lower(loja)
+                                   END,
+                                   data, sabor, tipo
+                               ORDER BY id DESC
+                           ) AS duplicate_rank
+                    FROM stock_gelado
+                    WHERE is_active = TRUE
+                ),
+                deactivated AS (
+                    UPDATE stock_gelado sg
+                    SET is_active = FALSE,
+                        deactivated_at = NOW(),
+                        deactivated_by = 'migration',
+                        deactivation_reason =
+                            'Duplicado reconciliado por identidade estável'
+                    FROM ranked r
+                    WHERE sg.id = r.id
+                      AND r.duplicate_rank > 1
+                    RETURNING sg.*
+                )
+                INSERT INTO pesagem_audit_events (
+                    event_type, outcome, stock_id, batch_id, store_id,
+                    loja, event_date, actor_username, origin, reason,
+                    affected_count, before_data, after_data
+                )
+                SELECT
+                    'delete', 'success', id, source_batch_id, store_id,
+                    loja, data, 'migration', 'stable_store_reconciliation',
+                    'Duplicado reconciliado por identidade estável', 1,
+                    jsonb_build_object(
+                        'id', id, 'data', data, 'sabor', sabor,
+                        'quantidade_kg', quantidade_kg, 'tipo', tipo,
+                        'local', local, 'is_active', TRUE
+                    ),
+                    jsonb_build_object(
+                        'id', id, 'data', data, 'sabor', sabor,
+                        'quantidade_kg', quantidade_kg, 'tipo', tipo,
+                        'local', local, 'is_active', FALSE
+                    )
+                FROM deactivated
+            """)
+            cursor.execute("""
+                DROP INDEX IF EXISTS
+                    uq_stock_gelado_active_day_store_flavour_type
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_stock_gelado_active_store_identity
+                ON stock_gelado(data, store_id, sabor, tipo)
+                WHERE is_active = TRUE AND store_id IS NOT NULL
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_stock_gelado_active_legacy_identity
+                ON stock_gelado(data, lower(loja), sabor, tipo)
+                WHERE is_active = TRUE AND store_id IS NULL
+            """)
+            cursor.execute("""
+                CREATE OR REPLACE FUNCTION prevent_pesagem_audit_mutation()
+                RETURNS trigger AS $$
+                BEGIN
+                    RAISE EXCEPTION
+                        'pesagem audit events are immutable';
+                END;
+                $$ LANGUAGE plpgsql
+            """)
+            cursor.execute("""
+                DROP TRIGGER IF EXISTS trg_pesagem_audit_immutable
+                ON pesagem_audit_events
+            """)
+            cursor.execute("""
+                CREATE TRIGGER trg_pesagem_audit_immutable
+                BEFORE UPDATE OR DELETE ON pesagem_audit_events
+                FOR EACH ROW EXECUTE FUNCTION
+                    prevent_pesagem_audit_mutation()
+            """)
+
+            cursor.execute("""
+                DROP INDEX IF EXISTS uq_pesagem_draft_open_loja
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_pesagem_draft_open_store
+                ON pesagem_draft_batches(store_id)
+                WHERE store_id IS NOT NULL
+                  AND status IN ('draft', 'confirming', 'failed')
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_pesagem_draft_open_legacy_loja
+                ON pesagem_draft_batches(lower(loja))
+                WHERE store_id IS NULL
+                  AND status IN ('draft', 'confirming', 'failed')
+            """)
+            conn.commit()
+            logger.info("run_migrations_pesagem_audit: schema ready")
+        except Exception as exc:
+            conn.rollback()
+            logger.error("run_migrations_pesagem_audit failed: %s", exc)
+            raise
+        finally:
+            try:
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (_LOCK_PESAGEM_AUDIT,),
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+
 def run_migrations_tarefas_v2():
     """Add loja_id + equipa columns to tarefas; make frequencia nullable.
     Advisory lock 202620."""
@@ -4401,6 +4640,20 @@ def run_data_fix_stock_gelado_dedup_and_unique():
             cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_STOCK_GELADO_DEDUP_UNIQUE,))
             if not cursor.fetchone()[0]:
                 logger.info("run_data_fix_stock_gelado_dedup_and_unique: lock held by another worker, skipping")
+                return
+
+            cursor.execute("""
+                SELECT
+                    to_regclass(
+                        'uq_stock_gelado_active_store_identity'
+                    ) IS NOT NULL
+                    OR to_regclass('pesagem_audit_events') IS NOT NULL
+            """)
+            if cursor.fetchone()[0]:
+                logger.info(
+                    "run_data_fix_stock_gelado_dedup_and_unique: "
+                    "active-row unique index already installed, skipping"
+                )
                 return
 
             cursor.execute("""
