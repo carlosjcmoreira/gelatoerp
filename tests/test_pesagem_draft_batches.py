@@ -7,6 +7,7 @@ from db.connection import db_connection
 from db.pastelaria import (
     confirm_pesagem_draft,
     get_open_pesagem_draft,
+    register_pesagem_draft,
     save_pesagem_draft,
 )
 from db.schema import run_migrations_pesagem_draft_batches
@@ -84,21 +85,26 @@ class PesagemDraftBatchIntegrationTests(unittest.TestCase):
         self.assertEqual(len(recovered['entries']), 2)
         self.assertEqual(self._stock_rows(), [])
 
-    def test_confirmation_is_atomic_and_idempotent(self):
-        self._save()
+    def test_registration_is_atomic_and_confirmation_is_idempotent(self):
+        draft = self._save()
+
+        registered = register_pesagem_draft(
+            self.batch_id, draft['revision'], self.loja, 'test-user'
+        )
+        self.assertEqual(registered['status'], 'registered')
+        self.assertEqual(len(self._stock_rows()), 2)
 
         first_receipt = confirm_pesagem_draft(
-            self.batch_id, 1, self.loja, 'test-user'
+            self.batch_id, registered['revision'], self.loja, 'test-user'
         )
         second_receipt = confirm_pesagem_draft(
-            self.batch_id, 1, self.loja, 'test-user'
+            self.batch_id, registered['revision'], self.loja, 'test-user'
         )
 
         self.assertEqual(first_receipt['status'], 'confirmed')
         self.assertEqual(first_receipt['inserted_count'], 2)
         self.assertEqual(second_receipt['id'], first_receipt['id'])
         self.assertEqual(second_receipt['confirmed_at'], first_receipt['confirmed_at'])
-        self.assertEqual(len(self._stock_rows()), 2)
         self.assertIsNone(get_open_pesagem_draft(self.loja))
 
     def test_conflict_rolls_back_every_new_stock_row_and_keeps_draft(self):
@@ -118,7 +124,7 @@ class PesagemDraftBatchIntegrationTests(unittest.TestCase):
         self._save()
 
         with self.assertRaisesRegex(ValueError, 'Nenhuma foi registada'):
-            confirm_pesagem_draft(
+            register_pesagem_draft(
                 self.batch_id, 1, self.loja, 'test-user'
             )
 
@@ -192,7 +198,7 @@ class PesagemDraftBatchIntegrationTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, 'depois da revisão'):
-            confirm_pesagem_draft(
+            register_pesagem_draft(
                 first['id'],
                 first['revision'],
                 self.loja,

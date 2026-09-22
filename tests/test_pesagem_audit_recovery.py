@@ -12,6 +12,7 @@ from db.pastelaria import (
     get_pesagem_audit_history,
     get_pesagem_batch_receipt,
     get_stock_gelado_df,
+    register_pesagem_draft,
     restore_stock_gelado,
     save_pesagem_draft,
     update_stock_gelado,
@@ -20,6 +21,7 @@ from db.schema import (
     run_migrations_pesagem_audit,
     run_migrations_pesagem_draft_batches,
 )
+from db.weighing_status import get_daily_weighing_statuses
 
 
 class PesagemAuditRecoveryIntegrationTests(unittest.TestCase):
@@ -246,9 +248,16 @@ class PesagemAuditRecoveryIntegrationTests(unittest.TestCase):
                 'suspeito': False,
             }],
         )
-        receipt = confirm_pesagem_draft(
+        registered = register_pesagem_draft(
             batch_id,
             draft['revision'],
+            self.store_name,
+            'store-user',
+            10,
+        )
+        receipt = confirm_pesagem_draft(
+            batch_id,
+            registered['revision'],
             self.store_name,
             'store-user',
             10,
@@ -271,6 +280,75 @@ class PesagemAuditRecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual(loaded['id'], receipt['id'])
         self.assertEqual(loaded['inserted_count'], 1)
         self.assertEqual(len(loaded['entries']), 1)
+
+    def test_registered_rows_count_before_review_and_receipt_uses_edit(self):
+        batch_id = str(uuid.uuid4())
+        draft = save_pesagem_draft(
+            batch_id,
+            None,
+            self.store_name,
+            self.store_id,
+            10,
+            'store-user',
+            [{
+                'data': self.test_day,
+                'sabor': 'Chocolate',
+                'quantidade_kg': 3.2,
+                'suspeito': False,
+            }],
+        )
+        registered = register_pesagem_draft(
+            batch_id,
+            draft['revision'],
+            self.store_name,
+            'store-user',
+            10,
+        )
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id FROM stock_gelado
+                WHERE source_batch_id = %s AND is_active = TRUE
+            """, (batch_id,))
+            stock_id = cursor.fetchone()[0]
+
+        status = get_daily_weighing_statuses(
+            [self.test_day], [self.store_name]
+        )[(self.store_name, self.test_day)]
+        self.assertEqual(status['state'], 'registered')
+        self.assertEqual(status['entry_count'], 1)
+
+        update_stock_gelado(
+            stock_id,
+            4.4,
+            loja=self.store_name,
+            actor_id=10,
+            actor_username='store-user',
+            reason='Revisão do valor persistido',
+            expected_store_id=self.store_id,
+        )
+        receipt = confirm_pesagem_draft(
+            batch_id,
+            registered['revision'],
+            self.store_name,
+            'store-user',
+            10,
+        )
+        self.assertEqual(receipt['entries'][0]['quantidade_kg'], 4.4)
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM stock_gelado
+                WHERE source_batch_id = %s AND is_active = TRUE
+            """, (batch_id,))
+            self.assertEqual(cursor.fetchone()[0], 1)
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM pesagem_audit_events
+                WHERE batch_id = %s AND event_type = 'batch_confirm'
+            """, (batch_id,))
+            self.assertEqual(cursor.fetchone()[0], 1)
 
     def test_foreign_batch_failure_does_not_mutate_other_store(self):
         foreign_batch_id = str(uuid.uuid4())

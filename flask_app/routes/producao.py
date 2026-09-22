@@ -33,7 +33,7 @@ from database import (
     get_movimentos_stock_gelado,
     get_gelato_stock_rotation,
     add_producao,
-    confirm_pesagem_draft,
+    register_pesagem_draft, confirm_pesagem_draft,
 )
 from datetime import date, timedelta
 from db.weighing_status import (
@@ -409,7 +409,7 @@ def _missing_weighing_alerts(day):
     alerts = []
     for store in stores:
         status = statuses.get((store['name'], day))
-        if status and status['state'] in ('missing', 'draft'):
+        if status and status['state'] in ('missing', 'draft', 'registered'):
             status = dict(status)
             status['resolution_url'] = url_for(
                 'producao.pesagens_loja',
@@ -458,9 +458,16 @@ def pesagens_loja():
                 batch_id = request.form.get('batch_id', '').strip()
                 revision = int(request.form.get('revision', 0))
                 user = session.get('user', {})
-                receipt = confirm_pesagem_draft(
+                registered = register_pesagem_draft(
                     batch_id,
                     revision,
+                    loja,
+                    user.get('username') or 'sistema',
+                    user.get('id'),
+                )
+                receipt = confirm_pesagem_draft(
+                    batch_id,
+                    registered['revision'],
                     loja,
                     user.get('username') or 'sistema',
                     user.get('id'),

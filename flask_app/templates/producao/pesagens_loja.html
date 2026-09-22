@@ -38,7 +38,7 @@
     {# ── Shared day status for the 3-day comparison ── #}
     <div class="row g-2 mb-3">
         {% for status in three_day.date_statuses %}
-        {% set border = 'success' if status.state == 'confirmed' else ('warning' if status.state == 'draft' else ('secondary' if status.state == 'justified' else 'danger')) %}
+        {% set border = 'success' if status.state == 'confirmed' else ('warning' if status.state in ('draft', 'registered') else ('secondary' if status.state == 'justified' else 'danger')) %}
         <div class="col-12 col-md-4">
             <div class="card h-100 border-{{ border }}">
                 <div class="card-body py-2 px-3">
@@ -46,7 +46,7 @@
                         <div>
                             <div class="fw-bold">{{ status.data_fmt }}</div>
                             <div class="text-{{ border }} fw-semibold small">
-                                {% if status.state == 'confirmed' %}✅{% elif status.state == 'draft' %}⏳{% elif status.state == 'justified' %}ℹ️{% else %}⚠️{% endif %}
+                                {% if status.state == 'confirmed' %}✅{% elif status.state in ('draft', 'registered') %}⏳{% elif status.state == 'justified' %}ℹ️{% else %}⚠️{% endif %}
                                 {{ status.label }}
                             </div>
                         </div>
@@ -74,6 +74,27 @@
                         <input type="hidden" name="loja_redirect" value="{{ user_loja }}">
                         <button type="submit" class="btn btn-warning btn-sm">
                             Registar rascunho
+                        </button>
+                    </form>
+                    {% elif status.state == 'registered' %}
+                    <div class="small mt-1">
+                        {{ status.entry_count }} pesagem(ns) já contam no stock e aguardam confirmação da revisão
+                        {% if status.updated_at_local %}· atualizadas {{ status.updated_at_local }}{% endif %}
+                    </div>
+                    <ul class="small mb-2 mt-1 ps-3">
+                        {% for entry in status.entries %}
+                        <li>{{ entry.sabor }} — {{ '%.3f'|format(entry.quantidade_kg) }} kg</li>
+                        {% endfor %}
+                    </ul>
+                    <form method="post"
+                          onsubmit="return confirm('Confirmar a revisão destas {{ status.entry_count }} pesagens?')">
+                        <input type="hidden" name="action" value="confirm_draft">
+                        <input type="hidden" name="loja" value="{{ status.loja }}">
+                        <input type="hidden" name="batch_id" value="{{ status.batch_id }}">
+                        <input type="hidden" name="revision" value="{{ status.revision }}">
+                        <input type="hidden" name="loja_redirect" value="{{ user_loja }}">
+                        <button type="submit" class="btn btn-success btn-sm">
+                            Confirmar revisão
                         </button>
                     </form>
                     {% elif status.state == 'justified' %}

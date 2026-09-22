@@ -24,7 +24,7 @@
     {% endif %}
 
     {% if daily_status %}
-    {% set status_class = 'success' if daily_status.state == 'confirmed' else ('warning' if daily_status.state == 'draft' else ('secondary' if daily_status.state == 'justified' else ('danger' if daily_status.data_iso < today else 'warning'))) %}
+    {% set status_class = 'success' if daily_status.state == 'confirmed' else ('warning' if daily_status.state in ('draft', 'registered') else ('secondary' if daily_status.state == 'justified' else ('danger' if daily_status.data_iso < today else 'warning'))) %}
     <div class="alert alert-{{ status_class }} py-2" id="daily-weighing-status"
          data-canonical-state="{{ daily_status.state }}" role="status">
         <div class="fw-bold" id="daily-weighing-status-title">
@@ -32,6 +32,8 @@
             ✅ Pesagem diária confirmada
             {% elif daily_status.state == 'draft' %}
             ⏳ Por confirmar
+            {% elif daily_status.state == 'registered' %}
+            ⏳ Registada — aguarda revisão
             {% elif daily_status.state == 'justified' %}
             ℹ️ Dia sem pesagem justificado
             {% elif daily_status.data_iso < today %}
@@ -45,6 +47,8 @@
             {{ daily_status.entry_count }} pesagem(ns) registada(s) para {{ daily_status.data_fmt }}.
             {% elif daily_status.state == 'draft' %}
             {{ daily_status.entry_count }} entrada(s) aguardam confirmação{% if daily_status.updated_at_local %}; última atualização {{ daily_status.updated_at_local }}{% endif %}.
+            {% elif daily_status.state == 'registered' %}
+            {{ daily_status.entry_count }} pesagem(ns) já contam no stock e aguardam confirmação da revisão{% if daily_status.updated_at_local %}; última atualização {{ daily_status.updated_at_local }}{% endif %}.
             {% elif daily_status.state == 'justified' %}
             {{ daily_status.reason }} — {{ daily_status.created_by }}, {{ daily_status.created_at_local }}
             {% else %}
@@ -123,7 +127,7 @@
         </div>
         <div id="secao-pendentes" style="display:none;" class="mb-3">
             <div class="alert alert-warning py-2 mb-2" id="draft-status" role="status">
-                <div class="fw-semibold">Rascunho — ainda não registado</div>
+                 <div class="fw-semibold" id="draft-state-title">Rascunho — ainda não registado</div>
                 <div class="small" id="draft-sync-detail">
                     A sincronizar com o servidor…
                 </div>
@@ -150,7 +154,7 @@
             </div>
             <button type="button" class="btn btn-success w-100 mb-4" id="btn-confirmar"
                     onclick="abrirModalConfirmacao()">
-                Rever 0 pesagens
+                Registar 0 pesagens
             </button>
         </div>
     </div>
@@ -280,6 +284,7 @@
                         data-bs-toggle="collapse" data-bs-target="#audit-{{ event.id }}">
                     <span class="badge me-2 {% if event.outcome == 'failed' %}bg-danger{% elif event.event_type in ('delete', 'delete_day') %}bg-warning text-dark{% elif event.event_type == 'restore' %}bg-success{% else %}bg-secondary{% endif %}">
                         {% if event.event_type == 'create' %}Criação
+                        {% elif event.event_type == 'batch_register' %}Registo inicial do lote
                         {% elif event.event_type == 'batch_confirm' %}Confirmação de lote
                         {% elif event.event_type == 'edit' %}Edição
                         {% elif event.event_type == 'delete' %}Desativação
@@ -386,6 +391,7 @@ const SABORES_CONHECIDOS = {{ sabores | tojson }};
 const OCR_URL  = "{{ url_for('vendas.pesagem_ocr') }}";
 const HIST_URL = "{{ url_for('vendas.pesagem_historico') }}";
 const DRAFT_URL = "{{ url_for('vendas.pesagem_rascunho', loja_id=loja_id) }}";
+const REGISTER_DRAFT_URL = "{{ url_for('vendas.registar_pesagem_rascunho', loja_id=loja_id) }}";
 const CONFIRM_DRAFT_URL = "{{ url_for('vendas.confirmar_pesagem_rascunho', loja_id=loja_id) }}";
 const LOJA_ID_HIST = {{ loja_id or 'null' }};
 const TODAY = "{{ today }}";
@@ -443,6 +449,7 @@ let pendingList = [];
 let dupWarnTimer = null;
 let currentBatchId = null;
 let currentDraftRevision = null;
+let currentBatchStatus = null;
 let draftDirty = false;
 let draftSyncTimer = null;
 let draftSyncPromise = Promise.resolve();
@@ -457,6 +464,9 @@ function isEntradaValida(e) {
 }
 
 function saveDraft() {
+    if (currentBatchStatus === 'registered' || currentBatchStatus === 'confirmed') {
+        return;
+    }
     try {
         localStorage.setItem(getDraftKey(), JSON.stringify({
             batch_id: currentBatchId,
@@ -532,7 +542,12 @@ function updateDraftStatus(state, message) {
         offline: 'Sem ligação ao servidor. O rascunho continua guardado neste dispositivo.',
         failed: 'Não foi possível sincronizar. Tente novamente antes de registar.',
     };
-    detail.textContent = message || messages[state] || messages.pending;
+    detail.textContent = message || (
+        currentBatchStatus === 'registered' && state === 'synced'
+            ? 'Estes valores já estão registados e já contam nos cálculos. ' +
+              'Edite as linhas persistidas abaixo antes de confirmar a revisão.'
+            : messages[state] || messages.pending
+    );
 }
 
 function updateDailyStatusFromDraft(draft, isSynced) {
@@ -542,6 +557,13 @@ function updateDailyStatusFromDraft(draft, isSynced) {
     if (!box || !title || !detail) return;
     if (box.dataset.canonicalState === 'confirmed' ||
             box.dataset.canonicalState === 'justified') {
+        return;
+    }
+    if (draft && draft.status === 'registered') {
+        box.className = 'alert alert-warning py-2';
+        title.textContent = '⏳ Registada — aguarda revisão';
+        detail.textContent = (draft.entries || []).length +
+            ' pesagem(ns) já contam no stock e aguardam confirmação da revisão.';
         return;
     }
     const entries = draft && Array.isArray(draft.entries)
@@ -600,6 +622,7 @@ function performDraftSync() {
             if (data.draft) {
                 currentBatchId = data.draft.id;
                 currentDraftRevision = data.draft.revision;
+                currentBatchStatus = data.draft.status;
                 if (data.draft.status === 'confirmed') {
                     draftDirty = false;
                     confirmInFlight = false;
@@ -656,6 +679,23 @@ function loadDraft() {
         .then(function(data) {
             if (!data.ok) throw new Error(data.error || 'Falha ao obter rascunho.');
             if (data.draft && data.draft.entries.length > 0) {
+                currentBatchStatus = data.draft.status;
+                if (data.draft.status === 'registered') {
+                    currentBatchId = data.draft.id;
+                    currentDraftRevision = data.draft.revision;
+                    pendingList = data.draft.entries.filter(isEntradaValida);
+                    draftDirty = false;
+                    clearDraft();
+                    saveLocalSnapshotOnly();
+                    renderPendentes();
+                    updateDraftStatus('synced');
+                    updateDailyStatusFromDraft(data.draft, true);
+                    showRestoredMessage(
+                        pendingList.length,
+                        'para revisão a partir do servidor'
+                    );
+                    return;
+                }
                 const sameBase = localDraft &&
                     localDraft.batch_id === data.draft.id &&
                     localDraft.revision === data.draft.revision;
@@ -1055,7 +1095,14 @@ function renderPendentes() {
 
     secao.style.display = n === 0 ? 'none' : '';
     badge.textContent   = n + (n === 1 ? ' entrada' : ' entradas');
-    btnConf.textContent = 'Rever ' + n + (n === 1 ? ' pesagem' : ' pesagens');
+    const stateTitle = document.getElementById('draft-state-title');
+    if (currentBatchStatus === 'registered') {
+        if (stateTitle) stateTitle.textContent = 'Registado no stock — revisão pendente';
+        btnConf.textContent = 'Confirmar revisão';
+    } else {
+        if (stateTitle) stateTitle.textContent = 'Rascunho — ainda não registado';
+        btnConf.textContent = 'Registar ' + n + (n === 1 ? ' pesagem' : ' pesagens');
+    }
 
     if (n > 0) { _ensureBtnConfirmVisible(); }
 
@@ -1082,8 +1129,10 @@ function renderPendentes() {
             '<td style="font-size:0.85rem;">' + escHtml(entry.sabor) + warnBadge + dupBadge + '</td>' +
             '<td class="text-end" style="font-size:0.85rem;">' + entry.quantidade_kg.toFixed(3) + '</td>' +
             '<td class="text-center">' +
-                '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"' +
-                ' style="font-size:0.72rem;" onclick="removerPendente(' + idx + ')" title="Remover">×</button>' +
+                (currentBatchStatus === 'registered'
+                    ? '<span class="text-muted small" title="Edite na tabela de pesagens registadas">ver</span>'
+                    : '<button type="button" class="btn btn-outline-danger btn-sm py-0 px-1"' +
+                      ' style="font-size:0.72rem;" onclick="removerPendente(' + idx + ')" title="Remover">×</button>') +
             '</td></tr>';
     }).join('');
 }
@@ -1167,7 +1216,9 @@ function abrirModalConfirmacao() {
     resumo.innerHTML = html;
     const finalButton = document.getElementById('btn-registar-final');
     if (finalButton) {
-        finalButton.textContent = '✅ Registar ' + pendingList.length +
+    finalButton.textContent = currentBatchStatus === 'registered'
+        ? '✅ Confirmar revisão'
+        : '✅ Registar ' + pendingList.length +
             (pendingList.length === 1 ? ' pesagem' : ' pesagens');
     }
 
@@ -1181,15 +1232,23 @@ function confirmarERegistar() {
     const btnConf = document.getElementById('btn-registar-final');
     if (btnConf) {
         btnConf.disabled = true;
-        btnConf.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>A registar…';
+        btnConf.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>' +
+            (currentBatchStatus === 'registered'
+                ? 'A confirmar revisão…'
+                : 'A registar…');
     }
 
-    syncDraftToServer()
-        .then(function() {
+    const persist = currentBatchStatus === 'registered'
+        ? Promise.resolve()
+        : syncDraftToServer();
+    persist.then(function() {
             if (!currentBatchId) {
                 throw new Error('O rascunho ainda não tem comprovativo do servidor.');
             }
-            return fetch(CONFIRM_DRAFT_URL, {
+            const endpoint = currentBatchStatus === 'registered'
+                ? CONFIRM_DRAFT_URL
+                : REGISTER_DRAFT_URL;
+            return fetch(endpoint, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -1203,10 +1262,26 @@ function confirmarERegistar() {
                 if (!response.ok || !data.ok) {
                     throw new Error(data.error || 'O lote não foi confirmado.');
                 }
-                return data.receipt;
+                return data.receipt || data.draft;
             });
         })
         .then(function(receipt) {
+            if (currentBatchStatus !== 'registered') {
+                currentBatchStatus = 'registered';
+                draftDirty = false;
+                confirmInFlight = false;
+                intentionalNavigation = true;
+                clearDraft();
+                const registeredDate = receipt.entries.length
+                    ? receipt.entries[0].data : DATA_SEL;
+                const params = new URLSearchParams();
+                params.set('data', registeredDate);
+                if (LOJA_ID_HIST) params.set('loja_id', LOJA_ID_HIST);
+                window.location.assign(
+                    window.location.pathname + '?' + params.toString()
+                );
+                return;
+            }
             draftDirty = false;
             confirmInFlight = false;
             intentionalNavigation = true;

@@ -3911,7 +3911,8 @@ def run_migrations_pesagem_draft_batches():
                     status VARCHAR(20) NOT NULL DEFAULT 'draft'
                         CHECK (
                             status IN (
-                                'draft', 'confirming', 'confirmed', 'failed'
+                                'draft', 'registering', 'registered',
+                                'confirming', 'confirmed', 'failed'
                             )
                         ),
                     expected_count INTEGER NOT NULL DEFAULT 0
@@ -3926,7 +3927,11 @@ def run_migrations_pesagem_draft_batches():
                     error_message TEXT,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    confirmed_at TIMESTAMPTZ
+                    confirmed_at TIMESTAMPTZ,
+                    registered_at TIMESTAMPTZ,
+                    registered_by_id INTEGER,
+                    registered_by VARCHAR(100),
+                    receipt_snapshot JSONB
                 )
             """)
             cursor.execute("""
@@ -3945,9 +3950,65 @@ def run_migrations_pesagem_draft_batches():
                             AND quantidade_kg <> 'NaN'::numeric
                         ),
                     suspeito BOOLEAN NOT NULL DEFAULT FALSE,
+                    stock_id INTEGER,
                     UNIQUE(batch_id, position),
                     UNIQUE(batch_id, data, sabor)
                 )
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_draft_batches
+                DROP CONSTRAINT IF EXISTS pesagem_draft_batches_status_check
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_draft_batches
+                ADD CONSTRAINT pesagem_draft_batches_status_check
+                CHECK (
+                    status IN (
+                        'draft', 'registering', 'registered',
+                        'confirming', 'confirmed', 'failed'
+                    )
+                )
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_draft_batches
+                ADD COLUMN IF NOT EXISTS registered_at TIMESTAMPTZ
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_draft_batches
+                ADD COLUMN IF NOT EXISTS registered_by_id INTEGER
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_draft_batches
+                ADD COLUMN IF NOT EXISTS registered_by VARCHAR(100)
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_draft_batches
+                ADD COLUMN IF NOT EXISTS receipt_snapshot JSONB
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_draft_entries
+                ADD COLUMN IF NOT EXISTS stock_id INTEGER
+            """)
+            cursor.execute("""
+                UPDATE pesagem_draft_batches b
+                SET receipt_snapshot = snapshots.snapshot
+                FROM (
+                    SELECT e.batch_id,
+                           jsonb_agg(
+                               jsonb_build_object(
+                                   'data', e.data::text,
+                                   'sabor', e.sabor,
+                                   'quantidade_kg', e.quantidade_kg,
+                                   'suspeito', e.suspeito
+                               )
+                               ORDER BY e.position
+                           ) AS snapshot
+                    FROM pesagem_draft_entries e
+                    GROUP BY e.batch_id
+                ) snapshots
+                WHERE b.id = snapshots.batch_id
+                  AND b.status = 'confirmed'
+                  AND b.receipt_snapshot IS NULL
             """)
             cursor.execute("""
                 ALTER TABLE pesagem_draft_batches
@@ -3972,10 +4033,16 @@ def run_migrations_pesagem_draft_batches():
                 END $$;
             """)
             cursor.execute("""
+                DROP INDEX IF EXISTS uq_pesagem_draft_open_loja
+            """)
+            cursor.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS
                     uq_pesagem_draft_open_loja
                 ON pesagem_draft_batches(loja)
-                WHERE status IN ('draft', 'confirming', 'failed')
+                WHERE status IN (
+                    'draft', 'registering', 'registered',
+                    'confirming', 'failed'
+                )
             """)
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_pesagem_draft_entries_batch
@@ -4152,7 +4219,8 @@ def run_migrations_pesagem_audit():
                     occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     event_type VARCHAR(30) NOT NULL CHECK (
                         event_type IN (
-                            'create', 'batch_confirm', 'edit', 'delete',
+                            'create', 'batch_register', 'batch_confirm',
+                            'edit', 'delete',
                             'delete_day', 'restore', 'justify', 'failure'
                         )
                     ),
@@ -4172,6 +4240,21 @@ def run_migrations_pesagem_audit():
                     before_data JSONB,
                     after_data JSONB,
                     safe_cause TEXT
+                )
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_audit_events
+                DROP CONSTRAINT IF EXISTS pesagem_audit_events_event_type_check
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_audit_events
+                ADD CONSTRAINT pesagem_audit_events_event_type_check
+                CHECK (
+                    event_type IN (
+                        'create', 'batch_register', 'batch_confirm',
+                        'edit', 'delete', 'delete_day', 'restore',
+                        'justify', 'failure'
+                    )
                 )
             """)
             cursor.execute("""
@@ -4281,14 +4364,20 @@ def run_migrations_pesagem_audit():
                     uq_pesagem_draft_open_store
                 ON pesagem_draft_batches(store_id)
                 WHERE store_id IS NOT NULL
-                  AND status IN ('draft', 'confirming', 'failed')
+                  AND status IN (
+                      'draft', 'registering', 'registered',
+                      'confirming', 'failed'
+                  )
             """)
             cursor.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS
                     uq_pesagem_draft_open_legacy_loja
                 ON pesagem_draft_batches(lower(loja))
                 WHERE store_id IS NULL
-                  AND status IN ('draft', 'confirming', 'failed')
+                  AND status IN (
+                      'draft', 'registering', 'registered',
+                      'confirming', 'failed'
+                  )
             """)
             conn.commit()
             logger.info("run_migrations_pesagem_audit: schema ready")

@@ -2239,17 +2239,34 @@ def _pesagem_batch_dict(row, entries):
     for key in ('created_at', 'updated_at', 'confirmed_at'):
         if result.get(key) is not None:
             result[key] = result[key].isoformat()
-    result['entries'] = [
-        {
-            'data': entry['data'].isoformat(),
+    result['entries'] = []
+    for entry in entries:
+        entry_date = entry['data']
+        if hasattr(entry_date, 'isoformat'):
+            data_iso = entry_date.isoformat()
+            data_label = entry_date.strftime('%d/%m/%Y')
+        else:
+            data_iso = str(entry_date)
+            try:
+                data_label = date.fromisoformat(data_iso).strftime('%d/%m/%Y')
+            except (TypeError, ValueError):
+                data_label = data_iso
+        item = {
+            'data': data_iso,
             'sabor': entry['sabor'],
             'quantidade_kg': float(entry['quantidade_kg']),
-            'suspeito': bool(entry['suspeito']),
+            'suspeito': bool(entry.get('suspeito', False)),
         }
-        for entry in entries
-    ]
+        if entry.get('stock_id') is not None:
+            item['stock_id'] = int(entry['stock_id'])
+        result['entries'].append(item)
     result['dates'] = sorted({
-        entry['data'].strftime('%d/%m/%Y') for entry in entries
+        (
+            entry['data'].strftime('%d/%m/%Y')
+            if hasattr(entry['data'], 'strftime')
+            else date.fromisoformat(str(entry['data'])).strftime('%d/%m/%Y')
+        )
+        for entry in entries
     })
     return result
 
@@ -2263,10 +2280,12 @@ def _load_pesagem_batch(cursor, loja: str, batch_id=None, open_only=False):
     requested_store_id = store['id'] if store else None
     params = [requested_store_id, requested_store_id, loja]
     query = """
-        SELECT b.id, b.loja, b.store_id, b.status,
+         SELECT b.id, b.loja, b.store_id, b.status,
                b.expected_count, b.revision, b.inserted_count,
                b.created_by_id, b.created_by, b.updated_by, b.error_message,
-               b.created_at, b.updated_at, b.confirmed_at,
+                b.created_at, b.updated_at, b.confirmed_at,
+                b.registered_at, b.registered_by_id, b.registered_by,
+                b.receipt_snapshot,
                to_char(
                    b.confirmed_at AT TIME ZONE 'Europe/Lisbon',
                    'DD/MM/YYYY HH24:MI'
@@ -2281,19 +2300,49 @@ def _load_pesagem_batch(cursor, loja: str, batch_id=None, open_only=False):
         query += " AND b.id = %s"
         params.append(str(batch_id))
     if open_only:
-        query += " AND b.status IN ('draft', 'confirming', 'failed')"
+        query += (
+            " AND b.status IN "
+            "('draft', 'registering', 'registered', 'confirming', 'failed')"
+        )
     query += " ORDER BY b.updated_at DESC LIMIT 1"
     cursor.execute(query, params)
     batch = cursor.fetchone()
     if not batch:
         return None
-    cursor.execute("""
-        SELECT data, sabor, quantidade_kg, suspeito
-        FROM pesagem_draft_entries
-        WHERE batch_id = %s
-        ORDER BY position
-    """, (batch['id'],))
-    return _pesagem_batch_dict(batch, cursor.fetchall())
+    if batch['status'] == 'confirmed' and batch.get('receipt_snapshot'):
+        entries = batch['receipt_snapshot']
+    elif batch['status'] == 'registered':
+        cursor.execute("""
+            SELECT e.data, e.sabor, e.quantidade_kg, e.suspeito,
+                   e.stock_id,
+                   COALESCE(sg.data, e.data) AS current_data,
+                   COALESCE(sg.sabor, e.sabor) AS current_sabor,
+                   COALESCE(sg.quantidade_kg, e.quantidade_kg)
+                       AS current_quantidade_kg
+            FROM pesagem_draft_entries e
+            LEFT JOIN stock_gelado sg
+              ON sg.id = e.stock_id
+             AND sg.source_batch_id = e.batch_id
+             AND sg.is_active = TRUE
+            WHERE e.batch_id = %s
+            ORDER BY e.position
+        """, (batch['id'],))
+        entries = []
+        for entry in cursor.fetchall():
+            entry = dict(entry)
+            entry['data'] = entry['current_data']
+            entry['sabor'] = entry['current_sabor']
+            entry['quantidade_kg'] = entry['current_quantidade_kg']
+            entries.append(entry)
+    else:
+        cursor.execute("""
+            SELECT data, sabor, quantidade_kg, suspeito, stock_id
+            FROM pesagem_draft_entries
+            WHERE batch_id = %s
+            ORDER BY position
+        """, (batch['id'],))
+        entries = cursor.fetchall()
+    return _pesagem_batch_dict(batch, entries)
 
 
 def get_open_pesagem_draft(loja: str):
@@ -2379,6 +2428,13 @@ def save_pesagem_draft(
                     'Este lote já foi confirmado com outros dados. '
                     'As alterações locais foram mantidas para revisão.'
                 )
+            if requested_batch and requested_batch['status'] in (
+                'registering', 'registered'
+            ):
+                raise ValueError(
+                    'Este lote já foi registado no stock. '
+                    'Reveja e edite as pesagens persistidas antes de confirmar.'
+                )
             cursor.execute("""
                 SELECT id, status, revision, store_id
                 FROM pesagem_draft_batches
@@ -2386,7 +2442,10 @@ def save_pesagem_draft(
                     (%s IS NOT NULL AND store_id = %s)
                     OR (store_id IS NULL AND loja = %s)
                 )
-                  AND status IN ('draft', 'confirming', 'failed')
+                  AND status IN (
+                      'draft', 'registering', 'registered',
+                      'confirming', 'failed'
+                  )
                 ORDER BY updated_at DESC
                 LIMIT 1
                 FOR UPDATE
@@ -2401,9 +2460,12 @@ def save_pesagem_draft(
                 if not existing:
                     conn.commit()
                     return None
-                if existing['status'] == 'confirming':
+                if existing['status'] in (
+                    'confirming', 'registering', 'registered'
+                ):
                     raise ValueError(
-                        'Este lote já está em confirmação. Aguarde e tente novamente.'
+                        'Este lote já está a ser processado ou foi registado. '
+                        'Recarregue a página antes de continuar.'
                     )
                 if str(existing['id']) != requested_id:
                     raise ValueError(
@@ -2448,9 +2510,12 @@ def save_pesagem_draft(
             )
 
             if existing:
-                if existing['status'] == 'confirming':
+                if existing['status'] in (
+                    'confirming', 'registering', 'registered'
+                ):
                     raise ValueError(
-                        'Este lote já está em confirmação. Aguarde e tente novamente.'
+                        'Este lote já está a ser processado ou foi registado. '
+                        'Recarregue a página antes de continuar.'
                     )
                 if str(existing['id']) != requested_id:
                     raise ValueError(
@@ -2472,6 +2537,10 @@ def save_pesagem_draft(
                         expected_count = %s,
                         revision = revision + 1,
                         inserted_count = 0,
+                        registered_at = NULL,
+                        registered_by_id = NULL,
+                        registered_by = NULL,
+                        receipt_snapshot = NULL,
                         store_id = %s,
                         updated_by = %s,
                         error_message = NULL,
@@ -2533,14 +2602,14 @@ def save_pesagem_draft(
         return _load_pesagem_batch(cursor, loja, effective_id)
 
 
-def confirm_pesagem_draft(
+def register_pesagem_draft(
     batch_id,
     expected_revision,
     loja: str,
     actor_username: str,
     actor_id=None,
 ):
-    """Confirm a draft exactly once and create all stock rows atomically."""
+    """Register a draft exactly once and create all stock rows atomically."""
     username = (actor_username or 'sistema')[:100]
     conflict_message = None
     validated_batch = None
@@ -2586,9 +2655,16 @@ def confirm_pesagem_draft(
                 )
             if batch['status'] == 'confirmed':
                 return _load_pesagem_batch(cursor, loja, batch_id)
+            if batch['status'] == 'registered':
+                return _load_pesagem_batch(cursor, loja, batch_id)
+            if batch['status'] not in ('draft', 'failed'):
+                raise ValueError(
+                    'Este lote já está a ser registado. '
+                    'Recarregue a página e tente novamente.'
+                )
 
             cursor.execute("""
-                SELECT data, sabor, quantidade_kg
+                SELECT id, data, sabor, quantidade_kg
                 FROM pesagem_draft_entries
                 WHERE batch_id = %s
                 ORDER BY position
@@ -2621,7 +2697,7 @@ def confirm_pesagem_draft(
 
             cursor.execute("""
                 UPDATE pesagem_draft_batches
-                SET status = 'confirming', loja = %s, store_id = %s,
+                SET status = 'registering', loja = %s, store_id = %s,
                     updated_by = %s,
                     error_message = NULL, updated_at = NOW()
                 WHERE id = %s
@@ -2646,8 +2722,13 @@ def confirm_pesagem_draft(
                 inserted = cursor.fetchone()
                 if inserted:
                     inserted_ids.append(inserted['id'])
+                    cursor.execute("""
+                        UPDATE pesagem_draft_entries
+                        SET stock_id = %s
+                        WHERE id = %s AND batch_id = %s
+                    """, (inserted['id'], entry['id'], batch['id']))
                     _write_pesagem_audit(
-                        cursor, 'create', loja, 'batch_confirmation',
+                        cursor, 'create', loja, 'batch_registration',
                         actor_id=actor_id, actor_username=username,
                         store_id=effective_store_id,
                         event_date=inserted['data'],
@@ -2667,16 +2748,20 @@ def confirm_pesagem_draft(
 
             cursor.execute("""
                 UPDATE pesagem_draft_batches
-                SET status = 'confirmed',
+                SET status = 'registered',
                     inserted_count = %s,
                     updated_by = %s,
                     error_message = NULL,
                     updated_at = NOW(),
-                    confirmed_at = NOW()
+                    registered_at = NOW(),
+                    registered_by_id = %s,
+                    registered_by = %s
                 WHERE id = %s
-            """, (expected_count, username, batch['id']))
+            """, (
+                expected_count, username, actor_id, username, batch['id']
+            ))
             _write_pesagem_audit(
-                cursor, 'batch_confirm', loja, 'manual_draft',
+                cursor, 'batch_register', loja, 'manual_draft',
                 actor_id=actor_id, actor_username=username,
                 store_id=effective_store_id,
                 batch_id=batch['id'],
@@ -2707,7 +2792,7 @@ def confirm_pesagem_draft(
             with db_connection() as conn:
                 cursor = conn.cursor()
                 _write_pesagem_audit(
-                    cursor, 'failure', loja, 'batch_confirmation',
+                    cursor, 'failure', loja, 'batch_registration',
                     actor_id=actor_id, actor_username=username,
                     store_id=current_store_id,
                     batch_id=audited_batch_id,
@@ -2735,7 +2820,7 @@ def confirm_pesagem_draft(
             ))
             if cursor.rowcount:
                 _write_pesagem_audit(
-                    cursor, 'failure', loja, 'batch_confirmation',
+                    cursor, 'failure', loja, 'batch_registration',
                     actor_id=actor_id, actor_username=username,
                     store_id=(
                         validated_batch.get('store_id')
@@ -2747,6 +2832,189 @@ def confirm_pesagem_draft(
                     outcome='failed',
                     safe_cause=message,
                 )
+            conn.commit()
+        raise
+
+
+def confirm_pesagem_draft(
+    batch_id,
+    expected_revision,
+    loja: str,
+    actor_username: str,
+    actor_id=None,
+):
+    """Certify the active rows already registered after operator review."""
+    username = (actor_username or 'sistema')[:100]
+    validated_batch = None
+    current_store_id = None
+    try:
+        with db_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(
+                "SELECT id FROM stores WHERE lower(name) = lower(%s) LIMIT 1",
+                (loja,),
+            )
+            current_store = cursor.fetchone()
+            current_store_id = current_store['id'] if current_store else None
+            cursor.execute("""
+                SELECT b.id, b.loja, b.store_id, b.status,
+                       b.expected_count, b.revision, b.inserted_count
+                FROM pesagem_draft_batches b
+                WHERE b.id = %s
+                  AND (
+                      (%s IS NOT NULL AND b.store_id = %s)
+                      OR (b.store_id IS NULL AND b.loja = %s)
+                  )
+                FOR UPDATE
+            """, (
+                str(batch_id),
+                current_store_id, current_store_id, loja,
+            ))
+            batch = cursor.fetchone()
+            if not batch:
+                raise ValueError('O lote de pesagens já não existe.')
+            validated_batch = dict(batch)
+            try:
+                client_revision = int(expected_revision)
+            except (ValueError, TypeError):
+                raise ValueError(
+                    'A versão revista do lote está em falta. '
+                    'Recarregue o lote antes de confirmar.'
+                )
+            if client_revision != int(batch['revision']):
+                raise ValueError(
+                    'Este lote foi alterado noutro dispositivo depois '
+                    'da revisão. Nenhuma confirmação foi feita.'
+                )
+            if batch['status'] == 'confirmed':
+                return _load_pesagem_batch(cursor, loja, batch_id)
+            if batch['status'] != 'registered':
+                raise ValueError(
+                    'Registe primeiro as pesagens antes de confirmar a revisão.'
+                )
+
+            cursor.execute("""
+                SELECT id, position, stock_id, suspeito
+                FROM pesagem_draft_entries
+                WHERE batch_id = %s
+                ORDER BY position
+                FOR UPDATE
+            """, (batch['id'],))
+            draft_entries = cursor.fetchall()
+            expected_count = int(batch['expected_count'])
+            if len(draft_entries) != expected_count:
+                raise ValueError(
+                    'O conjunto revisto já não corresponde ao lote registado.'
+                )
+
+            cursor.execute("""
+                SELECT *
+                FROM stock_gelado
+                WHERE source_batch_id = %s
+                  AND tipo = 'fim'
+                  AND is_active = TRUE
+                ORDER BY id
+                FOR UPDATE
+            """, (batch['id'],))
+            stock_rows = cursor.fetchall()
+            stock_by_id = {row['id']: row for row in stock_rows}
+            stock_ids = [
+                entry['stock_id'] for entry in draft_entries
+            ]
+            if (
+                len(stock_rows) != expected_count
+                or len(stock_ids) != len(set(stock_ids))
+                or any(stock_id not in stock_by_id for stock_id in stock_ids)
+            ):
+                raise ValueError(
+                    'O conjunto registado foi alterado. '
+                    'Reponha as linhas em falta ou recarregue antes de confirmar.'
+                )
+
+            rows_by_position = [
+                stock_by_id[entry['stock_id']]
+                for entry in draft_entries
+            ]
+            effective_store_id = batch['store_id'] or current_store_id
+            _lock_pesagem_days(
+                cursor,
+                effective_store_id,
+                [row['data'] for row in rows_by_position],
+            )
+            _ensure_pesagem_days_not_justified(
+                cursor,
+                effective_store_id,
+                [row['data'] for row in rows_by_position],
+            )
+            cursor.execute("""
+                UPDATE pesagem_draft_batches
+                SET status = 'confirming',
+                    updated_by = %s,
+                    error_message = NULL,
+                    updated_at = NOW()
+                WHERE id = %s
+            """, (username, batch['id']))
+
+            snapshot = [
+                {
+                    'data': row['data'].isoformat(),
+                    'sabor': row['sabor'],
+                    'quantidade_kg': float(row['quantidade_kg']),
+                    'suspeito': bool(entry['suspeito']),
+                    'stock_id': int(row['id']),
+                }
+                for entry, row in zip(draft_entries, rows_by_position)
+            ]
+            cursor.execute("""
+                UPDATE pesagem_draft_batches
+                SET status = 'confirmed',
+                    updated_by = %s,
+                    error_message = NULL,
+                    updated_at = NOW(),
+                    confirmed_at = NOW(),
+                    receipt_snapshot = %s
+                WHERE id = %s
+            """, (username, Json(snapshot), batch['id']))
+            _write_pesagem_audit(
+                cursor, 'batch_confirm', loja, 'manual_draft',
+                actor_id=actor_id, actor_username=username,
+                store_id=effective_store_id,
+                batch_id=batch['id'],
+                affected_count=expected_count,
+                expected_count=expected_count,
+                after_data={
+                    'revision': int(batch['revision']),
+                    'stock_ids': [row['id'] for row in rows_by_position],
+                },
+            )
+            conn.commit()
+            return _load_pesagem_batch(cursor, loja, batch_id)
+    except Exception as exc:
+        message = (
+            str(exc)
+            if isinstance(exc, ValueError)
+            else 'Falha técnica interna durante a confirmação da revisão.'
+        )
+        import uuid
+        try:
+            audited_batch_id = str(uuid.UUID(str(batch_id)))
+        except (ValueError, TypeError, AttributeError):
+            audited_batch_id = None
+        with db_connection() as conn:
+            cursor = conn.cursor()
+            _write_pesagem_audit(
+                cursor, 'failure', loja, 'batch_confirmation',
+                actor_id=actor_id, actor_username=username,
+                store_id=(
+                    (validated_batch or {}).get('store_id')
+                    or current_store_id
+                ),
+                batch_id=audited_batch_id,
+                affected_count=0,
+                expected_count=(validated_batch or {}).get('expected_count'),
+                outcome='failed',
+                safe_cause=message,
+            )
             conn.commit()
         raise
 

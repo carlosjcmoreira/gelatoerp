@@ -16,6 +16,8 @@
             <strong>{{ alert.loja }}</strong> —
             {% if alert.state == 'draft' %}
             Por confirmar ({{ alert.entry_count }} entradas{% if alert.updated_at_local %}, atualizadas {{ alert.updated_at_local }}{% endif %})
+            {% elif alert.state == 'registered' %}
+            Registada — aguarda revisão ({{ alert.entry_count }} pesagens{% if alert.updated_at_local %}, atualizadas {{ alert.updated_at_local }}{% endif %})
             {% else %}
             Pesagem em falta
             {% endif %}

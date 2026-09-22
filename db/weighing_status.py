@@ -80,13 +80,24 @@ def get_daily_weighing_statuses(
             WHERE s.id = ANY(%s)
               AND sg.tipo = 'fim'
               AND sg.is_active = TRUE
+              AND (
+                  sg.source_batch_id IS NULL
+                  OR EXISTS (
+                      SELECT 1
+                      FROM pesagem_draft_batches confirmed_batch
+                      WHERE confirmed_batch.id = sg.source_batch_id
+                        AND confirmed_batch.status = 'confirmed'
+                  )
+              )
               AND sg.data = ANY(%s)
             GROUP BY s.id, s.name, sg.data
         """, (store_ids, unique_days))
         confirmed = cursor.fetchall()
 
         cursor.execute("""
-            SELECT s.name AS loja, e.data, b.id AS batch_id, b.revision,
+            SELECT s.name AS loja,
+                   COALESCE(sg.data, e.data) AS data,
+                   b.id AS batch_id, b.revision, b.status,
                    COUNT(*) AS entry_count,
                    to_char(
                        MAX(b.updated_at) AT TIME ZONE 'Europe/Lisbon',
@@ -94,8 +105,9 @@ def get_daily_weighing_statuses(
                    ) AS updated_at_local,
                    json_agg(
                        json_build_object(
-                           'sabor', e.sabor,
-                           'quantidade_kg', e.quantidade_kg
+                            'sabor', COALESCE(sg.sabor, e.sabor),
+                            'quantidade_kg',
+                                COALESCE(sg.quantidade_kg, e.quantidade_kg)
                        )
                        ORDER BY e.position
                    ) AS entries
@@ -107,10 +119,15 @@ def get_daily_weighing_statuses(
                   AND lower(b.loja) = lower(s.name)
               )
             JOIN pesagem_draft_entries e ON e.batch_id = b.id
+            LEFT JOIN stock_gelado sg
+              ON sg.id = e.stock_id
+             AND sg.source_batch_id = b.id
+             AND sg.is_active = TRUE
             WHERE s.id = ANY(%s)
-              AND b.status IN ('draft', 'confirming', 'failed')
-              AND e.data = ANY(%s)
-            GROUP BY s.id, s.name, e.data, b.id, b.revision
+              AND b.status IN ('draft', 'registered', 'failed')
+              AND COALESCE(sg.data, e.data) = ANY(%s)
+            GROUP BY s.id, s.name, COALESCE(sg.data, e.data),
+                     b.id, b.revision, b.status
         """, (store_ids, unique_days))
         drafts = cursor.fetchall()
 
@@ -130,9 +147,13 @@ def get_daily_weighing_statuses(
     for row in drafts:
         key = (row['loja'], row['data'])
         if key in statuses:
+            is_registered = row['status'] == 'registered'
             statuses[key].update({
-                'state': 'draft',
-                'label': 'Por confirmar',
+                'state': 'registered' if is_registered else 'draft',
+                'label': (
+                    'Registada — por confirmar'
+                    if is_registered else 'Por confirmar'
+                ),
                 'entry_count': int(row['entry_count']),
                 'updated_at_local': row['updated_at_local'],
                 'batch_id': str(row['batch_id']),
@@ -227,7 +248,10 @@ def justify_missing_weighing(
                         )
                     )
                       AND e.data = %s
-                      AND b.status IN ('draft', 'confirming', 'failed')
+                      AND b.status IN (
+                          'draft', 'registering', 'registered',
+                          'confirming', 'failed'
+                      )
                 ) AS has_work
             """, (
                 store_id, store['name'], day,

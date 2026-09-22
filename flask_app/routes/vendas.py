@@ -36,6 +36,7 @@ from db.pastelaria import (
     save_pastelaria_store_counts,
     get_open_pesagem_draft,
     save_pesagem_draft,
+    register_pesagem_draft,
     confirm_pesagem_draft,
     get_pesagem_batch_receipt,
     get_pesagem_audit_history,
@@ -969,6 +970,51 @@ def confirmar_pesagem_rascunho():
             'ok': False,
             'error': (
                 'O lote não foi confirmado. O rascunho foi mantido; '
+                'verifique a ligação e tente novamente.'
+            ),
+        }), 500
+
+
+@vendas_bp.route('/pesagem/rascunho/registar', methods=['POST'])
+@login_required
+def registar_pesagem_rascunho():
+    if not _check_vendas_access():
+        return jsonify({'ok': False, 'error': 'Sem acesso'}), 403
+    loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'eod'):
+        return jsonify({
+            'ok': False,
+            'error': 'Sem suporte para pesagem nesta loja',
+        }), 403
+
+    payload = request.get_json(silent=True) or {}
+    batch_id = str(payload.get('batch_id') or '').strip()
+    if not batch_id:
+        return jsonify({
+            'ok': False,
+            'error': 'O identificador do lote está em falta.',
+        }), 400
+    try:
+        draft = register_pesagem_draft(
+            batch_id,
+            payload.get('revision'),
+            loja_nome,
+            session.get('user', {}).get('username') or 'sistema',
+            session.get('user', {}).get('id'),
+        )
+        return jsonify({'ok': True, 'draft': draft})
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 409
+    except Exception:
+        logger.exception(
+            'Falha ao registar lote de pesagens %s para %s',
+            batch_id,
+            loja_nome,
+        )
+        return jsonify({
+            'ok': False,
+            'error': (
+                'As pesagens não foram registadas. O lote foi mantido; '
                 'verifique a ligação e tente novamente.'
             ),
         }), 500
