@@ -2088,6 +2088,7 @@ _TILE_MASTER = {
         {'id': 'artigos',       'icon': '📋', 'default_label': 'Artigos de Fornecimento',        'description': 'Gerir o catálogo de artigos e produtos adquiridos a fornecedores'},
         {'id': 'encomendas_semanais', 'icon': '📅', 'default_label': 'Encomendas Semanais',      'description': 'Acompanhar encomendas das lojas e consolidar necessidades por artigo e origem'},
         {'id': 'pedidos_urgentes', 'icon': '⚡', 'default_label': 'Pedidos Urgentes',             'description': 'Priorizar exceções de abastecimento e acompanhar motivos recorrentes por loja e artigo'},
+        {'id': 'contagens_artigos', 'icon': '🔢', 'default_label': 'Contagens de Artigos',        'description': 'Consultar snapshots físicos de artigos por loja, produto, data e origem'},
         {'id': 'fornecedores',  'icon': '🏭', 'default_label': 'Fornecedores',                   'description': 'Gerir a lista de fornecedores e respetivos dados de contacto e faturação'},
         {'id': 'criar_ordem',   'icon': '📦', 'default_label': 'Criar Ordem de Transferência',   'description': 'Criar uma nova ordem de transferência de compras para a loja'},
     ],

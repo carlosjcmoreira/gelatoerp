@@ -71,6 +71,7 @@ TABS = [
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
     {'id': 'encomendas_semanais', 'label': 'Encomendas Semanais', 'icon': '📅', 'url_endpoint': 'compras.encomendas_semanais'},
     {'id': 'pedidos_urgentes', 'label': 'Pedidos Urgentes', 'icon': '⚡', 'url_endpoint': 'compras.pedidos_urgentes'},
+    {'id': 'contagens_artigos', 'label': 'Contagens de Artigos', 'icon': '🔢', 'url_endpoint': 'compras.contagens_artigos'},
     {'id': 'criar_ordem', 'label': 'Criar Ordem de Transferência', 'icon': '📦', 'url_endpoint': 'compras.criar_ordem'},
 ]
 
@@ -1556,6 +1557,56 @@ def pedidos_urgentes():
         urgent_reason_labels=URGENT_REASON_LABELS,
         status_filter=status_filter,
     )
+
+
+@compras_bp.route('/contagens-artigos')
+@any_perm_required('acesso_administrativo', 'acesso_compras')
+def contagens_artigos():
+    from db.contagens_compras import (
+        get_count_origins,
+        list_submitted_counts,
+    )
+
+    store_raw = request.args.get('loja_id', '').strip()
+    store_id = int(store_raw) if store_raw.isdigit() else None
+    origin_raw = request.args.get('origem_id', '').strip()
+    origin_id = int(origin_raw) if origin_raw.isdigit() else None
+    date_from = request.args.get('data_de', '').strip()
+    date_to = request.args.get('data_ate', '').strip()
+    article_query = request.args.get('produto', '').strip()
+    try:
+        counts = list_submitted_counts(
+            store_id=store_id,
+            date_from=date_from or None,
+            date_to=date_to or None,
+            article_query=article_query or None,
+            origin_id=origin_id,
+        )
+    except ValueError as exc:
+        flash(str(exc), 'warning')
+        counts = []
+    return render_template(
+        'compras/contagens_artigos.html',
+        counts=counts,
+        stores=get_stores_list(),
+        origins=get_count_origins(),
+        store_id=store_id,
+        origin_id=origin_id,
+        date_from=date_from,
+        date_to=date_to,
+        article_query=article_query,
+    )
+
+
+@compras_bp.route('/contagens-artigos/<int:count_id>')
+@any_perm_required('acesso_administrativo', 'acesso_compras')
+def contagem_artigos_detalhe(count_id):
+    from db.contagens_compras import get_submitted_count
+
+    count = get_submitted_count(count_id)
+    if not count:
+        return '<p class="text-danger p-3">Contagem não encontrada.</p>', 404
+    return render_template('compras/contagem_artigos_detalhe.html', count=count)
 
 
 @compras_bp.route('/encomendas-semanais/<int:order_id>', methods=['GET', 'POST'])

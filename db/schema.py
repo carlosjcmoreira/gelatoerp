@@ -16,6 +16,7 @@ _LOCK_COMPRAS_ORIGENS = 202711
 _LOCK_COMPRAS_CATALOGO = 202712
 _LOCK_COMPRAS_ENCOMENDAS_SEMANAIS = 202713
 _LOCK_COMPRAS_PEDIDOS_URGENTES = 202714
+_LOCK_COMPRAS_CONTAGENS_ARTIGOS = 202715
 
 
 def run_migrations_compras_origens():
@@ -700,6 +701,134 @@ def run_migrations_compras_pedidos_urgentes():
         except Exception as exc:
             logger.error(
                 "run_migrations_compras_pedidos_urgentes failed: %s", exc
+            )
+            conn.rollback()
+            raise
+
+
+def run_migrations_compras_contagens_artigos():
+    """Create immutable, auditable snapshots of store purchase counts."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_xact_lock(%s)",
+                (_LOCK_COMPRAS_CONTAGENS_ARTIGOS,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_compras_contagens_artigos: lock held, skipping"
+                )
+                return
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_contagens_artigos (
+                    id BIGSERIAL PRIMARY KEY,
+                    store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+                    data_contagem DATE NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'rascunho'
+                        CHECK (status IN ('rascunho', 'submetida')),
+                    draft_key VARCHAR(64),
+                    created_by VARCHAR(100) NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_by VARCHAR(100),
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    submitted_by VARCHAR(100),
+                    submitted_at TIMESTAMP,
+                    versao_submetida INTEGER
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_compras_contagens_artigos_draft
+                    ON compras_contagens_artigos(draft_key)
+                    WHERE status = 'rascunho' AND draft_key IS NOT NULL
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_contagens_artigos_linhas (
+                    id BIGSERIAL PRIMARY KEY,
+                    contagem_id BIGINT NOT NULL
+                        REFERENCES compras_contagens_artigos(id) ON DELETE CASCADE,
+                    artigo_id INTEGER REFERENCES artigos_administrativos(id)
+                        ON DELETE SET NULL,
+                    produto_snapshot VARCHAR(255) NOT NULL,
+                    unidade_snapshot VARCHAR(50) NOT NULL,
+                    origem_id_snapshot INTEGER REFERENCES compras_origens(id)
+                        ON DELETE SET NULL,
+                    origem_tipo_snapshot VARCHAR(30) NOT NULL,
+                    origem_nome_snapshot VARCHAR(255) NOT NULL,
+                    origem_store_id_snapshot INTEGER REFERENCES stores(id)
+                        ON DELETE SET NULL,
+                    origem_supplier_id_snapshot INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    origem_supplier_nome_snapshot VARCHAR(255),
+                    quantidade NUMERIC(14, 3) NOT NULL CHECK (quantidade >= 0),
+                    observacoes TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (contagem_id, artigo_id)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_contagens_artigos_versoes (
+                    id BIGSERIAL PRIMARY KEY,
+                    contagem_id BIGINT NOT NULL
+                        REFERENCES compras_contagens_artigos(id) ON DELETE CASCADE,
+                    versao INTEGER NOT NULL,
+                    snapshot JSONB NOT NULL,
+                    actor VARCHAR(100) NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (contagem_id, versao)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_contagens_artigos_audit (
+                    id BIGSERIAL PRIMARY KEY,
+                    contagem_id BIGINT NOT NULL
+                        REFERENCES compras_contagens_artigos(id) ON DELETE CASCADE,
+                    event_type VARCHAR(40) NOT NULL,
+                    actor VARCHAR(100) NOT NULL,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_contagens_artigos_store_date
+                    ON compras_contagens_artigos(store_id, data_contagem, status)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_contagens_artigos_lines_article
+                    ON compras_contagens_artigos_linhas(artigo_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_contagens_artigos_versions
+                    ON compras_contagens_artigos_versoes(contagem_id, versao)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_contagens_artigos_audit
+                    ON compras_contagens_artigos_audit(contagem_id, created_at, id)
+                """
+            )
+            conn.commit()
+            logger.info("run_migrations_compras_contagens_artigos: schema ready")
+        except Exception as exc:
+            logger.error(
+                "run_migrations_compras_contagens_artigos failed: %s", exc
             )
             conn.rollback()
             raise

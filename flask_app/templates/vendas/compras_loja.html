@@ -230,6 +230,105 @@
                 <div class="text-muted small">Ainda não existem pedidos urgentes para esta loja.</div>
                 {% endif %}
             </div>
+            {% elif active_section == 'contagem' %}
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                <div>
+                    <h6 class="mb-1">Contagem de artigos de Compras</h6>
+                    <div class="text-muted small">
+                        Registe o que foi contado fisicamente. A submissão guarda um snapshot e não altera o stock nem cria encomendas.
+                    </div>
+                </div>
+                <span class="badge text-bg-secondary">{{ count_date.strftime('%d/%m/%Y') }}</span>
+            </div>
+
+            <form method="post" action="{{ url_for('vendas.compras_loja', loja_id=loja_id, secao='contagem', data_contagem=count_date.isoformat()) }}">
+                <input type="hidden" name="loja_id" value="{{ loja_id }}">
+                <input type="hidden" name="contagem_id" value="{{ count_draft.id }}">
+                <input type="hidden" name="data_contagem" value="{{ count_date.isoformat() }}">
+                <div class="table-responsive border rounded mb-3">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr><th>Artigo</th><th>Origem</th><th style="min-width:145px">Quantidade contada</th><th>Unidade</th></tr>
+                        </thead>
+                        <tbody>
+                        {% for artigo in count_articles %}
+                            {% set saved = namespace(quantity='', note='') %}
+                            {% for line in count_draft.linhas %}
+                                {% if line.artigo_id == artigo.id %}
+                                    {% set saved.quantity = line.quantidade %}
+                                    {% set saved.note = line.observacoes or '' %}
+                                {% endif %}
+                            {% endfor %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ artigo.produto }}</div>
+                                    {% if artigo.source_supplier_name %}
+                                    <div class="text-muted small">{{ artigo.source_supplier_name }}</div>
+                                    {% endif %}
+                                </td>
+                                <td class="small">
+                                    {{ artigo.source_origin_name }}
+                                    {% if artigo.source_origin_type == 'centro_interno' %}
+                                    <span class="badge text-bg-info ms-1">Centro interno</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <input class="form-control form-control-sm" type="number"
+                                           name="quantidade_{{ artigo.id }}" value="{{ saved.quantity }}"
+                                           min="0" max="100000000" step="0.001" inputmode="decimal">
+                                    <input class="form-control form-control-sm mt-1" type="text"
+                                           name="observacoes_{{ artigo.id }}" value="{{ saved.note }}"
+                                           maxlength="1000" placeholder="Nota (opcional)">
+                                </td>
+                                <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="4" class="text-muted text-center py-3">
+                                Não existem artigos ativos aplicáveis para novas contagens.
+                            </td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-primary" type="submit" name="action" value="guardar_rascunho">
+                        Guardar rascunho
+                    </button>
+                    <button class="btn btn-primary" type="submit" name="action" value="submeter"
+                            {% if not count_articles %}disabled{% endif %}>
+                        Submeter snapshot
+                    </button>
+                </div>
+                <div class="form-text mt-2">
+                    Os campos vazios não entram no snapshot. O valor zero é uma contagem válida.
+                </div>
+            </form>
+
+            <div class="border-top pt-3 mt-4">
+                <div class="fw-semibold mb-2">Última contagem e histórico desta loja</div>
+                {% if count_history %}
+                <div class="table-responsive border rounded">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light"><tr><th>Data</th><th>Linhas</th><th>Submetida por</th><th>Artigos</th></tr></thead>
+                        <tbody>
+                        {% for snapshot in count_history %}
+                        <tr>
+                            <td class="text-nowrap">{{ snapshot.data_contagem }}</td>
+                            <td>{{ snapshot.linhas|length }}</td>
+                            <td>{{ snapshot.submitted_by }}</td>
+                            <td class="small text-muted">
+                                {% for line in snapshot.linhas[:4] %}{{ line.produto }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                {% if snapshot.linhas|length > 4 %}…{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-muted small">Ainda não existem snapshots submetidos para esta loja.</div>
+                {% endif %}
+            </div>
             {% else %}
             <div class="alert alert-light border small">
                 Esta encomenda já foi submetida. As linhas abaixo são o conteúdo enviado para Compras.

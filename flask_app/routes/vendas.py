@@ -494,6 +494,16 @@ def compras_loja():
         get_available_urgent_articles,
         list_urgent_orders,
     )
+    from db.contagens_compras import (
+        get_available_count_articles,
+        get_count_history,
+        get_count_draft,
+        get_or_create_count_draft,
+        lisboa_today as lisboa_count_today,
+        normalise_count_date,
+        save_count_draft,
+        submit_count,
+    )
 
     cycle_raw = (
         request.args.get('ciclo')
@@ -511,6 +521,10 @@ def compras_loja():
     urgent_articles = []
     urgent_orders = []
     urgent_weekly_order = None
+    count_date = lisboa_count_today()
+    count_draft = None
+    count_articles = []
+    count_history = []
     if active_section == 'semanal':
         weekly_order = get_or_create_weekly_order(
             store['id'], planning_sunday, actor=username
@@ -522,6 +536,21 @@ def compras_loja():
         urgent_weekly_order = get_weekly_order_for_store(
             store['id'], planning_sunday, include_lines=False
         )
+    elif active_section == 'contagem':
+        try:
+            count_date = normalise_count_date(
+                request.args.get('data_contagem')
+                or request.form.get('data_contagem')
+                or lisboa_count_today()
+            )
+        except ValueError as exc:
+            flash(str(exc), 'warning')
+            count_date = lisboa_count_today()
+        count_draft = get_or_create_count_draft(
+            store['id'], count_date, username
+        )
+        count_articles = get_available_count_articles()
+        count_history = get_count_history(store['id'])
 
     if request.method == 'POST' and active_section == 'semanal':
         action = request.form.get('action', 'guardar_rascunho').strip()
@@ -605,6 +634,44 @@ def compras_loja():
             ciclo=planning_sunday.isoformat(),
         ))
 
+    if request.method == 'POST' and active_section == 'contagem':
+        count_lines = []
+        for key, value in request.form.items():
+            if not key.startswith('quantidade_') or not value.strip():
+                continue
+            article_id = key.removeprefix('quantidade_')
+            count_lines.append({
+                'artigo_id': article_id,
+                'quantidade': value,
+                'observacoes': request.form.get(
+                    f'observacoes_{article_id}', ''
+                ),
+            })
+        try:
+            count_id = int(request.form.get('contagem_id', ''))
+            draft = get_count_draft(count_id)
+            if not draft or int(draft['store_id']) != int(store['id']):
+                raise ValueError('A contagem selecionada não pertence a esta loja.')
+            action = request.form.get('action', 'guardar_rascunho').strip()
+            if action == 'guardar_rascunho':
+                save_count_draft(count_id, count_lines, username)
+                flash('Rascunho da contagem guardado.', 'success')
+            elif action == 'submeter':
+                if draft['status'] == 'rascunho':
+                    save_count_draft(count_id, count_lines, username)
+                submit_count(count_id, username)
+                flash('Contagem submetida para Compras.', 'success')
+            else:
+                raise ValueError('Acção da contagem inválida.')
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), 'warning')
+        return redirect(url_for(
+            'vendas.compras_loja',
+            loja_id=store['id'],
+            secao='contagem',
+            data_contagem=count_date.isoformat(),
+        ))
+
     return render_template(
         'vendas/compras_loja.html',
         active_tab='compras_loja',
@@ -623,6 +690,10 @@ def compras_loja():
         urgent_weekly_order=urgent_weekly_order,
         urgent_default_date=(lisboa_today() + timedelta(days=1)),
         urgent_reason_labels=URGENT_REASON_LABELS,
+        count_date=count_date,
+        count_draft=count_draft,
+        count_articles=count_articles,
+        count_history=count_history,
         weekly_statuses={
             'rascunho': 'Rascunho',
             'submetida': 'Submetida',

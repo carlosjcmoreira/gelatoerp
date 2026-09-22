@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.contagens_artigos") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">🔢 Detalhe da contagem #{{ count.contagem_id }}</h5>
+            <div class="text-muted small">{{ count.loja_nome }} · {{ count.data_contagem }} · submetida por {{ count.submitted_by }}</div>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('compras.contagens_artigos') }}">Voltar às contagens</a>
+    </div>
+    <section class="card border-0 shadow-sm">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead class="table-light"><tr><th>Artigo</th><th>Origem</th><th class="text-end">Quantidade</th><th>Unidade</th><th>Observações</th></tr></thead>
+                <tbody>
+                {% for line in count.linhas %}
+                <tr>
+                    <td><div class="fw-semibold">{{ line.produto }}</div><div class="text-muted small">ID {{ line.artigo_id }}</div></td>
+                    <td>{{ line.origem_nome }}{% if line.origem_tipo == 'centro_interno' %} <span class="badge text-bg-info">Centro interno</span>{% endif %}</td>
+                    <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
+                    <td>{{ line.unidade }}</td>
+                    <td class="text-muted">{{ line.observacoes or '—' }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}

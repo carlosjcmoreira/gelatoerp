@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">🔢 Contagens de artigos</h5>
+            <p class="text-muted small mb-0">Snapshots físicos submetidos pelas lojas. Não representam stock em tempo real nem alteram encomendas.</p>
+        </div>
+        <span class="badge text-bg-light border">{{ counts|length }} resultado(s)</span>
+    </div>
+
+    <form method="get" class="card card-body shadow-sm border-0 mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1" for="count-store">Loja</label>
+                <select id="count-store" name="loja_id" class="form-select form-select-sm">
+                    <option value="">Todas as lojas</option>
+                    {% for store in stores %}
+                    <option value="{{ store.id }}" {% if store_id == store.id %}selected{% endif %}>{{ store.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1" for="count-from">Data desde</label>
+                <input id="count-from" type="date" name="data_de" value="{{ date_from }}" class="form-control form-control-sm">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1" for="count-to">Data até</label>
+                <input id="count-to" type="date" name="data_ate" value="{{ date_to }}" class="form-control form-control-sm">
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1" for="count-product">Produto</label>
+                <input id="count-product" type="search" name="produto" value="{{ article_query }}"
+                       class="form-control form-control-sm" placeholder="Nome ou ID do artigo">
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small mb-1" for="count-origin">Origem</label>
+                <select id="count-origin" name="origem_id" class="form-select form-select-sm">
+                    <option value="">Todas</option>
+                    {% for origin in origins %}
+                    <option value="{{ origin.id }}" {% if origin_id == origin.id %}selected{% endif %}>{{ origin.nome }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 d-flex gap-2">
+                <button class="btn btn-primary btn-sm" type="submit">Filtrar</button>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('compras.contagens_artigos') }}">Limpar</a>
+            </div>
+        </div>
+    </form>
+
+    {% if counts %}
+    {% for count in counts %}
+    <section class="card shadow-sm border-0 mb-3">
+        <div class="card-header bg-transparent d-flex flex-wrap justify-content-between gap-2">
+            <div>
+                <span class="fw-semibold">{{ count.loja_nome }}</span>
+                <span class="text-muted ms-2">{{ count.data_contagem }}</span>
+                <span class="text-muted ms-2">#{{ count.contagem_id }}</span>
+            </div>
+            <div class="text-muted small">Submetida por {{ count.submitted_by }} · {{ count.linhas|length }} artigo(s)</div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light"><tr><th>Artigo</th><th>Origem</th><th class="text-end">Quantidade</th><th>Unidade</th><th>Observações</th></tr></thead>
+                <tbody>
+                {% for line in count.linhas %}
+                <tr>
+                    <td><div class="fw-semibold">{{ line.produto }}</div><div class="text-muted small">ID {{ line.artigo_id }}</div></td>
+                    <td class="small">{{ line.origem_nome }}{% if line.origem_tipo == 'centro_interno' %} <span class="badge text-bg-info">Centro interno</span>{% endif %}</td>
+                    <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
+                    <td>{{ line.unidade }}</td>
+                    <td class="small text-muted">{{ line.observacoes or '—' }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer bg-transparent text-end">
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('compras.contagem_artigos_detalhe', count_id=count.contagem_id) }}">Ver detalhe</a>
+        </div>
+    </section>
+    {% endfor %}
+    {% else %}
+    <div class="card border-0 shadow-sm"><div class="card-body text-center text-muted py-5">
+        Não existem snapshots para os filtros selecionados.
+    </div></div>
+    {% endif %}
+</div>
+{% endblock %}

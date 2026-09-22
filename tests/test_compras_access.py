@@ -79,6 +79,9 @@ _DB_PATCHES = [
     patch('flask_app.routes.compras.get_cost_categories_tree',  return_value=[]),
     patch('flask_app.routes.compras.get_artigos_administrativos', return_value=[]),
     patch('flask_app.routes.compras.get_compras_origens',        return_value=[]),
+    # article-count route
+    patch('db.contagens_compras.list_submitted_counts', return_value=[]),
+    patch('db.contagens_compras.get_count_origins', return_value=[]),
     # render_template — return a plain string so no template files are needed
     # Must be patched where it is *used* (imported into compras module), not at flask.templating
     patch('flask_app.routes.compras.render_template',           return_value='ok'),
@@ -173,6 +176,12 @@ class TestComprasAccess(unittest.TestCase):
         resp = self.client.get('/compras/artigos')
         self.assertEqual(resp.status_code, 200)
 
+    def test_compras_article_counts_accessible_with_acesso_compras(self):
+        """acesso_compras=True → GET /compras/contagens-artigos returns 200."""
+        self._set_session_user(_user(acesso_compras=True))
+        resp = self.client.get('/compras/contagens-artigos')
+        self.assertEqual(resp.status_code, 200)
+
     # ------------------------------------------------------------------
     # User without any relevant perm must be redirected (3xx)
     # ------------------------------------------------------------------
@@ -202,6 +211,12 @@ class TestComprasAccess(unittest.TestCase):
         """No compras/admin/gestor perm → GET /compras/artigos redirects."""
         self._set_session_user(_user())
         resp = self.client.get('/compras/artigos')
+        self.assertIn(resp.status_code, (301, 302, 303, 307, 308))
+
+    def test_compras_article_counts_blocked_without_perm(self):
+        """No compras/admin/gestor perm → article counts redirect."""
+        self._set_session_user(_user())
+        resp = self.client.get('/compras/contagens-artigos')
         self.assertIn(resp.status_code, (301, 302, 303, 307, 308))
 
     def test_unauthenticated_user_is_redirected(self):
