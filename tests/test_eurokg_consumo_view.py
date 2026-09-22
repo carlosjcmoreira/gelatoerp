@@ -298,6 +298,18 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         self.assertIn('<tbody id="{{ item.group_id }}"', template)
         self.assertIn('data-consumo-family-details', template)
         self.assertIn('hidden>', template)
+
+    def test_manager_page_distinguishes_alias_identity_from_missing_dose(self):
+        template = Path(
+            "flask_app/templates/eurokg/consumo_teorico.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Identidade de alias bloqueada", template)
+        self.assertIn("Identidade ambígua", template)
+        self.assertIn("Alias inválido", template)
+        self.assertIn("Faltam gramas", template)
+        self.assertIn("não são feitas correspondências aproximadas", template)
+        self.assertIn("dose_alias_alerts", template)
         self.assertIn("Mostrar apenas consumos incompletos", template)
         self.assertIn("data-consumo-filter-incompletos", template)
         self.assertIn("aparecem provisoriamente como 0", template)

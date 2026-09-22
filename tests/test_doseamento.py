@@ -7,6 +7,7 @@ from db.doseamento import (
     get_vendas_ao_peso_sem_peso_calculavel,
     resolve_product_alias,
 )
+from db.dose_associations import product_alias_issue
 
 
 def rotation(consumption=10, issues=None):
@@ -302,6 +303,21 @@ def test_exact_alias_conflict_stays_unmapped():
     )
     assert resolved is None
     assert status == "invalid_alias"
+
+
+def test_alias_issue_distinguishes_ambiguous_target_from_invalid_chain():
+    assert product_alias_issue(
+        "Copo antigo",
+        [("Copo antigo", "Copo A"), ("Copo antigo", "Copo B")],
+    ) == "ambiguous_alias"
+    assert product_alias_issue(
+        "Copo A", [("Copo A", "Copo B"), ("Copo B", "Copo A")]
+    ) == "invalid_alias"
+    assert product_alias_issue(
+        "Copo antigo",
+        [("Copo antigo", "Copo intermédio"),
+         ("Copo intermédio", "Copo atual")],
+    ) is None
 
 
 def test_case_and_whitespace_lookalikes_do_not_inherit_alias():

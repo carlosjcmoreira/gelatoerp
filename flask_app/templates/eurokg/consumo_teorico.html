@@ -151,6 +151,59 @@
     {% endif %}
 
     {% if is_gestor %}
+    <div class="card mb-3 border-danger">
+        <div class="card-header py-2">
+            <h6 class="mb-0 small">🚫 Identidade de alias bloqueada</h6>
+        </div>
+        <div class="card-body">
+            <p class="small text-muted mb-2">
+                Estas vendas ficaram sem dose porque o nome histórico não
+                identifica exatamente um único artigo. Corrija o alias na
+                configuração de produtos; o histórico de vendas mantém-se
+                intacto e não são feitas correspondências aproximadas.
+            </p>
+            {% if dose_alias_alerts %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Nome histórico</th>
+                            <th>Destino registado</th>
+                            <th>Problema de identidade</th>
+                            <th class="text-end">Vendas afetadas</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for alert in dose_alias_alerts %}
+                        <tr>
+                            <td>{{ alert.alias }}</td>
+                            <td>
+                                {% if alert.destinations %}
+                                    {{ alert.destinations|join(', ') }}
+                                {% else %}—{% endif %}
+                            </td>
+                            <td>
+                                {% if alert.issue == 'ambiguous_alias' %}
+                                    Identidade ambígua
+                                {% else %}
+                                    Alias inválido
+                                {% endif %}
+                            </td>
+                            <td class="text-end">{{ alert.sales_count }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="small text-success mb-0">
+                Não foram encontradas vendas afetadas por aliases ambíguos ou
+                inválidos neste período e loja.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
     <div class="card mb-3 border-warning">
         <div class="card-header py-2">
             <h6 class="mb-0 small">⚠️ Vendas ao peso sem peso calculável</h6>

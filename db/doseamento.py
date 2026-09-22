@@ -21,6 +21,7 @@ from db.dose_associations import (
     close_current_association,
     get_product_family,
     get_product_family_ids,
+    product_alias_issue,
     resolve_product_alias,
 )
 from db.gelato_rotation import get_gelato_stock_rotation
@@ -232,6 +233,133 @@ def get_vendas_ao_peso_sem_peso_calculavel(
             "quantidade": sale.get("quantidade"),
         })
     return incomplete
+
+
+def get_dose_alias_coverage_alerts(
+    data_inicio=None, data_fim=None, loja=None
+):
+    """Return exact aliases that leave selected historical sales unmapped.
+
+    This is a read-only manager diagnostic.  It deliberately uses the imported
+    sale's stable configuration ID and exact alias names; no text similarity is
+    used to decide whether an alias belongs to the Euro/kg scope.
+    """
+    if data_inicio is not None and data_fim is not None and data_inicio > data_fim:
+        raise ValueError("A data inicial não pode ser posterior à data final.")
+
+    with db_connection() as conn:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        conditions = ["a.nome_antigo = vd.produto"]
+        params = []
+        if data_inicio is not None:
+            conditions.append("vd.data >= %s")
+            params.append(data_inicio)
+        if data_fim is not None:
+            conditions.append("vd.data <= %s")
+            params.append(data_fim)
+        if loja:
+            conditions.append("vd.loja = %s")
+            params.append(loja)
+        cur.execute(f"""
+            SELECT a.nome_antigo AS alias_name,
+                   COUNT(*) AS sales_count,
+                   vd.produto_vendas_config_id AS source_config_id,
+                   COALESCE(source.gelado_kpi, FALSE) AS source_selected,
+                   EXISTS (
+                       SELECT 1
+                       FROM produto_regra_dose_historico source_prd
+                       WHERE source_prd.produto_vendas_config_id =
+                             vd.produto_vendas_config_id
+                   ) AS source_has_dose_history
+            FROM produtos_vendas_aliases a
+            JOIN vendas_detalhe vd
+              ON vd.produto = a.nome_antigo
+            LEFT JOIN produtos_vendas_config source
+              ON source.id = vd.produto_vendas_config_id
+            WHERE {" AND ".join(conditions)}
+            GROUP BY a.nome_antigo, vd.produto_vendas_config_id,
+                     source.gelado_kpi
+            ORDER BY a.nome_antigo, vd.produto_vendas_config_id
+        """, params)
+        sale_rows = [dict(row) for row in cur.fetchall()]
+
+        cur.execute("""
+            SELECT id, produto, gelado_kpi
+            FROM produtos_vendas_config
+        """)
+        configs = [dict(row) for row in cur.fetchall()]
+        cur.execute("""
+            SELECT nome_antigo, nome_atual
+            FROM produtos_vendas_aliases
+            ORDER BY nome_antigo, nome_atual
+        """)
+        aliases = [
+            (row["nome_antigo"], row["nome_atual"])
+            for row in cur.fetchall()
+        ]
+        cur.execute("""
+            SELECT DISTINCT produto_vendas_config_id
+            FROM produto_regra_dose_historico
+            WHERE produto_vendas_config_id IS NOT NULL
+        """)
+        historical_dose_ids = {
+            row["produto_vendas_config_id"] for row in cur.fetchall()
+        }
+
+    config_by_name = defaultdict(list)
+    config_by_id = {}
+    for config in configs:
+        config_by_name[config["produto"]].append(config)
+        config_by_id[config["id"]] = config
+
+    direct_targets = defaultdict(set)
+    for old_name, new_name in aliases:
+        direct_targets[old_name].add(new_name)
+
+    alerts = {}
+    for row in sale_rows:
+        source_id = row["source_config_id"]
+        source = config_by_id.get(source_id)
+        source_in_scope = bool(
+            row["source_selected"] or row["source_has_dose_history"]
+            or source_id in historical_dose_ids
+        )
+        resolved_name, alias_status = resolve_product_alias(
+            row["alias_name"], aliases
+        )
+        issue = product_alias_issue(row["alias_name"], aliases)
+        target_configs = (
+            config_by_name.get(resolved_name, [])
+            if resolved_name is not None else []
+        )
+        target_in_scope = any(
+            config.get("gelado_kpi")
+            or config["id"] in historical_dose_ids
+            for config in target_configs
+        )
+        if not source_in_scope and not target_in_scope:
+            continue
+
+        # A resolved alias is still blocked when its terminal identity is not
+        # exactly one configured product.  More than one is ambiguous; no
+        # product at all is an invalid historical alias.
+        if issue is None and alias_status == "alias" and len(target_configs) != 1:
+            issue = (
+                "ambiguous_alias" if len(target_configs) > 1
+                else "invalid_alias"
+            )
+        if issue is None:
+            continue
+
+        alert = alerts.setdefault(row["alias_name"], {
+            "alias": row["alias_name"],
+            "destinations": sorted(direct_targets[row["alias_name"]]),
+            "issue": issue,
+            "sales_count": 0,
+        })
+        alert["sales_count"] += int(row["sales_count"])
+
+    return sorted(alerts.values(), key=lambda item: item["alias"])
 
 
 def _matches(product, history, sale_date):

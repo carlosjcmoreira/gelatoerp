@@ -27,6 +27,7 @@ from db.doseamento import (
     get_historical_dose_preview,
     get_doseamento_period, get_historical_dose_coverage,
     get_vendas_ao_peso_sem_peso_calculavel,
+    get_dose_alias_coverage_alerts,
 )
 
 eurokg_bp = Blueprint('eurokg', __name__)
@@ -605,6 +606,12 @@ def consumo_teorico():
         )
         if is_gestor else []
     )
+    dose_alias_alerts = (
+        get_dose_alias_coverage_alerts(
+            data_inicio=data_inicio, data_fim=data_fim, loja=loja_db
+        )
+        if is_gestor else []
+    )
 
     tabs = _build_tabs(loja_filter, is_gestor, 'consumo')
 
@@ -619,7 +626,8 @@ def consumo_teorico():
         dose_coverage=dose_coverage, dose_import_audits=dose_import_audits,
         dose_import_preview=dose_import_preview,
         dose_products=dose_products,
-        vendas_peso_sem_peso=vendas_peso_sem_peso)
+        vendas_peso_sem_peso=vendas_peso_sem_peso,
+        dose_alias_alerts=dose_alias_alerts)
 
 
 @eurokg_bp.route('/vendas-produto')

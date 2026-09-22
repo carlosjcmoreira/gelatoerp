@@ -27,6 +27,37 @@ def resolve_product_alias(product, aliases):
     return current_label, "alias" if used_alias else "original"
 
 
+def product_alias_issue(product, aliases):
+    """Classify an exact alias chain that cannot identify one product.
+
+    ``resolve_product_alias`` intentionally keeps one stable public status for
+    callers that only need to know whether resolution succeeded.  Diagnostics
+    shown to managers need to explain whether the stored alias itself has
+    multiple targets or whether its chain is otherwise malformed.
+    """
+    targets = defaultdict(set)
+    for old_name, new_name in aliases:
+        old_key = str(old_name or "")
+        new_key = str(new_name or "")
+        if old_key and new_key:
+            targets[old_key].add(new_key)
+
+    current = str(product or "")
+    visited = set()
+    while current in targets:
+        destinations = targets[current]
+        if len(destinations) > 1:
+            return "ambiguous_alias"
+        if current in visited:
+            return "invalid_alias"
+        visited.add(current)
+        next_name = next(iter(destinations))
+        if next_name == current or next_name in visited:
+            return "invalid_alias"
+        current = next_name
+    return None
+
+
 def get_product_family(cursor, product_id):
     """Return one canonical product and all exact aliases pointing to it.
 
