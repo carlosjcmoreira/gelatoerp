@@ -480,12 +480,19 @@ def compras_loja():
     from db.encomendas_semanais import (
         get_available_weekly_articles,
         get_or_create_weekly_order,
+        get_weekly_order_for_store,
         next_planning_sunday,
         normalise_planning_sunday,
         save_weekly_draft,
         submit_weekly_order,
         weekly_cycle_dates,
         lisboa_today,
+    )
+    from db.pedidos_urgentes import (
+        URGENT_REASON_LABELS,
+        create_urgent_order,
+        get_available_urgent_articles,
+        list_urgent_orders,
     )
 
     cycle_raw = (
@@ -501,11 +508,20 @@ def compras_loja():
     username = session.get('user', {}).get('username', 'sistema')
     weekly_order = None
     weekly_articles = []
+    urgent_articles = []
+    urgent_orders = []
+    urgent_weekly_order = None
     if active_section == 'semanal':
         weekly_order = get_or_create_weekly_order(
             store['id'], planning_sunday, actor=username
         )
         weekly_articles = get_available_weekly_articles()
+    elif active_section == 'urgente':
+        urgent_articles = get_available_urgent_articles()
+        urgent_orders = list_urgent_orders(store_id=store['id'])
+        urgent_weekly_order = get_weekly_order_for_store(
+            store['id'], planning_sunday, include_lines=False
+        )
 
     if request.method == 'POST' and active_section == 'semanal':
         action = request.form.get('action', 'guardar_rascunho').strip()
@@ -553,6 +569,42 @@ def compras_loja():
             ciclo=planning_sunday.isoformat(),
         ))
 
+    if request.method == 'POST' and active_section == 'urgente':
+        urgent_lines = []
+        for key, value in request.form.items():
+            if not key.startswith('quantidade_') or not value.strip():
+                continue
+            article_id = key.removeprefix('quantidade_')
+            urgent_lines.append({
+                'artigo_id': article_id,
+                'quantidade': value,
+                'observacoes': request.form.get(
+                    f'observacoes_{article_id}', ''
+                ),
+            })
+        try:
+            create_urgent_order(
+                store_id=store['id'],
+                target_date=request.form.get('data_pretendida'),
+                lines=urgent_lines,
+                actor=username,
+                reason=request.form.get('motivo', ''),
+                reason_detail=request.form.get('motivo_detalhe', ''),
+                observations=request.form.get('observacoes', ''),
+                weekly_order_id=request.form.get('encomenda_semanal_id') or None,
+                weekly_cycle=request.form.get('ciclo') or None,
+                today=lisboa_today(),
+            )
+            flash('Pedido urgente submetido para Compras.', 'success')
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), 'warning')
+        return redirect(url_for(
+            'vendas.compras_loja',
+            loja_id=store['id'],
+            secao='urgente',
+            ciclo=planning_sunday.isoformat(),
+        ))
+
     return render_template(
         'vendas/compras_loja.html',
         active_tab='compras_loja',
@@ -566,6 +618,11 @@ def compras_loja():
         weekly_order=weekly_order,
         weekly_articles=weekly_articles,
         weekly_cycle=weekly_cycle_dates(planning_sunday),
+        urgent_articles=urgent_articles,
+        urgent_orders=urgent_orders,
+        urgent_weekly_order=urgent_weekly_order,
+        urgent_default_date=(lisboa_today() + timedelta(days=1)),
+        urgent_reason_labels=URGENT_REASON_LABELS,
         weekly_statuses={
             'rascunho': 'Rascunho',
             'submetida': 'Submetida',

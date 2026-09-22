@@ -15,6 +15,7 @@ _LOCK_EVENTOS_CUSTOMER_PORTAL = 2026822
 _LOCK_COMPRAS_ORIGENS = 202711
 _LOCK_COMPRAS_CATALOGO = 202712
 _LOCK_COMPRAS_ENCOMENDAS_SEMANAIS = 202713
+_LOCK_COMPRAS_PEDIDOS_URGENTES = 202714
 
 
 def run_migrations_compras_origens():
@@ -564,6 +565,141 @@ def run_migrations_compras_encomendas_semanais():
         except Exception as exc:
             logger.error(
                 "run_migrations_compras_encomendas_semanais failed: %s", exc
+            )
+            conn.rollback()
+            raise
+
+
+def run_migrations_compras_pedidos_urgentes():
+    """Create the isolated, auditable urgent store-purchase request model."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_xact_lock(%s)",
+                (_LOCK_COMPRAS_PEDIDOS_URGENTES,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_compras_pedidos_urgentes: lock held, skipping"
+                )
+                return
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_pedidos_urgentes (
+                    id BIGSERIAL PRIMARY KEY,
+                    store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+                    data_pretendida DATE NOT NULL,
+                    encomenda_semanal_id BIGINT
+                        REFERENCES compras_encomendas_semanais(id) ON DELETE SET NULL,
+                    ciclo_domingo DATE,
+                    motivo VARCHAR(40) NOT NULL CHECK (
+                        motivo IN (
+                            'falta_planeamento',
+                            'procura_acima_previsto',
+                            'outro'
+                        )
+                    ),
+                    motivo_detalhe VARCHAR(1000) NOT NULL DEFAULT '',
+                    observacoes TEXT NOT NULL,
+                    status VARCHAR(30) NOT NULL DEFAULT 'submetida'
+                        CHECK (status IN (
+                            'submetida', 'em_preparacao',
+                            'concluida', 'cancelada'
+                        )),
+                    prioridade SMALLINT NOT NULL DEFAULT 2
+                        CHECK (prioridade BETWEEN 1 AND 9),
+                    dedupe_key VARCHAR(64) NOT NULL,
+                    submitted_by VARCHAR(100) NOT NULL,
+                    submitted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_by VARCHAR(100),
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    prepared_by VARCHAR(100),
+                    prepared_at TIMESTAMP,
+                    completed_by VARCHAR(100),
+                    completed_at TIMESTAMP,
+                    cancelled_by VARCHAR(100),
+                    cancelled_at TIMESTAMP,
+                    cancel_reason TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CHECK (ciclo_domingo IS NULL OR EXTRACT(ISODOW FROM ciclo_domingo) = 7),
+                    CHECK (motivo <> 'outro' OR BTRIM(motivo_detalhe) <> ''),
+                    CHECK (BTRIM(observacoes) <> ''),
+                    UNIQUE (store_id, dedupe_key)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_pedidos_urgentes_linhas (
+                    id BIGSERIAL PRIMARY KEY,
+                    pedido_id BIGINT NOT NULL
+                        REFERENCES compras_pedidos_urgentes(id) ON DELETE CASCADE,
+                    artigo_id INTEGER REFERENCES artigos_administrativos(id)
+                        ON DELETE SET NULL,
+                    produto_snapshot VARCHAR(255) NOT NULL,
+                    unidade_snapshot VARCHAR(50) NOT NULL,
+                    origem_id_snapshot INTEGER REFERENCES compras_origens(id)
+                        ON DELETE SET NULL,
+                    origem_tipo_snapshot VARCHAR(30) NOT NULL,
+                    origem_nome_snapshot VARCHAR(255) NOT NULL,
+                    origem_store_id_snapshot INTEGER REFERENCES stores(id)
+                        ON DELETE SET NULL,
+                    origem_supplier_id_snapshot INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    origem_supplier_nome_snapshot VARCHAR(255),
+                    quantidade NUMERIC(12, 3) NOT NULL CHECK (quantidade > 0),
+                    observacoes TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (pedido_id, artigo_id)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_pedidos_urgentes_audit (
+                    id BIGSERIAL PRIMARY KEY,
+                    pedido_id BIGINT NOT NULL
+                        REFERENCES compras_pedidos_urgentes(id) ON DELETE CASCADE,
+                    event_type VARCHAR(50) NOT NULL,
+                    actor VARCHAR(100) NOT NULL,
+                    reason TEXT,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    previous_status VARCHAR(30),
+                    new_status VARCHAR(30),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_pedidos_urgentes_queue
+                    ON compras_pedidos_urgentes(status, prioridade, data_pretendida)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_pedidos_urgentes_store
+                    ON compras_pedidos_urgentes(store_id, data_pretendida)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_pedidos_urgentes_lines_article
+                    ON compras_pedidos_urgentes_linhas(artigo_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_pedidos_urgentes_audit
+                    ON compras_pedidos_urgentes_audit(pedido_id, created_at, id)
+                """
+            )
+            conn.commit()
+            logger.info("run_migrations_compras_pedidos_urgentes: schema ready")
+        except Exception as exc:
+            logger.error(
+                "run_migrations_compras_pedidos_urgentes failed: %s", exc
             )
             conn.rollback()
             raise

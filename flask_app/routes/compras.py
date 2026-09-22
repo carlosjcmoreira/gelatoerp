@@ -70,6 +70,7 @@ TABS = [
     {'id': 'nova_fatura', 'label': 'Registar Documento', 'icon': '➕', 'url_endpoint': 'compras.nova_fatura'},
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
     {'id': 'encomendas_semanais', 'label': 'Encomendas Semanais', 'icon': '📅', 'url_endpoint': 'compras.encomendas_semanais'},
+    {'id': 'pedidos_urgentes', 'label': 'Pedidos Urgentes', 'icon': '⚡', 'url_endpoint': 'compras.pedidos_urgentes'},
     {'id': 'criar_ordem', 'label': 'Criar Ordem de Transferência', 'icon': '📦', 'url_endpoint': 'compras.criar_ordem'},
 ]
 
@@ -1499,6 +1500,61 @@ def encomendas_semanais():
             'concluida': 'Concluída',
             'cancelada': 'Cancelada',
         },
+    )
+
+
+@compras_bp.route('/pedidos-urgentes', methods=['GET', 'POST'])
+@any_perm_required('acesso_administrativo', 'acesso_compras')
+def pedidos_urgentes():
+    from db.pedidos_urgentes import (
+        URGENT_REASON_LABELS,
+        URGENT_STATUSES,
+        get_urgent_metrics,
+        list_urgent_orders,
+        transition_urgent_order_status,
+    )
+
+    if request.method == 'POST':
+        try:
+            order_id = int(request.form.get('pedido_id', ''))
+            action = request.form.get('action', '').strip()
+            new_status = {
+                'preparar': 'em_preparacao',
+                'concluir': 'concluida',
+                'cancelar': 'cancelada',
+            }.get(action)
+            if not new_status:
+                raise ValueError('Acção do pedido urgente inválida.')
+            transition_urgent_order_status(
+                order_id,
+                new_status,
+                session.get('user', {}).get('username', 'sistema'),
+                request.form.get('motivo', '').strip() or None,
+            )
+            flash('Estado do pedido urgente atualizado.', 'success')
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), 'warning')
+        return redirect(url_for('compras.pedidos_urgentes'))
+
+    status_filter = request.args.get('estado', '').strip()
+    if status_filter and status_filter not in URGENT_STATUSES:
+        flash('Estado do pedido urgente inválido. A mostrar todos.', 'warning')
+        status_filter = ''
+    statuses = [status_filter] if status_filter else None
+    orders = list_urgent_orders(statuses=statuses)
+    metrics = get_urgent_metrics()
+    return render_template(
+        'compras/pedidos_urgentes.html',
+        orders=orders,
+        metrics=metrics,
+        urgent_statuses={
+            'submetida': 'Submetida',
+            'em_preparacao': 'Em preparação',
+            'concluida': 'Concluída',
+            'cancelada': 'Cancelada',
+        },
+        urgent_reason_labels=URGENT_REASON_LABELS,
+        status_filter=status_filter,
     )
 
 

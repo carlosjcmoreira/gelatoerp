@@ -113,6 +113,123 @@
                     A submissão fica disponível no domingo de planeamento e cria uma versão auditável.
                 </div>
             </form>
+            {% elif active_section == 'urgente' %}
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                <div>
+                    <h6 class="mb-1">Pedido urgente — exceção de abastecimento</h6>
+                    <div class="text-muted small">
+                        Use apenas quando a encomenda semanal não chega ou a procura excede o previsto.
+                        Este pedido não altera nem mistura a encomenda semanal.
+                    </div>
+                </div>
+                <span class="badge text-bg-warning">URGENTE</span>
+            </div>
+
+            <form method="post" action="{{ url_for('vendas.compras_loja', loja_id=loja_id, secao='urgente', ciclo=weekly_cycle.ciclo_domingo.isoformat()) }}">
+                <input type="hidden" name="loja_id" value="{{ loja_id }}">
+                <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}">
+                <div class="row g-2 mb-3">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold" for="urgent-date">Data pretendida</label>
+                        <input id="urgent-date" type="date" name="data_pretendida" class="form-control"
+                               min="{{ urgent_default_date.isoformat() }}"
+                               value="{{ urgent_default_date.isoformat() }}" required>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold" for="urgent-reason">Motivo</label>
+                        <select id="urgent-reason" name="motivo" class="form-select" required>
+                            <option value="">Escolha o motivo</option>
+                            {% for reason, label in urgent_reason_labels.items() %}
+                            <option value="{{ reason }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small fw-semibold" for="urgent-weekly">Ciclo semanal relacionado</label>
+                        <select id="urgent-weekly" name="encomenda_semanal_id" class="form-select">
+                            <option value="">Sem ciclo relacionado</option>
+                            {% if urgent_weekly_order %}
+                            <option value="{{ urgent_weekly_order.id }}" selected>
+                                #{{ urgent_weekly_order.id }} · {{ urgent_weekly_order.ciclo_domingo.strftime('%d/%m/%Y') }}
+                            </option>
+                            {% endif %}
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small fw-semibold" for="urgent-reason-detail">Detalhe do motivo (obrigatório em “Outro”)</label>
+                        <input id="urgent-reason-detail" type="text" name="motivo_detalhe"
+                               class="form-control" maxlength="1000"
+                               placeholder="Explique a exceção quando escolher Outro">
+                    </div>
+                </div>
+
+                <div class="table-responsive border rounded mb-3">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr><th>Artigo</th><th>Origem operacional</th><th style="min-width:145px">Quantidade</th><th>Unidade</th></tr>
+                        </thead>
+                        <tbody>
+                        {% for artigo in urgent_articles %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ artigo.produto }}</div>
+                                    {% if artigo.supplier_nome %}<div class="text-muted small">{{ artigo.supplier_nome }}</div>{% endif %}
+                                </td>
+                                <td class="small">
+                                    {{ artigo.origem_nome }}
+                                    {% if artigo.origem_tipo == 'centro_interno' %}
+                                    <span class="badge text-bg-info ms-1">Centro interno</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <input class="form-control form-control-sm" type="number"
+                                           name="quantidade_{{ artigo.id }}" min="0.001" max="1000000"
+                                           step="0.001" inputmode="decimal">
+                                    <input class="form-control form-control-sm mt-1" type="text"
+                                           name="observacoes_{{ artigo.id }}" maxlength="1000"
+                                           placeholder="Nota (opcional)">
+                                </td>
+                                <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="4" class="text-muted text-center py-3">
+                                Não existem artigos elegíveis para pedidos urgentes.
+                            </td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <label class="form-label small fw-semibold" for="urgent-notes">Observação obrigatória</label>
+                <textarea id="urgent-notes" name="observacoes" class="form-control mb-3" rows="2"
+                          maxlength="4000" required
+                          placeholder="Explique o que faltou e o que Compras deve preparar"></textarea>
+                <button class="btn btn-warning" type="submit" {% if not urgent_articles %}disabled{% endif %}>
+                    Submeter pedido urgente
+                </button>
+            </form>
+
+            <div class="border-top pt-3 mt-4">
+                <div class="fw-semibold mb-2">Pedidos urgentes desta loja</div>
+                {% if urgent_orders %}
+                <div class="table-responsive border rounded">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light"><tr><th>Data</th><th>Motivo</th><th>Artigos/origem</th><th>Estado</th></tr></thead>
+                        <tbody>
+                        {% for order in urgent_orders %}
+                        <tr>
+                            <td class="text-nowrap">{{ order.data_pretendida.strftime('%d/%m/%Y') }}</td>
+                            <td>{{ urgent_reason_labels[order.motivo] }}</td>
+                            <td><div>{{ order.artigos_resumo }}</div><div class="text-muted small">{{ order.origens_resumo }}</div></td>
+                            <td><span class="badge text-bg-secondary">{{ order.status|replace('_', ' ')|title }}</span></td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-muted small">Ainda não existem pedidos urgentes para esta loja.</div>
+                {% endif %}
+            </div>
             {% else %}
             <div class="alert alert-light border small">
                 Esta encomenda já foi submetida. As linhas abaixo são o conteúdo enviado para Compras.

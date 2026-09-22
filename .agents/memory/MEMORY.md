@@ -32,3 +32,4 @@
 - [Compras catalog history](compras-catalog-history.md) — versioned seed imports must preserve pre-existing catalogue rows rather than deleting historical identities.
 - [Invoice product links](invoice-product-links.md) — catalogue associations never rewrite invoice-line snapshots; auto-suggestions require exact text and confirmed canonical supplier scope.
 - [Weekly store orders](compras-weekly-orders.md) — weekly purchase planning is a separate audited document, never a stock-transfer movement.
+- [Urgent store requests](compras-urgent-orders.md) — urgent exceptions stay separate from weekly planning and deduplicate by request content.

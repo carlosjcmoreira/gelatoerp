@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">⚡ Pedidos urgentes</h5>
+            <p class="text-muted small mb-0">Exceções separadas da encomenda semanal, ordenadas por prioridade e data pretendida.</p>
+        </div>
+        <form method="get" class="d-flex align-items-end gap-2">
+            <div>
+                <label class="form-label small mb-1" for="urgent-status">Estado</label>
+                <select id="urgent-status" name="estado" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    {% for key, label in urgent_statuses.items() %}
+                    <option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button class="btn btn-outline-primary btn-sm" type="submit">Filtrar</button>
+        </form>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-12 col-xl-8">
+            <section class="card shadow-sm border-0">
+                <div class="card-header bg-transparent fw-semibold">Fila prioritária</div>
+                <div class="card-body p-0">
+                    {% if orders %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 small">
+                            <thead class="table-light">
+                                <tr><th>Prioridade / loja</th><th>Data pretendida</th><th>Motivo</th><th>Artigos e origem</th><th>Estado</th><th>Ações</th></tr>
+                            </thead>
+                            <tbody>
+                            {% for order in orders %}
+                            <tr>
+                                <td>
+                                    <span class="badge {% if order.prioridade == 1 %}text-bg-danger{% else %}text-bg-warning{% endif %}">
+                                        P{{ order.prioridade }}
+                                    </span>
+                                    <div class="fw-semibold mt-1">{{ order.loja_nome }}</div>
+                                    <div class="text-muted">#{{ order.id }}</div>
+                                </td>
+                                <td class="text-nowrap">{{ order.data_pretendida.strftime('%d/%m/%Y') }}</td>
+                                <td>
+                                    {{ urgent_reason_labels[order.motivo] }}
+                                    {% if order.motivo_detalhe %}<div class="text-muted">{{ order.motivo_detalhe }}</div>{% endif %}
+                                    {% if order.ciclo_domingo %}<div class="text-muted">Ciclo {{ order.ciclo_domingo.strftime('%d/%m/%Y') }}</div>{% endif %}
+                                </td>
+                                <td>
+                                    <div>{{ order.artigos_resumo }}</div>
+                                    <div class="text-muted">{{ order.origens_resumo }}</div>
+                                    <div class="text-muted">{{ '%.3f'|format(order.quantidade_total or 0) }} unidades agregadas</div>
+                                </td>
+                                <td><span class="badge text-bg-secondary">{{ urgent_statuses[order.status] }}</span></td>
+                                <td class="text-nowrap">
+                                    {% if order.status == 'submetida' %}
+                                    <form method="post" class="d-inline">
+                                        <input type="hidden" name="pedido_id" value="{{ order.id }}">
+                                        <button class="btn btn-outline-primary btn-sm" name="action" value="preparar">Preparar</button>
+                                    </form>
+                                    {% elif order.status == 'em_preparacao' %}
+                                    <form method="post" class="d-inline">
+                                        <input type="hidden" name="pedido_id" value="{{ order.id }}">
+                                        <button class="btn btn-outline-success btn-sm" name="action" value="concluir">Concluir</button>
+                                    </form>
+                                    {% endif %}
+                                    {% if order.status in ('submetida', 'em_preparacao') %}
+                                    <form method="post" class="d-inline ms-1" onsubmit="return confirm('Cancelar este pedido urgente?')">
+                                        <input type="hidden" name="pedido_id" value="{{ order.id }}">
+                                        <input type="hidden" name="motivo" value="Cancelado pela equipa de Compras">
+                                        <button class="btn btn-outline-danger btn-sm" name="action" value="cancelar">Cancelar</button>
+                                    </form>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="p-4 text-center text-muted">Não existem pedidos urgentes para os filtros selecionados.</div>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+        <div class="col-12 col-xl-4">
+            <section class="card shadow-sm border-0 mb-3">
+                <div class="card-header bg-transparent fw-semibold">Motivos recorrentes</div>
+                <ul class="list-group list-group-flush small">
+                    {% for item in metrics.by_reason %}
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span>{{ urgent_reason_labels[item.motivo] }}</span><strong>{{ item.total }}</strong>
+                    </li>
+                    {% else %}<li class="list-group-item text-muted">Sem histórico.</li>{% endfor %}
+                </ul>
+            </section>
+            <section class="card shadow-sm border-0">
+                <div class="card-header bg-transparent fw-semibold">Lojas e artigos mais frequentes</div>
+                <div class="card-body small">
+                    <div class="fw-semibold mb-1">Por loja</div>
+                    {% for item in metrics.by_store %}
+                    <div class="d-flex justify-content-between"><span>{{ item.loja_nome }}</span><strong>{{ item.total }}</strong></div>
+                    {% else %}<div class="text-muted mb-2">Sem histórico.</div>{% endfor %}
+                    <div class="fw-semibold mt-3 mb-1">Por artigo</div>
+                    {% for item in metrics.by_article[:8] %}
+                    <div class="d-flex justify-content-between gap-2">
+                        <span class="text-truncate">{{ item.produto_snapshot }}</span><strong>{{ item.total }}</strong>
+                    </div>
+                    {% else %}<div class="text-muted">Sem histórico.</div>{% endfor %}
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}
