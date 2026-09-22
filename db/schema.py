@@ -3,6 +3,7 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, logger, hash_password
+from db.dose_associations import get_product_family_ids
 import json
 import os
 from werkzeug.security import generate_password_hash
@@ -6671,6 +6672,122 @@ def _backfill_initial_product_dose_ranges(cursor, product_ids=None):
     return rules_extended, associations_extended
 
 
+def _backfill_alias_initial_product_dose_ranges(cursor):
+    """Extend canonical first rules across exact product rename aliases.
+
+    This is deliberately conservative: only a single canonical configuration
+    with one first association/rule is changed, and only when that rule is not
+    shared with another product.  Alias rows remain historical presentation
+    identities; no association is created for them.
+    """
+    cursor.execute("""
+        SELECT DISTINCT canonical.id
+        FROM produtos_vendas_aliases alias
+        JOIN produtos_vendas_config canonical
+          ON canonical.produto=alias.nome_atual
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM produtos_vendas_aliases alias_target
+            WHERE alias_target.nome_antigo=canonical.produto
+        )
+        ORDER BY canonical.id
+    """)
+    canonical_ids = [row[0] for row in cursor.fetchall()]
+    rules_extended = 0
+    associations_extended = 0
+
+    for product_id in canonical_ids:
+        try:
+            family_ids = get_product_family_ids(cursor, product_id)
+        except ValueError as exc:
+            logger.warning(
+                "alias dose migration skipped product %s: %s",
+                product_id,
+                exc,
+            )
+            continue
+        if len(family_ids) <= 1:
+            continue
+
+        cursor.execute("""
+            SELECT MIN(data)
+            FROM vendas_detalhe
+            WHERE produto_vendas_config_id=ANY(%s)
+        """, (family_ids,))
+        first_sale = cursor.fetchone()[0]
+        if first_sale is None:
+            continue
+
+        cursor.execute("""
+            SELECT prd.id, prd.regra_dose_id, prd.valid_from, prd.valid_to,
+                   hist.valid_from AS rule_from, hist.valid_to AS rule_to,
+                   hist.artigo
+            FROM produto_regra_dose_historico prd
+            JOIN gramas_gelado_historico hist
+              ON hist.id=prd.regra_dose_id
+            WHERE prd.produto_vendas_config_id=%s
+            ORDER BY prd.valid_from, prd.id
+            LIMIT 1
+        """, (product_id,))
+        first = cursor.fetchone()
+        if not first or first_sale >= first[2]:
+            continue
+        (
+            association_id,
+            rule_id,
+            association_from,
+            association_to,
+            rule_from,
+            rule_to,
+            article,
+        ) = first
+        if (
+            (association_to is not None and association_to < first_sale)
+            or (rule_to is not None and rule_to < first_sale)
+        ):
+            continue
+
+        cursor.execute("""
+            SELECT 1
+            FROM gramas_gelado_historico earlier
+            WHERE LOWER(BTRIM(earlier.artigo))=LOWER(BTRIM(%s))
+              AND earlier.valid_from < %s
+            LIMIT 1
+        """, (article, rule_from))
+        if cursor.fetchone():
+            continue
+
+        cursor.execute("""
+            SELECT 1
+            FROM produto_regra_dose_historico other
+            WHERE other.regra_dose_id=%s
+              AND other.produto_vendas_config_id<>%s
+            LIMIT 1
+        """, (rule_id, product_id))
+        if cursor.fetchone():
+            logger.warning(
+                "alias dose migration skipped shared rule %s for product %s",
+                rule_id,
+                product_id,
+            )
+            continue
+
+        cursor.execute("""
+            UPDATE gramas_gelado_historico
+            SET valid_from=%s
+            WHERE id=%s AND valid_from=%s
+        """, (first_sale, rule_id, rule_from))
+        rules_extended += cursor.rowcount
+        cursor.execute("""
+            UPDATE produto_regra_dose_historico
+            SET valid_from=%s
+            WHERE id=%s AND valid_from=%s
+        """, (first_sale, association_id, association_from))
+        associations_extended += cursor.rowcount
+
+    return rules_extended, associations_extended
+
+
 def run_migrations_doseamento_gelado():
     """Version gelato dose rules so historical sales keep their original grams."""
     with db_connection() as conn:
@@ -7042,6 +7159,24 @@ def run_migrations_doseamento_gelado():
                 ON CONFLICT (nome_antigo) DO UPDATE
                 SET nome_atual=EXCLUDED.nome_atual
             """)
+            cursor.execute("""
+                SELECT 1 FROM app_schema_migrations
+                WHERE name='doseamento_alias_first_rule_full_history_v1'
+            """)
+            if not cursor.fetchone():
+                alias_rules_extended, alias_associations_extended = (
+                    _backfill_alias_initial_product_dose_ranges(cursor)
+                )
+                cursor.execute("""
+                    INSERT INTO app_schema_migrations (name)
+                    VALUES ('doseamento_alias_first_rule_full_history_v1')
+                """)
+                logger.info(
+                    "run_migrations_doseamento_gelado: extended %d alias "
+                    "dose rule(s) and %d product association(s)",
+                    alias_rules_extended,
+                    alias_associations_extended,
+                )
             cursor.execute("""
                 SELECT 1 FROM app_schema_migrations
                 WHERE name='doseamento_acai_identity_v1'

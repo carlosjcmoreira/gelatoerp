@@ -17,7 +17,9 @@ from db.doseamento import (
     configure_dose_product,
     get_dose_product_configuration_queue,
     get_historical_dose_coverage,
+    set_product_dose,
 )
+from db.schema import _backfill_alias_initial_product_dose_ranges
 
 
 class _Cursor:
@@ -91,6 +93,240 @@ class DoseProductConfigTransitionTests(unittest.TestCase):
     "PostgreSQL integration test requires DATABASE_URL",
 )
 class DoseProductConfigIntegrationTests(unittest.TestCase):
+    def test_first_dose_covers_sales_from_exact_alias_family(self):
+        suffix = uuid.uuid4().hex
+        old_name_a = "__ALIAS_OLD_A_" + suffix + "__"
+        old_name_b = "__ALIAS_OLD_B_" + suffix + "__"
+        canonical_name = "__ALIAS_CANONICAL_" + suffix + "__"
+        store = "__ALIAS_STORE_" + suffix + "__"
+        product_ids = []
+        first_sale = date.today().replace(month=1, day=10)
+        second_sale = date.today().replace(month=2, day=10)
+        canonical_sale = date.today().replace(month=5, day=10)
+        try:
+            with db_connection() as conn:
+                cur = conn.cursor()
+                for name, selected in (
+                    (old_name_a, False),
+                    (old_name_b, False),
+                    (canonical_name, True),
+                ):
+                    cur.execute("""
+                        INSERT INTO produtos_vendas_config (
+                            produto, gelado_kpi, dose_config_pendente
+                        ) VALUES (%s, %s, TRUE)
+                        RETURNING id
+                    """, (name, selected))
+                    product_ids.append(cur.fetchone()[0])
+                cur.execute("""
+                    INSERT INTO produtos_vendas_aliases
+                        (nome_antigo, nome_atual)
+                    VALUES (%s, %s), (%s, %s)
+                """, (
+                    old_name_a, canonical_name,
+                    old_name_b, canonical_name,
+                ))
+                cur.execute("""
+                    INSERT INTO vendas_detalhe (
+                        data, loja, produto, quantidade,
+                        produto_vendas_config_id
+                    ) VALUES
+                        (%s, %s, %s, 2, %s),
+                        (%s, %s, %s, 3, %s),
+                        (%s, %s, %s, 4, %s)
+                """, (
+                    first_sale, store, old_name_a, product_ids[0],
+                    second_sale, store, old_name_b, product_ids[1],
+                    canonical_sale, store, canonical_name, product_ids[2],
+                ))
+                conn.commit()
+
+            set_product_dose(
+                product_ids[2], 100, "fixa", "sistema:test"
+            )
+
+            with db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT hist.gramas, prd.valid_from
+                    FROM produto_regra_dose_historico prd
+                    JOIN gramas_gelado_historico hist
+                      ON hist.id=prd.regra_dose_id
+                    WHERE prd.produto_vendas_config_id=%s
+                """, (product_ids[2],))
+                self.assertEqual(cur.fetchone(), (100, first_sale))
+
+            frame = get_consumo_gelado_mensal(
+                store,
+                data_inicio=first_sale,
+                data_fim=canonical_sale,
+            )
+            self.assertEqual(
+                frame[["produto", "mes", "quantidade_vendida",
+                       "consumo_kg", "consumo_incompleto"]].to_dict("records"),
+                [
+                    {
+                        "produto": canonical_name,
+                        "mes": first_sale.strftime("%Y-%m"),
+                        "quantidade_vendida": 2,
+                        "consumo_kg": 0.2,
+                        "consumo_incompleto": False,
+                    },
+                    {
+                        "produto": canonical_name,
+                        "mes": second_sale.strftime("%Y-%m"),
+                        "quantidade_vendida": 3,
+                        "consumo_kg": 0.3,
+                        "consumo_incompleto": False,
+                    },
+                    {
+                        "produto": canonical_name,
+                        "mes": canonical_sale.strftime("%Y-%m"),
+                        "quantidade_vendida": 4,
+                        "consumo_kg": 0.4,
+                        "consumo_incompleto": False,
+                    },
+                ],
+            )
+        finally:
+            with db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "DELETE FROM vendas_detalhe "
+                    "WHERE produto_vendas_config_id=ANY(%s)",
+                    (product_ids,),
+                )
+                if product_ids:
+                    cur.execute(
+                        "DELETE FROM produto_regra_dose_historico "
+                        "WHERE produto_vendas_config_id=ANY(%s)",
+                        ([product_ids[2]],),
+                    )
+                    cur.execute(
+                        "DELETE FROM produtos_vendas_config WHERE id=ANY(%s)",
+                        (product_ids,),
+                    )
+                cur.execute("""
+                    DELETE FROM produtos_vendas_aliases
+                    WHERE nome_antigo IN (%s, %s)
+                """, (old_name_a, old_name_b))
+                cur.execute(
+                    "DELETE FROM gramas_gelado_historico WHERE artigo=%s",
+                    (canonical_name,),
+                )
+                cur.execute(
+                    "DELETE FROM gramas_gelado WHERE artigo=%s",
+                    (canonical_name,),
+                )
+                conn.commit()
+
+    def test_alias_migration_recedes_existing_canonical_first_rule(self):
+        suffix = uuid.uuid4().hex
+        old_name = "__ALIAS_MIGRATION_OLD_" + suffix + "__"
+        canonical_name = "__ALIAS_MIGRATION_CANONICAL_" + suffix + "__"
+        store = "__ALIAS_MIGRATION_STORE_" + suffix + "__"
+        product_ids = []
+        rule_id = association_id = None
+        first_sale = date.today().replace(month=1, day=10)
+        rule_start = date.today().replace(month=5, day=10)
+        try:
+            with db_connection() as conn:
+                cur = conn.cursor()
+                for name, selected in (
+                    (old_name, False),
+                    (canonical_name, True),
+                ):
+                    cur.execute("""
+                        INSERT INTO produtos_vendas_config (
+                            produto, gelado_kpi, dose_config_pendente
+                        ) VALUES (%s, %s, FALSE)
+                        RETURNING id
+                    """, (name, selected))
+                    product_ids.append(cur.fetchone()[0])
+                cur.execute("""
+                    INSERT INTO produtos_vendas_aliases
+                        (nome_antigo, nome_atual)
+                    VALUES (%s, %s)
+                """, (old_name, canonical_name))
+                cur.execute("""
+                    INSERT INTO vendas_detalhe (
+                        data, loja, produto, quantidade,
+                        produto_vendas_config_id
+                    ) VALUES (%s, %s, %s, 1, %s)
+                """, (first_sale, store, old_name, product_ids[0]))
+                cur.execute("""
+                    INSERT INTO gramas_gelado_historico (
+                        artigo, gramas, tipo_dose, valid_from
+                    ) VALUES (%s, 100, 'fixa', %s)
+                    RETURNING id
+                """, (canonical_name, rule_start))
+                rule_id = cur.fetchone()[0]
+                cur.execute("""
+                    INSERT INTO produto_regra_dose_historico (
+                        produto_vendas_config_id, regra_dose_id,
+                        valid_from, created_by
+                    ) VALUES (%s, %s, %s, 'sistema:test')
+                    RETURNING id
+                """, (product_ids[1], rule_id, rule_start))
+                association_id = cur.fetchone()[0]
+                conn.commit()
+
+            with db_connection() as conn:
+                cur = conn.cursor()
+                self.assertEqual(
+                    _backfill_alias_initial_product_dose_ranges(cur),
+                    (1, 1),
+                )
+                conn.commit()
+
+            with db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT valid_from
+                    FROM gramas_gelado_historico
+                    WHERE id=%s
+                """, (rule_id,))
+                self.assertEqual(cur.fetchone()[0], first_sale)
+                cur.execute("""
+                    SELECT valid_from
+                    FROM produto_regra_dose_historico
+                    WHERE id=%s
+                """, (association_id,))
+                self.assertEqual(cur.fetchone()[0], first_sale)
+
+            with db_connection() as conn:
+                cur = conn.cursor()
+                self.assertEqual(
+                    _backfill_alias_initial_product_dose_ranges(cur),
+                    (0, 0),
+                )
+                conn.rollback()
+        finally:
+            with db_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "DELETE FROM vendas_detalhe WHERE loja=%s", (store,)
+                )
+                if product_ids:
+                    cur.execute(
+                        "DELETE FROM produto_regra_dose_historico "
+                        "WHERE produto_vendas_config_id=ANY(%s)",
+                        (product_ids,),
+                    )
+                    cur.execute(
+                        "DELETE FROM produtos_vendas_config WHERE id=ANY(%s)",
+                        (product_ids,),
+                    )
+                cur.execute("""
+                    DELETE FROM produtos_vendas_aliases
+                    WHERE nome_antigo=%s
+                """, (old_name,))
+                cur.execute(
+                    "DELETE FROM gramas_gelado_historico WHERE id=%s",
+                    (rule_id,),
+                )
+                conn.commit()
+
     def test_deactivation_closes_mapping_and_reactivation_returns_to_queue(self):
         suffix = uuid.uuid4().hex
         article = "__DEACTIVATE_RULE_" + suffix + "__"

@@ -16,7 +16,12 @@ import uuid
 from psycopg2.extras import RealDictCursor
 
 from db.connection import db_connection
-from db.dose_associations import backfill_weight_sales, close_current_association
+from db.dose_associations import (
+    backfill_weight_sales,
+    close_current_association,
+    get_product_family_ids,
+    resolve_product_alias,
+)
 from db.gelato_rotation import get_gelato_stock_rotation
 
 
@@ -30,30 +35,6 @@ def _decimal(value, default=Decimal("0")):
 
 def _day(value):
     return value.date() if isinstance(value, datetime) else value
-
-
-def resolve_product_alias(product, aliases):
-    """Resolve exact rename aliases; invalid or ambiguous chains stay unmapped."""
-    targets = defaultdict(dict)
-    for old_name, new_name in aliases:
-        old_key = str(old_name or "")
-        new_key = str(new_name or "")
-        if old_key and new_key:
-            targets[old_key][new_key] = new_key
-    current_key = str(product or "")
-    current_label = current_key
-    visited = set()
-    used_alias = False
-    while current_key in targets:
-        if current_key in visited or len(targets[current_key]) != 1:
-            return None, "invalid_alias"
-        visited.add(current_key)
-        next_key, next_label = next(iter(targets[current_key].items()))
-        if next_key == current_key or next_key in visited:
-            return None, "invalid_alias"
-        current_key, current_label = next_key, next_label
-        used_alias = True
-    return current_label, "alias" if used_alias else "original"
 
 
 def load_dose_sales_with_rules(data_inicio=None, data_fim=None, loja=None):
@@ -348,6 +329,19 @@ def get_dose_product_configuration_queue():
             ORDER BY pvc.produto
         """)
         products = [dict(row) for row in cur.fetchall()]
+        for product in products:
+            try:
+                family_ids = get_product_family_ids(cur, product["id"])
+            except ValueError:
+                # The queue is a read-only diagnostic.  Keep its own-ID date
+                # when legacy/ambiguous identity data cannot be consolidated.
+                continue
+            cur.execute("""
+                SELECT MIN(data) AS first_sale
+                FROM vendas_detalhe
+                WHERE produto_vendas_config_id=ANY(%s)
+            """, (family_ids,))
+            product["first_sale"] = cur.fetchone()["first_sale"]
     return products, []
 
 
@@ -476,8 +470,8 @@ def _set_product_dose_with_connection(
     """Apply one product dose without committing the surrounding transaction.
 
     A product's first dose is the rule for all sales already recorded for that
-    stable product ID. Later changes are dated versions and preserve the
-    previous rule before their effective date.
+    canonical product and its exact rename aliases. Later changes are dated
+    versions and preserve the previous rule before their effective date.
     """
     cur = conn.cursor(cursor_factory=RealDictCursor)
     today = date.today()
@@ -546,11 +540,12 @@ def _set_product_dose_with_connection(
     article = product["produto"]
 
     if not has_history:
+        family_ids = get_product_family_ids(cur, product_id)
         cur.execute("""
             SELECT MIN(data) AS first_sale
             FROM vendas_detalhe
-            WHERE produto_vendas_config_id=%s
-        """, (product_id,))
+            WHERE produto_vendas_config_id=ANY(%s)
+        """, (family_ids,))
         first_sale = cur.fetchone()["first_sale"]
         effective_from = _day(first_sale) if first_sale is not None else today
     elif effective_from is None:
@@ -661,8 +656,9 @@ def set_product_dose(
 ):
     """Set a product dose, optionally inside a caller-owned transaction.
 
-    The first rule starts at the product's first recorded sale. A later
-    replacement requires ``effective_from`` so the prior period is preserved.
+    The first rule starts at the first recorded sale in the product's exact
+    canonical alias family. A later replacement requires ``effective_from`` so
+    the prior period is preserved.
     """
     dose_type = str(dose_type or "fixa")
     if dose_type not in {"fixa", "peso"}:
