@@ -66,6 +66,7 @@ def _ext(filename: str) -> str:
 compras_bp = Blueprint('compras', __name__)
 
 TABS = [
+    {'id': 'operacao_abastecimento', 'label': 'Operação de Abastecimento', 'icon': '🧭', 'url_endpoint': 'compras.operacao_abastecimento'},
     {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'compras.faturas'},
     {'id': 'nova_fatura', 'label': 'Registar Documento', 'icon': '➕', 'url_endpoint': 'compras.nova_fatura'},
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
@@ -96,6 +97,163 @@ def index():
     ]
     return render_template('components/section_menu.html', items=items,
                            menu_title=f'🛒 {custom_mod}' if custom_mod else '🛒 Compras e Faturas')
+
+
+@compras_bp.route('/operacao-abastecimento')
+@any_perm_required('acesso_administrativo', 'acesso_compras')
+def operacao_abastecimento():
+    """Single operational read view for weekly, urgent, and count evidence."""
+    from db.abastecimento import (
+        ORIGIN_TYPES,
+        WEEKLY_OPERATIONAL_STATUSES,
+        get_urgent_metrics,
+        get_weekly_consolidation,
+        list_urgent_orders,
+        list_weekly_orders,
+    )
+    from db.contagens_compras import list_submitted_counts
+    from db.encomendas_semanais import (
+        next_planning_sunday,
+        normalise_planning_sunday,
+        weekly_cycle_dates,
+    )
+    from db.pedidos_urgentes import URGENT_REASON_LABELS, URGENT_STATUSES
+
+    cycle_raw = request.args.get('ciclo', '').strip() or next_planning_sunday()
+    try:
+        planning_sunday = normalise_planning_sunday(cycle_raw)
+    except ValueError as exc:
+        flash(str(exc), 'warning')
+        planning_sunday = next_planning_sunday()
+
+    def _int_filter(name):
+        raw = request.args.get(name, '').strip()
+        if not raw:
+            return None
+        return int(raw) if raw.isdigit() else None
+
+    store_id = _int_filter('loja_id')
+    supplier_id = _int_filter('fornecedor_id')
+    product_query = request.args.get('produto', '').strip() or None
+    origin_type = request.args.get('tipo_origem', '').strip() or None
+    if origin_type not in ORIGIN_TYPES:
+        origin_type = None
+
+    weekly_status = request.args.get('estado_semanal', '').strip()
+    if weekly_status not in (*WEEKLY_OPERATIONAL_STATUSES, 'rascunho', 'cancelada'):
+        weekly_status = ''
+    weekly_statuses = [weekly_status] if weekly_status else list(WEEKLY_OPERATIONAL_STATUSES)
+
+    urgent_status = request.args.get('estado_urgente', '').strip()
+    if urgent_status not in URGENT_STATUSES:
+        urgent_status = ''
+    urgent_statuses = [urgent_status] if urgent_status else list(URGENT_STATUSES)
+
+    date_from = request.args.get('data_de', '').strip() or None
+    date_to = request.args.get('data_ate', '').strip() or None
+    try:
+        weekly_orders = list_weekly_orders(
+            planning_sunday, store_id, weekly_statuses, product_query,
+            origin_type, supplier_id,
+        )
+        weekly_consolidation = get_weekly_consolidation(
+            planning_sunday, store_id, weekly_statuses, product_query,
+            origin_type, supplier_id,
+        )
+        urgent_orders = list_urgent_orders(
+            store_id=store_id,
+            statuses=urgent_statuses,
+            date_from=date_from,
+            date_to=date_to,
+            product_query=product_query,
+            origin_type=origin_type,
+            supplier_id=supplier_id,
+        )
+        urgent_metrics = get_urgent_metrics(
+            store_id=store_id,
+            statuses=urgent_statuses,
+            date_from=date_from,
+            date_to=date_to,
+            product_query=product_query,
+            origin_type=origin_type,
+            supplier_id=supplier_id,
+        )
+        count_snapshots = list_submitted_counts(
+            store_id=store_id,
+            date_from=date_from,
+            date_to=date_to,
+            article_query=product_query,
+            origin_type=origin_type,
+            supplier_id=supplier_id,
+            limit=200,
+        )
+    except ValueError as exc:
+        flash(str(exc), 'warning')
+        weekly_orders = []
+        weekly_consolidation = []
+        urgent_orders = []
+        urgent_metrics = {
+            'volume_total': 0,
+            'orders_total': 0,
+            'by_reason': [],
+            'by_store': [],
+            'by_article': [],
+        }
+        count_snapshots = []
+
+    origins = get_compras_origens(apenas_ativos=True)
+    supplier_options = []
+    seen_supplier_ids = set()
+    for origin in origins:
+        sid = origin.get('supplier_id')
+        if sid and sid not in seen_supplier_ids:
+            supplier_options.append({
+                'id': sid,
+                'name': origin.get('supplier_name') or origin.get('nome'),
+            })
+            seen_supplier_ids.add(sid)
+    supplier_options.sort(key=lambda item: item['name'] or '')
+
+    planned_volume = sum(item['quantidade_total'] or 0 for item in weekly_consolidation)
+    count_lines = sum(len(snapshot.get('linhas') or []) for snapshot in count_snapshots)
+    return render_template(
+        'compras/operacao_abastecimento.html',
+        weekly_orders=weekly_orders,
+        weekly_consolidation=weekly_consolidation,
+        weekly_statuses={
+            'rascunho': 'Rascunho',
+            'submetida': 'Submetida',
+            'em_preparacao': 'Em preparação',
+            'concluida': 'Concluída',
+            'cancelada': 'Cancelada',
+        },
+        weekly_cycle=weekly_cycle_dates(planning_sunday),
+        urgent_orders=urgent_orders,
+        urgent_metrics=urgent_metrics,
+        urgent_statuses={
+            'submetida': 'Submetida',
+            'em_preparacao': 'Em preparação',
+            'concluida': 'Concluída',
+            'cancelada': 'Cancelada',
+        },
+        urgent_reason_labels=URGENT_REASON_LABELS,
+        count_snapshots=count_snapshots,
+        stores=get_stores_list(),
+        origins=origins,
+        supplier_options=supplier_options,
+        origin_types=ORIGIN_TYPES,
+        store_id=store_id,
+        supplier_id=supplier_id,
+        product_query=product_query or '',
+        origin_type=origin_type or '',
+        weekly_status=weekly_status,
+        urgent_status=urgent_status,
+        date_from=date_from or '',
+        date_to=date_to or '',
+        planned_volume=planned_volume,
+        urgent_volume=urgent_metrics['volume_total'],
+        count_lines=count_lines,
+    )
 
 
 @compras_bp.route('/faturas')
@@ -1556,6 +1714,32 @@ def pedidos_urgentes():
         },
         urgent_reason_labels=URGENT_REASON_LABELS,
         status_filter=status_filter,
+    )
+
+
+@compras_bp.route('/pedidos-urgentes/<int:order_id>')
+@any_perm_required('acesso_administrativo', 'acesso_compras')
+def pedido_urgente_detalhe(order_id):
+    from db.pedidos_urgentes import (
+        URGENT_REASON_LABELS,
+        get_urgent_order,
+        get_urgent_order_audit,
+    )
+
+    order = get_urgent_order(order_id)
+    if not order:
+        return '<p class="text-danger p-3">Pedido urgente não encontrado.</p>', 404
+    return render_template(
+        'compras/pedido_urgente_detalhe.html',
+        order=order,
+        audit=get_urgent_order_audit(order_id),
+        urgent_reason_labels=URGENT_REASON_LABELS,
+        urgent_statuses={
+            'submetida': 'Submetida',
+            'em_preparacao': 'Em preparação',
+            'concluida': 'Concluída',
+            'cancelada': 'Cancelada',
+        },
     )
 
 

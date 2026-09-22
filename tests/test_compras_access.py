@@ -82,6 +82,14 @@ _DB_PATCHES = [
     # article-count route
     patch('db.contagens_compras.list_submitted_counts', return_value=[]),
     patch('db.contagens_compras.get_count_origins', return_value=[]),
+    # operational abastecimento route
+    patch('db.abastecimento.list_weekly_orders', return_value=[]),
+    patch('db.abastecimento.get_weekly_consolidation', return_value=[]),
+    patch('db.abastecimento.list_urgent_orders', return_value=[]),
+    patch('db.abastecimento.get_urgent_metrics', return_value={
+        'volume_total': 0, 'orders_total': 0,
+        'by_reason': [], 'by_store': [], 'by_article': [],
+    }),
     # render_template — return a plain string so no template files are needed
     # Must be patched where it is *used* (imported into compras module), not at flask.templating
     patch('flask_app.routes.compras.render_template',           return_value='ok'),
@@ -182,6 +190,12 @@ class TestComprasAccess(unittest.TestCase):
         resp = self.client.get('/compras/contagens-artigos')
         self.assertEqual(resp.status_code, 200)
 
+    def test_compras_operational_view_accessible_with_acesso_compras(self):
+        """acesso_compras=True → operational abastecimento view returns 200."""
+        self._set_session_user(_user(acesso_compras=True))
+        resp = self.client.get('/compras/operacao-abastecimento')
+        self.assertEqual(resp.status_code, 200)
+
     # ------------------------------------------------------------------
     # User without any relevant perm must be redirected (3xx)
     # ------------------------------------------------------------------
@@ -217,6 +231,12 @@ class TestComprasAccess(unittest.TestCase):
         """No compras/admin/gestor perm → article counts redirect."""
         self._set_session_user(_user())
         resp = self.client.get('/compras/contagens-artigos')
+        self.assertIn(resp.status_code, (301, 302, 303, 307, 308))
+
+    def test_compras_operational_view_blocked_without_perm(self):
+        """No compras/admin/gestor perm → operational view redirects."""
+        self._set_session_user(_user())
+        resp = self.client.get('/compras/operacao-abastecimento')
         self.assertIn(resp.status_code, (301, 302, 303, 307, 308))
 
     def test_unauthenticated_user_is_redirected(self):

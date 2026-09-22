@@ -2083,6 +2083,7 @@ _TILE_MASTER = {
         {'id': 'distribuicao_centros_custo', 'icon': '📊',  'default_label': 'Distribuição Centros de Custo', 'description': 'Configurar a distribuição percentual de custos entre os centros de custo definidos'},
     ],
     'compras': [
+        {'id': 'operacao_abastecimento', 'icon': '🧭', 'default_label': 'Operação de Abastecimento', 'description': 'Reunir planeamento semanal, urgências e contagens numa fila operacional com filtros'},
         {'id': 'faturas',       'icon': '🧾', 'default_label': 'Faturas',                       'description': 'Gerir faturas de fornecedores, pagamentos e OCR automático de documentos'},
         {'id': 'nova_fatura',   'icon': '➕', 'default_label': 'Registar Documento',             'description': 'Registar manualmente uma nova fatura ou documento de fornecedor'},
         {'id': 'artigos',       'icon': '📋', 'default_label': 'Artigos de Fornecimento',        'description': 'Gerir o catálogo de artigos e produtos adquiridos a fornecedores'},

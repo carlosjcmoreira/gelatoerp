@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.index") %}
+
+{% macro origin_badge(tipo, nome, supplier) -%}
+    {% if tipo == 'centro_interno' %}
+    <span class="badge text-bg-info">Distribuição interna</span>
+    <span class="small">{{ nome }}</span>
+    {% elif tipo == 'fornecedor_externo' %}
+    <span class="badge text-bg-primary">Fornecedor confirmado</span>
+    <span class="small">{{ supplier or nome }}</span>
+    {% elif tipo == 'por_resolver' %}
+    <span class="badge text-bg-warning">Origem por resolver</span>
+    <span class="small">{{ nome }}</span>
+    {% else %}
+    <span class="badge text-bg-secondary">{{ nome }}</span>
+    {% endif %}
+{%- endmacro %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">🧭 Operação de Abastecimento</h5>
+            <p class="text-muted small mb-0">
+                Planeamento semanal, exceções urgentes e evidência de contagens permanecem separados.
+                Esta vista não cria movimentos de stock nem receções.
+            </p>
+        </div>
+        <span class="badge text-bg-light border">Compras operacional</span>
+    </div>
+
+    <form method="get" class="card card-body shadow-sm border-0 mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-2">
+                <label class="form-label small mb-1" for="ops-cycle">Ciclo semanal</label>
+                <input id="ops-cycle" type="date" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}"
+                       class="form-control form-control-sm">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1" for="ops-from">Urgências/contagens desde</label>
+                <input id="ops-from" type="date" name="data_de" value="{{ date_from }}" class="form-control form-control-sm">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1" for="ops-to">Até</label>
+                <input id="ops-to" type="date" name="data_ate" value="{{ date_to }}" class="form-control form-control-sm">
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small mb-1" for="ops-store">Loja</label>
+                <select id="ops-store" name="loja_id" class="form-select form-select-sm">
+                    <option value="">Todas</option>
+                    {% for store in stores %}
+                    <option value="{{ store.id }}" {% if store_id == store.id %}selected{% endif %}>{{ store.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small mb-1" for="ops-product">Produto</label>
+                <input id="ops-product" type="search" name="produto" value="{{ product_query }}"
+                       class="form-control form-control-sm" placeholder="Nome ou ID">
+            </div>
+            <div class="col-12 col-md-2">
+                <label class="form-label small mb-1" for="ops-origin">Tipo de origem</label>
+                <select id="ops-origin" name="tipo_origem" class="form-select form-select-sm">
+                    <option value="">Todas</option>
+                    <option value="fornecedor_externo" {% if origin_type == 'fornecedor_externo' %}selected{% endif %}>Fornecedor confirmado</option>
+                    <option value="centro_interno" {% if origin_type == 'centro_interno' %}selected{% endif %}>Centro interno</option>
+                    <option value="categoria_operacional" {% if origin_type == 'categoria_operacional' %}selected{% endif %}>Categoria operacional</option>
+                    <option value="por_resolver" {% if origin_type == 'por_resolver' %}selected{% endif %}>Por resolver</option>
+                </select>
+            </div>
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-1" for="ops-supplier">Fornecedor confirmado</label>
+                <select id="ops-supplier" name="fornecedor_id" class="form-select form-select-sm">
+                    <option value="">Todos os fornecedores</option>
+                    {% for supplier in supplier_options %}
+                    <option value="{{ supplier.id }}" {% if supplier_id == supplier.id %}selected{% endif %}>{{ supplier.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1" for="ops-weekly-status">Estado semanal</label>
+                <select id="ops-weekly-status" name="estado_semanal" class="form-select form-select-sm">
+                    <option value="">Operacionais</option>
+                    {% for key, label in weekly_statuses.items() %}
+                    <option value="{{ key }}" {% if weekly_status == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-1" for="ops-urgent-status">Estado urgente</label>
+                <select id="ops-urgent-status" name="estado_urgente" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    {% for key, label in urgent_statuses.items() %}
+                    <option value="{{ key }}" {% if urgent_status == key %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-5 d-flex gap-2">
+                <button class="btn btn-primary btn-sm" type="submit">Aplicar filtros</button>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('compras.operacao_abastecimento') }}">Limpar</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('compras.encomendas_semanais', ciclo=weekly_cycle.ciclo_domingo.isoformat()) }}">Vista semanal</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('compras.pedidos_urgentes') }}">Vista urgente</a>
+            </div>
+        </div>
+    </form>
+
+    <div class="row g-3 mb-3">
+        <div class="col-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100"><div class="card-body">
+                <div class="small text-muted">Volume planeado</div>
+                <div class="fs-4 fw-bold">{{ '%.3f'|format(planned_volume) }}</div>
+                <div class="small text-muted">{{ weekly_consolidation|length }} artigo/origem no ciclo</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100 border-start border-warning border-3"><div class="card-body">
+                <div class="small text-muted">Volume urgente</div>
+                <div class="fs-4 fw-bold text-warning-emphasis">{{ '%.3f'|format(urgent_volume) }}</div>
+                <div class="small text-muted">{{ urgent_metrics.orders_total }} pedido(s) urgente(s)</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100"><div class="card-body">
+                <div class="small text-muted">Contagens físicas</div>
+                <div class="fs-4 fw-bold">{{ count_lines }}</div>
+                <div class="small text-muted">{{ count_snapshots|length }} snapshot(s) submetido(s)</div>
+            </div></div>
+        </div>
+        <div class="col-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100"><div class="card-body">
+                <div class="small text-muted">Urgência recorrente</div>
+                <div class="fs-4 fw-bold">{{ urgent_metrics.by_article|length }}</div>
+                <div class="small text-muted">artigo(s) com pedidos no filtro</div>
+            </div></div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-12 col-xl-8">
+            <section class="card shadow-sm border-0 mb-3">
+                <div class="card-header bg-transparent d-flex justify-content-between gap-2">
+                    <div>
+                        <span class="fw-semibold">📅 Planeamento semanal</span>
+                        <div class="text-muted small">Ciclo de domingo {{ weekly_cycle.ciclo_domingo.strftime('%d/%m/%Y') }} · detalhe por loja preservado</div>
+                    </div>
+                    <span class="badge text-bg-primary">{{ weekly_orders|length }} loja(s)</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light"><tr><th>Loja</th><th>Estado</th><th class="text-end">Volume</th><th>Observações</th><th></th></tr></thead>
+                        <tbody>
+                        {% for order in weekly_orders %}
+                        <tr>
+                            <td><div class="fw-semibold">{{ order.loja_nome }}</div><div class="text-muted small">#{{ order.id }}</div></td>
+                            <td><span class="badge text-bg-secondary">{{ weekly_statuses[order.status] }}</span></td>
+                            <td class="text-end">{{ '%.3f'|format(order.quantidade_total) }}</td>
+                            <td class="small text-muted">{{ order.observacoes or '—' }}</td>
+                            <td class="text-end text-nowrap">
+                                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('compras.encomenda_semanal_detalhe', order_id=order.id) }}">Detalhe/histórico</a>
+                                {% if order.status == 'submetida' %}
+                                <form method="post" action="{{ url_for('compras.encomendas_semanais') }}" class="d-inline">
+                                    <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}"><input type="hidden" name="encomenda_id" value="{{ order.id }}">
+                                    <button class="btn btn-outline-primary btn-sm" name="action" value="preparar">Preparar</button>
+                                </form>
+                                {% elif order.status == 'em_preparacao' %}
+                                <form method="post" action="{{ url_for('compras.encomendas_semanais') }}" class="d-inline">
+                                    <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}"><input type="hidden" name="encomenda_id" value="{{ order.id }}">
+                                    <button class="btn btn-outline-success btn-sm" name="action" value="concluir">Concluir</button>
+                                </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="text-center text-muted py-4">Sem encomendas para os filtros selecionados.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card shadow-sm border-0 mb-3">
+                <div class="card-header bg-transparent">
+                    <span class="fw-semibold">Consolidação por artigo e origem</span>
+                    <div class="text-muted small">Fornecedores confirmados ficam agrupados pela identidade canónica; origens internas indicam trabalho de distribuição.</div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light"><tr><th>Artigo</th><th>Origem operacional</th><th>Lojas</th><th class="text-end">Total</th></tr></thead>
+                        <tbody>
+                        {% for item in weekly_consolidation %}
+                        <tr>
+                            <td><div class="fw-semibold">{{ item.produto_snapshot }}</div><div class="text-muted small">ID {{ item.artigo_id }}</div></td>
+                            <td>{{ origin_badge(item.origem_tipo_snapshot, item.origem_nome_snapshot, item.origem_supplier_nome_snapshot) }}</td>
+                            <td class="small">
+                                {% for store in item.lojas %}
+                                <div>{{ store.loja_nome }}: {{ '%.3f'|format(store.quantidade) }} {{ store.unidade }}</div>
+                                {% endfor %}
+                            </td>
+                            <td class="text-end text-nowrap">{{ '%.3f'|format(item.quantidade_total) }} {{ item.unidade_snapshot }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center text-muted py-4">A consolidação aparece depois das primeiras submissões.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card shadow-sm border-0 mb-3">
+                <div class="card-header bg-transparent d-flex justify-content-between gap-2">
+                    <div>
+                        <span class="fw-semibold">⚡ Pedidos urgentes</span>
+                        <div class="text-muted small">Exceções separadas do plano semanal · moedas são apresentadas como distribuição interna a partir de Matosinhos.</div>
+                    </div>
+                    <span class="badge text-bg-warning">{{ urgent_orders|length }} pedido(s)</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light"><tr><th>Prazo / loja</th><th>Motivo</th><th>Artigos e origem</th><th>Estado</th><th></th></tr></thead>
+                        <tbody>
+                        {% for order in urgent_orders %}
+                        <tr>
+                            <td class="text-nowrap"><div class="fw-semibold">{{ order.data_pretendida.strftime('%d/%m/%Y') }}</div><div>{{ order.loja_nome }}</div><div class="text-muted small">#{{ order.id }} · P{{ order.prioridade }}</div></td>
+                            <td>{{ urgent_reason_labels[order.motivo] }}{% if order.motivo_detalhe %}<div class="text-muted small">{{ order.motivo_detalhe }}</div>{% endif %}</td>
+                            <td class="small">
+                                {% for line in order.linhas %}
+                                <div>{{ line.produto }} — {{ '%.3f'|format(line.quantidade) }} {{ line.unidade }} · {{ origin_badge(line.origem_tipo, line.origem_nome, line.supplier_nome) }}</div>
+                                {% endfor %}
+                                {% if order.observacoes %}<div class="text-muted mt-1">Nota: {{ order.observacoes }}</div>{% endif %}
+                            </td>
+                            <td><span class="badge text-bg-secondary">{{ urgent_statuses[order.status] }}</span></td>
+                            <td class="text-end text-nowrap">
+                                <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('compras.pedido_urgente_detalhe', order_id=order.id) }}">Detalhe/histórico</a>
+                                {% if order.status == 'submetida' %}
+                                <form method="post" action="{{ url_for('compras.pedidos_urgentes') }}" class="d-inline"><input type="hidden" name="pedido_id" value="{{ order.id }}"><button class="btn btn-outline-primary btn-sm" name="action" value="preparar">Preparar</button></form>
+                                {% elif order.status == 'em_preparacao' %}
+                                <form method="post" action="{{ url_for('compras.pedidos_urgentes') }}" class="d-inline"><input type="hidden" name="pedido_id" value="{{ order.id }}"><button class="btn btn-outline-success btn-sm" name="action" value="concluir">Concluir</button></form>
+                                {% endif %}
+                                {% if order.status in ('submetida', 'em_preparacao') %}
+                                <form method="post" action="{{ url_for('compras.pedidos_urgentes') }}" class="d-inline"><input type="hidden" name="pedido_id" value="{{ order.id }}"><input type="hidden" name="motivo" value="Cancelado pela equipa de Compras"><button class="btn btn-outline-danger btn-sm" name="action" value="cancelar">Cancelar</button></form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="text-center text-muted py-4">Sem pedidos urgentes para os filtros selecionados.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="card shadow-sm border-0">
+                <div class="card-header bg-transparent">
+                    <span class="fw-semibold">🔢 Contagens físicas recentes</span>
+                    <div class="text-muted small">Evidência submetida pelas lojas; não é stock em tempo real nem gera automaticamente encomendas.</div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light"><tr><th>Data / loja</th><th>Artigos</th><th>Submetida por</th><th>Resumo</th></tr></thead>
+                        <tbody>
+                        {% for snapshot in count_snapshots %}
+                        <tr>
+                            <td class="text-nowrap">{{ snapshot.data_contagem }}<div class="text-muted">{{ snapshot.loja_nome }}</div></td>
+                            <td>{{ snapshot.linhas|length }}</td>
+                            <td>{{ snapshot.submitted_by }}</td>
+                            <td class="small">{% for line in snapshot.linhas[:5] %}{{ line.produto }}: {{ line.quantidade }} {{ line.unidade }}{% if not loop.last %}; {% endif %}{% endfor %}{% if snapshot.linhas|length > 5 %}…{% endif %}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="4" class="text-center text-muted py-4">Sem snapshots de contagem para os filtros.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <div class="col-12 col-xl-4">
+            <section class="card shadow-sm border-0 mb-3">
+                <div class="card-header bg-transparent fw-semibold">Indicadores de recorrência urgente</div>
+                <div class="card-body small">
+                    <div class="fw-semibold mb-1">Por loja</div>
+                    {% for item in urgent_metrics.by_store %}
+                    <div class="d-flex justify-content-between"><span>{{ item.loja_nome }}</span><strong>{{ item.total }}</strong></div>
+                    {% else %}<div class="text-muted mb-2">Sem histórico no filtro.</div>{% endfor %}
+                    <div class="fw-semibold mt-3 mb-1">Por motivo</div>
+                    {% for item in urgent_metrics.by_reason %}
+                    <div class="d-flex justify-content-between"><span>{{ urgent_reason_labels[item.motivo] }}</span><strong>{{ item.total }}</strong></div>
+                    {% else %}<div class="text-muted mb-2">Sem histórico no filtro.</div>{% endfor %}
+                    <div class="fw-semibold mt-3 mb-1">Por artigo</div>
+                    {% for item in urgent_metrics.by_article[:8] %}
+                    <div class="d-flex justify-content-between gap-2"><span class="text-truncate">{{ item.produto_snapshot }}</span><strong>{{ item.total }}</strong></div>
+                    {% else %}<div class="text-muted">Sem histórico no filtro.</div>{% endfor %}
+                </div>
+            </section>
+            <section class="card border-warning-subtle bg-warning-subtle">
+                <div class="card-body small">
+                    <div class="fw-semibold">Sem automatismos de stock</div>
+                    <div class="text-muted">Preparar ou concluir nesta área atualiza apenas o estado e o histórico do pedido. Receções, transferências e movimentos de stock continuam a exigir confirmação própria.</div>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

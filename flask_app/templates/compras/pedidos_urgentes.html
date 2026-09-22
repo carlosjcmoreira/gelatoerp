@@ -53,6 +53,7 @@
                                     <div>{{ order.artigos_resumo }}</div>
                                     <div class="text-muted">{{ order.origens_resumo }}</div>
                                     <div class="text-muted">{{ '%.3f'|format(order.quantidade_total or 0) }} unidades agregadas</div>
+                                    <a class="small text-decoration-none" href="{{ url_for('compras.pedido_urgente_detalhe', order_id=order.id) }}">Ver detalhe e histórico</a>
                                 </td>
                                 <td><span class="badge text-bg-secondary">{{ urgent_statuses[order.status] }}</span></td>
                                 <td class="text-nowrap">

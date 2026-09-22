@@ -379,6 +379,8 @@ def list_submitted_counts(
     date_to=None,
     article_query: str | None = None,
     origin_id: int | None = None,
+    origin_type: str | None = None,
+    supplier_id: int | None = None,
     limit: int = 200,
 ) -> list[dict]:
     clauses = ["c.status = 'submetida'"]
@@ -415,6 +417,28 @@ def list_submitted_counts(
             """
         )
         params.append(str(int(origin_id)))
+    if origin_type:
+        clauses.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(v.snapshot->'linhas') AS line
+                WHERE line->>'origem_tipo' = %s
+            )
+            """
+        )
+        params.append(str(origin_type))
+    if supplier_id is not None:
+        clauses.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(v.snapshot->'linhas') AS line
+                WHERE line->>'supplier_id' = %s
+            )
+            """
+        )
+        params.append(str(int(supplier_id)))
     params.append(max(1, min(int(limit), 1000)))
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
