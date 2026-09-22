@@ -27,3 +27,4 @@
 - [Lost weighing incident](lost-weighing-incident.md) — the September 2026 Bolhão loss was a never-submitted browser draft, not committed stock disappearing.
 - [Daily weighing state](daily-weighing-state.md) — EOD status uses stable store identity and Lisbon closed days; justified days are audited exceptions that reject later stock writes.
 - [Weighing audit and recovery](weighing-audit-recovery.md) — weighing changes are append-only audited; deletion is reversible deactivation, and operational reads use active rows only.
+- [Store-scoped Vendas tiles](store-scoped-vendas-tiles.md) — module identity stays global; child tile settings use stable store IDs and canonical capability filtering.

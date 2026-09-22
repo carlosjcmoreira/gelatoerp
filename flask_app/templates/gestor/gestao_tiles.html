@@ -16,9 +16,114 @@
         <div id="icon-grid" class="d-flex flex-wrap gap-1" style="max-height:200px;overflow-y:auto;"></div>
     </div>
 
-    {% if not modules %}
+    {% if not modules and not vendas_modules %}
     <div class="alert alert-info">Nenhum tile registado ainda.</div>
     {% else %}
+
+    {% if vendas_modules %}
+    {% set loja_mod_default = module_defaults.get('vendas', 'Loja') %}
+    {% set loja_mod_label = module_custom_labels.get('vendas', loja_mod_default) %}
+    <div class="card mb-3" style="max-width:700px;">
+        <div class="card-header py-2">
+            <div class="d-flex align-items-center gap-2 tile-rename-row">
+                <button type="button"
+                        class="btn btn-link p-0 icon-btn flex-shrink-0"
+                        data-module="vendas"
+                        data-tile-id="_module_icon"
+                        data-default-icon="{{ module_emojis.get('vendas', '') }}"
+                        title="Clique para alterar o ícone do módulo"
+                        style="font-size:1.2rem;width:1.8rem;text-align:center;line-height:1;text-decoration:none;">{{ module_icon_overrides.get('vendas') or module_emojis.get('vendas', '') }}</button>
+                <input type="text"
+                       class="form-control form-control-sm tile-label-input flex-grow-1 fw-semibold"
+                       value="{{ loja_mod_label }}"
+                       data-module="vendas"
+                       data-tile-id="_module_label"
+                       data-original="{{ loja_mod_label }}"
+                       data-default="{{ loja_mod_default }}"
+                       maxlength="80"
+                       aria-label="Nome do módulo vendas">
+                <button type="button"
+                        class="btn btn-outline-primary btn-sm tile-rename-btn flex-shrink-0"
+                        data-module="vendas"
+                        data-tile-id="_module_label"
+                        title="Guardar nome do módulo"
+                        style="min-width:2.2rem;">💾</button>
+                <button type="button"
+                        class="btn btn-outline-secondary btn-sm tile-reset-btn flex-shrink-0"
+                        data-module="vendas"
+                        data-tile-id="_module_label"
+                        data-default="{{ loja_mod_default }}"
+                        title="Repor nome original ({{ loja_mod_default }})"
+                        style="min-width:2.2rem;">↺</button>
+            </div>
+            <div class="text-muted ps-4 ms-1" style="font-size:0.72rem;margin-top:2px;">
+                Nome e ícone partilhados pelas lojas; os tiles são configurados separadamente abaixo.
+            </div>
+        </div>
+    </div>
+    {% for vendas_module in vendas_modules %}
+    {% set store = vendas_module.store %}
+    <div class="card mb-4" style="max-width:700px;">
+        <div class="card-header py-2">
+            <div class="fw-semibold">🛒 Loja — {{ store.name }}</div>
+        </div>
+        <div class="list-group list-group-flush">
+            {% for tile in vendas_module.tiles %}
+            <div class="list-group-item px-3 py-2 tile-rename-row">
+                <div class="d-flex align-items-center gap-2">
+                    <button type="button"
+                            class="btn btn-link p-0 icon-btn flex-shrink-0"
+                            data-module="vendas"
+                            data-store-id="{{ tile.store_id }}"
+                            data-tile-id="{{ tile.tile_id }}"
+                            data-default-icon="{{ tile.default_icon }}"
+                            title="Clique para alterar o ícone"
+                            style="font-size:1.2rem;width:1.8rem;text-align:center;line-height:1;text-decoration:none;">{{ tile.icon }}</button>
+                    <input type="text"
+                           class="form-control form-control-sm tile-label-input flex-grow-1"
+                           value="{{ tile.label }}"
+                           data-module="vendas"
+                           data-store-id="{{ tile.store_id }}"
+                           data-tile-id="{{ tile.tile_id }}"
+                           data-original="{{ tile.label }}"
+                           data-default="{{ tile.default_label }}"
+                           maxlength="80"
+                           aria-label="Nome do tile {{ tile.tile_id }} em {{ store.name }}">
+                    <button type="button"
+                            class="btn btn-outline-primary btn-sm tile-rename-btn flex-shrink-0"
+                            data-module="vendas"
+                            data-store-id="{{ tile.store_id }}"
+                            data-tile-id="{{ tile.tile_id }}"
+                            title="Guardar nome"
+                            style="min-width:2.2rem;">💾</button>
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm tile-reset-btn flex-shrink-0"
+                            data-module="vendas"
+                            data-store-id="{{ tile.store_id }}"
+                            data-tile-id="{{ tile.tile_id }}"
+                            data-default="{{ tile.default_label }}"
+                            title="Repor nome original ({{ tile.default_label }})"
+                            style="min-width:2.2rem;">↺</button>
+                    <button type="button"
+                            class="btn btn-sm tile-toggle flex-shrink-0 {% if tile.visible %}btn-success{% else %}btn-outline-secondary{% endif %}"
+                            data-module="vendas"
+                            data-store-id="{{ tile.store_id }}"
+                            data-tile-id="{{ tile.tile_id }}"
+                            data-visible="{{ '1' if tile.visible else '0' }}"
+                            title="{{ 'Clique para ocultar' if tile.visible else 'Clique para mostrar' }}"
+                            style="min-width:4.5rem;font-size:0.75rem;">
+                        {{ '👁 Visível' if tile.visible else '🙈 Oculto' }}
+                    </button>
+                </div>
+                <div class="text-muted ms-4 ps-2" style="font-size:0.75rem;margin-top:3px;">
+                    {{ tile.description }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
 
     {% for module_id, tiles in modules.items() %}
     {% set mod_emoji = module_icon_overrides.get(module_id) or module_emojis.get(module_id, '') %}
@@ -57,11 +162,6 @@
                         title="Repor nome original ({{ mod_default }})"
                         style="min-width:2.2rem;">↺</button>
             </div>
-            {% if module_id == 'vendas' and vendas_stores %}
-            <div class="text-muted ps-4 ms-1" style="font-size:0.72rem;margin-top:2px;">
-                Aplica-se a: {{ vendas_stores | map(attribute='name') | join(', ') }}
-            </div>
-            {% endif %}
         </div>
         <div class="list-group list-group-flush">
             {% for tile in tiles %}
@@ -138,7 +238,7 @@
     const grid   = document.getElementById('icon-grid');
     let activeBtnEl = null;
 
-    function buildGrid(module, tileId, defaultIcon) {
+    function buildGrid(module, storeId, tileId, defaultIcon) {
         grid.innerHTML = '';
         const resetBtn = document.createElement('button');
         resetBtn.type = 'button';
@@ -146,7 +246,7 @@
         resetBtn.style.fontSize = '0.75rem';
         resetBtn.textContent = '↺ Repor ícone original (' + defaultIcon + ')';
         resetBtn.addEventListener('click', function () {
-            doSaveIcon(module, tileId, defaultIcon);
+            doSaveIcon(module, storeId, tileId, defaultIcon);
         });
         grid.appendChild(resetBtn);
 
@@ -165,18 +265,19 @@
                 btn.title = em;
                 btn.textContent = em;
                 btn.addEventListener('click', function () {
-                    doSaveIcon(module, tileId, em);
+                    doSaveIcon(module, storeId, tileId, em);
                 });
                 grid.appendChild(btn);
             });
         });
     }
 
-    function doSaveIcon(module, tileId, icon) {
+    function doSaveIcon(module, storeId, tileId, icon) {
         const fd = new FormData();
         fd.append('module', module);
         fd.append('tile_id', tileId);
         fd.append('icon', icon);
+        if (storeId) fd.append('store_id', storeId);
         fetch(ICON_URL, {method: 'POST', body: fd})
             .then(function (r) { return r.json(); })
             .then(function (data) {
@@ -196,9 +297,10 @@
     function openPicker(btn) {
         activeBtnEl = btn;
         const module   = btn.dataset.module;
+        const storeId  = btn.dataset.storeId || '';
         const tileId   = btn.dataset.tileId;
         const defIcon  = btn.dataset.defaultIcon;
-        buildGrid(module, tileId, defIcon);
+        buildGrid(module, storeId, tileId, defIcon);
         picker.style.display = 'block';
         positionPicker(btn);
     }
@@ -272,9 +374,11 @@
         return fetch(url, {method: 'POST', body: fd}).then(function (r) { return r.json(); });
     }
 
-    function doRename(module, tileId, label, input, btn) {
+    function doRename(module, storeId, tileId, label, input, btn) {
         btn.disabled = true;
-        postForm(RENAME_URL, {module, tile_id: tileId, label})
+        const data = {module, tile_id: tileId, label};
+        if (storeId) data.store_id = storeId;
+        postForm(RENAME_URL, data)
             .then(function (data) {
                 if (data.ok) {
                     input.dataset.original = data.label;
@@ -291,11 +395,14 @@
     document.querySelectorAll('.tile-toggle').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const module = this.dataset.module;
+            const storeId = this.dataset.storeId || '';
             const tileId = this.dataset.tileId;
             const currentVisible = this.dataset.visible === '1';
             const newVisible = currentVisible ? '0' : '1';
             btn.disabled = true;
-            postForm(TOGGLE_URL, {module, tile_id: tileId, visible: newVisible})
+            const data = {module, tile_id: tileId, visible: newVisible};
+            if (storeId) data.store_id = storeId;
+            postForm(TOGGLE_URL, data)
                 .then(function (data) {
                     if (data.ok) {
                         const v = data.visible;
@@ -316,6 +423,7 @@
     document.querySelectorAll('.tile-rename-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const module = this.dataset.module;
+            const storeId = this.dataset.storeId || '';
             const tileId = this.dataset.tileId;
             const row = this.closest('.tile-rename-row');
             const input = row.querySelector('.tile-label-input');
@@ -324,20 +432,21 @@
                 showToast('O nome não pode estar vazio — use ↺ para repor o original', false);
                 return;
             }
-            doRename(module, tileId, label, input, this);
+            doRename(module, storeId, tileId, label, input, this);
         });
     });
 
     document.querySelectorAll('.tile-reset-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             const module = this.dataset.module;
+            const storeId = this.dataset.storeId || '';
             const tileId = this.dataset.tileId;
             const defaultLabel = this.dataset.default;
             const row = this.closest('.tile-rename-row');
             const input = row.querySelector('.tile-label-input');
             input.value = defaultLabel;
             const saveBtn = row.querySelector('.tile-rename-btn');
-            doRename(module, tileId, defaultLabel, input, saveBtn);
+            doRename(module, storeId, tileId, defaultLabel, input, saveBtn);
         });
     });
 

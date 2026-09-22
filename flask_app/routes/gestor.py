@@ -2048,11 +2048,11 @@ _TILE_MASTER = {
         {'id': 'dashboard',         'icon': '📊',  'default_label': 'Resumo Diário',                'description': 'Resumo das vendas do dia por loja com totais e indicadores de performance'},
         {'id': 'contagem_pastelaria','icon': '🍰',  'default_label': 'Contagem Pastelaria',           'description': 'Registar a contagem de produtos de pastelaria da própria loja'},
         {'id': 'transferencias',    'icon': '📦',  'default_label': 'Receção de Mercadoria',        'description': 'Confirmar a receção de transferências enviadas pela produção e pastelaria'},
+        {'id': 'transferir_gelado',  'icon': '📤',  'default_label': 'Transferir Gelado',             'description': 'Transferir gelado entre lojas autorizadas'},
         {'id': 'quebras',           'icon': '⚠️',  'default_label': 'Registar Quebras',             'description': 'Registar quebras de gelado, pastelaria e confeitaria com motivo justificativo'},
         {'id': 'pesagem',           'icon': '⚖️',  'default_label': 'Pesagem Fim de Dia',           'description': 'Registar o stock de gelado em expositor no fecho do dia por sabor'},
         {'id': 'fecho_caixa',       'icon': '💵',  'default_label': 'Fecho de Caixa',              'description': 'Lançar os totais do fecho de caixa diário por método de pagamento'},
         {'id': 'sabores_ativos',    'icon': '✅',  'default_label': 'Sabores Ativos',              'description': 'Lista dos sabores de gelado disponíveis e ativos em loja'},
-        {'id': 'contagem_pastelaria','icon': '🧁',  'default_label': 'Contagem Pastelaria',          'description': 'Registar a contagem de produtos de pastelaria da própria loja'},
         {'id': 'fecho_historico',   'icon': '📋',  'default_label': 'Histórico Caixa',             'description': 'Consultar, corrigir e auditar o histórico completo de fechos de caixa'},
     ],
     'pastelaria': [
@@ -2174,7 +2174,12 @@ _MODULE_EMOJIS = {
 @gestor_bp.route('/gestao-tiles', methods=['GET'])
 @perm_required('acesso_gestor')
 def gestao_tiles():
-    from db.tiles import get_all_tile_config, get_module_labels
+    from db.tiles import (
+        get_all_tile_config,
+        get_module_labels,
+        get_store_tile_config,
+        seed_store_tile_config,
+    )
 
     db_state = {(r['module'], r['tile_id']): r for r in get_all_tile_config()}
     module_custom_labels = get_module_labels()
@@ -2185,7 +2190,7 @@ def gestao_tiles():
         if tile_id == '_module_icon' and row.get('icon', '')
     }
 
-    _ORDER = ['producao', 'pastelaria', 'confeitaria', 'vendas', 'compras', 'logistica', 'eurokg', 'gestor', 'financeiro', 'eventos']
+    _ORDER = ['producao', 'pastelaria', 'confeitaria', 'compras', 'logistica', 'eurokg', 'gestor', 'financeiro', 'eventos']
     modules = {}
     for module_id in _ORDER:
         tile_defs = _TILE_MASTER.get(module_id, [])
@@ -2211,17 +2216,65 @@ def gestao_tiles():
     except Exception:
         vendas_stores = []
 
+    from flask_app.routes.vendas import (
+        TAB_DEFS as VENDAS_TABS,
+        get_supported_vendas_tile_ids,
+    )
+    vendas_modules = []
+    canonical_vendas_tiles = [
+        {'id': t['id'], 'label': t['label']} for t in VENDAS_TABS
+    ]
+    for store in vendas_stores:
+        supported_ids = set(get_supported_vendas_tile_ids(store))
+        supported_defs = [
+            tile_def
+            for tile_def in _TILE_MASTER['vendas']
+            if tile_def['id'] in supported_ids
+        ]
+        seed_store_tile_config(
+            store['id'],
+            [tile for tile in canonical_vendas_tiles if tile['id'] in supported_ids],
+        )
+        store_state = get_store_tile_config(store['id'])
+        tiles = []
+        for tile_def in supported_defs:
+            db_row = store_state.get(tile_def['id'], {})
+            tiles.append({
+                'store_id': store['id'],
+                'tile_id': tile_def['id'],
+                'icon': db_row.get('icon') or tile_def['icon'],
+                'default_icon': tile_def['icon'],
+                'label': db_row.get('label') or tile_def['default_label'],
+                'default_label': tile_def['default_label'],
+                'description': tile_def['description'],
+                'visible': db_row.get('visible', True),
+            })
+        vendas_modules.append({'store': store, 'tiles': tiles})
+
     return render_template(
         'gestor/gestao_tiles.html',
         active_tab='gestao_tiles',
         modules=modules,
+        vendas_modules=vendas_modules,
         module_custom_labels=module_custom_labels,
         module_defaults=_MODULE_DEFAULTS,
         module_emojis=_MODULE_EMOJIS,
         module_icon_overrides=module_icon_overrides,
-        vendas_stores=vendas_stores,
         back_url=url_for('gestor.index'),
     )
+
+
+def _parse_store_tile_scope(module):
+    """Validate the optional store scope used only by vendas tile writes."""
+    raw_store_id = request.form.get('store_id', '').strip()
+    if not raw_store_id:
+        return None, None
+    if module != 'vendas' or not raw_store_id.isdigit():
+        return None, (jsonify({'ok': False, 'error': 'Loja inválida'}), 400)
+    store = db.get_store_by_id(int(raw_store_id))
+    if not store or not store.get('is_active') or not store.get('supports_vendas'):
+        return None, (jsonify({'ok': False, 'error': 'Loja não pertence ao módulo de vendas'}), 400)
+    return store['id'], None
 
 
 @gestor_bp.route('/gestao-tiles/toggle', methods=['POST'])
@@ -2237,9 +2290,15 @@ def gestao_tiles_toggle():
     if not module or not tile_id or visible_str not in ('0', '1'):
         return jsonify({'ok': False, 'error': 'Parâmetros inválidos'}), 400
 
+    store_id, error = _parse_store_tile_scope(module)
+    if error:
+        return error
     visible = visible_str == '1'
-    set_tile_visibility(module, tile_id, visible)
-    return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'visible': visible})
+    set_tile_visibility(module, tile_id, visible, store_id=store_id)
+    return jsonify({
+        'ok': True, 'module': module, 'tile_id': tile_id,
+        'store_id': store_id, 'visible': visible,
+    })
 
 
 @gestor_bp.route('/gestao-tiles/rename', methods=['POST'])
@@ -2255,8 +2314,14 @@ def gestao_tiles_rename():
     if not module or not tile_id or not label:
         return jsonify({'ok': False, 'error': 'Parâmetros inválidos'}), 400
 
-    set_tile_label(module, tile_id, label)
-    return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'label': label})
+    store_id, error = _parse_store_tile_scope(module)
+    if error:
+        return error
+    set_tile_label(module, tile_id, label, store_id=store_id)
+    return jsonify({
+        'ok': True, 'module': module, 'tile_id': tile_id,
+        'store_id': store_id, 'label': label,
+    })
 
 
 _EMOJI_ZWJ_CODEPOINTS = frozenset([
@@ -2324,5 +2389,11 @@ def gestao_tiles_icon():
     if not _is_valid_emoji(icon):
         return jsonify({'ok': False, 'error': 'Ícone inválido — apenas emojis são aceites'}), 400
 
-    set_tile_icon(module, tile_id, icon)
-    return jsonify({'ok': True, 'module': module, 'tile_id': tile_id, 'icon': icon})
+    store_id, error = _parse_store_tile_scope(module)
+    if error:
+        return error
+    set_tile_icon(module, tile_id, icon, store_id=store_id)
+    return jsonify({
+        'ok': True, 'module': module, 'tile_id': tile_id,
+        'store_id': store_id, 'icon': icon,
+    })

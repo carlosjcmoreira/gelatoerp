@@ -116,7 +116,7 @@ def _seed_all_tiles():
     the user has visited each module.
     """
     try:
-        from db.tiles import seed_tile_config
+        from db.tiles import seed_tile_config, seed_store_tile_config
 
         from flask_app.routes.producao import TABS as PRODUCAO_TABS
         seed_tile_config('producao', [{'id': t['id'], 'label': t['label']} for t in PRODUCAO_TABS])
@@ -124,8 +124,19 @@ def _seed_all_tiles():
         from flask_app.routes.pastelaria import TABS as PASTELARIA_TABS
         seed_tile_config('pastelaria', [{'id': t['id'], 'label': t['label']} for t in PASTELARIA_TABS])
 
-        from flask_app.routes.vendas import TAB_DEFS as VENDAS_TABS
+        from flask_app.routes.vendas import (
+            TAB_DEFS as VENDAS_TABS,
+            get_supported_vendas_tile_ids,
+        )
         seed_tile_config('vendas', [{'id': t['id'], 'label': t['label']} for t in VENDAS_TABS])
+        from database import get_vendas_module_stores
+        vendas_tiles = [{'id': t['id'], 'label': t['label']} for t in VENDAS_TABS]
+        for store in get_vendas_module_stores():
+            supported = set(get_supported_vendas_tile_ids(store))
+            seed_store_tile_config(
+                store['id'],
+                [tile for tile in vendas_tiles if tile['id'] in supported],
+            )
 
         from flask_app.routes.gestor import TABS as GESTOR_TABS
         seed_tile_config('gestor', [{'id': t['id'], 'label': t['label']} for t in GESTOR_TABS])

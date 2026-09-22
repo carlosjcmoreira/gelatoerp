@@ -110,6 +110,77 @@ class TestTileConfigurationCaching(unittest.TestCase):
         self.assertEqual(first_read.execute.call_count, 1)
         self.assertEqual(second_read.execute.call_count, 1)
 
+    def test_store_tile_views_are_scoped_and_use_one_lookup_each(self):
+        from db.tiles import get_tile_icons, get_tile_labels, get_tile_visibility
+
+        bolhao = MagicMock()
+        bolhao.fetchall.return_value = [
+            ('dashboard', 'Resumo Bolhão', True, '📊'),
+            ('fecho_caixa', 'Fecho', False, '💵'),
+        ]
+        matosinhos = MagicMock()
+        matosinhos.fetchall.return_value = [
+            ('dashboard', 'Resumo Matosinhos', True, '📈'),
+            ('fecho_caixa', 'Caixa', True, ''),
+        ]
+
+        with patch(
+            'db.tiles.db_connection',
+            side_effect=[_connection(bolhao), _connection(matosinhos)],
+        ):
+            self.assertEqual(
+                get_tile_labels('vendas', store_id=1),
+                {'dashboard': 'Resumo Bolhão', 'fecho_caixa': 'Fecho'},
+            )
+            self.assertEqual(
+                get_tile_visibility('vendas', store_id=2),
+                {'dashboard': True, 'fecho_caixa': True},
+            )
+            self.assertEqual(
+                get_tile_icons('vendas', store_id=2),
+                {'dashboard': '📈'},
+            )
+
+        self.assertEqual(bolhao.execute.call_count, 1)
+        self.assertEqual(matosinhos.execute.call_count, 1)
+
+    def test_store_tile_write_invalidates_only_the_shared_tile_cache(self):
+        from db.tiles import get_tile_labels, set_tile_label
+
+        first_read = MagicMock()
+        first_read.fetchall.return_value = [('dashboard', 'Antigo', True, '')]
+        write = MagicMock()
+        second_read = MagicMock()
+        second_read.fetchall.return_value = [('dashboard', 'Novo', True, '')]
+
+        with patch(
+            'db.tiles.db_connection',
+            side_effect=[
+                _connection(first_read),
+                _connection(write),
+                _connection(second_read),
+            ],
+        ):
+            self.assertEqual(
+                get_tile_labels('vendas', store_id=1)['dashboard'],
+                'Antigo',
+            )
+            set_tile_label('vendas', 'dashboard', 'Novo', store_id=1)
+            self.assertEqual(
+                get_tile_labels('vendas', store_id=1)['dashboard'],
+                'Novo',
+            )
+
+        self.assertEqual(first_read.execute.call_count, 1)
+        self.assertEqual(write.execute.call_count, 1)
+        self.assertEqual(second_read.execute.call_count, 1)
+
+    def test_global_tile_writes_reject_store_scope_for_other_modules(self):
+        from db.tiles import set_tile_label
+
+        with self.assertRaises(ValueError):
+            set_tile_label('producao', 'overview', 'Novo', store_id=1)
+
 
 class TestInvoiceStatusCaching(unittest.TestCase):
     def setUp(self):

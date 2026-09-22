@@ -59,6 +59,30 @@ TAB_DEFS = [
     {'id': 'fecho_historico', 'label': 'Histórico Caixa', 'icon': '📋', 'endpoint': 'vendas.fecho_historico', 'gestor_only': True},
 ]
 
+_LOJA_ONLY_TILE_IDS = {'transferencias', 'transferir_gelado'}
+_EOD_ONLY_TILE_IDS = {'pesagem'}
+
+
+def get_supported_vendas_tile_ids(store, include_gestor_only=True):
+    """Return the canonical vendas tile IDs supported by one store profile."""
+    store_type = (store or {}).get('store_type', 'loja')
+    requires_eod = (store or {}).get('requires_eod_weighing', True)
+    supported = []
+    seen = set()
+    for tab in TAB_DEFS:
+        tile_id = tab['id']
+        if tile_id in seen:
+            continue
+        if not include_gestor_only and tab.get('gestor_only', False):
+            continue
+        if tile_id in _LOJA_ONLY_TILE_IDS and store_type != 'loja':
+            continue
+        if tile_id in _EOD_ONLY_TILE_IDS and not requires_eod:
+            continue
+        seen.add(tile_id)
+        supported.append(tile_id)
+    return supported
+
 
 def _parse_manual_pesagem_entries(raw_entries):
     if not isinstance(raw_entries, list):
@@ -153,9 +177,9 @@ def _get_user_loja():
 
 def _build_tabs(active_id, loja_id=None):
     from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons
-    visibility = get_tile_visibility('vendas')
-    labels = get_tile_labels('vendas')
-    icons = get_tile_icons('vendas')
+    visibility = get_tile_visibility('vendas', store_id=loja_id)
+    labels = get_tile_labels('vendas', store_id=loja_id)
+    icons = get_tile_icons('vendas', store_id=loja_id)
 
     user = session.get('user', {})
     is_gestor = bool(user.get('acesso_gestor'))
@@ -170,8 +194,9 @@ def _build_tabs(active_id, loja_id=None):
             requires_eod = store.get('requires_eod_weighing', True)
 
     # Tab visibility rules by store profile
-    _loja_only = {'transferencias', 'transferir_gelado'}  # retail-store specific tabs (dashboard is available to all vendas stores)
-    _eod_only   = {'pesagem'}        # requires end-of-day weighing
+    supported_ids = None
+    if loja_id:
+        supported_ids = set(get_supported_vendas_tile_ids(store))
 
     tabs = []
     for t in TAB_DEFS:
@@ -180,9 +205,7 @@ def _build_tabs(active_id, loja_id=None):
             continue
         if not gestor_only and not visibility.get(t['id'], True):
             continue
-        if t['id'] in _loja_only and store_type != 'loja':
-            continue
-        if t['id'] in _eod_only and not requires_eod:
+        if supported_ids is not None and t['id'] not in supported_ids:
             continue
         kwargs = {}
         if loja_id:

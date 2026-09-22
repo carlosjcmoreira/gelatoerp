@@ -19,6 +19,11 @@ def _invalidate_tile_config_cache() -> None:
         'all_tile_config',
     )
     invalidate_prefix('tile_config:')
+    invalidate_prefix('store_tile_config:')
+
+
+def _is_store_module(module: str, store_id=None) -> bool:
+    return module == 'vendas' and store_id is not None
 
 
 def run_migrations_tile_config():
@@ -52,6 +57,22 @@ def run_migrations_tile_config():
         cursor.execute("""
             ALTER TABLE tile_config
             ADD COLUMN IF NOT EXISTS icon VARCHAR(20) NOT NULL DEFAULT ''
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS store_tile_config (
+                store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+                tile_id VARCHAR(100) NOT NULL,
+                label VARCHAR(255) NOT NULL DEFAULT '',
+                visible BOOLEAN NOT NULL DEFAULT TRUE,
+                icon VARCHAR(20) NOT NULL DEFAULT '',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (store_id, tile_id)
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_store_tile_config_tile
+            ON store_tile_config (tile_id, store_id)
         """)
 
         _HIDDEN_DEFAULTS = [
@@ -103,16 +124,35 @@ def _get_tile_config(module: str) -> dict:
     }
 
 
-def get_tile_visibility(module: str) -> dict:
+def get_tile_visibility(module: str, store_id=None) -> dict:
     """Return {tile_id: visible} dict for a given module.
 
     Tiles not in the DB are considered visible (default True).
     """
-    return {tile_id: row['visible'] for tile_id, row in _get_tile_config(module).items()}
+    return {
+        tile_id: row['visible']
+        for tile_id, row in _get_effective_tile_config(module, store_id).items()
+    }
 
 
-def set_tile_visibility(module: str, tile_id: str, visible: bool, label: str = '') -> None:
+def set_tile_visibility(
+    module: str,
+    tile_id: str,
+    visible: bool,
+    label: str = '',
+    store_id=None,
+) -> None:
     """Upsert visibility for a tile. Creates the row if it doesn't exist."""
+    if _is_store_module(module, store_id):
+        _set_store_tile_value(
+            store_id,
+            tile_id,
+            visible=visible,
+            label=label or None,
+        )
+        return
+    if store_id is not None:
+        raise ValueError('store_id só é suportado no módulo vendas')
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -150,17 +190,149 @@ def seed_tile_config(module: str, tiles: list) -> None:
     _invalidate_tile_config_cache()
 
 
-def get_tile_labels(module: str) -> dict:
+def seed_store_tile_config(store_id: int, tiles: list) -> None:
+    """Seed store-specific vendas tiles without overwriting customizations."""
+    if not store_id or not tiles:
+        return
+    tile_ids = [t['id'] for t in tiles if t.get('id')]
+    labels = [t.get('label', '') for t in tiles if t.get('id')]
+    if not tile_ids:
+        return
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            DELETE FROM store_tile_config
+            WHERE store_id = %s
+              AND NOT (tile_id = ANY(%s::text[]))
+            """,
+            (store_id, tile_ids),
+        )
+        cursor.execute(
+            """
+            WITH canonical(tile_id, default_label) AS (
+                SELECT UNNEST(%s::text[]), UNNEST(%s::text[])
+            )
+            INSERT INTO store_tile_config
+                (store_id, tile_id, label, visible, icon)
+            SELECT
+                %s,
+                c.tile_id,
+                COALESCE(NULLIF(g.label, ''), c.default_label),
+                COALESCE(g.visible, TRUE),
+                COALESCE(g.icon, '')
+            FROM canonical c
+            LEFT JOIN tile_config g
+              ON g.module = 'vendas' AND g.tile_id = c.tile_id
+            ON CONFLICT (store_id, tile_id) DO NOTHING
+            """,
+            (tile_ids, labels, store_id),
+        )
+        conn.commit()
+    _invalidate_tile_config_cache()
+
+
+@db_retry
+@ttl_cache_args('store_tile_config', ttl=300)
+def _get_store_tile_config(store_id: int) -> dict:
+    """Load store-specific vendas tiles with the global config as fallback."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                COALESCE(s.tile_id, g.tile_id) AS tile_id,
+                COALESCE(NULLIF(s.label, ''), g.label, '') AS label,
+                COALESCE(s.visible, g.visible, TRUE) AS visible,
+                COALESCE(NULLIF(s.icon, ''), g.icon, '') AS icon
+            FROM tile_config g
+            FULL OUTER JOIN store_tile_config s
+              ON s.tile_id = g.tile_id
+             AND s.store_id = %s
+             AND g.module = 'vendas'
+            WHERE (g.module = 'vendas' OR s.store_id = %s)
+              AND COALESCE(s.tile_id, g.tile_id)
+                    NOT IN ('_module_label', '_module_icon')
+            """,
+            (store_id, store_id),
+        )
+        rows = cursor.fetchall()
+    return {
+        row[0]: {
+            'label': row[1] or '',
+            'visible': bool(row[2]),
+            'icon': row[3] or '',
+        }
+        for row in rows
+    }
+
+
+def _get_effective_tile_config(module: str, store_id=None) -> dict:
+    if _is_store_module(module, store_id):
+        return _get_store_tile_config(int(store_id))
+    return _get_tile_config(module)
+
+
+def get_store_tile_config(store_id: int) -> dict:
+    """Return effective tile configuration for one vendas store."""
+    return _get_store_tile_config(int(store_id))
+
+
+def _set_store_tile_value(
+    store_id: int,
+    tile_id: str,
+    *,
+    visible=None,
+    label=None,
+    icon=None,
+) -> None:
+    """Update one store-specific tile field while preserving the other fields."""
+    if not store_id or not tile_id:
+        raise ValueError('store_id e tile_id são obrigatórios')
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO store_tile_config
+                (store_id, tile_id, label, visible, icon, updated_at)
+            VALUES (
+                %s, %s,
+                COALESCE(%s, ''),
+                COALESCE(%s, TRUE),
+                COALESCE(%s, ''),
+                NOW()
+            )
+            ON CONFLICT (store_id, tile_id) DO UPDATE SET
+                label = CASE WHEN %s IS NULL
+                             THEN store_tile_config.label ELSE EXCLUDED.label END,
+                visible = CASE WHEN %s IS NULL
+                               THEN store_tile_config.visible ELSE EXCLUDED.visible END,
+                icon = CASE WHEN %s IS NULL
+                            THEN store_tile_config.icon ELSE EXCLUDED.icon END,
+                updated_at = NOW()
+            """,
+            (store_id, tile_id, label, visible, icon, label, visible, icon),
+        )
+        conn.commit()
+    _invalidate_tile_config_cache()
+
+
+def get_tile_labels(module: str, store_id=None) -> dict:
     """Return {tile_id: label} for tiles that have a non-empty custom label in the given module."""
     return {
         tile_id: row['label']
-        for tile_id, row in _get_tile_config(module).items()
+        for tile_id, row in _get_effective_tile_config(module, store_id).items()
         if row['label']
     }
 
 
-def set_tile_label(module: str, tile_id: str, label: str) -> None:
+def set_tile_label(module: str, tile_id: str, label: str, store_id=None) -> None:
     """Update only the label for a tile, preserving its current visibility."""
+    if _is_store_module(module, store_id):
+        _set_store_tile_value(store_id, tile_id, label=label.strip())
+        return
+    if store_id is not None:
+        raise ValueError('store_id só é suportado no módulo vendas')
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -235,7 +407,7 @@ def get_module_icons() -> dict:
     return dict(_get_module_overrides()['icons'])
 
 
-def get_tile_icons(module: str) -> dict:
+def get_tile_icons(module: str, store_id=None) -> dict:
     """Return {tile_id: icon} for tiles in a given module that have a custom icon.
 
     Tiles without a custom icon are omitted — caller falls back to the hardcoded default.
@@ -243,7 +415,7 @@ def get_tile_icons(module: str) -> dict:
     """
     return {
         tile_id: row['icon']
-        for tile_id, row in _get_tile_config(module).items()
+        for tile_id, row in _get_effective_tile_config(module, store_id).items()
         if row['icon'] and tile_id != '_module_icon'
     }
 
@@ -264,11 +436,16 @@ def get_all_tile_icons() -> dict:
     return {(row[0], row[1]): row[2] for row in rows}
 
 
-def set_tile_icon(module: str, tile_id: str, icon: str) -> None:
+def set_tile_icon(module: str, tile_id: str, icon: str, store_id=None) -> None:
     """Update only the icon for a tile or module (tile_id='_module_icon').
 
     Preserves existing label and visible values.
     """
+    if _is_store_module(module, store_id):
+        _set_store_tile_value(store_id, tile_id, icon=icon.strip())
+        return
+    if store_id is not None:
+        raise ValueError('store_id só é suportado no módulo vendas')
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
