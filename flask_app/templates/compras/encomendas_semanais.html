@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% set back_url = url_for("compras.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">📅 Encomendas semanais</h5>
+            <p class="text-muted small mb-0">
+                Planeamento de domingo {{ weekly_cycle.ciclo_domingo.strftime('%d/%m/%Y') }}
+                · entrega prevista na segunda-feira {{ weekly_cycle.entrega_prevista.strftime('%d/%m/%Y') }}
+            </p>
+        </div>
+        <form method="get" class="d-flex align-items-end gap-2">
+            <div>
+                <label class="form-label small mb-1" for="weekly-cycle">Ciclo de domingo</label>
+                <input id="weekly-cycle" type="date" name="ciclo" class="form-control form-control-sm"
+                       value="{{ weekly_cycle.ciclo_domingo.isoformat() }}">
+            </div>
+            <button class="btn btn-outline-primary btn-sm" type="submit">Ver ciclo</button>
+        </form>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-12 col-xl-7">
+            <section class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-transparent d-flex justify-content-between align-items-center">
+                    <span class="fw-semibold">Por loja</span>
+                    <span class="text-muted small">{{ orders|length }} encomenda(s)</span>
+                </div>
+                <div class="card-body p-0">
+                    {% if orders %}
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 small">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Loja</th>
+                                    <th>Estado</th>
+                                    <th class="text-end">Total de artigos</th>
+                                    <th class="text-end">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for order in orders %}
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">{{ order.loja_nome }}</div>
+                                        <a href="{{ url_for('compras.encomenda_semanal_detalhe', order_id=order.id) }}"
+                                           class="small text-decoration-none">Ver detalhe #{{ order.id }}</a>
+                                        {% if order.observacoes %}
+                                        <div class="text-muted text-truncate" style="max-width: 260px;" title="{{ order.observacoes }}">
+                                            {{ order.observacoes }}
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge
+                                            {% if order.status == 'rascunho' %}text-bg-secondary
+                                            {% elif order.status == 'submetida' %}text-bg-primary
+                                            {% elif order.status == 'em_preparacao' %}text-bg-info
+                                            {% elif order.status == 'concluida' %}text-bg-success
+                                            {% else %}text-bg-dark{% endif %}">
+                                            {{ weekly_statuses[order.status] }}
+                                        </span>
+                                    </td>
+                                    <td class="text-end">{{ '%.3f'|format(order.quantidade_total or 0) }}</td>
+                                    <td class="text-end text-nowrap">
+                                        {% if order.status == 'submetida' %}
+                                        <form method="post" class="d-inline">
+                                            <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}">
+                                            <input type="hidden" name="encomenda_id" value="{{ order.id }}">
+                                            <button class="btn btn-outline-primary btn-sm" name="action" value="preparar">
+                                                Preparar
+                                            </button>
+                                        </form>
+                                        {% elif order.status == 'em_preparacao' %}
+                                        <form method="post" class="d-inline">
+                                            <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}">
+                                            <input type="hidden" name="encomenda_id" value="{{ order.id }}">
+                                            <button class="btn btn-outline-success btn-sm" name="action" value="concluir">
+                                                Concluir
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        {% if order.status in ('submetida', 'em_preparacao') %}
+                                        <form method="post" class="d-inline ms-1"
+                                              onsubmit="return confirm('Cancelar esta encomenda semanal?')">
+                                            <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}">
+                                            <input type="hidden" name="encomenda_id" value="{{ order.id }}">
+                                            <input type="hidden" name="motivo" value="Cancelada pela equipa de Compras">
+                                            <button class="btn btn-outline-danger btn-sm" name="action" value="cancelar">
+                                                Cancelar
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="p-4 text-center text-muted">
+                        Ainda não existem encomendas para este ciclo.
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+
+        <div class="col-12 col-xl-5">
+            <section class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-transparent">
+                    <div class="fw-semibold">Consolidação por artigo e origem</div>
+                    <div class="text-muted small">Inclui encomendas submetidas, em preparação e concluídas.</div>
+                </div>
+                <div class="card-body p-0">
+                    {% if consolidation %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Artigo</th>
+                                    <th>Origem</th>
+                                    <th class="text-end">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for item in consolidation %}
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">{{ item.produto_snapshot }}</div>
+                                        <div class="text-muted small">{{ item.lojas_count }} loja(s)</div>
+                                    </td>
+                                    <td class="text-muted small">
+                                        {{ item.origem_nome_snapshot }}
+                                        {% if item.origem_supplier_nome_snapshot %}
+                                        <br>{{ item.origem_supplier_nome_snapshot }}
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end text-nowrap">
+                                        {{ '%.3f'|format(item.quantidade_total) }}
+                                        <span class="text-muted">{{ item.unidade_snapshot }}</span>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="p-4 text-center text-muted">
+                        A consolidação aparece depois das primeiras submissões.
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}

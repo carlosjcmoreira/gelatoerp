@@ -187,7 +187,12 @@ def _get_compras_loja_store():
     is_gestor = bool(user.get('acesso_gestor'))
 
     if is_gestor:
-        raw_store_id = request.args.get('loja_id', '').strip()
+        raw_store_id = (
+            request.args.get('loja_id')
+            or request.form.get('loja_id')
+            or request.form.get('_loja_id')
+            or ''
+        ).strip()
         if raw_store_id:
             try:
                 store = get_store_by_id(int(raw_store_id))
@@ -429,7 +434,7 @@ def index():
                            menu_title=f'🛍️ {mod_text} — {loja_nome}')
 
 
-@vendas_bp.route('/compras-loja')
+@vendas_bp.route('/compras-loja', methods=['GET', 'POST'])
 @login_required
 def compras_loja():
     """Landing area for store purchasing workflows.
@@ -472,6 +477,82 @@ def compras_loja():
         active_section = 'semanal'
         flash('Secção inválida. A mostrar a encomenda semanal.', 'info')
 
+    from db.encomendas_semanais import (
+        get_available_weekly_articles,
+        get_or_create_weekly_order,
+        next_planning_sunday,
+        normalise_planning_sunday,
+        save_weekly_draft,
+        submit_weekly_order,
+        weekly_cycle_dates,
+        lisboa_today,
+    )
+
+    cycle_raw = (
+        request.args.get('ciclo')
+        or request.form.get('ciclo')
+        or next_planning_sunday()
+    )
+    try:
+        planning_sunday = normalise_planning_sunday(cycle_raw)
+    except ValueError as exc:
+        flash(str(exc), 'warning')
+        planning_sunday = next_planning_sunday()
+    username = session.get('user', {}).get('username', 'sistema')
+    weekly_order = None
+    weekly_articles = []
+    if active_section == 'semanal':
+        weekly_order = get_or_create_weekly_order(
+            store['id'], planning_sunday, actor=username
+        )
+        weekly_articles = get_available_weekly_articles()
+
+    if request.method == 'POST' and active_section == 'semanal':
+        action = request.form.get('action', 'guardar_rascunho').strip()
+        submitted_lines = []
+        for key, value in request.form.items():
+            if not key.startswith('quantidade_') or not value.strip():
+                continue
+            article_id = key.removeprefix('quantidade_')
+            submitted_lines.append({
+                'artigo_id': article_id,
+                'quantidade': value,
+                'observacoes': request.form.get(
+                    f'observacoes_{article_id}', ''
+                ),
+            })
+        try:
+            if action == 'guardar_rascunho':
+                weekly_order = save_weekly_draft(
+                    weekly_order['id'],
+                    submitted_lines,
+                    username,
+                    request.form.get('observacoes', ''),
+                )
+                flash('Rascunho da encomenda semanal guardado.', 'success')
+            elif action == 'submeter':
+                if weekly_order['status'] == 'rascunho':
+                    weekly_order = save_weekly_draft(
+                        weekly_order['id'],
+                        submitted_lines,
+                        username,
+                        request.form.get('observacoes', ''),
+                    )
+                weekly_order = submit_weekly_order(
+                    weekly_order['id'], username, today=lisboa_today()
+                )
+                flash('Encomenda semanal submetida para Compras.', 'success')
+            else:
+                raise ValueError('Acção da encomenda semanal inválida.')
+        except ValueError as exc:
+            flash(str(exc), 'warning')
+        return redirect(url_for(
+            'vendas.compras_loja',
+            loja_id=store['id'],
+            secao='semanal',
+            ciclo=planning_sunday.isoformat(),
+        ))
+
     return render_template(
         'vendas/compras_loja.html',
         active_tab='compras_loja',
@@ -482,6 +563,16 @@ def compras_loja():
         sections=sections,
         active_section=active_section,
         artigos_disponiveis=_get_compras_loja_articles(),
+        weekly_order=weekly_order,
+        weekly_articles=weekly_articles,
+        weekly_cycle=weekly_cycle_dates(planning_sunday),
+        weekly_statuses={
+            'rascunho': 'Rascunho',
+            'submetida': 'Submetida',
+            'em_preparacao': 'Em preparação',
+            'concluida': 'Concluída',
+            'cancelada': 'Cancelada',
+        },
     )
 
 

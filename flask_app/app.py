@@ -70,7 +70,11 @@ from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clie
 from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
 from db.schema import run_migrations_drop_supplier_category, run_migrations_acesso_compras
 from db.schema import run_migrations_cost_centers_store_id
-from db.schema import run_migrations_compras_origens, run_migrations_compras_catalogo
+from db.schema import (
+    run_migrations_compras_origens,
+    run_migrations_compras_catalogo,
+    run_migrations_compras_encomendas_semanais,
+)
 from db.schema import run_migrations_doseamento_gelado
 from db.schema import (
     run_migrations_pastelaria_plano,
@@ -329,6 +333,7 @@ def create_app():
         ('run_migrations_acesso_compras', run_migrations_acesso_compras),
         ('run_migrations_compras_origens', run_migrations_compras_origens),
         ('run_migrations_compras_catalogo', run_migrations_compras_catalogo),
+         ('run_migrations_compras_encomendas_semanais', run_migrations_compras_encomendas_semanais),
     )
     startup_slow_steps = []
     schema_started = time.monotonic()

@@ -14,6 +14,7 @@ _LOCK_EVENTOS_V2_FOUNDATION = 2026821
 _LOCK_EVENTOS_CUSTOMER_PORTAL = 2026822
 _LOCK_COMPRAS_ORIGENS = 202711
 _LOCK_COMPRAS_CATALOGO = 202712
+_LOCK_COMPRAS_ENCOMENDAS_SEMANAIS = 202713
 
 
 def run_migrations_compras_origens():
@@ -425,6 +426,145 @@ def run_migrations_compras_catalogo():
             return stats
         except Exception as exc:
             logger.error("run_migrations_compras_catalogo failed: %s", exc)
+            conn.rollback()
+            raise
+
+
+def run_migrations_compras_encomendas_semanais():
+    """Create the isolated weekly store-purchase request model.
+
+    These rows are planning documents, not stock movements.  Submitted
+    snapshots and audit events are kept separately so catalogue deactivation
+    or later amendments cannot rewrite what Compras originally received.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_xact_lock(%s)",
+                (_LOCK_COMPRAS_ENCOMENDAS_SEMANAIS,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_compras_encomendas_semanais: lock held, skipping"
+                )
+                return
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_encomendas_semanais (
+                    id BIGSERIAL PRIMARY KEY,
+                    store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+                    ciclo_domingo DATE NOT NULL,
+                    entrega_prevista DATE NOT NULL,
+                    status VARCHAR(30) NOT NULL DEFAULT 'rascunho'
+                        CHECK (status IN (
+                            'rascunho', 'submetida', 'em_preparacao',
+                            'concluida', 'cancelada'
+                        )),
+                    observacoes TEXT NOT NULL DEFAULT '',
+                    versao_actual INTEGER NOT NULL DEFAULT 0,
+                    versao_submetida INTEGER,
+                    created_by VARCHAR(100),
+                    updated_by VARCHAR(100),
+                    submitted_by VARCHAR(100),
+                    submitted_at TIMESTAMP,
+                    prepared_by VARCHAR(100),
+                    prepared_at TIMESTAMP,
+                    completed_by VARCHAR(100),
+                    completed_at TIMESTAMP,
+                    cancelled_by VARCHAR(100),
+                    cancelled_at TIMESTAMP,
+                    cancel_reason TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (store_id, ciclo_domingo),
+                    CHECK (EXTRACT(ISODOW FROM ciclo_domingo) = 7),
+                    CHECK (entrega_prevista = ciclo_domingo + 1)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_encomendas_semanais_linhas (
+                    id BIGSERIAL PRIMARY KEY,
+                    encomenda_id BIGINT NOT NULL
+                        REFERENCES compras_encomendas_semanais(id) ON DELETE CASCADE,
+                    artigo_id INTEGER REFERENCES artigos_administrativos(id)
+                        ON DELETE SET NULL,
+                    produto_snapshot VARCHAR(255) NOT NULL,
+                    unidade_snapshot VARCHAR(50) NOT NULL,
+                    origem_id_snapshot INTEGER REFERENCES compras_origens(id)
+                        ON DELETE SET NULL,
+                    origem_tipo_snapshot VARCHAR(30) NOT NULL,
+                    origem_nome_snapshot VARCHAR(255) NOT NULL,
+                    origem_supplier_id_snapshot INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    origem_supplier_nome_snapshot VARCHAR(255),
+                    quantidade NUMERIC(12, 3) NOT NULL CHECK (quantidade > 0),
+                    observacoes TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (encomenda_id, artigo_id)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_encomendas_semanais_versoes (
+                    id BIGSERIAL PRIMARY KEY,
+                    encomenda_id BIGINT NOT NULL
+                        REFERENCES compras_encomendas_semanais(id) ON DELETE CASCADE,
+                    versao INTEGER NOT NULL,
+                    tipo VARCHAR(30) NOT NULL
+                        CHECK (tipo IN ('submetida', 'alteracao')),
+                    snapshot JSONB NOT NULL,
+                    actor VARCHAR(100) NOT NULL,
+                    reason TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (encomenda_id, versao)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_encomendas_semanais_audit (
+                    id BIGSERIAL PRIMARY KEY,
+                    encomenda_id BIGINT NOT NULL
+                        REFERENCES compras_encomendas_semanais(id) ON DELETE CASCADE,
+                    event_type VARCHAR(50) NOT NULL,
+                    actor VARCHAR(100) NOT NULL,
+                    reason TEXT,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    previous_status VARCHAR(30),
+                    new_status VARCHAR(30),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_encomendas_semanais_cycle
+                    ON compras_encomendas_semanais(ciclo_domingo, status)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_encomendas_semanais_lines_article
+                    ON compras_encomendas_semanais_linhas(artigo_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_encomendas_semanais_audit_order
+                    ON compras_encomendas_semanais_audit(encomenda_id, created_at, id)
+                """
+            )
+            conn.commit()
+            logger.info("run_migrations_compras_encomendas_semanais: schema ready")
+        except Exception as exc:
+            logger.error(
+                "run_migrations_compras_encomendas_semanais failed: %s", exc
+            )
             conn.rollback()
             raise
 

@@ -69,6 +69,7 @@ TABS = [
     {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'compras.faturas'},
     {'id': 'nova_fatura', 'label': 'Registar Documento', 'icon': '➕', 'url_endpoint': 'compras.nova_fatura'},
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
+    {'id': 'encomendas_semanais', 'label': 'Encomendas Semanais', 'icon': '📅', 'url_endpoint': 'compras.encomendas_semanais'},
     {'id': 'criar_ordem', 'label': 'Criar Ordem de Transferência', 'icon': '📦', 'url_endpoint': 'compras.criar_ordem'},
 ]
 
@@ -1430,3 +1431,132 @@ def criar_ordem():
                            artigos=artigos_list, fornecedores=fornecedores,
                            artigos_by_fornecedor=artigos_by_fornecedor,
                            today=str(date.today()))
+
+
+@compras_bp.route('/encomendas-semanais', methods=['GET', 'POST'])
+@any_perm_required('acesso_administrativo', 'acesso_compras')
+def encomendas_semanais():
+    """Compras' weekly-order queue and article/source consolidation."""
+    from db.encomendas_semanais import (
+        get_weekly_consolidation,
+        list_weekly_orders,
+        next_planning_sunday,
+        normalise_planning_sunday,
+        transition_weekly_order_status,
+        weekly_cycle_dates,
+    )
+
+    cycle_raw = request.args.get('ciclo') or request.form.get('ciclo') or next_planning_sunday()
+    try:
+        planning_sunday = normalise_planning_sunday(cycle_raw)
+    except ValueError as exc:
+        flash(str(exc), 'warning')
+        planning_sunday = next_planning_sunday()
+        return redirect(url_for(
+            'compras.encomendas_semanais',
+            ciclo=planning_sunday.isoformat(),
+        ))
+
+    if request.method == 'POST':
+        action = request.form.get('action', '').strip()
+        order_id_raw = request.form.get('encomenda_id', '').strip()
+        username = session.get('user', {}).get('username', 'sistema')
+        try:
+            order_id = int(order_id_raw)
+            action_to_status = {
+                'preparar': 'em_preparacao',
+                'concluir': 'concluida',
+                'cancelar': 'cancelada',
+            }
+            new_status = action_to_status.get(action)
+            if not new_status:
+                raise ValueError('Acção da encomenda semanal inválida.')
+            transition_weekly_order_status(
+                order_id,
+                new_status,
+                username,
+                request.form.get('motivo', '').strip() or None,
+            )
+            flash('Estado da encomenda semanal atualizado.', 'success')
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), 'warning')
+        return redirect(url_for(
+            'compras.encomendas_semanais',
+            ciclo=planning_sunday.isoformat(),
+        ))
+
+    orders = list_weekly_orders(planning_sunday=planning_sunday)
+    consolidation = get_weekly_consolidation(planning_sunday)
+    return render_template(
+        'compras/encomendas_semanais.html',
+        orders=orders,
+        consolidation=consolidation,
+        weekly_cycle=weekly_cycle_dates(planning_sunday),
+        weekly_statuses={
+            'rascunho': 'Rascunho',
+            'submetida': 'Submetida',
+            'em_preparacao': 'Em preparação',
+            'concluida': 'Concluída',
+            'cancelada': 'Cancelada',
+        },
+    )
+
+
+@compras_bp.route('/encomendas-semanais/<int:order_id>', methods=['GET', 'POST'])
+@any_perm_required('acesso_administrativo', 'acesso_compras')
+def encomenda_semanal_detalhe(order_id):
+    from db.encomendas_semanais import (
+        amend_weekly_order,
+        get_available_weekly_articles,
+        get_weekly_order,
+        get_weekly_order_audit,
+    )
+
+    order = get_weekly_order(order_id)
+    if not order:
+        return '<p class="text-danger p-3">Encomenda semanal não encontrada.</p>', 404
+    cycle = order['ciclo_domingo']
+
+    if request.method == 'POST':
+        if order['status'] not in ('submetida', 'em_preparacao'):
+            flash('Esta encomenda já não aceita alterações.', 'warning')
+            return redirect(url_for('compras.encomenda_semanal_detalhe', order_id=order_id))
+        lines = []
+        for key, value in request.form.items():
+            if not key.startswith('quantidade_') or not value.strip():
+                continue
+            article_id = key.removeprefix('quantidade_')
+            lines.append({
+                'artigo_id': article_id,
+                'quantidade': value,
+                'observacoes': request.form.get(f'observacoes_{article_id}', ''),
+            })
+        try:
+            order = amend_weekly_order(
+                order_id,
+                lines,
+                session.get('user', {}).get('username', 'sistema'),
+                request.form.get('motivo', '').strip(),
+                request.form.get('observacoes'),
+            )
+            flash('Alteração guardada com nova versão auditável.', 'success')
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), 'warning')
+        return redirect(url_for(
+            'compras.encomenda_semanal_detalhe',
+            order_id=order_id,
+        ))
+
+    return render_template(
+        'compras/encomenda_semanal_detalhe.html',
+        order=order,
+        articles=get_available_weekly_articles(),
+        audit=get_weekly_order_audit(order_id),
+        weekly_statuses={
+            'rascunho': 'Rascunho',
+            'submetida': 'Submetida',
+            'em_preparacao': 'Em preparação',
+            'concluida': 'Concluída',
+            'cancelada': 'Cancelada',
+        },
+    )

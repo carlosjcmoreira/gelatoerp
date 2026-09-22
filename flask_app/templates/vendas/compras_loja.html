@@ -28,6 +28,121 @@
     {% set current = sections[active_section] %}
     <section class="card border-0 shadow-sm">
         <div class="card-body p-4">
+            {% if active_section == 'semanal' %}
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                <div>
+                    <h6 class="mb-1">Encomenda para a semana seguinte</h6>
+                    <div class="text-muted small">
+                        Planeamento: domingo {{ weekly_cycle.ciclo_domingo.strftime('%d/%m/%Y') }}
+                        · Entrega prevista: segunda-feira {{ weekly_cycle.entrega_prevista.strftime('%d/%m/%Y') }}
+                    </div>
+                </div>
+                <span class="badge
+                    {% if weekly_order.status == 'rascunho' %}text-bg-secondary
+                    {% elif weekly_order.status == 'submetida' %}text-bg-primary
+                    {% elif weekly_order.status == 'em_preparacao' %}text-bg-info
+                    {% elif weekly_order.status == 'concluida' %}text-bg-success
+                    {% else %}text-bg-dark{% endif %}">
+                    {{ weekly_statuses[weekly_order.status] }}
+                </span>
+            </div>
+
+            {% if weekly_order.status == 'rascunho' %}
+            <form method="post" action="{{ url_for('vendas.compras_loja', loja_id=loja_id, secao='semanal', ciclo=weekly_cycle.ciclo_domingo.isoformat()) }}">
+                <input type="hidden" name="loja_id" value="{{ loja_id }}">
+                <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}">
+                <div class="table-responsive border rounded mb-3">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Artigo</th>
+                                <th>Origem</th>
+                                <th style="min-width: 145px;">Quantidade</th>
+                                <th>Unidade</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for artigo in weekly_articles %}
+                            {% set saved = namespace(quantity='', note='') %}
+                            {% for line in weekly_order.linhas %}
+                                {% if line.artigo_id == artigo.id %}
+                                    {% set saved.quantity = line.quantidade %}
+                                    {% set saved.note = line.observacoes or '' %}
+                                {% endif %}
+                            {% endfor %}
+                            <tr>
+                                <td>
+                                    <div class="fw-semibold">{{ artigo.produto }}</div>
+                                    {% if artigo.supplier_nome %}
+                                    <div class="text-muted small">{{ artigo.supplier_nome }}</div>
+                                    {% endif %}
+                                </td>
+                                <td class="text-muted small">{{ artigo.origem_nome }}</td>
+                                <td>
+                                    <input class="form-control form-control-sm" type="number"
+                                           name="quantidade_{{ artigo.id }}" value="{{ saved.quantity }}"
+                                           min="0.001" max="1000000" step="0.001"
+                                           inputmode="decimal">
+                                    <input class="form-control form-control-sm mt-1" type="text"
+                                           name="observacoes_{{ artigo.id }}" value="{{ saved.note }}"
+                                           maxlength="1000" placeholder="Nota (opcional)">
+                                </td>
+                                <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="4" class="text-muted text-center py-3">
+                                Não existem artigos ativos de fornecedores externos confirmados.
+                            </td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <label class="form-label small fw-semibold" for="weekly-notes">Observações para Compras</label>
+                <textarea id="weekly-notes" name="observacoes" class="form-control mb-3" rows="2"
+                          maxlength="4000" placeholder="Observações gerais (opcional)">{{ weekly_order.observacoes or '' }}</textarea>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-primary" type="submit" name="action" value="guardar_rascunho">
+                        Guardar rascunho
+                    </button>
+                    <button class="btn btn-primary" type="submit" name="action" value="submeter"
+                            {% if not weekly_articles %}disabled{% endif %}>
+                        Submeter no domingo
+                    </button>
+                </div>
+                <div class="form-text mt-2">
+                    A submissão fica disponível no domingo de planeamento e cria uma versão auditável.
+                </div>
+            </form>
+            {% else %}
+            <div class="alert alert-light border small">
+                Esta encomenda já foi submetida. As linhas abaixo são o conteúdo enviado para Compras.
+            </div>
+            {% if weekly_order.linhas %}
+            <div class="table-responsive border rounded">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light"><tr><th>Artigo</th><th>Origem</th><th class="text-end">Quantidade</th><th>Unidade</th></tr></thead>
+                    <tbody>
+                    {% for line in weekly_order.linhas %}
+                    <tr>
+                        <td>
+                            {{ line.produto_snapshot }}
+                            {% if line.artigo_ativo_atual is defined and line.artigo_ativo_atual is false %}
+                            <span class="badge text-bg-warning ms-1">Desativado no catálogo</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small">{{ line.origem_nome_snapshot }}</td>
+                        <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
+                        <td>{{ line.unidade_snapshot }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">A encomenda submetida não contém linhas.</p>
+            {% endif %}
+            {% endif %}
+            {% else %}
             <div class="text-center py-4">
                 <div class="fs-1 mb-2">{{ current.icon }}</div>
                 <h6>{{ current.label }}</h6>
@@ -63,6 +178,7 @@
                 </div>
                 {% endif %}
             </div>
+            {% endif %}
             {% endif %}
         </div>
     </section>

@@ -2086,6 +2086,7 @@ _TILE_MASTER = {
         {'id': 'faturas',       'icon': '🧾', 'default_label': 'Faturas',                       'description': 'Gerir faturas de fornecedores, pagamentos e OCR automático de documentos'},
         {'id': 'nova_fatura',   'icon': '➕', 'default_label': 'Registar Documento',             'description': 'Registar manualmente uma nova fatura ou documento de fornecedor'},
         {'id': 'artigos',       'icon': '📋', 'default_label': 'Artigos de Fornecimento',        'description': 'Gerir o catálogo de artigos e produtos adquiridos a fornecedores'},
+        {'id': 'encomendas_semanais', 'icon': '📅', 'default_label': 'Encomendas Semanais',      'description': 'Acompanhar encomendas das lojas e consolidar necessidades por artigo e origem'},
         {'id': 'fornecedores',  'icon': '🏭', 'default_label': 'Fornecedores',                   'description': 'Gerir a lista de fornecedores e respetivos dados de contacto e faturação'},
         {'id': 'criar_ordem',   'icon': '📦', 'default_label': 'Criar Ordem de Transferência',   'description': 'Criar uma nova ordem de transferência de compras para a loja'},
     ],
