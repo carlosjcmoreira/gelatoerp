@@ -631,6 +631,61 @@ input[type="number"]::-webkit-outer-spin-button {
     letter-spacing: 0.02em;
 }
 
+#loading-overlay .loading-progress-shell {
+    width: min(320px, calc(100vw - 3rem));
+}
+
+#loading-overlay .loading-progress-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+#loading-overlay .loading-progress-value,
+#loading-overlay .loading-progress-mode {
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 0.78rem;
+}
+
+#loading-overlay .loading-progress-value {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+#loading-overlay .loading-progress-track {
+    width: 100%;
+    height: 0.5rem;
+    margin-top: 0.45rem;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.45);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.17);
+}
+
+#loading-overlay .loading-progress-bar {
+    width: 0;
+    height: 100%;
+    border-radius: inherit;
+    background: #2bb5a0;
+    transition: width 0.25s ease-out;
+}
+
+#loading-overlay .loading-progress-mode {
+    display: block;
+    margin-top: 0.35rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #loading-overlay .loading-icon {
+        animation: none;
+    }
+
+    #loading-overlay .loading-progress-bar {
+        transition: none;
+    }
+}
+
 @keyframes spin-gelado {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }

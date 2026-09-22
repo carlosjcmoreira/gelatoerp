@@ -60,14 +60,30 @@
     {% endif %}
 
     <div id="loading-overlay" aria-hidden="true">
-        <span class="loading-icon">
+        <span class="loading-icon" aria-hidden="true">
             <svg width="64" height="64" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M50 82 C32 82 18 67 18 50 C18 33 33 18 50 18 C67 18 82 33 82 50 C82 67 68 82 50 82 Z" fill="#FFF8F2"/>
                 <ellipse cx="50" cy="48" rx="16" ry="13" fill="#2BB5A0" opacity="0.8"/>
                 <rect x="44" y="77" width="12" height="16" rx="4" fill="#FFF8F2" opacity="0.9"/>
             </svg>
         </span>
-        <span id="loading-text" class="loading-text">A carregar…</span>
+        <div class="loading-progress-shell">
+            <div class="loading-progress-heading">
+                <span id="loading-text" class="loading-text" aria-live="polite">A carregar…</span>
+                <span id="loading-progress-value" class="loading-progress-value" aria-hidden="true">0%</span>
+            </div>
+            <div id="loading-progress-track"
+                 class="loading-progress-track"
+                 role="progressbar"
+                 aria-label="Progresso do carregamento"
+                 aria-valuemin="0"
+                 aria-valuemax="100"
+                 aria-valuenow="0"
+                 aria-valuetext="A carregar">
+                <div id="loading-progress-bar" class="loading-progress-bar"></div>
+            </div>
+            <span id="loading-progress-mode" class="loading-progress-mode">Progresso estimado</span>
+        </div>
         <button id="loading-reload" onclick="window.location.reload()"
                 style="display:none;margin-top:14px;padding:6px 18px;border:1px solid rgba(255,255,255,0.6);background:transparent;color:#fff;border-radius:6px;font-size:0.85rem;cursor:pointer;">
             ↺ Recarregar
@@ -124,32 +140,162 @@
     </script>
     <script>
     (function(){
-        var overlay     = document.getElementById('loading-overlay');
-        var loadingText = document.getElementById('loading-text');
-        var loadingBtn  = document.getElementById('loading-reload');
-        var _t1 = null, _t2 = null, _hiddenAt = 0, _loadingStartedAt = 0;
+        var overlay          = document.getElementById('loading-overlay');
+        var loadingText      = document.getElementById('loading-text');
+        var loadingBtn       = document.getElementById('loading-reload');
+        var progressTrack    = document.getElementById('loading-progress-track');
+        var progressBar      = document.getElementById('loading-progress-bar');
+        var progressValue    = document.getElementById('loading-progress-value');
+        var progressMode     = document.getElementById('loading-progress-mode');
+        var showTimer        = null;
+        var estimatedTimer   = null;
+        var slowTimer        = null;
+        var retryTimer       = null;
+        var hiddenAt         = 0;
+        var loadingStartedAt = 0;
+        var mode             = 'estimated';
+        var currentLabel     = 'A carregar\u2026';
+        var currentProgress  = 0;
+        var finishTimer      = null;
+        var SHOW_DELAY       = 250;
+        var ESTIMATED_MAX    = 90;
 
-        function showLoading() {
+        function clampProgress(value) {
+            var number = Number(value);
+            if (!isFinite(number)) return 0;
+            return Math.max(0, Math.min(100, Math.round(number)));
+        }
+
+        function updateProgress(value, label) {
+            currentProgress = clampProgress(value);
+            if (label) currentLabel = String(label);
+            progressBar.style.width = currentProgress + '%';
+            progressValue.textContent = currentProgress + '%';
+            progressTrack.setAttribute('aria-valuenow', String(currentProgress));
+            progressTrack.setAttribute(
+                'aria-valuetext',
+                currentLabel + ' (' + currentProgress + '%)'
+            );
+            if (label) loadingText.textContent = currentLabel;
+        }
+
+        function clearTimers() {
+            clearTimeout(showTimer);
+            clearTimeout(slowTimer);
+            clearTimeout(retryTimer);
+            clearTimeout(finishTimer);
+            clearInterval(estimatedTimer);
+            showTimer = null;
+            slowTimer = null;
+            retryTimer = null;
+            finishTimer = null;
+            estimatedTimer = null;
+        }
+
+        function startEstimatedProgress() {
+            clearInterval(estimatedTimer);
+            estimatedTimer = setInterval(function() {
+                if (!overlay.classList.contains('active') || mode !== 'estimated') return;
+                if (currentProgress < ESTIMATED_MAX) {
+                    updateProgress(Math.min(ESTIMATED_MAX, currentProgress + 3));
+                }
+            }, 700);
+        }
+
+        function beginLoading(nextMode, label, initialProgress) {
             var icon = overlay.querySelector('.loading-icon');
-            if (icon) { icon.style.animationName = 'none'; icon.getBoundingClientRect(); icon.style.animationName = ''; }
-            loadingText.textContent = 'A carregar\u2026';
+            if (icon) {
+                icon.style.animationName = 'none';
+                icon.getBoundingClientRect();
+                icon.style.animationName = '';
+            }
+            mode = nextMode === 'real' ? 'real' : 'estimated';
+            currentLabel = label || (
+                mode === 'real' ? 'A processar\u2026' : 'A carregar\u2026'
+            );
+            loadingText.textContent = currentLabel;
             loadingBtn.style.display = 'none';
+            progressMode.textContent = mode === 'real'
+                ? 'Progresso real'
+                : 'Progresso estimado';
+            overlay.setAttribute('aria-hidden', 'false');
             overlay.classList.add('active');
-            _loadingStartedAt = Date.now();
-            clearTimeout(_t1);
-            clearTimeout(_t2);
-            _t2 = setTimeout(function() {
-                loadingBtn.style.display = '';
+            loadingStartedAt = Date.now();
+            updateProgress(
+                mode === 'estimated' ? 8 : clampProgress(initialProgress || 0),
+                currentLabel
+            );
+            if (mode === 'estimated') startEstimatedProgress();
+            slowTimer = setTimeout(function() {
+                if (mode === 'estimated' && overlay.classList.contains('active')) {
+                    loadingText.textContent = 'Ainda a preparar\u2026';
+                    progressTrack.setAttribute(
+                        'aria-valuetext',
+                        'Ainda a preparar\u2026 (' + currentProgress + '%)'
+                    );
+                }
+            }, 10000);
+            retryTimer = setTimeout(function() {
+                if (overlay.classList.contains('active')) loadingBtn.style.display = '';
             }, 30000);
         }
 
-        function hideLoading() {
-            clearTimeout(_t1);
-            clearTimeout(_t2);
-            _t1 = null; _t2 = null;
+        function requestLoading(nextMode, label, initialProgress) {
+            clearTimeout(showTimer);
+            clearTimeout(finishTimer);
+            showTimer = setTimeout(function() {
+                beginLoading(nextMode, label, initialProgress);
+            }, SHOW_DELAY);
+        }
+
+        function hideLoading(immediate) {
+            clearTimers();
+            if (!overlay.classList.contains('active')) {
+                overlay.setAttribute('aria-hidden', 'true');
+                return;
+            }
+            if (!immediate) {
+                updateProgress(100, 'Página pronta');
+                finishTimer = setTimeout(function() {
+                    hideLoading(true);
+                }, 120);
+                return;
+            }
             overlay.classList.remove('active');
+            overlay.setAttribute('aria-hidden', 'true');
             loadingText.textContent = 'A carregar\u2026';
             loadingBtn.style.display = 'none';
+            progressMode.textContent = 'Progresso estimado';
+            updateProgress(0, 'A carregar\u2026');
+            loadingStartedAt = 0;
+        }
+
+        window.ScoopyLoading = {
+            showEstimated: function(label) {
+                requestLoading('estimated', label || 'A carregar\u2026', 8);
+            },
+            showReal: function(label, initialProgress) {
+                requestLoading('real', label || 'A processar\u2026', initialProgress || 0);
+            },
+            setProgress: function(value, label) {
+                if (!overlay.classList.contains('active')) {
+                    requestLoading('real', label || 'A processar\u2026', value);
+                } else {
+                    mode = 'real';
+                    progressMode.textContent = 'Progresso real';
+                    updateProgress(value, label);
+                }
+            },
+            hide: function() {
+                hideLoading(false);
+            },
+            isActive: function() {
+                return overlay.classList.contains('active');
+            }
+        };
+
+        function showLoading() {
+            window.ScoopyLoading.showEstimated('A carregar\u2026');
         }
 
         document.addEventListener('submit', function(e) {
@@ -172,17 +318,17 @@
         });
 
         window.addEventListener('pageshow', function() {
-            hideLoading();
+            hideLoading(false);
         });
 
         document.addEventListener('visibilitychange', function() {
             if (document.visibilityState === 'hidden') {
-                _hiddenAt = Date.now();
+                hiddenAt = Date.now();
             } else if (document.visibilityState === 'visible') {
-                if (overlay.classList.contains('active') && _hiddenAt > 0 && (Date.now() - _hiddenAt) > 60000) {
-                    hideLoading();
+                if (overlay.classList.contains('active') && hiddenAt > 0 && (Date.now() - hiddenAt) > 60000) {
+                    hideLoading(true);
                 }
-                _hiddenAt = 0;
+                hiddenAt = 0;
             }
         });
     })();
@@ -391,6 +537,7 @@
                     if (!chunkUrl || !finalizeUrl) return; // fallback to normal submit
 
                     e.preventDefault();
+                     e.stopPropagation();
 
                     var returnInput  = form.querySelector('[name="_return_url"]');
                     var returnUrlVal = returnInput ? returnInput.value : '';
@@ -401,11 +548,20 @@
                     if (btn) btn.disabled = true;
                     if (input) input.disabled = true;
                     if (progress) progress.classList.remove('d-none');
+                     if (window.ScoopyLoading) {
+                         window.ScoopyLoading.showReal('A enviar ficheiro\u2026', 0);
+                     }
 
                     function setProgress(n, total) {
                         var pct = Math.round(n / total * 100);
                         if (progressBar) progressBar.style.width = pct + '%';
                         if (progressTxt) progressTxt.textContent = pct + '%';
+                         if (window.ScoopyLoading) {
+                             window.ScoopyLoading.setProgress(
+                                 pct,
+                                 'A enviar ficheiro\u2026'
+                             );
+                         }
                     }
 
                     function uploadChunk(idx) {
@@ -439,6 +595,9 @@
 
                     chain.then(function () {
                         if (progressTxt) progressTxt.textContent = 'A finalizar…';
+                         if (window.ScoopyLoading) {
+                             window.ScoopyLoading.setProgress(100, 'A finalizar\u2026');
+                         }
                         var fd = new FormData();
                         fd.append('upload_id',    uploadId);
                         fd.append('total_chunks', totalChunks);
@@ -454,6 +613,7 @@
                                 window.location.href = data.redirect;
                             });
                     }).catch(function (err) {
+                         if (window.ScoopyLoading) window.ScoopyLoading.hide();
                         if (progress) progress.classList.add('d-none');
                         if (btn) btn.disabled = false;
                         if (input) input.disabled = false;
