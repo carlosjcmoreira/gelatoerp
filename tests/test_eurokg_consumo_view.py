@@ -291,7 +291,11 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         self.assertIn("data-consumo-family-toggle", template)
         self.assertIn('aria-expanded="false"', template)
         self.assertIn('aria-controls="{{ item.group_id }}"', template)
-        self.assertIn('<tbody id="{{ item.group_id }}" hidden>', template)
+        self.assertIn('<tbody id="{{ item.group_id }}"', template)
+        self.assertIn('data-consumo-family-details', template)
+        self.assertIn('hidden>', template)
+        self.assertIn("Mostrar apenas consumos incompletos", template)
+        self.assertIn("data-consumo-filter-incompletos", template)
         self.assertIn("aparecem provisoriamente como 0", template)
         self.assertNotIn("else '—'", template)
 
@@ -410,6 +414,9 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
                 "Palito Chocolate": False,
             },
         )
+        self.assertTrue(group["incomplete"])
+        self.assertFalse(group["products"][0]["incomplete"])
+        self.assertTrue(group["products"][1]["incomplete"])
 
     def test_known_zero_is_not_marked_as_incomplete(self):
         frame = pd.DataFrame([{

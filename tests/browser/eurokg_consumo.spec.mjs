@@ -60,3 +60,22 @@ test('grupos de consumo teórico continuam sincronizados depois de trocar de loj
   await expect(storeToggle).toHaveAttribute('aria-expanded', 'false');
   await expect(storeDetails).toBeHidden();
 });
+
+test('filtro de consumos incompletos mantém o estado ao abrir e fechar famílias', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/eurokg/consumo');
+
+  const filter = page.locator('[data-consumo-filter-incompletos]');
+  await expect(filter).toBeVisible();
+  const toggle = page.locator('[data-consumo-family-toggle]').first();
+  const detailId = await toggle.getAttribute('aria-controls');
+  const details = page.locator(`tbody#${detailId}`);
+  await toggle.press('Enter');
+  await filter.check();
+  await expect(filter).toBeChecked();
+  await filter.uncheck();
+  await expect(details).toBeVisible();
+  await toggle.click();
+  await expect(filter).not.toBeChecked();
+  await expect(details).toBeHidden();
+});

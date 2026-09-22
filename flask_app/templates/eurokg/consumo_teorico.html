@@ -61,6 +61,18 @@
     <p class="text-muted small mb-3">Quantidade vendida por mês e estimativa de gelado consumido. Os valores sem gramagem ou peso calculável contam provisoriamente como 0 kg, sem criar uma regra de dose. Famílias com vários artigos aparecem recolhidas; abra uma família para consultar as variantes.</p>
 
     {% if consumo_data %}
+    <div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox"
+               id="consumo-incompletos-filter"
+               data-consumo-filter-incompletos
+               aria-controls="consumo-teorico-table">
+        <label class="form-check-label small" for="consumo-incompletos-filter">
+            Mostrar apenas consumos incompletos
+        </label>
+    </div>
+    <p class="text-muted small mb-2" data-consumo-filter-empty hidden>
+        Não existem linhas com consumos incompletos neste período.
+    </p>
     <div class="table-responsive">
         <table class="table table-sm table-striped align-middle" id="consumo-teorico-table">
             <thead>
@@ -73,7 +85,8 @@
                 </tr>
             </thead>
             {% for item in consumo_data %}
-            <tbody>
+            <tbody data-consumo-row
+                   data-consumo-row-incompleto="{{ 'true' if item.incomplete else 'false' }}">
                 {% if item.kind == 'group' %}
                 <tr class="table-secondary fw-semibold">
                     <td>
@@ -103,9 +116,13 @@
                 {% endif %}
             </tbody>
             {% if item.kind == 'group' %}
-            <tbody id="{{ item.group_id }}" hidden>
+            <tbody id="{{ item.group_id }}"
+                   data-consumo-family-details
+                   data-consumo-family-match="{{ 'true' if item.incomplete else 'false' }}"
+                   hidden>
                 {% for product in item.products %}
-                <tr>
+                <tr data-consumo-product-row
+                    data-consumo-row-incompleto="{{ 'true' if product.incomplete else 'false' }}">
                     <td class="ps-4"><span class="text-muted" aria-hidden="true">↳</span> {{ product.produto }}</td>
                     {% for m in product.months %}
                     <td>{{ m.qty }}</td>
@@ -277,17 +294,59 @@
 </div>
 <script>
 (function () {
+    var filter = document.querySelector('[data-consumo-filter-incompletos]');
+    var emptyMessage = document.querySelector('[data-consumo-filter-empty]');
+    var rows = document.querySelectorAll('[data-consumo-row]');
+    var familyDetails = document.querySelectorAll('[data-consumo-family-details]');
+
+    familyDetails.forEach(function (details) {
+        details.dataset.consumoExpanded = 'false';
+    });
+
+    function applyIncompleteFilter() {
+        var onlyIncomplete = Boolean(filter && filter.checked);
+        var visibleRows = 0;
+
+        rows.forEach(function (section) {
+            var matches = section.getAttribute('data-consumo-row-incompleto') === 'true';
+            section.hidden = onlyIncomplete && !matches;
+            if (!section.hidden) visibleRows += 1;
+
+            var groupButton = section.querySelector('[data-consumo-family-toggle]');
+            if (!groupButton) return;
+            var details = document.getElementById(
+                groupButton.getAttribute('aria-controls')
+            );
+            if (!details) return;
+            var groupMatches = details.getAttribute('data-consumo-family-match') === 'true';
+            var expanded = details.dataset.consumoExpanded === 'true';
+            details.hidden = !expanded || (onlyIncomplete && !groupMatches);
+            details.querySelectorAll('[data-consumo-product-row]').forEach(function (productRow) {
+                productRow.hidden = onlyIncomplete
+                    && productRow.getAttribute('data-consumo-row-incompleto') !== 'true';
+            });
+        });
+
+        if (emptyMessage) emptyMessage.hidden = !onlyIncomplete || visibleRows > 0;
+    }
+
     document.querySelectorAll('[data-consumo-family-toggle]').forEach(function (button) {
         button.addEventListener('click', function () {
             var details = document.getElementById(button.getAttribute('aria-controls'));
             if (!details) return;
             var willExpand = button.getAttribute('aria-expanded') !== 'true';
             button.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
-            details.hidden = !willExpand;
+            details.dataset.consumoExpanded = willExpand ? 'true' : 'false';
             var icon = button.querySelector('[data-consumo-family-icon]');
             if (icon) icon.textContent = willExpand ? '▾' : '▸';
+            applyIncompleteFilter();
         });
     });
+
+    if (filter) {
+        filter.addEventListener('change', applyIncompleteFilter);
+        applyIncompleteFilter();
+    }
 })();
 </script>
 {% endblock %}

@@ -228,6 +228,9 @@ def _build_consumo_teorico_view(consumo_df):
                 'kg': kg,
                 'incomplete': _consumo_rows_incomplete(rows),
             })
+        item['incomplete'] = any(
+            month['incomplete'] for month in item['months']
+        )
         family_key, family_label = _consumo_family_parts(produto)
         item['family_key'] = family_key
         item['family_label'] = family_label
@@ -267,6 +270,9 @@ def _build_consumo_teorico_view(consumo_df):
             'product_count': len(products),
             'months': group_months,
             'products': products,
+            'incomplete': any(
+                product['incomplete'] for product in products
+            ),
         })
 
     group_number = 0
