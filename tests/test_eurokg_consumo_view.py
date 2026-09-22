@@ -269,10 +269,14 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
             "flask_app/templates/eurokg/consumo_teorico.html"
         ).read_text(encoding="utf-8")
 
-        self.assertIn(">Artigo faturado</th>", template)
+        self.assertIn(">Família canónica</th>", template)
         self.assertIn(">Tipo</th>", template)
         self.assertIn(">Gramas por unidade</th>", template)
         self.assertIn("Guardar configurações", template)
+        self.assertIn("Origem histórica:", template)
+        self.assertIn("data-dose-family", template)
+        self.assertIn("(ID {{ alias.id }})", template)
+        self.assertNotIn('name="alias_id"', template)
         self.assertNotIn('for="type-{{ product.id }}"', template)
         self.assertNotIn('for="grams-{{ product.id }}"', template)
 

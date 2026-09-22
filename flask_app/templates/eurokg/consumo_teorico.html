@@ -208,7 +208,7 @@
                     <table class="table table-sm align-middle mb-3">
                         <thead>
                             <tr>
-                                <th scope="col">Artigo faturado</th>
+                                <th scope="col">Família canónica</th>
                                 <th scope="col" style="width:20%">Tipo</th>
                                 <th scope="col" style="width:25%">Gramas por unidade</th>
                                 <th scope="col" style="width:20%">Nova data</th>
@@ -219,9 +219,26 @@
                             <tr>
                                 <td>
                                     <input type="hidden" name="product_id" value="{{ product.id }}">
-                                    <strong class="small">{{ product.produto }}</strong>
+                                    <div>
+                                        <strong class="small">{{ product.canonical_product.produto if product.canonical_product else product.produto }}</strong>
+                                        <span class="text-muted small">ID {{ product.canonical_product.id if product.canonical_product else product.id }}</span>
+                                    </div>
                                     <span class="badge {{ 'text-bg-warning' if product.dose_config_pendente else 'text-bg-success' }}">{{ 'Faltam gramas' if product.dose_config_pendente else 'Configurado' }}</span>
                                     {% if product.valid_from %}<div class="text-muted small">Valor atual desde {{ product.valid_from.strftime('%d/%m/%Y') }}</div>{% elif product.first_sale %}<div class="text-muted small">Primeira venda em {{ product.first_sale.strftime('%d/%m/%Y') }}</div>{% endif %}
+                                    <details class="mt-1" data-dose-family>
+                                        <summary class="small">
+                                            Origem histórica: {{ product.aliases|length }} alias{% if product.aliases|length != 1 %}es{% endif %}
+                                        </summary>
+                                        {% if product.aliases %}
+                                        <ul class="small text-muted mb-0 mt-1 ps-3">
+                                            {% for alias in product.aliases %}
+                                            <li>{{ alias.produto }} <span class="text-nowrap">(ID {{ alias.id }})</span></li>
+                                            {% endfor %}
+                                        </ul>
+                                        {% else %}
+                                        <div class="small text-muted mt-1">Sem nomes históricos associados.</div>
+                                        {% endif %}
+                                    </details>
                                 </td>
                                 <td>
                                     <select id="type-{{ product.id }}" class="form-select form-select-sm" name="tipo_dose">

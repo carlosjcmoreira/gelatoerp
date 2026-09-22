@@ -19,6 +19,7 @@ from db.connection import db_connection
 from db.dose_associations import (
     backfill_weight_sales,
     close_current_association,
+    get_product_family,
     get_product_family_ids,
     resolve_product_alias,
 )
@@ -331,11 +332,23 @@ def get_dose_product_configuration_queue():
         products = [dict(row) for row in cur.fetchall()]
         for product in products:
             try:
-                family_ids = get_product_family_ids(cur, product["id"])
+                family = get_product_family(cur, product["id"])
             except ValueError:
                 # The queue is a read-only diagnostic.  Keep its own-ID date
                 # when legacy/ambiguous identity data cannot be consolidated.
+                product["canonical_product"] = {
+                    "id": product["id"],
+                    "produto": product["produto"],
+                    "is_canonical": True,
+                }
+                product["aliases"] = []
                 continue
+            product["canonical_product"] = family["canonical_product"]
+            product["aliases"] = family["aliases"]
+            family_ids = [
+                family["canonical_product"]["id"],
+                *(alias["id"] for alias in family["aliases"]),
+            ]
             cur.execute("""
                 SELECT MIN(data) AS first_sale
                 FROM vendas_detalhe

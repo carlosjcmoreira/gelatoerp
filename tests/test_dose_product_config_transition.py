@@ -145,6 +145,34 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
                 product_ids[2], 100, "fixa", "sistema:test"
             )
 
+            queue, _rules = get_dose_product_configuration_queue()
+            queued_product = next(
+                row for row in queue if row["id"] == product_ids[2]
+            )
+            self.assertEqual(
+                queued_product["canonical_product"],
+                {
+                    "id": product_ids[2],
+                    "produto": canonical_name,
+                    "is_canonical": True,
+                },
+            )
+            self.assertEqual(
+                queued_product["aliases"],
+                [
+                    {
+                        "id": product_ids[0],
+                        "produto": old_name_a,
+                        "is_canonical": False,
+                    },
+                    {
+                        "id": product_ids[1],
+                        "produto": old_name_b,
+                        "is_canonical": False,
+                    },
+                ],
+            )
+
             with db_connection() as conn:
                 cur = conn.cursor()
                 cur.execute("""

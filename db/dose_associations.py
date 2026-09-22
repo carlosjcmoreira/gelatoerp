@@ -27,7 +27,7 @@ def resolve_product_alias(product, aliases):
     return current_label, "alias" if used_alias else "original"
 
 
-def get_product_family_ids(cursor, product_id):
+def get_product_family(cursor, product_id):
     """Return one canonical product and all exact aliases pointing to it.
 
     The canonical name must resolve without using an alias and must identify one
@@ -79,16 +79,36 @@ def get_product_family_ids(cursor, product_id):
             "A identidade canónica do produto é ambígua."
         )
 
-    family_ids = []
+    family = []
     for row in configs:
         config_id = row["id"] if isinstance(row, dict) else row[0]
         config_name = row["produto"] if isinstance(row, dict) else row[1]
-        resolved_name, _alias_status = resolve_product_alias(
+        resolved_name, alias_status = resolve_product_alias(
             config_name, aliases
         )
         if resolved_name == canonical_name:
-            family_ids.append(config_id)
-    return family_ids
+            family.append({
+                "id": config_id,
+                "produto": config_name,
+                "is_canonical": alias_status == "original",
+            })
+    return {
+        "canonical_product": next(
+            member for member in family if member["is_canonical"]
+        ),
+        "aliases": [
+            member for member in family if not member["is_canonical"]
+        ],
+    }
+
+
+def get_product_family_ids(cursor, product_id):
+    """Return stable IDs for a canonical product and its exact aliases."""
+    family = get_product_family(cursor, product_id)
+    return [
+        family["canonical_product"]["id"],
+        *(alias["id"] for alias in family["aliases"]),
+    ]
 
 
 def close_current_association(cursor, product_id, effective_date):
