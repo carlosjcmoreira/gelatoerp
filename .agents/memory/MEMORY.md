@@ -25,3 +25,4 @@
 - [Partial batch configuration](partial-batch-configuration.md) — blank or invalid rows must not discard valid operator-entered rows in bulk forms.
 - [Clean database validation](clean-database-validation.md) — isolated PostgreSQL runs must bootstrap through the app and separate live-data assertions from empty-schema checks.
 - [Lost weighing incident](lost-weighing-incident.md) — the September 2026 Bolhão loss was a never-submitted browser draft, not committed stock disappearing.
+- [Daily weighing state](daily-weighing-state.md) — EOD status uses stable store identity and Lisbon closed days; justified days are audited exceptions that reject later stock writes.

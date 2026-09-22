@@ -39,6 +39,7 @@ from db.pastelaria import (
     get_pesagem_batch_receipt,
 )
 from sabor_utils import normalise_sabor
+from db.weighing_status import get_daily_weighing_statuses, portugal_today
 
 vendas_bp = Blueprint('vendas', __name__)
 
@@ -217,6 +218,22 @@ def _check_vendas_access():
     return len(vendas_store_ids) > 0
 
 
+def _previous_day_weighing_alert(loja_id, loja_nome):
+    previous_day = portugal_today() - timedelta(days=1)
+    status = get_daily_weighing_statuses(
+        [previous_day], [loja_nome]
+    ).get((loja_nome, previous_day))
+    if not status or status['state'] not in ('missing', 'draft'):
+        return None
+    alert = dict(status)
+    alert['url'] = url_for(
+        'vendas.pesagem',
+        loja_id=loja_id,
+        data=previous_day.isoformat(),
+    )
+    return alert
+
+
 def _user_owns_loja(loja_nome):
     """Return True if user is gestor or their vendas_store_ids includes the store with loja_nome."""
     user = session.get('user', {})
@@ -292,7 +309,28 @@ def index():
     from db.tiles import get_module_labels
     custom_mod = get_module_labels().get('vendas')
     tabs = _build_tabs(None, loja_id)
-    items = [{'icon': t['icon'], 'label': t['label'], 'url': t['url']} for t in tabs]
+    weighing_alert = _previous_day_weighing_alert(loja_id, loja_nome)
+    items = [
+        {
+            'id': t['id'],
+            'icon': t['icon'],
+            'label': t['label'],
+            'url': t['url'],
+        }
+        for t in tabs
+    ]
+    if weighing_alert:
+        for item in items:
+            if item['id'] == 'pesagem':
+                item['url'] = weighing_alert['url']
+                item['badge'] = {
+                    'cls': 'bg-danger',
+                    'text': 'Ontem por resolver',
+                }
+                item['description'] = (
+                    f'{weighing_alert["label"]} · '
+                    f'{weighing_alert["data_fmt"]}'
+                )
     mod_text = custom_mod if custom_mod else 'Vendas'
     return render_template('components/section_menu.html', items=items,
                            menu_title=f'🛍️ {mod_text} — {loja_nome}')
@@ -307,6 +345,7 @@ def dashboard():
     loja_id, loja_nome = _get_user_loja()
 
     data = vendas_svc.build_dashboard_rows(loja_nome, loja_id=loja_id)
+    weighing_alert = _previous_day_weighing_alert(loja_id, loja_nome)
 
     return render_template('vendas/dashboard.html',
                            active_tab='dashboard',
@@ -318,7 +357,8 @@ def dashboard():
                            total_ontem=data.get('total_ontem', '0.000'),
                            total_recebido=data.get('total_recebido', '0.000'),
                            total_fim=data.get('total_fim'),
-                           fecho=data.get('fecho'))
+                           fecho=data.get('fecho'),
+                           weighing_alert=weighing_alert)
 
 
 @vendas_bp.route('/contagem-pastelaria', methods=['GET', 'POST'])
@@ -514,11 +554,19 @@ def pesagem():
             pesagem_kg = round(sum(qtds_parsed), 3)
 
             if pesagem_kg >= 0 and sabor:
-                stock_id = add_stock_gelado(data_reg, loja_nome, sabor, pesagem_kg, 'fim')
-                individual = [v for v in qtds_parsed if v > 0]
-                if len(individual) > 1:
-                    add_stock_gelado_carapinas(stock_id, individual)
-                flash(f'Pesagem de {pesagem_kg:.3f} kg de {sabor} registada!', 'success')
+                try:
+                    stock_id = add_stock_gelado(
+                        data_reg, loja_nome, sabor, pesagem_kg, 'fim'
+                    )
+                    individual = [v for v in qtds_parsed if v > 0]
+                    if len(individual) > 1:
+                        add_stock_gelado_carapinas(stock_id, individual)
+                    flash(
+                        f'Pesagem de {pesagem_kg:.3f} kg de {sabor} registada!',
+                        'success',
+                    )
+                except ValueError as exc:
+                    flash(str(exc), 'error')
             else:
                 flash('Insira um valor válido.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id, data=str(data_reg)))
@@ -566,6 +614,8 @@ def pesagem():
                         flash(f'Todas as {skipped_dup} entradas já existiam — nenhum registo duplicado foi criado.', 'info')
                     else:
                         flash('Nenhuma pesagem válida para registar.', 'error')
+                except ValueError as exc:
+                    flash(str(exc), 'error')
                 except Exception:
                     flash('Erro ao guardar as pesagens — nenhum registo foi guardado. Tente novamente.', 'error')
             else:
@@ -624,6 +674,8 @@ def pesagem():
                         flash(f'Todas as {skipped_dup} entradas já existiam — nenhum registo duplicado foi criado.', 'info')
                     else:
                         flash('Nenhuma pesagem foi guardada. Verifique os dados e tente novamente.', 'error')
+                except ValueError as exc:
+                    flash(str(exc), 'error')
                 except Exception:
                     flash('Erro ao guardar as pesagens — nenhum registo foi guardado. Tente novamente.', 'error')
             else:
@@ -690,8 +742,19 @@ def pesagem():
                                 flash('Data inválida — verifique o formato.', 'error')
                                 return redirect(url_for('vendas.pesagem', loja_id=loja_id,
                                                         data=data_redirect if data_redirect else None))
-                        update_stock_gelado(s_id, nova_kg, loja=record.get('loja'), nova_data=nova_data)
-                        flash(f'Pesagem actualizada para {nova_kg:.3f} kg.', 'success')
+                        try:
+                            update_stock_gelado(
+                                s_id,
+                                nova_kg,
+                                loja=record.get('loja'),
+                                nova_data=nova_data,
+                            )
+                            flash(
+                                f'Pesagem actualizada para {nova_kg:.3f} kg.',
+                                'success',
+                            )
+                        except ValueError as exc:
+                            flash(str(exc), 'error')
                 else:
                     flash('Sem permissão para editar este registo.', 'error')
             return redirect(url_for('vendas.pesagem', loja_id=loja_id,
@@ -729,6 +792,10 @@ def pesagem():
         except (ValueError, TypeError):
             receipt = None
 
+    daily_status = get_daily_weighing_statuses(
+        [data_sel], [loja_nome]
+    ).get((loja_nome, data_sel))
+
     return render_template('vendas/pesagem.html',
                            active_tab='pesagem',
                            tabs=_build_tabs('pesagem', loja_id),
@@ -737,8 +804,9 @@ def pesagem():
                            sabores=sabores,
                            pesagens_hoje=pesagens_hoje,
                            receipt=receipt,
+                           daily_status=daily_status,
                            data_sel=data_sel,
-                           today=str(date.today()))
+                           today=str(portugal_today()))
 
 
 @vendas_bp.route('/pesagem/rascunho', methods=['GET', 'PUT'])

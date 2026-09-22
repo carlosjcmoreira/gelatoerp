@@ -6,6 +6,25 @@
     {% include "components/tabs.html" %}
     <h5 class="mb-3">🛒 Vendas {{ loja_nome }}</h5>
 
+    {% if weighing_alert %}
+    <div class="alert alert-danger d-flex align-items-center justify-content-between gap-2" role="alert">
+        <div>
+            <div class="fw-bold">⚠️ Pesagem de ontem por resolver</div>
+            <div class="small">
+                {% if weighing_alert.state == 'draft' %}
+                {{ weighing_alert.entry_count }} entrada(s) estão por confirmar
+                {% if weighing_alert.updated_at_local %}· atualizadas {{ weighing_alert.updated_at_local }}{% endif %}
+                {% else %}
+                A pesagem de {{ weighing_alert.data_fmt }} ainda não foi iniciada.
+                {% endif %}
+            </div>
+        </div>
+        <a href="{{ weighing_alert.url }}" class="btn btn-sm btn-outline-danger text-nowrap">
+            Resolver agora
+        </a>
+    </div>
+    {% endif %}
+
     <h6 class="mb-3">Resumo do Dia</h6>
 
     {% if dashboard_mode == 'fecho_caixa' %}

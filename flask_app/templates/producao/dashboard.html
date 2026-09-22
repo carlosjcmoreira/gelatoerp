@@ -7,6 +7,27 @@
 {% block tab_content %}
 <h5 class="mb-3">Dashboard de Produção</h5>
 
+{% if weighing_alerts %}
+<div class="alert alert-danger mb-3" role="alert">
+    <div class="fw-bold mb-2">⚠️ Pesagens de ontem por resolver</div>
+    {% for alert in weighing_alerts %}
+    <div class="d-flex align-items-center justify-content-between gap-2 py-1{% if not loop.last %} border-bottom{% endif %}">
+        <div class="small">
+            <strong>{{ alert.loja }}</strong> —
+            {% if alert.state == 'draft' %}
+            Por confirmar ({{ alert.entry_count }} entradas{% if alert.updated_at_local %}, atualizadas {{ alert.updated_at_local }}{% endif %})
+            {% else %}
+            Pesagem em falta
+            {% endif %}
+        </div>
+        <a href="{{ alert.resolution_url }}" class="btn btn-sm btn-outline-danger text-nowrap">
+            Abrir dia
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
 <div class="row g-2 mb-3">
     <div class="col-6">
         <div class="kpi-card">

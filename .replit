@@ -54,6 +54,20 @@ args = "python -m unittest discover -s tests -p 'test*.py'"
 [workflows.workflow.metadata]
 isValidation = true
 
+[agent]
+expertMode = true
+integrations = ["python_openai_ai_integrations:1.0.0", "google-sheet:1.0.0", "python_anthropic_ai_integrations:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+DEV_AUTO_LOGIN_TOKEN = "nivadev2026"
+FLASK_SECRET_KEY = "niva-porto-flask-secret-key-2026-fixed"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 60000
+
 [[ports]]
 localPort = 5000
 externalPort = 80
@@ -81,20 +95,6 @@ externalPort = 3003
 [[ports]]
 localPort = 23638
 externalPort = 3001
-
-[agent]
-expertMode = true
-integrations = ["python_openai_ai_integrations:1.0.0", "google-sheet:1.0.0", "python_anthropic_ai_integrations:1.0.0"]
-
-[userenv]
-
-[userenv.shared]
-DEV_AUTO_LOGIN_TOKEN = "nivadev2026"
-FLASK_SECRET_KEY = "niva-porto-flask-secret-key-2026-fixed"
-
-[postMerge]
-path = "scripts/post-merge.sh"
-timeoutMs = 60000
 [[workflows.workflow]]
 name = "test-suite-clean-database"
 author = "agent"

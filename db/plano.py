@@ -1095,8 +1095,11 @@ def get_pesagens_loja_range(days: int = 7) -> list:
     return base
 
 
-def get_pesagens_loja_3dias(loja_nome: str) -> dict:
-    """Return the 3 most recent distinct dates with weighings for loja_nome.
+def get_pesagens_loja_3dias(
+    loja_nome: str,
+    end_date: date | None = None,
+) -> dict:
+    """Return three consecutive closed calendar days for a store.
 
     Returns:
       {
@@ -1113,21 +1116,13 @@ def get_pesagens_loja_3dias(loja_nome: str) -> dict:
         ]
       }
     """
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT DISTINCT data
-            FROM stock_gelado
-            WHERE loja = %s
-            ORDER BY data DESC
-            LIMIT 3
-        """, (loja_nome,))
-        date_rows = cursor.fetchall()
+    from db.weighing_status import (
+        get_daily_weighing_statuses,
+        portugal_today,
+    )
 
-    if not date_rows:
-        return {'dates': [], 'rows': []}
-
-    dates = sorted([r[0] for r in date_rows])
+    last_day = end_date or (portugal_today() - timedelta(days=1))
+    dates = [last_day - timedelta(days=2), last_day - timedelta(days=1), last_day]
 
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -1178,7 +1173,26 @@ def get_pesagens_loja_3dias(loja_nome: str) -> dict:
             date_labels.append(str(d))
             dates_iso.append(str(d))
 
-    return {'dates': dates, 'date_labels': date_labels, 'dates_iso': dates_iso, 'rows': result_rows}
+    statuses = get_daily_weighing_statuses(dates, [loja_nome])
+    date_statuses = [
+        statuses.get((loja_nome, day), {
+            'loja': loja_nome,
+            'data': day,
+            'data_iso': day.isoformat(),
+            'data_fmt': day.strftime('%d/%m/%Y'),
+            'state': 'missing',
+            'label': 'Pesagem em falta',
+            'entry_count': 0,
+        })
+        for day in dates
+    ]
+    return {
+        'dates': dates,
+        'date_labels': date_labels,
+        'dates_iso': dates_iso,
+        'date_statuses': date_statuses,
+        'rows': result_rows,
+    }
 
 
 def get_movimentos_stock_gelado(loja: str, data_inicio: date, data_fim: date, sabor_filtro: str = None) -> dict:

@@ -33,8 +33,15 @@ from database import (
     get_movimentos_stock_gelado,
     get_gelato_stock_rotation,
     add_producao,
+    confirm_pesagem_draft,
 )
 from datetime import date, timedelta
+from db.weighing_status import (
+    get_daily_weighing_statuses,
+    get_eod_weighing_stores,
+    justify_missing_weighing,
+    portugal_today,
+)
 import pandas as pd
 import json
 import plotly
@@ -120,11 +127,29 @@ def index():
     labels = get_tile_labels('producao')
     icons = get_tile_icons('producao')
     custom_mod = get_module_labels().get('producao')
+    yesterday = portugal_today() - timedelta(days=1)
+    alerts = _missing_weighing_alerts(yesterday)
     items = [
-        {'icon': icons.get(t['id']) or t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['url_endpoint'])}
+        {
+            'id': t['id'],
+            'icon': icons.get(t['id']) or t['icon'],
+            'label': labels.get(t['id']) or t['label'],
+            'url': url_for(t['url_endpoint']),
+        }
         for t in TABS
         if visibility.get(t['id'], True)
     ]
+    if alerts:
+        for item in items:
+            if item['id'] == 'pesagens_loja':
+                item['badge'] = {
+                    'cls': 'bg-danger',
+                    'text': f'{len(alerts)} por resolver',
+                }
+                item['description'] = (
+                    f'Pesagens de {yesterday.strftime("%d/%m")} em falta '
+                    'ou por confirmar'
+                )
     return render_template('components/section_menu.html', items=items,
                            menu_title=f'🍦 {custom_mod}' if custom_mod else '🍦 Produção Gelado')
 
@@ -132,7 +157,7 @@ def index():
 @producao_bp.route('/dashboard')
 @perm_required('acesso_producao')
 def dashboard():
-    today = date.today()
+    today = portugal_today()
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
 
@@ -202,6 +227,7 @@ def dashboard():
     sabores_plano += sorted(s for s in plano_pivot if s not in sabores_plano)
 
     pesagens = get_pesagens_recentes(3)
+    weighing_alerts = _missing_weighing_alerts(today - timedelta(days=1))
 
     return render_template('producao/dashboard.html',
                            active_tab='dashboard', tabs=_tabs_with_urls(),
@@ -211,7 +237,8 @@ def dashboard():
                            balanca_sabor=balanca_sabor,
                            dias_7=dias_7, plano_pivot=plano_pivot,
                            sabores_plano=sabores_plano,
-                           pesagens=pesagens)
+                           pesagens=pesagens,
+                           weighing_alerts=weighing_alerts)
 
 
 @producao_bp.route('/stock-gelado/ajustar', methods=['POST'])
@@ -375,6 +402,28 @@ _PESAGENS_LOJA_ORDER = ['Bolhão', 'Matosinhos', 'Mouzinho']
 _PESAGENS_DAYS_OPTIONS = [1, 3, 7, 14, 30]
 
 
+def _missing_weighing_alerts(day):
+    stores = get_eod_weighing_stores()
+    statuses = get_daily_weighing_statuses([day])
+    alerts = []
+    for store in stores:
+        status = statuses.get((store['name'], day))
+        if status and status['state'] in ('missing', 'draft'):
+            status = dict(status)
+            status['resolution_url'] = url_for(
+                'producao.pesagens_loja',
+                days=3,
+                loja=store['name'],
+            )
+            status['store_url'] = url_for(
+                'vendas.pesagem',
+                loja_id=store['id'],
+                data=day.isoformat(),
+            )
+            alerts.append(status)
+    return alerts
+
+
 @producao_bp.route('/pesagens-loja', methods=['GET', 'POST'])
 @perm_required('acesso_producao')
 def pesagens_loja():
@@ -387,7 +436,41 @@ def pesagens_loja():
 
     if request.method == 'POST':
         action = request.form.get('action')
-        if action == 'edit':
+        if action == 'justify_missing':
+            try:
+                store_id = int(request.form.get('store_id', 0))
+                day = date.fromisoformat(request.form.get('data', '').strip())
+                user = session.get('user', {})
+                justify_missing_weighing(
+                    store_id,
+                    day,
+                    request.form.get('reason', ''),
+                    user.get('id'),
+                    user.get('username') or 'sistema',
+                )
+                flash('Dia sem pesagem justificado e auditado.', 'success')
+            except (ValueError, TypeError) as exc:
+                flash(str(exc) or 'Não foi possível guardar a justificação.', 'danger')
+        elif action == 'confirm_draft':
+            try:
+                loja = request.form.get('loja', '').strip()
+                batch_id = request.form.get('batch_id', '').strip()
+                revision = int(request.form.get('revision', 0))
+                user = session.get('user', {})
+                receipt = confirm_pesagem_draft(
+                    batch_id,
+                    revision,
+                    loja,
+                    user.get('username') or 'sistema',
+                )
+                flash(
+                    f'{receipt["inserted_count"]} pesagem(ns) confirmada(s) '
+                    'e registada(s).',
+                    'success',
+                )
+            except (ValueError, TypeError) as exc:
+                flash(str(exc) or 'Não foi possível confirmar o rascunho.', 'danger')
+        elif action == 'edit':
             try:
                 from datetime import date as _date, datetime as _datetime
                 stock_id = int(request.form.get('stock_id', 0))
@@ -445,7 +528,14 @@ def pesagens_loja():
                     flash("Nenhuma pesagem para processar.", "info")
             except (ValueError, TypeError):
                 flash("Erro ao processar os dados.", "danger")
-        return redirect(url_for('producao.pesagens_loja', days=days))
+        redirect_args = {'days': days}
+        selected_after_post = request.form.get('loja_redirect', '').strip()
+        end_after_post = request.form.get('end_date_redirect', '').strip()
+        if selected_after_post:
+            redirect_args['loja'] = selected_after_post
+        if end_after_post:
+            redirect_args['end_date'] = end_after_post
+        return redirect(url_for('producao.pesagens_loja', **redirect_args))
 
     if days == 1:
         pesagens_by_loja = get_latest_pesagem_por_sabor_all_lojas()
@@ -480,6 +570,8 @@ def pesagens_loja():
                                days=days, days_options=_PESAGENS_DAYS_OPTIONS,
                                history_rows=None)
     elif days == 3:
+        eod_stores = get_eod_weighing_stores()
+        store_names = [store['name'] for store in eod_stores]
         user = session.get('user', {})
         loja_id = user.get('loja_id')
         user_loja = 'Bolhão'
@@ -489,16 +581,28 @@ def pesagens_loja():
             if store and store.get('name'):
                 user_loja = store['name']
         selected_loja = request.args.get('loja', '').strip() or user_loja
-        if selected_loja not in _PESAGENS_LOJA_ORDER:
-            selected_loja = user_loja
-        three_day = get_pesagens_loja_3dias(selected_loja)
+        if selected_loja not in store_names:
+            selected_loja = (
+                user_loja if user_loja in store_names
+                else (store_names[0] if store_names else '')
+            )
+        max_end_date = portugal_today() - timedelta(days=1)
+        end_date = max_end_date
+        three_day = (
+            get_pesagens_loja_3dias(selected_loja, end_date)
+            if selected_loja else {
+                'dates': [], 'date_labels': [], 'dates_iso': [],
+                'date_statuses': [], 'rows': [],
+            }
+        )
         return render_template('producao/pesagens_loja.html',
                                active_tab='pesagens_loja', tabs=_tabs_with_urls(),
                                lojas=[], rows=[],
                                days=days, days_options=_PESAGENS_DAYS_OPTIONS,
                                history_rows=None,
                                three_day=three_day, user_loja=selected_loja,
-                               all_lojas=_PESAGENS_LOJA_ORDER)
+                               all_lojas=store_names,
+                               end_date=end_date)
     else:
         raw = get_pesagens_loja_range(days)
         history_rows = [

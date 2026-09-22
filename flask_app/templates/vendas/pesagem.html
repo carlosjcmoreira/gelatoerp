@@ -23,6 +23,37 @@
     </div>
     {% endif %}
 
+    {% if daily_status %}
+    {% set status_class = 'success' if daily_status.state == 'confirmed' else ('warning' if daily_status.state == 'draft' else ('secondary' if daily_status.state == 'justified' else ('danger' if daily_status.data_iso < today else 'warning'))) %}
+    <div class="alert alert-{{ status_class }} py-2" id="daily-weighing-status"
+         data-canonical-state="{{ daily_status.state }}" role="status">
+        <div class="fw-bold" id="daily-weighing-status-title">
+            {% if daily_status.state == 'confirmed' %}
+            ✅ Pesagem diária confirmada
+            {% elif daily_status.state == 'draft' %}
+            ⏳ Por confirmar
+            {% elif daily_status.state == 'justified' %}
+            ℹ️ Dia sem pesagem justificado
+            {% elif daily_status.data_iso < today %}
+            ⚠️ Pesagem em falta
+            {% else %}
+            ⚠️ Fecho diário ainda não confirmado
+            {% endif %}
+        </div>
+        <div class="small" id="daily-weighing-status-detail">
+            {% if daily_status.state == 'confirmed' %}
+            {{ daily_status.entry_count }} pesagem(ns) registada(s) para {{ daily_status.data_fmt }}.
+            {% elif daily_status.state == 'draft' %}
+            {{ daily_status.entry_count }} entrada(s) aguardam confirmação{% if daily_status.updated_at_local %}; última atualização {{ daily_status.updated_at_local }}{% endif %}.
+            {% elif daily_status.state == 'justified' %}
+            {{ daily_status.reason }} — {{ daily_status.created_by }}, {{ daily_status.created_at_local }}
+            {% else %}
+            Adicione e confirme as pesagens de {{ daily_status.data_fmt }} antes de sair.
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Mode toggle -->
     <div class="btn-group w-100 mb-3" role="group">
         <button type="button" class="btn btn-primary" id="btn-modo-manual" onclick="setModo('manual')">
@@ -388,6 +419,39 @@ function updateDraftStatus(state, message) {
     detail.textContent = message || messages[state] || messages.pending;
 }
 
+function updateDailyStatusFromDraft(draft, isSynced) {
+    const box = document.getElementById('daily-weighing-status');
+    const title = document.getElementById('daily-weighing-status-title');
+    const detail = document.getElementById('daily-weighing-status-detail');
+    if (!box || !title || !detail) return;
+    if (box.dataset.canonicalState === 'confirmed' ||
+            box.dataset.canonicalState === 'justified') {
+        return;
+    }
+    const entries = draft && Array.isArray(draft.entries)
+        ? draft.entries.filter(function(entry) {
+            return entry.data === DATA_SEL;
+        })
+        : [];
+    if (entries.length > 0) {
+        box.className = 'alert alert-warning py-2';
+        title.textContent = isSynced
+            ? '⏳ Por confirmar'
+            : '⏳ Rascunho local por sincronizar';
+        detail.textContent = entries.length + ' entrada(s) aguardam confirmação' +
+            (isSynced
+                ? ' e estão guardadas no servidor.'
+                : ' neste dispositivo.');
+        return;
+    }
+    box.className = 'alert ' +
+        (DATA_SEL < TODAY ? 'alert-danger' : 'alert-warning') + ' py-2';
+    title.textContent = DATA_SEL < TODAY
+        ? '⚠️ Pesagem em falta'
+        : '⚠️ Fecho diário ainda não confirmado';
+    detail.textContent = 'Adicione e confirme as pesagens deste dia antes de sair.';
+}
+
 function syncDraftToServer() {
     if (draftSyncTimer) {
         clearTimeout(draftSyncTimer);
@@ -438,12 +502,14 @@ function performDraftSync() {
                 }
             } else {
                 currentBatchId = null;
+                currentDraftRevision = null;
             }
             if (snapshot === JSON.stringify(pendingList)) {
                 draftDirty = false;
             }
             saveLocalSnapshotOnly();
             updateDraftStatus('synced');
+            updateDailyStatusFromDraft(data.draft, true);
             return data.draft;
         });
     }).catch(function(error) {
@@ -517,6 +583,7 @@ function loadDraft() {
                 saveLocalSnapshotOnly();
                 renderPendentes();
                 updateDraftStatus('synced');
+                updateDailyStatusFromDraft(data.draft, true);
                 showRestoredMessage(pendingList.length, 'do servidor');
                 return;
             }
@@ -525,6 +592,9 @@ function loadDraft() {
                 currentDraftRevision = localDraft.revision;
                 pendingList = localDraft.entries;
                 renderPendentes();
+                updateDailyStatusFromDraft({
+                    entries: pendingList,
+                }, false);
                 showRestoredMessage(pendingList.length, 'deste dispositivo');
                 return syncDraftToServer();
             }
@@ -535,6 +605,9 @@ function loadDraft() {
                 currentDraftRevision = localDraft.revision;
                 pendingList = localDraft.entries;
                 renderPendentes();
+                updateDailyStatusFromDraft({
+                    entries: pendingList,
+                }, false);
                 showRestoredMessage(pendingList.length, 'deste dispositivo');
                 draftDirty = true;
                 updateDraftStatus('offline');

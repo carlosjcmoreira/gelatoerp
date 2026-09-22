@@ -4010,6 +4010,64 @@ def run_migrations_pesagem_draft_batches():
                 pass
 
 
+_LOCK_PESAGEM_DAY_JUSTIFICATIONS = 202694
+
+
+def run_migrations_pesagem_day_justifications():
+    """Create immutable audited exceptions for days without EOD weighing."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s)",
+                (_LOCK_PESAGEM_DAY_JUSTIFICATIONS,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_pesagem_day_justifications: "
+                    "lock held by another worker, skipping"
+                )
+                return
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pesagem_day_justifications (
+                    id BIGSERIAL PRIMARY KEY,
+                    store_id INTEGER NOT NULL REFERENCES stores(id),
+                    loja VARCHAR(100) NOT NULL,
+                    data DATE NOT NULL,
+                    reason TEXT NOT NULL CHECK (length(trim(reason)) >= 5),
+                    created_by_id INTEGER,
+                    created_by VARCHAR(100) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    UNIQUE(store_id, data)
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS
+                    idx_pesagem_day_justifications_date
+                ON pesagem_day_justifications(data, store_id)
+            """)
+            conn.commit()
+            logger.info(
+                "run_migrations_pesagem_day_justifications: table ready"
+            )
+        except Exception as exc:
+            logger.error(
+                "run_migrations_pesagem_day_justifications failed: %s",
+                exc,
+            )
+            conn.rollback()
+            raise
+        finally:
+            try:
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (_LOCK_PESAGEM_DAY_JUSTIFICATIONS,),
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+
 def run_migrations_tarefas_v2():
     """Add loja_id + equipa columns to tarefas; make frequencia nullable.
     Advisory lock 202620."""

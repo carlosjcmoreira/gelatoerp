@@ -35,8 +35,84 @@
         {% endfor %}
     </div>
     {% endif %}
+    {# ── Shared day status for the 3-day comparison ── #}
+    <div class="row g-2 mb-3">
+        {% for status in three_day.date_statuses %}
+        {% set border = 'success' if status.state == 'confirmed' else ('warning' if status.state == 'draft' else ('secondary' if status.state == 'justified' else 'danger')) %}
+        <div class="col-12 col-md-4">
+            <div class="card h-100 border-{{ border }}">
+                <div class="card-body py-2 px-3">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <div>
+                            <div class="fw-bold">{{ status.data_fmt }}</div>
+                            <div class="text-{{ border }} fw-semibold small">
+                                {% if status.state == 'confirmed' %}✅{% elif status.state == 'draft' %}⏳{% elif status.state == 'justified' %}ℹ️{% else %}⚠️{% endif %}
+                                {{ status.label }}
+                            </div>
+                        </div>
+                        <a href="{{ url_for('vendas.pesagem', loja_id=status.store_id, data=status.data_iso) }}"
+                           class="btn btn-outline-{{ border }} btn-sm">Abrir loja</a>
+                    </div>
+                    {% if status.state == 'confirmed' %}
+                    <div class="small text-muted mt-1">{{ status.entry_count }} pesagem(ns) registada(s)</div>
+                    {% elif status.state == 'draft' %}
+                    <div class="small mt-1">
+                        {{ status.entry_count }} entrada(s) por confirmar
+                        {% if status.updated_at_local %}· atualizadas {{ status.updated_at_local }}{% endif %}
+                    </div>
+                    <ul class="small mb-2 mt-1 ps-3">
+                        {% for entry in status.entries %}
+                        <li>{{ entry.sabor }} — {{ '%.3f'|format(entry.quantidade_kg) }} kg</li>
+                        {% endfor %}
+                    </ul>
+                    <form method="post"
+                          onsubmit="return confirm('Registar estas {{ status.entry_count }} pesagens?')">
+                        <input type="hidden" name="action" value="confirm_draft">
+                        <input type="hidden" name="loja" value="{{ status.loja }}">
+                        <input type="hidden" name="batch_id" value="{{ status.batch_id }}">
+                        <input type="hidden" name="revision" value="{{ status.revision }}">
+                        <input type="hidden" name="loja_redirect" value="{{ user_loja }}">
+                        <button type="submit" class="btn btn-warning btn-sm">
+                            Registar rascunho
+                        </button>
+                    </form>
+                    {% elif status.state == 'justified' %}
+                    <div class="small mt-1">{{ status.reason }}</div>
+                    <div class="text-muted" style="font-size:0.72rem;">
+                        {{ status.created_by }} · {{ status.created_at_local }}
+                    </div>
+                    {% else %}
+                    <div class="small mt-1">Não existe pesagem nem rascunho para este dia.</div>
+                    <button class="btn btn-link btn-sm p-0 mt-1" type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#justify-{{ loop.index }}">
+                        Justificar dia sem pesagem
+                    </button>
+                    <div class="collapse mt-2" id="justify-{{ loop.index }}">
+                        <form method="post">
+                            <input type="hidden" name="action" value="justify_missing">
+                            <input type="hidden" name="store_id" value="{{ status.store_id }}">
+                            <input type="hidden" name="data" value="{{ status.data_iso }}">
+                            <input type="hidden" name="loja_redirect" value="{{ user_loja }}">
+                            <input type="hidden" name="end_date_redirect" value="{{ end_date.isoformat() }}">
+                            <label class="form-label small mb-1">Motivo</label>
+                            <textarea name="reason" class="form-control form-control-sm mb-2"
+                                      rows="2" minlength="5" required
+                                      placeholder="Ex.: loja encerrada para obras"></textarea>
+                            <button type="submit" class="btn btn-secondary btn-sm">
+                                Guardar justificação
+                            </button>
+                        </form>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
     {# ── 3-day comparison view ── #}
-    {% if three_day.rows %}
+    {% if three_day.dates %}
     <div class="table-responsive">
         <table class="table table-sm table-striped align-middle">
             <thead class="table-dark">
@@ -71,9 +147,12 @@
                     {% else %}
                     <td class="text-center px-1 border-start text-muted">-</td>
                     <td class="px-1">
+                        {% set day_status = three_day.date_statuses[loop.index0] %}
+                        {% if day_status.state != 'draft' %}
                         <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1"
                                 onclick="abrirEdit3Dias('{{ r.sabor|e }}', '{{ user_loja|e }}', {{ dias_json|e }}, {{ dates_iso_json|e }})"
                                 title="Registar pesagem em falta">+</button>
+                        {% endif %}
                     </td>
                     {% endif %}
                     {% endfor %}
@@ -82,8 +161,13 @@
             </tbody>
         </table>
     </div>
+    {% if not three_day.rows %}
+    <div class="alert alert-light border mt-2 mb-0">
+        Sem sabores registados nestes três dias. Os estados acima mantêm as ausências visíveis.
+    </div>
+    {% endif %}
     {% else %}
-    <div class="alert alert-info">Sem pesagens registadas para <strong>{{ user_loja }}</strong> nos últimos dias.</div>
+    <div class="alert alert-info">Não existem lojas ativas configuradas para pesagem diária.</div>
     {% endif %}
 
 {% elif days == 1 %}
