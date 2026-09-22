@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% set back_url = url_for("vendas.index", loja_id=loja_id) %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    {% include "components/tabs.html" %}
+
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">🛍️ Compras da Loja — {{ loja_nome }}</h5>
+            <p class="text-muted small mb-0">Pedidos e contagens associados à loja selecionada.</p>
+        </div>
+        {% if artigos_disponiveis %}
+        <span class="badge text-bg-light border">{{ artigos_disponiveis|length }} artigos disponíveis</span>
+        {% endif %}
+    </div>
+
+    <nav class="nav nav-pills flex-nowrap overflow-auto gap-2 mb-3"
+         aria-label="Secções de Compras da Loja">
+        {% for section_id, section in sections.items() %}
+        <a class="nav-link text-nowrap {% if active_section == section_id %}active{% endif %}"
+           href="{{ url_for('vendas.compras_loja', loja_id=loja_id, secao=section_id) }}">
+            {{ section.icon }} {{ section.label }}
+        </a>
+        {% endfor %}
+    </nav>
+
+    {% set current = sections[active_section] %}
+    <section class="card border-0 shadow-sm">
+        <div class="card-body p-4">
+            <div class="text-center py-4">
+                <div class="fs-1 mb-2">{{ current.icon }}</div>
+                <h6>{{ current.label }}</h6>
+                <p class="text-muted mb-3">{{ current.empty }}</p>
+                <span class="badge text-bg-secondary">Em preparação</span>
+            </div>
+
+            {% if active_section in ('semanal', 'urgente') %}
+            <div class="border-top pt-3 mt-2">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+                    <div>
+                        <div class="fw-semibold">Artigos disponíveis para novos pedidos</div>
+                        <div class="text-muted small">Só são apresentados artigos ativos de fornecedores externos confirmados.</div>
+                    </div>
+                </div>
+                {% if artigos_disponiveis %}
+                <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 g-2">
+                    {% for artigo in artigos_disponiveis %}
+                    <div class="col">
+                        <div class="border rounded p-2 h-100">
+                            <div class="fw-semibold text-truncate" title="{{ artigo.produto }}">{{ artigo.produto }}</div>
+                            <div class="text-muted small">
+                                {{ artigo.unidade or 'Unidade não definida' }}
+                                {% if artigo.fornecedor %} · {{ artigo.fornecedor }}{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="alert alert-warning mb-0">
+                    Não existem artigos ativos adequados para novos pedidos. Contacte a gestão para rever o catálogo.
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}

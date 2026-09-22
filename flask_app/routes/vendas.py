@@ -49,6 +49,7 @@ vendas_bp = Blueprint('vendas', __name__)
 
 TAB_DEFS = [
     {'id': 'dashboard', 'label': 'Resumo Diário', 'icon': '📊', 'endpoint': 'vendas.dashboard'},
+    {'id': 'compras_loja', 'label': 'Compras da Loja', 'icon': '🛍️', 'endpoint': 'vendas.compras_loja'},
     {'id': 'contagem_pastelaria', 'label': 'Contagem Pastelaria', 'icon': '🍰', 'endpoint': 'vendas.contagem_pastelaria'},
     {'id': 'transferencias', 'label': 'Receção de Mercadoria', 'icon': '📦', 'endpoint': 'vendas.transferencias'},
     {'id': 'transferir_gelado', 'label': 'Transferir Gelado', 'icon': '📤', 'endpoint': 'vendas.transferir_gelado'},
@@ -173,6 +174,59 @@ def _get_user_loja():
             return stores[0]['id'], stores[0]['name']
 
     return None, 'Bolhão'
+
+
+def _get_compras_loja_store():
+    """Resolve the canonical store context for the Compras da Loja area.
+
+    Store users are pinned to their first assigned Vendas store.  Managers may
+    use the same explicit store selector as the rest of Vendas, but the
+    resolved store is always validated by its stable ID and capabilities.
+    """
+    user = session.get('user', {})
+    is_gestor = bool(user.get('acesso_gestor'))
+
+    if is_gestor:
+        raw_store_id = request.args.get('loja_id', '').strip()
+        if raw_store_id:
+            try:
+                store = get_store_by_id(int(raw_store_id))
+            except (TypeError, ValueError):
+                store = None
+        else:
+            loja_id, _ = _get_user_loja()
+            store = get_store_by_id(loja_id) if loja_id else None
+    else:
+        store_ids = user.get('vendas_store_ids') or []
+        store = get_store_by_id(store_ids[0]) if store_ids else None
+        requested = request.args.get('loja_id', '').strip()
+        if requested:
+            try:
+                requested_id = int(requested)
+            except (TypeError, ValueError):
+                abort(403)
+            if not store or requested_id != store['id']:
+                abort(403)
+
+    if (
+        not store
+        or store.get('is_active', True) is False
+        or store.get('supports_vendas', True) is False
+    ):
+        return None
+    return store
+
+
+def _get_compras_loja_articles():
+    """Return only active supplier articles suitable for store requests."""
+    from db.artigos import get_artigos_administrativos
+
+    return [
+        artigo for artigo in get_artigos_administrativos(apenas_ativos=True)
+        if artigo.get('ativo')
+        and artigo.get('origem_tipo') == 'fornecedor_externo'
+        and artigo.get('origem_supplier_id')
+    ]
 
 
 def _build_tabs(active_id, loja_id=None):
@@ -373,6 +427,62 @@ def index():
     mod_text = custom_mod if custom_mod else 'Vendas'
     return render_template('components/section_menu.html', items=items,
                            menu_title=f'🛍️ {mod_text} — {loja_nome}')
+
+
+@vendas_bp.route('/compras-loja')
+@login_required
+def compras_loja():
+    """Landing area for store purchasing workflows.
+
+    This task deliberately provides navigation, context, and empty states;
+    weekly orders, urgent requests, and counts are implemented separately.
+    """
+    if not _check_vendas_access():
+        return redirect(url_for('home.index'))
+
+    store = _get_compras_loja_store()
+    if not store:
+        flash('Não foi possível identificar uma loja Vendas ativa.', 'warning')
+        return redirect(url_for('home.index'))
+
+    sections = {
+        'semanal': {
+            'label': 'Encomenda semanal',
+            'icon': '📅',
+            'empty': 'Ainda não existem encomendas semanais para esta loja.',
+        },
+        'urgente': {
+            'label': 'Pedido urgente',
+            'icon': '⚡',
+            'empty': 'Ainda não existem pedidos urgentes para esta loja.',
+        },
+        'contagem': {
+            'label': 'Contagem',
+            'icon': '🔢',
+            'empty': 'Ainda não existem contagens registadas para esta loja.',
+        },
+        'historico': {
+            'label': 'Histórico',
+            'icon': '📋',
+            'empty': 'Ainda não existe histórico de pedidos ou contagens para esta loja.',
+        },
+    }
+    active_section = request.args.get('secao', 'semanal').strip().lower()
+    if active_section not in sections:
+        active_section = 'semanal'
+        flash('Secção inválida. A mostrar a encomenda semanal.', 'info')
+
+    return render_template(
+        'vendas/compras_loja.html',
+        active_tab='compras_loja',
+        tabs=_build_tabs('compras_loja', store['id']),
+        loja_id=store['id'],
+        loja_nome=store['name'],
+        store=store,
+        sections=sections,
+        active_section=active_section,
+        artigos_disponiveis=_get_compras_loja_articles(),
+    )
 
 
 @vendas_bp.route('/dashboard')
