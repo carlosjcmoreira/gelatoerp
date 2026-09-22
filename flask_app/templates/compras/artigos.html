@@ -131,6 +131,8 @@
                         {% endif %}
                     </td>
                     <td class="text-end text-nowrap">
+                        <a href="{{ url_for('compras.artigo_detalhe', artigo_id=a.id) }}"
+                           class="btn btn-outline-info btn-sm">Histórico</a>
                         <button form="edit-artigo-{{ a.id }}" type="submit" class="btn btn-outline-primary btn-sm">Guardar</button>
                         <form method="post" class="d-inline">
                             <input type="hidden" name="action" value="toggle">

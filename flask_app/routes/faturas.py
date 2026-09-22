@@ -31,6 +31,8 @@ from database import (
     create_confirming_parcelas_batch,
     get_payment_methods_config,
     get_invoice_linhas, upsert_invoice_linha, delete_invoice_linha,
+     get_invoice_linha_artigo_suggestions, link_invoice_linha_artigo,
+     resolve_invoice_linha_artigo, create_artigo_from_invoice_linha,
     registar_entradas_stock_fatura, derive_local_from_store,
     list_materiais, LOCAIS_STOCK, UNIDADES_MATERIAIS,
     get_cost_centers, get_cost_categories_tree,
@@ -1510,6 +1512,7 @@ def detail(invoice_id: int):
     payment_methods = [m for m in get_payment_methods_config() if m.get('ativo')]
     confirming_contracts = get_confirming_contracts()
     linhas = get_invoice_linhas(invoice_id)
+    linha_artigo_suggestions = get_invoice_linha_artigo_suggestions(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
     cost_centers = get_cost_centers(ativo_only=True)
     _cc_for_stock = next((c for c in cost_centers if c['id'] == inv.get('centro_custo_id')), None) if inv.get('centro_custo_id') else None
@@ -1529,6 +1532,7 @@ def detail(invoice_id: int):
         payment_methods=payment_methods,
         confirming_contracts=confirming_contracts,
         linhas=linhas,
+         linha_artigo_suggestions=linha_artigo_suggestions,
         materiais=materiais,
         locais_stock=LOCAIS_STOCK,
         unidades_materiais=UNIDADES_MATERIAIS,
@@ -1613,6 +1617,7 @@ def invoice_panel(invoice_id: int):
         inv['display_status'] = 'overdue'
         inv['status_label'] = get_invoice_status_labels_map().get('overdue', 'Vencida')
     linhas = get_invoice_linhas(invoice_id)
+    linha_artigo_suggestions = get_invoice_linha_artigo_suggestions(invoice_id)
     materiais = list_materiais(apenas_ativos=True)
     _inv_cc_id = inv.get('centro_custo_id')
     _cc_store_id = None
@@ -1645,6 +1650,7 @@ def invoice_panel(invoice_id: int):
         payment_methods=[m for m in get_payment_methods_config() if m.get('ativo')],
         confirming_contracts=get_confirming_contracts(),
         linhas=linhas,
+        linha_artigo_suggestions=linha_artigo_suggestions,
         materiais=materiais,
         locais_stock=LOCAIS_STOCK,
         unidades_materiais=UNIDADES_MATERIAIS,
@@ -1735,6 +1741,11 @@ def linha(invoice_id: int):
             return _panel_redirect(invoice_id)
 
     linha_id = request.form.get('linha_id', type=int)
+    artigo_id_raw = request.form.get('artigo_id', '').strip()
+    try:
+        artigo_id = int(artigo_id_raw) if artigo_id_raw else None
+    except ValueError:
+        artigo_id = None
 
     try:
         saved_id = upsert_invoice_linha(
@@ -1745,6 +1756,7 @@ def linha(invoice_id: int):
             material_id=material_id,
             preco_unitario=preco_unitario,
             linha_id=linha_id,
+            artigo_id=artigo_id,
         )
     except ValueError as e:
         flash(f'Erro ao guardar linha: {e}', 'warning')
@@ -1757,6 +1769,51 @@ def linha(invoice_id: int):
         flash('Linha não encontrada ou sem permissão para editar.', 'warning')
         return _panel_redirect(invoice_id)
     flash('Linha guardada.', 'success')
+    return _panel_redirect(invoice_id)
+
+
+@faturas_bp.route('/<int:invoice_id>/linha-artigo', methods=['POST'])
+@any_perm_required('acesso_financeiro', 'acesso_compras')
+def linha_artigo(invoice_id: int):
+    """Make an explicit product-link decision without changing invoice snapshots."""
+    inv = get_invoice(invoice_id)
+    if not inv:
+        flash('Fatura não encontrada.', 'warning')
+        return redirect(url_for('faturas.index'))
+    linha_id = request.form.get('linha_id', type=int)
+    action = request.form.get('action', '').strip()
+    actor = session.get('user', {}).get('username', 'sistema')
+    reason = request.form.get('motivo', '').strip() or None
+    try:
+        if not linha_id:
+            raise ValueError('Linha não especificada.')
+        if action == 'link':
+            artigo_id = request.form.get('artigo_id', type=int)
+            if not artigo_id:
+                raise ValueError('Seleciona um produto.')
+            ok = link_invoice_linha_artigo(
+                invoice_id, linha_id, artigo_id, actor=actor, reason=reason
+            )
+            if not ok:
+                raise ValueError('Linha não encontrada.')
+            flash('Linha ligada ao produto de Compras.', 'success')
+        elif action == 'create':
+            create_artigo_from_invoice_linha(
+                invoice_id, linha_id, actor=actor, reason=reason
+            )
+            flash('Produto criado e ligado à linha.', 'success')
+        elif action == 'resolve':
+            if not resolve_invoice_linha_artigo(
+                invoice_id, linha_id, actor=actor, reason=reason
+            ):
+                raise ValueError('Linha não encontrada.')
+            flash('Linha marcada como por resolver.', 'success')
+        else:
+            raise ValueError('Decisão inválida.')
+    except ValueError as exc:
+        flash(str(exc), 'warning')
+    except psycopg2.IntegrityError:
+        flash('Não foi possível guardar a decisão de produto.', 'warning')
     return _panel_redirect(invoice_id)
 
 

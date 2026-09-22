@@ -445,6 +445,49 @@
                                 {% if l.material_nome %}
                                 <div class="text-muted" style="font-size:.75rem">{{ l.material_nome }}</div>
                                 {% endif %}
+                                {% if l.artigo_nome %}
+                                <div class="text-primary" style="font-size:.75rem">Produto Compras: {{ l.artigo_nome }}</div>
+                                <form method="post" action="{{ url_for('faturas.linha_artigo', invoice_id=inv.id) }}" class="d-inline">
+                                    <input type="hidden" name="action" value="resolve">
+                                    <input type="hidden" name="linha_id" value="{{ l.id }}">
+                                    <button class="btn btn-link btn-sm p-0 text-muted" type="submit">Desligar</button>
+                                </form>
+                                {% else %}
+                                {% set match = linha_artigo_suggestions.get(l.id, {}) %}
+                                {% if match.state == 'exact' %}
+                                <form method="post" action="{{ url_for('faturas.linha_artigo', invoice_id=inv.id) }}" class="d-inline">
+                                    <input type="hidden" name="action" value="link">
+                                    <input type="hidden" name="linha_id" value="{{ l.id }}">
+                                    <input type="hidden" name="artigo_id" value="{{ match.suggestions[0].id }}">
+                                    <button class="btn btn-link btn-sm p-0 text-success" type="submit">Ligar: {{ match.suggestions[0].produto }}</button>
+                                </form>
+                                {% elif match.state == 'ambiguous' %}
+                                <form method="post" action="{{ url_for('faturas.linha_artigo', invoice_id=inv.id) }}" class="d-flex gap-1 mt-1">
+                                    <input type="hidden" name="action" value="link">
+                                    <input type="hidden" name="linha_id" value="{{ l.id }}">
+                                    <select name="artigo_id" class="form-select form-select-sm" aria-label="Escolher produto">
+                                    {% for suggestion in match.suggestions %}
+                                        <option value="{{ suggestion.id }}">{{ suggestion.produto }}</option>
+                                    {% endfor %}
+                                    </select>
+                                    <button class="btn btn-outline-primary btn-sm" type="submit">Ligar</button>
+                                </form>
+                                {% endif %}
+                                {% if match.state in ('ambiguous', 'unresolved', 'supplier_unconfirmed') %}
+                                <div class="mt-1 d-flex gap-2">
+                                    <form method="post" action="{{ url_for('faturas.linha_artigo', invoice_id=inv.id) }}" class="d-inline">
+                                        <input type="hidden" name="action" value="create">
+                                        <input type="hidden" name="linha_id" value="{{ l.id }}">
+                                        <button class="btn btn-link btn-sm p-0 text-primary" type="submit">Criar produto</button>
+                                    </form>
+                                    <form method="post" action="{{ url_for('faturas.linha_artigo', invoice_id=inv.id) }}" class="d-inline">
+                                        <input type="hidden" name="action" value="resolve">
+                                        <input type="hidden" name="linha_id" value="{{ l.id }}">
+                                        <button class="btn btn-link btn-sm p-0 text-muted" type="submit">Deixar por resolver</button>
+                                    </form>
+                                </div>
+                                {% endif %}
+                                {% endif %}
                             </td>
                             <td class="text-end text-nowrap">
                                 {% if l.quantidade == l.quantidade|int %}{{ l.quantidade|int }}{% else %}{{ '%.3f'|format(l.quantidade) }}{% endif %}
@@ -463,6 +506,7 @@
                                         data-quantidade="{{ l.quantidade }}"
                                         data-unidade="{{ l.unidade }}"
                                         data-material="{{ l.material_id or '' }}"
+                                         data-artigo="{{ l.artigo_id or '' }}"
                                         data-preco="{{ l.preco_unitario if l.preco_unitario is not none else '' }}"
                                         title="Editar">✏️</button>
                                 <form method="post"
@@ -471,6 +515,7 @@
                                       style="display:inline">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="linha_id" value="{{ l.id }}">
+                    <input type="hidden" name="artigo_id" value="{{ l.artigo_id or '' }}">
                                     <input type="hidden" name="_return_url" value="{{ panel_return_url or url_for('faturas.index') }}">
                                     <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar">🗑</button>
                                 </form>
@@ -881,6 +926,7 @@
             <form method="post" action="{{ url_for('faturas.linha', invoice_id=inv.id) }}">
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="linha_id" id="editLinhaId">
+                <input type="hidden" name="artigo_id" id="editArtigoId">
                 <input type="hidden" name="_return_url" value="{{ panel_return_url or url_for('faturas.index') }}">
                 <div class="modal-body">
                     <div class="mb-2">
@@ -1110,6 +1156,7 @@ function preencherDescricaoMaterial(sel, descId, unidadeId) {
             var btn = ev.relatedTarget;
             if (!btn) return;
             document.getElementById('editLinhaId').value = btn.getAttribute('data-id') || '';
+            document.getElementById('editArtigoId').value = btn.getAttribute('data-artigo') || '';
             document.getElementById('editDescricao').value = btn.getAttribute('data-descricao') || '';
             document.getElementById('editQuantidade').value = btn.getAttribute('data-quantidade') || '';
             document.getElementById('editPreco').value = btn.getAttribute('data-preco') || '';

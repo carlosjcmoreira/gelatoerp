@@ -30,3 +30,4 @@
 - [Store-scoped Vendas tiles](store-scoped-vendas-tiles.md) — module identity stays global; child tile settings use stable store IDs and canonical capability filtering.
 - [Compras supply origins](compras-supply-origins.md) — spreadsheet labels can be internal hubs or informal categories; weekly and urgent supply flows must stay distinct.
 - [Compras catalog history](compras-catalog-history.md) — versioned seed imports must preserve pre-existing catalogue rows rather than deleting historical identities.
+- [Invoice product links](invoice-product-links.md) — catalogue associations never rewrite invoice-line snapshots; auto-suggestions require exact text and confirmed canonical supplier scope.

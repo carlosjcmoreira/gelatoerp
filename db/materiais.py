@@ -219,10 +219,12 @@ def get_invoice_linhas(invoice_id: int) -> list:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT il.id, il.invoice_id, il.material_id, m.nome AS material_nome,
+                   il.artigo_id, a.produto AS artigo_nome,
                    il.descricao, il.quantidade, il.unidade, il.preco_unitario,
                    il.stock_registado
             FROM invoice_linhas il
             LEFT JOIN materiais m ON m.id = il.material_id
+            LEFT JOIN artigos_administrativos a ON a.id = il.artigo_id
             WHERE il.invoice_id = %s
             ORDER BY il.id
         """, (invoice_id,))
@@ -233,11 +235,13 @@ def get_invoice_linhas(invoice_id: int) -> list:
             'invoice_id': r[1],
             'material_id': r[2],
             'material_nome': r[3],
-            'descricao': r[4],
-            'quantidade': float(r[5]),
-            'unidade': r[6],
-            'preco_unitario': float(r[7]) if r[7] is not None else None,
-            'stock_registado': r[8],
+            'artigo_id': r[4],
+            'artigo_nome': r[5],
+            'descricao': r[6],
+            'quantidade': float(r[7]),
+            'unidade': r[8],
+            'preco_unitario': float(r[9]) if r[9] is not None else None,
+            'stock_registado': r[10],
         }
         for r in rows
     ]
@@ -246,7 +250,7 @@ def get_invoice_linhas(invoice_id: int) -> list:
 def upsert_invoice_linha(invoice_id: int, descricao: str, quantidade: float,
                          unidade: str, material_id: int = None,
                          preco_unitario: float = None,
-                         linha_id: int = None) -> int:
+                          linha_id: int = None, artigo_id: int = None) -> int:
     if not descricao or not descricao.strip():
         raise ValueError("descricao é obrigatória")
     if quantidade is None or float(quantidade) <= 0:
@@ -261,19 +265,19 @@ def upsert_invoice_linha(invoice_id: int, descricao: str, quantidade: float,
             if linha_id:
                 cursor.execute("""
                     UPDATE invoice_linhas
-                    SET material_id = %s, descricao = %s, quantidade = %s,
+                    SET material_id = %s, artigo_id = %s, descricao = %s, quantidade = %s,
                         unidade = %s, preco_unitario = %s, updated_at = NOW()
                     WHERE id = %s AND invoice_id = %s
                     RETURNING id
-                """, (material_id or None, descricao, quantidade,
+                """, (material_id or None, artigo_id or None, descricao, quantidade,
                       unidade, preco_unitario, linha_id, invoice_id))
             else:
                 cursor.execute("""
                     INSERT INTO invoice_linhas
-                           (invoice_id, material_id, descricao, quantidade, unidade, preco_unitario)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                           (invoice_id, material_id, artigo_id, descricao, quantidade, unidade, preco_unitario)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     RETURNING id
-                """, (invoice_id, material_id or None, descricao, quantidade,
+                """, (invoice_id, material_id or None, artigo_id or None, descricao, quantidade,
                       unidade, preco_unitario))
             row = cursor.fetchone()
             conn.commit()

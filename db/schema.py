@@ -244,6 +244,47 @@ def run_migrations_compras_catalogo():
                     ON artigos_administrativos(origem_id, ativo)
                 """
             )
+            # Invoice lines keep their OCR/accounting snapshot and material link;
+            # the purchasing catalogue association is an independent, nullable
+            # link with its own append-only decision history.
+            cursor.execute(
+                """
+                ALTER TABLE invoice_linhas
+                    ADD COLUMN IF NOT EXISTS artigo_id INTEGER
+                        REFERENCES artigos_administrativos(id) ON DELETE SET NULL
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_invoice_linhas_artigo
+                    ON invoice_linhas(artigo_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS invoice_linha_artigo_audit (
+                    id SERIAL PRIMARY KEY,
+                    invoice_linha_id INTEGER NOT NULL
+                        REFERENCES invoice_linhas(id) ON DELETE CASCADE,
+                    invoice_id INTEGER NOT NULL
+                        REFERENCES invoices(id) ON DELETE CASCADE,
+                    artigo_anterior_id INTEGER
+                        REFERENCES artigos_administrativos(id) ON DELETE SET NULL,
+                    artigo_novo_id INTEGER
+                        REFERENCES artigos_administrativos(id) ON DELETE SET NULL,
+                    decisao VARCHAR(40) NOT NULL,
+                    motivo TEXT,
+                    alterado_por VARCHAR(100) NOT NULL,
+                    alterado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_invoice_linha_artigo_audit_line
+                    ON invoice_linha_artigo_audit(invoice_linha_id, alterado_em DESC)
+                """
+            )
 
             seen_keys = set()
             stats = {'created': 0, 'existing': 0, 'updated': 0, 'rejected': 0}

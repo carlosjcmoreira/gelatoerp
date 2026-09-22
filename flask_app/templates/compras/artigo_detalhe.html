@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <a href="{{ url_for('compras.artigos') }}" class="small text-decoration-none">← Catálogo de Compras</a>
+            <h4 class="mb-1 mt-2">{{ artigo.produto }}</h4>
+            <div class="text-muted small">
+                {{ artigo.fornecedor }}
+                {% if artigo.unidade %} · unidade {{ artigo.unidade }}{% endif %}
+                {% if artigo.origem_nome %} · {{ artigo.origem_nome }}{% endif %}
+            </div>
+        </div>
+        <span class="badge {{ 'text-bg-success' if artigo.ativo else 'text-bg-secondary' }}">
+            {{ 'Ativo' if artigo.ativo else 'Inativo' }}
+        </span>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Última compra elegível</div>
+                    <div class="fs-5">
+                        {{ comercial.ultima_compra.strftime('%d/%m/%Y') if comercial.ultima_compra else '—' }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Último custo unitário</div>
+                    <div class="fs-5">
+                        {{ '%.4f €'|format(comercial.ultimo_custo) if comercial.ultimo_custo is not none else '—' }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Compras consideradas</div>
+                    <div class="fs-5">{{ comercial.historico|length }}</div>
+                    <div class="small text-muted">Apenas faturas agendadas/pagas e confirmadas</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header fw-semibold">Histórico de quantidade e custo</div>
+        <div class="card-body p-0">
+            {% if comercial.historico %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr><th>Data</th><th>Documento</th><th>Descrição histórica</th>
+                            <th class="text-end">Quantidade</th><th>Un.</th><th class="text-end">Custo unit.</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for row in comercial.historico %}
+                    <tr>
+                        <td>{{ row.issue_date.strftime('%d/%m/%Y') if row.issue_date else '—' }}</td>
+                        <td>{{ row.invoice_number or ('#' ~ row.invoice_id) }}</td>
+                        <td>{{ row.descricao }}</td>
+                        <td class="text-end">{{ '%.3f'|format(row.quantidade) }}</td>
+                        <td>{{ row.unidade }}</td>
+                        <td class="text-end">{{ '%.4f €'|format(row.preco_unitario) if row.preco_unitario is not none else '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-3 text-muted">Ainda não existem compras elegíveis ligadas a este produto.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

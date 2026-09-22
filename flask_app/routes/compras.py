@@ -7,6 +7,7 @@ from io import BytesIO
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_artigos_administrativos, add_artigo_administrativo,
+    get_artigo_administrativo, get_artigo_comercial_history,
     update_artigo_administrativo, toggle_artigo_administrativo,
     delete_artigo_administrativo,
     get_compras_origens,
@@ -1065,6 +1066,22 @@ def artigos():
     return render_template('compras/artigos.html',
                            artigos=artigos_list, fornecedores=fornecedores,
                            origens=origens, search=search)
+
+
+@compras_bp.route('/artigos/<int:artigo_id>')
+@any_perm_required('acesso_administrativo', 'acesso_compras')
+def artigo_detalhe(artigo_id: int):
+    artigo = get_artigo_administrativo(artigo_id)
+    if not artigo:
+        flash('Artigo não encontrado.', 'warning')
+        return redirect(url_for('compras.artigos'))
+    comercial = get_artigo_comercial_history(artigo_id)
+    return render_template(
+        'compras/artigo_detalhe.html',
+        artigo=artigo,
+        comercial=comercial,
+        origem_history=[],
+    )
 
 
 @compras_bp.route('/nova-fatura/upload-chunk', methods=['POST'])

@@ -243,6 +243,351 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
     ]
 
 
+def get_artigo_administrativo(artigo_id: int) -> dict | None:
+    """Return one catalogue article, including its current origin."""
+    return next(
+        (a for a in get_artigos_administrativos(apenas_ativos=False)
+         if a['id'] == int(artigo_id)),
+        None,
+    )
+
+
+def _supplier_identity_confirmed(cursor, invoice_id: int) -> tuple[int | None, bool]:
+    cursor.execute(
+        """
+        SELECT i.supplier_id, i.supplier_name, i.supplier_nif,
+               s.name, s.nif
+        FROM invoices i
+        LEFT JOIN suppliers s ON s.id = i.supplier_id
+        WHERE i.id = %s
+        """,
+        (invoice_id,),
+    )
+    row = cursor.fetchone()
+    if not row or not row[0]:
+        return None, False
+    supplier_id, invoice_name, invoice_nif, legal_name, legal_nif = row
+    names_match = (
+        normalise_compras_origin_label(invoice_name)
+        == normalise_compras_origin_label(legal_name)
+    )
+    def nif(value):
+        return ''.join(c for c in str(value or '') if c.isdigit()).lstrip('0')
+    nifs_match = not invoice_nif or not legal_nif or nif(invoice_nif) == nif(legal_nif)
+    return supplier_id, bool(names_match and nifs_match)
+
+
+def get_invoice_linha_artigo_suggestions(invoice_id: int) -> dict:
+    """Return exact, supplier-scoped catalogue suggestions for invoice lines.
+
+    Internal, operational, unresolved, inactive, and supplier-conflicting
+    origins deliberately never enter the suggestion set.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        supplier_id, supplier_confirmed = _supplier_identity_confirmed(cursor, invoice_id)
+        cursor.execute(
+            """
+            SELECT il.id, il.artigo_id, il.descricao,
+                   a.id, a.fornecedor, a.produto, a.unidade,
+                   o.tipo, o.supplier_id
+            FROM invoice_linhas il
+            LEFT JOIN artigos_administrativos a ON a.id = il.artigo_id
+            LEFT JOIN compras_origens o ON o.id = a.origem_id
+            WHERE il.invoice_id = %s
+            ORDER BY il.id
+            """,
+            (invoice_id,),
+        )
+        lines = cursor.fetchall()
+        candidates = []
+        if supplier_confirmed:
+            cursor.execute(
+                """
+                SELECT a.id, a.fornecedor, a.produto, a.unidade,
+                       o.id, o.nome
+                FROM artigos_administrativos a
+                JOIN compras_origens o ON o.id = a.origem_id
+                WHERE a.ativo = TRUE AND o.ativo = TRUE
+                  AND o.tipo = 'fornecedor_externo'
+                  AND o.supplier_id = %s
+                ORDER BY a.produto, a.id
+                """,
+                (supplier_id,),
+            )
+            candidates = cursor.fetchall()
+
+    result = {}
+    for row in lines:
+        line_id, current_id, description = row[:3]
+        exact = [
+            {
+                'id': candidate[0],
+                'fornecedor': candidate[1],
+                'produto': candidate[2],
+                'unidade': candidate[3],
+                'origem_id': candidate[4],
+                'origem_nome': candidate[5],
+            }
+            for candidate in candidates
+            if normalise_compras_origin_label(description)
+            == normalise_compras_origin_label(candidate[2])
+        ]
+        if not supplier_confirmed:
+            state = 'supplier_unconfirmed'
+        elif len(exact) == 1:
+            state = 'exact'
+        elif len(exact) > 1:
+            state = 'ambiguous'
+        else:
+            state = 'unresolved'
+        result[line_id] = {
+            'state': state,
+            'supplier_confirmed': supplier_confirmed,
+            'current_artigo_id': current_id,
+            'current_artigo_nome': row[5],
+            'suggestions': exact,
+        }
+    return result
+
+
+def get_invoice_linha_artigo_audit(linha_id: int) -> list:
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT h.id, h.artigo_anterior_id, old.produto,
+                   h.artigo_novo_id, new.produto, h.decisao,
+                   h.motivo, h.alterado_por, h.alterado_em
+            FROM invoice_linha_artigo_audit h
+            LEFT JOIN artigos_administrativos old ON old.id = h.artigo_anterior_id
+            LEFT JOIN artigos_administrativos new ON new.id = h.artigo_novo_id
+            WHERE h.invoice_linha_id = %s
+            ORDER BY h.alterado_em ASC, h.id ASC
+            """,
+            (linha_id,),
+        )
+        rows = cursor.fetchall()
+    return [
+        {
+            'id': r[0], 'artigo_anterior_id': r[1], 'artigo_anterior_nome': r[2],
+            'artigo_novo_id': r[3], 'artigo_novo_nome': r[4], 'decisao': r[5],
+            'motivo': r[6], 'alterado_por': r[7], 'alterado_em': r[8],
+        }
+        for r in rows
+    ]
+
+
+def _audit_invoice_linha_artigo(cursor, invoice_id, linha_id, old_id, new_id,
+                                decision, actor, reason):
+    cursor.execute(
+        """
+        INSERT INTO invoice_linha_artigo_audit
+            (invoice_linha_id, invoice_id, artigo_anterior_id, artigo_novo_id,
+             decisao, motivo, alterado_por)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (linha_id, invoice_id, old_id, new_id, decision, reason, actor),
+    )
+
+
+def link_invoice_linha_artigo(invoice_id: int, linha_id: int, artigo_id: int,
+                              actor: str = 'sistema', reason: str = None) -> bool:
+    """Explicitly link a line to a catalogue article without rewriting snapshots."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT il.artigo_id, i.supplier_id, a.ativo,
+                   o.tipo, o.supplier_id
+            FROM invoice_linhas il
+            JOIN invoices i ON i.id = il.invoice_id
+            JOIN artigos_administrativos a ON a.id = %s
+            LEFT JOIN compras_origens o ON o.id = a.origem_id
+            WHERE il.id = %s AND il.invoice_id = %s
+            FOR UPDATE OF il
+            """,
+            (artigo_id, linha_id, invoice_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+        old_id, invoice_supplier_id, active, origin_type, origin_supplier_id = row
+        if not active:
+            raise ValueError('O produto selecionado está inativo.')
+        if origin_type == 'fornecedor_externo' and (
+            not invoice_supplier_id or origin_supplier_id != invoice_supplier_id
+        ):
+            raise ValueError('O produto pertence a outro fornecedor canónico.')
+        cursor.execute(
+            "UPDATE invoice_linhas SET artigo_id = %s, updated_at = NOW() "
+            "WHERE id = %s AND invoice_id = %s",
+            (artigo_id, linha_id, invoice_id),
+        )
+        _audit_invoice_linha_artigo(
+            cursor, invoice_id, linha_id, old_id, artigo_id, 'ligar', actor, reason
+        )
+        conn.commit()
+    invalidate_prefix('artigos_administrativos')
+    return True
+
+
+def resolve_invoice_linha_artigo(invoice_id: int, linha_id: int,
+                                  actor: str = 'sistema', reason: str = None) -> bool:
+    """Clear a catalogue link and retain the human unresolved decision."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT artigo_id FROM invoice_linhas WHERE id = %s AND invoice_id = %s FOR UPDATE",
+            (linha_id, invoice_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+        cursor.execute(
+            "UPDATE invoice_linhas SET artigo_id = NULL, updated_at = NOW() "
+            "WHERE id = %s AND invoice_id = %s",
+            (linha_id, invoice_id),
+        )
+        _audit_invoice_linha_artigo(
+            cursor, invoice_id, linha_id, row[0], None, 'por_resolver', actor, reason
+        )
+        conn.commit()
+    return True
+
+
+def create_artigo_from_invoice_linha(invoice_id: int, linha_id: int,
+                                     actor: str = 'sistema', reason: str = None) -> int:
+    """Create a human-confirmed catalogue article from a line and link it."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT il.artigo_id, il.descricao, il.unidade, i.supplier_id,
+                   i.supplier_name, s.name
+            FROM invoice_linhas il
+            JOIN invoices i ON i.id = il.invoice_id
+            LEFT JOIN suppliers s ON s.id = i.supplier_id
+            WHERE il.id = %s AND il.invoice_id = %s
+            FOR UPDATE OF il
+            """,
+            (linha_id, invoice_id),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        if row[0]:
+            raise ValueError('A linha já está ligada a um produto.')
+        _, description, unit, supplier_id, supplier_label, legal_supplier = row
+        supplier_label = legal_supplier or supplier_label or 'Origem por resolver'
+        if supplier_id:
+            cursor.execute(
+                """
+                SELECT id FROM compras_origens
+                WHERE ativo = TRUE AND tipo = 'fornecedor_externo'
+                  AND supplier_id = %s
+                ORDER BY id LIMIT 1
+                """,
+                (supplier_id,),
+            )
+            origin = cursor.fetchone()
+            if origin:
+                origin_id = origin[0]
+            else:
+                cursor.execute(
+                    """
+                    INSERT INTO compras_origens
+                        (chave, tipo, nome, rotulo_original, supplier_id)
+                    VALUES (%s, 'fornecedor_externo', %s, %s, %s)
+                    ON CONFLICT (chave) DO UPDATE SET supplier_id = EXCLUDED.supplier_id
+                    RETURNING id
+                    """,
+                    (f'fornecedor:{supplier_id}', supplier_label, supplier_label, supplier_id),
+                )
+                origin_id = cursor.fetchone()[0]
+        else:
+            origin_data = classify_compras_origin_label(supplier_label)
+            cursor.execute(
+                """
+                INSERT INTO compras_origens (chave, tipo, nome, rotulo_original)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (chave) DO UPDATE SET nome = EXCLUDED.nome
+                RETURNING id
+                """,
+                (origin_data['key'], origin_data['tipo'], origin_data['nome'],
+                 origin_data['rotulo_original']),
+            )
+            origin_id = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            INSERT INTO artigos_administrativos
+                (fornecedor, produto, unidade, origem_id, origem_original,
+                 human_modified_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+            RETURNING id
+            """,
+            (supplier_label, description, unit, origin_id, supplier_label),
+        )
+        artigo_id = cursor.fetchone()[0]
+        cursor.execute(
+            "UPDATE invoice_linhas SET artigo_id = %s, updated_at = NOW() "
+            "WHERE id = %s AND invoice_id = %s",
+            (artigo_id, linha_id, invoice_id),
+        )
+        _audit_invoice_linha_artigo(
+            cursor, invoice_id, linha_id, None, artigo_id, 'criar_e_ligar',
+            actor, reason,
+        )
+        conn.commit()
+    invalidate_prefix('artigos_administrativos')
+    return artigo_id
+
+
+def get_artigo_comercial_history(artigo_id: int) -> dict:
+    """Return purchase snapshots from confirmed, commercially eligible invoices."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT il.invoice_id, i.issue_date, i.invoice_number,
+                   i.supplier_name, il.descricao, il.quantidade, il.unidade,
+                   il.preco_unitario, i.status, i.document_type
+            FROM invoice_linhas il
+            JOIN invoices i ON i.id = il.invoice_id
+            WHERE il.artigo_id = %s
+              AND i.status IN ('scheduled', 'paid')
+              AND i.document_type IN ('fatura', 'nota_debito')
+              AND (
+                    i.cfo_confirmed_date IS NOT NULL
+                 OR i.paid_date IS NOT NULL
+                 OR EXISTS (
+                     SELECT 1 FROM invoice_payments ip
+                     WHERE ip.invoice_id = i.id AND ip.confirmed_date IS NOT NULL
+                 )
+              )
+            ORDER BY i.issue_date DESC NULLS LAST, i.id DESC, il.id DESC
+            """,
+            (artigo_id,),
+        )
+        rows = cursor.fetchall()
+    history = [
+        {
+            'invoice_id': r[0], 'issue_date': r[1], 'invoice_number': r[2],
+            'supplier_name': r[3], 'descricao': r[4], 'quantidade': float(r[5]),
+            'unidade': r[6], 'preco_unitario': float(r[7]) if r[7] is not None else None,
+            'status': r[8], 'document_type': r[9],
+        }
+        for r in rows
+    ]
+    last = history[0] if history else None
+    return {
+        'artigo_id': artigo_id,
+        'ultima_compra': last['issue_date'] if last else None,
+        'ultimo_custo': last['preco_unitario'] if last else None,
+        'historico': history,
+    }
+
+
 def add_artigo_administrativo(fornecedor: str, produto: str, marca: str = None,
                               unidade: str = None, origem_id: int = None,
                               actor: str = 'sistema') -> bool:
