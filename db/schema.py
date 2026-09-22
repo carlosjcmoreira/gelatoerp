@@ -12,6 +12,185 @@ from werkzeug.security import generate_password_hash
 _LOCK_STOCK_PRODUCAO_LOJAS = 202612
 _LOCK_EVENTOS_V2_FOUNDATION = 2026821
 _LOCK_EVENTOS_CUSTOMER_PORTAL = 2026822
+_LOCK_COMPRAS_ORIGENS = 202711
+
+
+def run_migrations_compras_origens():
+    """Create typed purchasing origins and classify legacy article labels.
+
+    Spreadsheet labels are not trusted as supplier identities.  Known labels
+    are mapped to the canonical Matosinhos store or to an operational category;
+    every other legacy label remains explicitly unresolved until a human
+    confirms a supplier.
+    """
+    from db.artigos import classify_compras_origin_label
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (_LOCK_COMPRAS_ORIGENS,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_compras_origens: lock held, skipping")
+                return
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_origens (
+                    id SERIAL PRIMARY KEY,
+                    chave VARCHAR(100) NOT NULL UNIQUE,
+                    tipo VARCHAR(30) NOT NULL CHECK (
+                        tipo IN (
+                            'fornecedor_externo', 'centro_interno',
+                            'categoria_operacional', 'por_resolver'
+                        )
+                    ),
+                    nome VARCHAR(255) NOT NULL,
+                    rotulo_original VARCHAR(255),
+                    supplier_id INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+                    store_id INTEGER REFERENCES stores(id) ON DELETE SET NULL,
+                    ativo BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CHECK (tipo <> 'centro_interno' OR store_id IS NOT NULL),
+                    CHECK (tipo <> 'fornecedor_externo' OR supplier_id IS NOT NULL)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_origens_supplier
+                    ON compras_origens(supplier_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_origens_store
+                    ON compras_origens(store_id)
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE artigos_administrativos
+                    ADD COLUMN IF NOT EXISTS origem_id INTEGER
+                        REFERENCES compras_origens(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS origem_original VARCHAR(255)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS artigos_administrativos_origem_audit (
+                    id BIGSERIAL PRIMARY KEY,
+                    artigo_id INTEGER REFERENCES artigos_administrativos(id)
+                        ON DELETE SET NULL,
+                    origem_anterior_id INTEGER REFERENCES compras_origens(id)
+                        ON DELETE SET NULL,
+                    origem_nova_id INTEGER REFERENCES compras_origens(id)
+                        ON DELETE SET NULL,
+                    rotulo_original VARCHAR(255),
+                    actor VARCHAR(255) NOT NULL DEFAULT 'sistema',
+                    reason TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_artigos_origem_audit_artigo
+                    ON artigos_administrativos_origem_audit(artigo_id, created_at DESC)
+                """
+            )
+
+            cursor.execute(
+                """
+                INSERT INTO compras_origens
+                    (chave, tipo, nome, rotulo_original, store_id)
+                SELECT 'centro:matosinhos', 'centro_interno', 'Matosinhos',
+                       'MATOSINHOS', s.id
+                FROM stores s
+                WHERE LOWER(s.name) = LOWER('Matosinhos')
+                ON CONFLICT (chave) DO NOTHING
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO compras_origens
+                    (chave, tipo, nome, rotulo_original, store_id)
+                SELECT 'categoria:moedas', 'categoria_operacional', 'Moedas',
+                       'MOEDAS', s.id
+                FROM stores s
+                WHERE LOWER(s.name) = LOWER('Matosinhos')
+                ON CONFLICT (chave) DO NOTHING
+                """
+            )
+            cursor.execute(
+                """
+                INSERT INTO compras_origens
+                    (chave, tipo, nome, rotulo_original)
+                VALUES ('categoria:grafica', 'categoria_operacional',
+                        'Gráfica', 'GRÁFICA')
+                ON CONFLICT (chave) DO NOTHING
+                """
+            )
+
+            cursor.execute(
+                "SELECT DISTINCT fornecedor FROM artigos_administrativos "
+                "WHERE fornecedor IS NOT NULL AND BTRIM(fornecedor) <> ''"
+            )
+            legacy_labels = [row[0] for row in cursor.fetchall()]
+            for label in legacy_labels:
+                origin = classify_compras_origin_label(label)
+                store_name = origin.get('store_name')
+                if store_name:
+                    cursor.execute(
+                        """
+                        INSERT INTO compras_origens
+                            (chave, tipo, nome, rotulo_original, store_id)
+                        SELECT %s, %s, %s, %s, s.id
+                        FROM stores s
+                        WHERE LOWER(s.name) = LOWER(%s)
+                        ON CONFLICT (chave) DO NOTHING
+                        """,
+                        (
+                            origin['key'], origin['tipo'], origin['nome'],
+                            origin['rotulo_original'], store_name,
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO compras_origens
+                            (chave, tipo, nome, rotulo_original)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (chave) DO NOTHING
+                        """,
+                        (
+                            origin['key'], origin['tipo'], origin['nome'],
+                            origin['rotulo_original'],
+                        ),
+                    )
+                cursor.execute(
+                    """
+                    UPDATE artigos_administrativos a
+                       SET origem_id = o.id,
+                           origem_original = COALESCE(a.origem_original, a.fornecedor)
+                      FROM compras_origens o
+                     WHERE a.origem_id IS NULL
+                       AND a.fornecedor = %s
+                       AND o.chave = %s
+                    """,
+                    (label, origin['key']),
+                )
+
+            conn.commit()
+            logger.info(
+                "run_migrations_compras_origens: origins and legacy article links ready"
+            )
+        except Exception as exc:
+            logger.error("run_migrations_compras_origens failed: %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
 
 
 def run_migrations_stock_producao_lojas():
