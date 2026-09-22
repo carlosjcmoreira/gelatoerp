@@ -7,6 +7,7 @@ import pandas as pd
 from flask import Blueprint, Flask, jsonify, redirect, session, url_for
 from flask_app.routes import eventos as eventos_routes
 from flask_app.routes import eurokg as eurokg_routes
+from flask_app.routes import gestor as gestor_routes
 
 
 STATE = {
@@ -27,6 +28,26 @@ STATE = {
         "dismissed": False,
     },
 }
+
+GESTOR_STORES = [
+    {
+        "id": 1,
+        "name": "Bolhão",
+        "store_type": "loja",
+        "requires_eod_weighing": True,
+        "is_active": True,
+        "supports_vendas": True,
+    },
+    {
+        "id": 2,
+        "name": "Matosinhos",
+        "store_type": "loja",
+        "requires_eod_weighing": True,
+        "is_active": True,
+        "supports_vendas": True,
+    },
+]
+GESTOR_TILE_STATE = {}
 
 EVENTS = [
     {
@@ -230,9 +251,74 @@ def _configure_eurokg_data():
     auth_db.get_store_by_id = lambda _store_id: None
 
 
+def _configure_gestor_data():
+    """Replace tile configuration persistence with isolated in-memory state."""
+    from db import tiles as tiles_db
+    import database
+
+    GESTOR_TILE_STATE.clear()
+    for store in GESTOR_STORES:
+        GESTOR_TILE_STATE[store["id"]] = {}
+
+    def seed_store_tile_config(store_id, tiles):
+        store_state = GESTOR_TILE_STATE.setdefault(store_id, {})
+        for tile in tiles:
+            store_state.setdefault(tile["id"], {
+                "label": tile.get("label", ""),
+                "visible": True,
+                "icon": "",
+            })
+
+    def get_store_tile_config(store_id):
+        return {
+            tile_id: dict(config)
+            for tile_id, config in GESTOR_TILE_STATE.get(store_id, {}).items()
+        }
+
+    def update_store_tile(store_id, tile_id, **changes):
+        store_state = GESTOR_TILE_STATE.setdefault(store_id, {})
+        config = store_state.setdefault(tile_id, {
+            "label": "",
+            "visible": True,
+            "icon": "",
+        })
+        for key, value in changes.items():
+            if value is not None:
+                config[key] = value
+
+    def set_tile_visibility(module, tile_id, visible, label="", store_id=None):
+        assert module == "vendas"
+        assert store_id is not None
+        update_store_tile(store_id, tile_id, visible=visible, label=label or None)
+
+    def set_tile_label(module, tile_id, label, store_id=None):
+        assert module == "vendas"
+        assert store_id is not None
+        update_store_tile(store_id, tile_id, label=label.strip())
+
+    def set_tile_icon(module, tile_id, icon, store_id=None):
+        assert module == "vendas"
+        assert store_id is not None
+        update_store_tile(store_id, tile_id, icon=icon.strip())
+
+    tiles_db.get_all_tile_config = lambda: []
+    tiles_db.get_module_labels = lambda: {}
+    tiles_db.get_store_tile_config = get_store_tile_config
+    tiles_db.seed_store_tile_config = seed_store_tile_config
+    tiles_db.set_tile_visibility = set_tile_visibility
+    tiles_db.set_tile_label = set_tile_label
+    tiles_db.set_tile_icon = set_tile_icon
+    database.get_vendas_module_stores = lambda: list(GESTOR_STORES)
+    database.get_store_by_id = lambda store_id: next(
+        (store for store in GESTOR_STORES if store["id"] == store_id),
+        None,
+    )
+
+
 def create_test_app():
     _configure_eventos_data()
     _configure_eurokg_data()
+    _configure_gestor_data()
     project_root = Path(__file__).resolve().parents[2]
     app = Flask(
         __name__,
@@ -267,6 +353,7 @@ def create_test_app():
 
     app.register_blueprint(eventos_routes.eventos_bp, url_prefix="/eventos")
     app.register_blueprint(eurokg_routes.eurokg_bp, url_prefix="/eurokg")
+    app.register_blueprint(gestor_routes.gestor_bp, url_prefix="/gestor")
 
     @app.context_processor
     def inject_user():
