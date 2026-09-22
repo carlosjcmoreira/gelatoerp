@@ -3883,6 +3883,133 @@ def run_migrations_fecho_caixa_audit():
                 pass
 
 
+_LOCK_PESAGEM_DRAFT_BATCHES = 202693
+
+
+def run_migrations_pesagem_draft_batches():
+    """Create durable manual weighing drafts and confirmation receipts."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s)",
+                (_LOCK_PESAGEM_DRAFT_BATCHES,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_pesagem_draft_batches: "
+                    "lock held by another worker, skipping"
+                )
+                return
+
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pesagem_draft_batches (
+                    id UUID PRIMARY KEY,
+                    loja VARCHAR(100) NOT NULL,
+                    store_id INTEGER REFERENCES stores(id),
+                    status VARCHAR(20) NOT NULL DEFAULT 'draft'
+                        CHECK (
+                            status IN (
+                                'draft', 'confirming', 'confirmed', 'failed'
+                            )
+                        ),
+                    expected_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (expected_count >= 0),
+                    revision INTEGER NOT NULL DEFAULT 1
+                        CHECK (revision >= 1),
+                    inserted_count INTEGER NOT NULL DEFAULT 0
+                        CHECK (inserted_count >= 0),
+                    created_by_id INTEGER,
+                    created_by VARCHAR(100) NOT NULL,
+                    updated_by VARCHAR(100) NOT NULL,
+                    error_message TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    confirmed_at TIMESTAMPTZ
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pesagem_draft_entries (
+                    id BIGSERIAL PRIMARY KEY,
+                    batch_id UUID NOT NULL
+                        REFERENCES pesagem_draft_batches(id)
+                        ON DELETE CASCADE,
+                    position INTEGER NOT NULL CHECK (position >= 0),
+                    data DATE NOT NULL,
+                    sabor VARCHAR(255) NOT NULL,
+                    quantidade_kg NUMERIC(10,4) NOT NULL
+                        CHECK (
+                            quantidade_kg >= 0
+                            AND quantidade_kg < 1000
+                            AND quantidade_kg <> 'NaN'::numeric
+                        ),
+                    suspeito BOOLEAN NOT NULL DEFAULT FALSE,
+                    UNIQUE(batch_id, position),
+                    UNIQUE(batch_id, data, sabor)
+                )
+            """)
+            cursor.execute("""
+                ALTER TABLE pesagem_draft_batches
+                ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1
+            """)
+            cursor.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM pg_constraint
+                        WHERE conname = 'ck_pesagem_draft_entry_finite'
+                    ) THEN
+                        ALTER TABLE pesagem_draft_entries
+                        ADD CONSTRAINT ck_pesagem_draft_entry_finite
+                        CHECK (
+                            quantidade_kg >= 0
+                            AND quantidade_kg < 1000
+                            AND quantidade_kg <> 'NaN'::numeric
+                        );
+                    END IF;
+                END $$;
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_pesagem_draft_open_loja
+                ON pesagem_draft_batches(loja)
+                WHERE status IN ('draft', 'confirming', 'failed')
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pesagem_draft_entries_batch
+                ON pesagem_draft_entries(batch_id, position)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_pesagem_draft_receipts
+                ON pesagem_draft_batches(loja, confirmed_at DESC)
+                WHERE status = 'confirmed'
+            """)
+            conn.commit()
+            logger.info(
+                "run_migrations_pesagem_draft_batches: tables ready"
+            )
+        except Exception as exc:
+            logger.error(
+                "run_migrations_pesagem_draft_batches failed: %s",
+                exc,
+            )
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
+        finally:
+            try:
+                cursor.execute(
+                    "SELECT pg_advisory_unlock(%s)",
+                    (_LOCK_PESAGEM_DRAFT_BATCHES,),
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+
 def run_migrations_tarefas_v2():
     """Add loja_id + equipa columns to tarefas; make frequencia nullable.
     Advisory lock 202620."""

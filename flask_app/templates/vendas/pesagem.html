@@ -7,6 +7,22 @@
     <h5 class="mb-3">🛒 Vendas {{ loja_nome }}</h5>
     <h6 class="mb-2">Pesagem de Gelado — Fim do Dia</h6>
 
+    {% if receipt %}
+    <div class="alert alert-success" role="status" id="pesagem-receipt">
+        <div class="fw-bold mb-1">✅ Pesagens registadas com sucesso</div>
+        <div class="small">
+            <strong>{{ receipt.inserted_count }}</strong> entradas ·
+            {{ receipt.loja }} ·
+            {{ receipt.dates|join(', ') }} ·
+            {{ receipt.confirmed_at_local }} ·
+            por {{ receipt.updated_by }}
+        </div>
+        <div class="small text-break mt-1">
+            Comprovativo: <code>{{ receipt.id }}</code>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Mode toggle -->
     <div class="btn-group w-100 mb-3" role="group">
         <button type="button" class="btn btn-primary" id="btn-modo-manual" onclick="setModo('manual')">
@@ -65,7 +81,7 @@
                 + Adicionar à lista
             </button>
             <div id="dup-warn-manual" class="alert alert-warning py-2 mt-2 mb-0" style="display:none;font-size:0.85rem;" role="alert">
-                ⚠️ Este sabor já está na lista para a mesma data. Pode continuar — será registado como uma linha separada.
+                ⚠️ Este sabor já está no rascunho para a mesma data. Remova a linha anterior antes de o substituir.
             </div>
         </form>
 
@@ -75,6 +91,12 @@
             <button type="button" class="btn-close btn-sm" onclick="this.parentElement.style.display='none';" aria-label="Fechar"></button>
         </div>
         <div id="secao-pendentes" style="display:none;" class="mb-3">
+            <div class="alert alert-warning py-2 mb-2" id="draft-status" role="status">
+                <div class="fw-semibold">Rascunho — ainda não registado</div>
+                <div class="small" id="draft-sync-detail">
+                    A sincronizar com o servidor…
+                </div>
+            </div>
             <div class="d-flex align-items-center justify-content-between mb-2">
                 <h6 class="mb-0 fw-semibold">📋 A confirmar</h6>
                 <span id="pendentes-badge" class="badge bg-secondary">0 entradas</span>
@@ -97,7 +119,7 @@
             </div>
             <button type="button" class="btn btn-success w-100 mb-4" id="btn-confirmar"
                     onclick="abrirModalConfirmacao()">
-                Confirmar e registar (0)
+                Rever 0 pesagens
             </button>
         </div>
     </div>
@@ -238,8 +260,9 @@
                 <div id="modal-resumo"></div>
             </div>
             <div class="modal-footer flex-column gap-2">
-                <button type="button" class="btn btn-success w-100" onclick="confirmarERegistar()">
-                    ✅ Confirmar e registar
+                <button type="button" class="btn btn-success w-100"
+                        id="btn-registar-final" onclick="confirmarERegistar()">
+                    ✅ Registar pesagens
                 </button>
                 <button type="button" class="btn btn-outline-secondary w-100" data-bs-dismiss="modal">
                     ← Voltar a rever
@@ -249,16 +272,12 @@
     </div>
 </div>
 
-<!-- ── Form oculto para submissão em lote manual ────────────── -->
-<form method="POST" id="form-bulk-manual" style="display:none;">
-    <input type="hidden" name="action" value="add_bulk_manual">
-    <div id="bulk-manual-fields"></div>
-</form>
-
 <script>
 const SABORES_CONHECIDOS = {{ sabores | tojson }};
 const OCR_URL  = "{{ url_for('vendas.pesagem_ocr') }}";
 const HIST_URL = "{{ url_for('vendas.pesagem_historico') }}";
+const DRAFT_URL = "{{ url_for('vendas.pesagem_rascunho', loja_id=loja_id) }}";
+const CONFIRM_DRAFT_URL = "{{ url_for('vendas.confirmar_pesagem_rascunho', loja_id=loja_id) }}";
 const LOJA_ID_HIST = {{ loja_id or 'null' }};
 const TODAY = "{{ today }}";
 
@@ -267,16 +286,23 @@ const LIMIAR_CARAPINA_KG = 8;
 
 const DATA_SEL     = "{{ data_sel.isoformat() }}";
 const DRAFT_PREFIX = 'pesagem_draft_' + (LOJA_ID_HIST || '0') + '_';
+const DRAFT_KEY    = DRAFT_PREFIX + 'active';
 
 function getDraftKey() {
-    const inp = document.getElementById('manual-data');
-    return DRAFT_PREFIX + (inp ? inp.value : DATA_SEL);
+    return DRAFT_KEY;
 }
 
 let pendingList = [];
 let dupWarnTimer = null;
+let currentBatchId = null;
+let currentDraftRevision = null;
+let draftDirty = false;
+let draftSyncTimer = null;
+let draftSyncPromise = Promise.resolve();
+let confirmInFlight = false;
+let intentionalNavigation = false;
 
-/* ── Rascunho (localStorage) ────────────────────────────── */
+/* ── Rascunho local + servidor ──────────────────────────── */
 function isEntradaValida(e) {
     return e && typeof e.sabor === 'string' && e.sabor.length > 0 &&
            typeof e.quantidade_kg === 'number' && isFinite(e.quantidade_kg) &&
@@ -285,8 +311,17 @@ function isEntradaValida(e) {
 
 function saveDraft() {
     try {
-        localStorage.setItem(getDraftKey(), JSON.stringify(pendingList));
+        localStorage.setItem(getDraftKey(), JSON.stringify({
+            batch_id: currentBatchId,
+            revision: currentDraftRevision,
+            dirty: true,
+            entries: pendingList,
+        }));
     } catch (e) {}
+    draftDirty = true;
+    updateDraftStatus('pending');
+    if (draftSyncTimer) clearTimeout(draftSyncTimer);
+    draftSyncTimer = setTimeout(syncDraftToServer, 250);
 }
 
 function clearDraft() {
@@ -297,7 +332,7 @@ function clearDraft() {
     } catch (e) {}
 }
 
-function loadDraft() {
+function readLocalDraft() {
     try {
         const params = new URLSearchParams(window.location.search);
         if (params.get('draft_cleared') === '1') {
@@ -307,22 +342,204 @@ function loadDraft() {
                 ? window.location.pathname + '?' + params.toString()
                 : window.location.pathname;
             history.replaceState(null, '', clean);
-            return;
+            return null;
         }
-        const raw = localStorage.getItem(getDraftKey());
-        if (!raw) return;
+        let raw = localStorage.getItem(getDraftKey());
+        if (!raw) {
+            const legacyKey = Object.keys(localStorage).find(function(key) {
+                return key.startsWith(DRAFT_PREFIX) && key !== DRAFT_KEY;
+            });
+            raw = legacyKey ? localStorage.getItem(legacyKey) : null;
+        }
+        if (!raw) return null;
         const saved = JSON.parse(raw);
-        if (!Array.isArray(saved) || saved.length === 0) return;
-        const validas = saved.filter(isEntradaValida);
-        if (validas.length === 0) { clearDraft(); return; }
-        pendingList = validas;
-        renderPendentes();
-        const n = pendingList.length;
-        const msg = document.getElementById('draft-restore-text');
-        const box = document.getElementById('draft-restore-msg');
-        msg.textContent = 'Rascunho restaurado — ' + n + (n === 1 ? ' entrada por confirmar' : ' entradas por confirmar');
-        box.style.display = '';
+        const legacyEntries = Array.isArray(saved) ? saved : saved.entries;
+        if (!Array.isArray(legacyEntries)) return null;
+        const validas = legacyEntries.filter(isEntradaValida);
+        if (validas.length === 0) return null;
+        return {
+            batch_id: Array.isArray(saved) ? null : saved.batch_id,
+            revision: Array.isArray(saved) ? null : saved.revision,
+            dirty: Array.isArray(saved) ? true : saved.dirty !== false,
+            entries: validas,
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+function showRestoredMessage(n, source) {
+    const msg = document.getElementById('draft-restore-text');
+    const box = document.getElementById('draft-restore-msg');
+    msg.textContent = 'Rascunho restaurado ' + source + ' — ' + n +
+        (n === 1 ? ' entrada por confirmar' : ' entradas por confirmar');
+    box.style.display = '';
+}
+
+function updateDraftStatus(state, message) {
+    const detail = document.getElementById('draft-sync-detail');
+    if (!detail) return;
+    const messages = {
+        pending: 'Alterações guardadas neste dispositivo; a sincronizar…',
+        synced: 'Rascunho guardado no servidor e disponível noutros dispositivos.',
+        offline: 'Sem ligação ao servidor. O rascunho continua guardado neste dispositivo.',
+        failed: 'Não foi possível sincronizar. Tente novamente antes de registar.',
+    };
+    detail.textContent = message || messages[state] || messages.pending;
+}
+
+function syncDraftToServer() {
+    if (draftSyncTimer) {
+        clearTimeout(draftSyncTimer);
+        draftSyncTimer = null;
+    }
+    draftSyncPromise = draftSyncPromise
+        .catch(function() {})
+        .then(performDraftSync);
+    return draftSyncPromise;
+}
+
+function performDraftSync() {
+    const entriesSnapshot = pendingList.map(function(entry) {
+        return Object.assign({}, entry);
+    });
+    const snapshot = JSON.stringify(entriesSnapshot);
+    return fetch(DRAFT_URL, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            batch_id: currentBatchId,
+            revision: currentDraftRevision,
+            entries: entriesSnapshot,
+        }),
+    }).then(function(response) {
+        return response.json().then(function(data) {
+            if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'Falha ao sincronizar o rascunho.');
+            }
+            if (data.draft) {
+                currentBatchId = data.draft.id;
+                currentDraftRevision = data.draft.revision;
+                if (data.draft.status === 'confirmed') {
+                    draftDirty = false;
+                    confirmInFlight = false;
+                    intentionalNavigation = true;
+                    clearDraft();
+                    const confirmedDate = data.draft.entries.length
+                        ? data.draft.entries[0].data : DATA_SEL;
+                    const params = new URLSearchParams();
+                    params.set('receipt', data.draft.id);
+                    params.set('data', confirmedDate);
+                    if (LOJA_ID_HIST) params.set('loja_id', LOJA_ID_HIST);
+                    window.location.replace(
+                        window.location.pathname + '?' + params.toString()
+                    );
+                    return new Promise(function() {});
+                }
+            } else {
+                currentBatchId = null;
+            }
+            if (snapshot === JSON.stringify(pendingList)) {
+                draftDirty = false;
+            }
+            saveLocalSnapshotOnly();
+            updateDraftStatus('synced');
+            return data.draft;
+        });
+    }).catch(function(error) {
+        draftDirty = pendingList.length > 0;
+        updateDraftStatus(
+            navigator.onLine ? 'failed' : 'offline',
+            error && error.message ? error.message : null
+        );
+        throw error;
+    });
+}
+
+function saveLocalSnapshotOnly() {
+    try {
+        localStorage.setItem(getDraftKey(), JSON.stringify({
+            batch_id: currentBatchId,
+            revision: currentDraftRevision,
+            dirty: draftDirty,
+            entries: pendingList,
+        }));
     } catch (e) {}
+}
+
+function loadDraft() {
+    const localDraft = readLocalDraft();
+    return fetch(DRAFT_URL)
+        .then(function(response) { return response.json(); })
+        .then(function(data) {
+            if (!data.ok) throw new Error(data.error || 'Falha ao obter rascunho.');
+            if (data.draft && data.draft.entries.length > 0) {
+                const sameBase = localDraft &&
+                    localDraft.batch_id === data.draft.id &&
+                    localDraft.revision === data.draft.revision;
+                if (localDraft && localDraft.dirty && sameBase) {
+                    currentBatchId = localDraft.batch_id;
+                    currentDraftRevision = localDraft.revision;
+                    pendingList = localDraft.entries;
+                    draftDirty = true;
+                    renderPendentes();
+                    showRestoredMessage(
+                        pendingList.length,
+                        'deste dispositivo'
+                    );
+                    return syncDraftToServer();
+                }
+                if (localDraft && localDraft.dirty && !sameBase) {
+                    const useServer = confirm(
+                        'Este rascunho foi alterado noutro dispositivo. ' +
+                        'Prima OK para carregar a versão do servidor. ' +
+                        'Prima Cancelar para manter as alterações locais ' +
+                        'neste dispositivo sem as substituir.'
+                    );
+                    if (!useServer) {
+                        currentBatchId = localDraft.batch_id;
+                        currentDraftRevision = localDraft.revision;
+                        pendingList = localDraft.entries;
+                        draftDirty = true;
+                        renderPendentes();
+                        updateDraftStatus(
+                            'failed',
+                            'Há outra versão no servidor. As alterações ' +
+                            'locais foram mantidas e não serão substituídas.'
+                        );
+                        return;
+                    }
+                }
+                currentBatchId = data.draft.id;
+                currentDraftRevision = data.draft.revision;
+                pendingList = data.draft.entries.filter(isEntradaValida);
+                draftDirty = false;
+                saveLocalSnapshotOnly();
+                renderPendentes();
+                updateDraftStatus('synced');
+                showRestoredMessage(pendingList.length, 'do servidor');
+                return;
+            }
+            if (localDraft) {
+                currentBatchId = localDraft.batch_id;
+                currentDraftRevision = localDraft.revision;
+                pendingList = localDraft.entries;
+                renderPendentes();
+                showRestoredMessage(pendingList.length, 'deste dispositivo');
+                return syncDraftToServer();
+            }
+        })
+        .catch(function() {
+            if (localDraft) {
+                currentBatchId = localDraft.batch_id;
+                currentDraftRevision = localDraft.revision;
+                pendingList = localDraft.entries;
+                renderPendentes();
+                showRestoredMessage(pendingList.length, 'deste dispositivo');
+                draftDirty = true;
+                updateDraftStatus('offline');
+            }
+        });
 }
 
 /* ── Histórico ──────────────────────────────────────────── */
@@ -433,6 +650,13 @@ function renderHistorico(dias) {
 document.addEventListener('DOMContentLoaded', function() {
     loadDraft();
     loadHistorico();
+});
+
+window.addEventListener('beforeunload', function(event) {
+    if (intentionalNavigation ||
+        (!draftDirty && !confirmInFlight)) return;
+    event.preventDefault();
+    event.returnValue = '';
 });
 
 /* ── Modo (manual / OCR) ────────────────────────────────── */
@@ -588,7 +812,9 @@ function adicionarALista() {
     if (dupWarnTimer) { clearTimeout(dupWarnTimer); dupWarnTimer = null; }
     if (isDup) {
         dupWarn.style.display = '';
-        dupWarnTimer = setTimeout(function() { dupWarn.style.display = 'none'; dupWarnTimer = null; }, 5000);
+        dupWarn.textContent = '⚠️ Este sabor já está no rascunho para a mesma data. Remova a linha anterior antes de o substituir.';
+        dupWarnTimer = setTimeout(function() { dupWarn.style.display = 'none'; dupWarnTimer = null; }, 7000);
+        return;
     } else {
         dupWarn.style.display = 'none';
     }
@@ -637,7 +863,7 @@ function renderPendentes() {
 
     secao.style.display = n === 0 ? 'none' : '';
     badge.textContent   = n + (n === 1 ? ' entrada' : ' entradas');
-    btnConf.textContent = 'Confirmar e registar (' + n + ')';
+    btnConf.textContent = 'Rever ' + n + (n === 1 ? ' pesagem' : ' pesagens');
 
     if (n > 0) { _ensureBtnConfirmVisible(); }
 
@@ -747,39 +973,77 @@ function abrirModalConfirmacao() {
     }
 
     resumo.innerHTML = html;
+    const finalButton = document.getElementById('btn-registar-final');
+    if (finalButton) {
+        finalButton.textContent = '✅ Registar ' + pendingList.length +
+            (pendingList.length === 1 ? ' pesagem' : ' pesagens');
+    }
 
     const modal = new bootstrap.Modal(document.getElementById('modal-confirmacao'));
     modal.show();
 }
 
 function confirmarERegistar() {
-    const fields = document.getElementById('bulk-manual-fields');
-    fields.innerHTML = '';
-
-    pendingList.forEach(function(entry) {
-        const addHidden = function(name, value) {
-            const inp = document.createElement('input');
-            inp.type  = 'hidden';
-            inp.name  = name;
-            inp.value = value;
-            fields.appendChild(inp);
-        };
-        addHidden('sabor[]',      entry.sabor);
-        addHidden('quantidade[]', entry.quantidade_kg.toString());
-        addHidden('data[]',       entry.data);
-    });
-
-    const btnConf = document.querySelector('#modal-confirmacao .btn-success');
+    if (confirmInFlight || pendingList.length === 0) return;
+    confirmInFlight = true;
+    const btnConf = document.getElementById('btn-registar-final');
     if (btnConf) {
         btnConf.disabled = true;
         btnConf.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>A registar…';
     }
 
-    const modalEl = document.getElementById('modal-confirmacao');
-    const modal   = bootstrap.Modal.getInstance(modalEl);
-    if (modal) modal.hide();
-
-    document.getElementById('form-bulk-manual').submit();
+    syncDraftToServer()
+        .then(function() {
+            if (!currentBatchId) {
+                throw new Error('O rascunho ainda não tem comprovativo do servidor.');
+            }
+            return fetch(CONFIRM_DRAFT_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    batch_id: currentBatchId,
+                    revision: currentDraftRevision,
+                }),
+            });
+        })
+        .then(function(response) {
+            return response.json().then(function(data) {
+                if (!response.ok || !data.ok) {
+                    throw new Error(data.error || 'O lote não foi confirmado.');
+                }
+                return data.receipt;
+            });
+        })
+        .then(function(receipt) {
+            draftDirty = false;
+            confirmInFlight = false;
+            intentionalNavigation = true;
+            clearDraft();
+            const confirmedDate = receipt.entries.length
+                ? receipt.entries[0].data : DATA_SEL;
+            const params = new URLSearchParams();
+            params.set('receipt', receipt.id);
+            params.set('data', confirmedDate);
+            if (LOJA_ID_HIST) params.set('loja_id', LOJA_ID_HIST);
+            window.location.assign(
+                window.location.pathname + '?' + params.toString()
+            );
+        })
+        .catch(function(error) {
+            confirmInFlight = false;
+            updateDraftStatus(
+                navigator.onLine ? 'failed' : 'offline',
+                error.message
+            );
+            if (btnConf) {
+                btnConf.disabled = false;
+                btnConf.textContent = 'Tentar registar novamente';
+            }
+            alert(
+                error.message +
+                '\n\nO rascunho foi mantido e pode tentar novamente.'
+            );
+        });
 }
 
 /* ── Edição de pesagem existente ────────────────────────── */

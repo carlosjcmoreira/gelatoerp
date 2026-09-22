@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_app.auth import login_required
 from datetime import date, datetime, timedelta
 from collections import defaultdict
-import sys, os, logging
+import sys, os, logging, math
 logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
@@ -33,7 +33,12 @@ from db.pastelaria import (
     get_pastelaria_store_count_grid,
     save_pastelaria_sunday_counts,
     save_pastelaria_store_counts,
+    get_open_pesagem_draft,
+    save_pesagem_draft,
+    confirm_pesagem_draft,
+    get_pesagem_batch_receipt,
 )
+from sabor_utils import normalise_sabor
 
 vendas_bp = Blueprint('vendas', __name__)
 
@@ -48,6 +53,53 @@ TAB_DEFS = [
     {'id': 'sabores_ativos', 'label': 'Sabores Ativos', 'icon': '✅', 'endpoint': 'vendas.sabores_ativos'},
     {'id': 'fecho_historico', 'label': 'Histórico Caixa', 'icon': '📋', 'endpoint': 'vendas.fecho_historico', 'gestor_only': True},
 ]
+
+
+def _parse_manual_pesagem_entries(raw_entries):
+    if not isinstance(raw_entries, list):
+        raise ValueError('O rascunho de pesagens é inválido.')
+    if len(raw_entries) > 200:
+        raise ValueError('O rascunho não pode ter mais de 200 entradas.')
+
+    entries = []
+    seen = set()
+    for raw in raw_entries:
+        if not isinstance(raw, dict):
+            raise ValueError('O rascunho contém uma entrada inválida.')
+        sabor = normalise_sabor(str(raw.get('sabor') or '').strip())
+        if not sabor:
+            raise ValueError('Todas as entradas precisam de um sabor.')
+        try:
+            entry_date = datetime.strptime(
+                str(raw.get('data') or '').strip(), '%Y-%m-%d'
+            ).date()
+            quantidade_kg = round(float(raw.get('quantidade_kg')), 3)
+        except (ValueError, TypeError):
+            raise ValueError(
+                f'A entrada de {sabor} tem uma data ou quantidade inválida.'
+            )
+        if quantidade_kg < 0:
+            raise ValueError(
+                f'A quantidade de {sabor} não pode ser negativa.'
+            )
+        if not math.isfinite(quantidade_kg) or quantidade_kg >= 1000:
+            raise ValueError(
+                f'A quantidade de {sabor} não é um número válido em kg.'
+            )
+        key = (entry_date, sabor.casefold())
+        if key in seen:
+            raise ValueError(
+                f'{sabor} aparece mais do que uma vez em '
+                f'{entry_date.strftime("%d/%m/%Y")}.'
+            )
+        seen.add(key)
+        entries.append({
+            'data': entry_date,
+            'sabor': sabor,
+            'quantidade_kg': quantidade_kg,
+            'suspeito': bool(raw.get('suspeito')),
+        })
+    return entries
 
 
 def _get_user_loja():
@@ -667,6 +719,16 @@ def pesagem():
         for p in pesagens_hoje:
             p['carapinas'] = carap_map.get(p['id'], [])
 
+    receipt = None
+    receipt_id = request.args.get('receipt', '').strip()
+    if receipt_id:
+        try:
+            candidate = get_pesagem_batch_receipt(receipt_id, loja_nome)
+            if candidate and candidate.get('status') == 'confirmed':
+                receipt = candidate
+        except (ValueError, TypeError):
+            receipt = None
+
     return render_template('vendas/pesagem.html',
                            active_tab='pesagem',
                            tabs=_build_tabs('pesagem', loja_id),
@@ -674,8 +736,99 @@ def pesagem():
                            loja_id=loja_id,
                            sabores=sabores,
                            pesagens_hoje=pesagens_hoje,
+                           receipt=receipt,
                            data_sel=data_sel,
                            today=str(date.today()))
+
+
+@vendas_bp.route('/pesagem/rascunho', methods=['GET', 'PUT'])
+@login_required
+def pesagem_rascunho():
+    if not _check_vendas_access():
+        return jsonify({'ok': False, 'error': 'Sem acesso'}), 403
+    loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'eod'):
+        return jsonify({
+            'ok': False,
+            'error': 'Sem suporte para pesagem nesta loja',
+        }), 403
+
+    if request.method == 'GET':
+        draft = get_open_pesagem_draft(loja_nome)
+        return jsonify({'ok': True, 'draft': draft})
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        entries = _parse_manual_pesagem_entries(payload.get('entries', []))
+        user = session.get('user', {})
+        draft = save_pesagem_draft(
+            payload.get('batch_id'),
+            payload.get('revision'),
+            loja_nome,
+            loja_id,
+            user.get('id'),
+            user.get('username') or 'sistema',
+            entries,
+        )
+        return jsonify({'ok': True, 'draft': draft})
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 409
+    except Exception:
+        logger.exception(
+            'Falha ao guardar rascunho de pesagens para %s',
+            loja_nome,
+        )
+        return jsonify({
+            'ok': False,
+            'error': (
+                'Não foi possível sincronizar o rascunho. '
+                'Os dados continuam guardados neste dispositivo.'
+            ),
+        }), 500
+
+
+@vendas_bp.route('/pesagem/rascunho/confirmar', methods=['POST'])
+@login_required
+def confirmar_pesagem_rascunho():
+    if not _check_vendas_access():
+        return jsonify({'ok': False, 'error': 'Sem acesso'}), 403
+    loja_id, loja_nome = _get_user_loja()
+    if not _check_store_capability(loja_id, 'eod'):
+        return jsonify({
+            'ok': False,
+            'error': 'Sem suporte para pesagem nesta loja',
+        }), 403
+
+    payload = request.get_json(silent=True) or {}
+    batch_id = str(payload.get('batch_id') or '').strip()
+    if not batch_id:
+        return jsonify({
+            'ok': False,
+            'error': 'O identificador do lote está em falta.',
+        }), 400
+    try:
+        receipt = confirm_pesagem_draft(
+            batch_id,
+            payload.get('revision'),
+            loja_nome,
+            session.get('user', {}).get('username') or 'sistema',
+        )
+        return jsonify({'ok': True, 'receipt': receipt})
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 409
+    except Exception:
+        logger.exception(
+            'Falha ao confirmar lote de pesagens %s para %s',
+            batch_id,
+            loja_nome,
+        )
+        return jsonify({
+            'ok': False,
+            'error': (
+                'O lote não foi confirmado. O rascunho foi mantido; '
+                'verifique a ligação e tente novamente.'
+            ),
+        }), 500
 
 
 @vendas_bp.route('/pesagem/historico')

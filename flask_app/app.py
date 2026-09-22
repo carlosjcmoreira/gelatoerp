@@ -39,6 +39,7 @@ from db.pagamentos import run_migrations_tesouraria_manuais
 from db.schema import run_migrations_custos_recorrentes
 from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2, run_migrations_tarefas_v3
 from db.schema import run_migrations_fecho_caixa_audit
+from db.schema import run_migrations_pesagem_draft_batches
 from db.schema import run_migrations_user_audit_log
 from db.schema import run_migrations_cost_center_allocation
 from db.schema import run_migrations_suppliers_nullable_nif, run_migrations_normalise_supplier_nifs
@@ -261,6 +262,7 @@ def create_app():
         run_migrations_tile_config()
         run_migrations_agente()
         run_migrations_fecho_caixa_audit()
+        run_migrations_pesagem_draft_batches()
         run_migrations_conta_vendas_diarias()
         run_migrations_b2b_vendas_diarias()
         run_migrations_tesouraria_manuais()

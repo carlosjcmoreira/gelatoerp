@@ -24,3 +24,4 @@
 - [Pastelaria access boundary](pastelaria-access-boundary.md) — module access intentionally grants every Pastelaria function; do not add role-only gates inside it.
 - [Partial batch configuration](partial-batch-configuration.md) — blank or invalid rows must not discard valid operator-entered rows in bulk forms.
 - [Clean database validation](clean-database-validation.md) — isolated PostgreSQL runs must bootstrap through the app and separate live-data assertions from empty-schema checks.
+- [Lost weighing incident](lost-weighing-incident.md) — the September 2026 Bolhão loss was a never-submitted browser draft, not committed stock disappearing.
