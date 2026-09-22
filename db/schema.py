@@ -13,6 +13,7 @@ _LOCK_STOCK_PRODUCAO_LOJAS = 202612
 _LOCK_EVENTOS_V2_FOUNDATION = 2026821
 _LOCK_EVENTOS_CUSTOMER_PORTAL = 2026822
 _LOCK_COMPRAS_ORIGENS = 202711
+_LOCK_COMPRAS_CATALOGO = 202712
 
 
 def run_migrations_compras_origens():
@@ -191,6 +192,200 @@ def run_migrations_compras_origens():
                 conn.rollback()
             except Exception:
                 pass
+
+
+def run_migrations_compras_catalogo():
+    """Evolve and seed the purchasing catalogue from the versioned dataset."""
+    from db.artigos import (
+        catalog_key_for,
+        classify_compras_origin_label,
+        infer_artigo_unidade,
+    )
+    from db.compras_catalog_seed import (
+        CATALOG_ROWS,
+        CATALOG_SOURCE,
+        CATALOG_VERSION,
+    )
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s)", (_LOCK_COMPRAS_CATALOGO,)
+            )
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_compras_catalogo: lock held, skipping")
+                return {'created': 0, 'existing': 0, 'updated': 0, 'rejected': 0}
+
+            cursor.execute(
+                """
+                ALTER TABLE artigos_administrativos
+                    ADD COLUMN IF NOT EXISTS catalog_key VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS marca VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS unidade VARCHAR(40),
+                    ADD COLUMN IF NOT EXISTS source_dataset VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS source_version VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS source_row INTEGER,
+                    ADD COLUMN IF NOT EXISTS imported_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
+                        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS human_modified_at TIMESTAMP
+                """
+            )
+            cursor.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_artigos_catalog_key
+                    ON artigos_administrativos(catalog_key)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_artigos_catalog_active_origin
+                    ON artigos_administrativos(origem_id, ativo)
+                """
+            )
+
+            seen_keys = set()
+            stats = {'created': 0, 'existing': 0, 'updated': 0, 'rejected': 0}
+            for source_row, origin_label, product, brand in CATALOG_ROWS:
+                origin_label = str(origin_label or '').strip()
+                product = str(product or '').strip()
+                if not origin_label or not product:
+                    stats['rejected'] += 1
+                    continue
+                catalog_key = catalog_key_for(origin_label, product)
+                if catalog_key in seen_keys:
+                    stats['rejected'] += 1
+                    continue
+                seen_keys.add(catalog_key)
+
+                origin = classify_compras_origin_label(origin_label)
+                if origin.get('store_name'):
+                    cursor.execute(
+                        """
+                        INSERT INTO compras_origens
+                            (chave, tipo, nome, rotulo_original, store_id)
+                        SELECT %s, %s, %s, %s, s.id
+                        FROM stores s
+                        WHERE LOWER(s.name) = LOWER(%s)
+                        ON CONFLICT (chave) DO NOTHING
+                        """,
+                        (
+                            origin['key'], origin['tipo'], origin['nome'],
+                            origin['rotulo_original'], origin['store_name'],
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO compras_origens
+                            (chave, tipo, nome, rotulo_original)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (chave) DO NOTHING
+                        """,
+                        (
+                            origin['key'], origin['tipo'], origin['nome'],
+                            origin['rotulo_original'],
+                        ),
+                    )
+                cursor.execute(
+                    "SELECT id FROM compras_origens WHERE chave = %s",
+                    (origin['key'],),
+                )
+                origin_row = cursor.fetchone()
+                if not origin_row:
+                    stats['rejected'] += 1
+                    continue
+                origin_id = origin_row[0]
+                unidade = infer_artigo_unidade(product)
+
+                # Adopt an exact legacy row without changing its human data.
+                cursor.execute(
+                    """
+                    UPDATE artigos_administrativos
+                       SET catalog_key = %s,
+                           origem_id = COALESCE(origem_id, %s),
+                           origem_original = COALESCE(origem_original, fornecedor),
+                           source_dataset = COALESCE(source_dataset, %s),
+                           source_version = COALESCE(source_version, %s),
+                           source_row = COALESCE(source_row, %s),
+                           imported_at = COALESCE(imported_at, NOW()),
+                           updated_at = NOW()
+                     WHERE catalog_key IS NULL
+                       AND fornecedor = %s
+                       AND produto = %s
+                    """,
+                    (
+                        catalog_key, origin_id, CATALOG_SOURCE, CATALOG_VERSION,
+                        source_row, origin_label, product,
+                    ),
+                )
+
+                cursor.execute(
+                    "SELECT id, marca, unidade, ativo, human_modified_at "
+                    "FROM artigos_administrativos WHERE catalog_key = %s",
+                    (catalog_key,),
+                )
+                existing = cursor.fetchone()
+                if existing:
+                    stats['existing'] += 1
+                cursor.execute(
+                    """
+                    INSERT INTO artigos_administrativos
+                        (fornecedor, produto, ativo, origem_id, origem_original,
+                         catalog_key, marca, unidade, source_dataset,
+                         source_version, source_row, imported_at, updated_at)
+                    VALUES (%s, %s, TRUE, %s, %s, %s, %s, %s, %s, %s, %s,
+                            NOW(), NOW())
+                    ON CONFLICT (catalog_key) DO UPDATE
+                       SET marca = CASE
+                               WHEN artigos_administrativos.human_modified_at IS NULL
+                               THEN COALESCE(artigos_administrativos.marca, EXCLUDED.marca)
+                               ELSE artigos_administrativos.marca
+                           END,
+                           unidade = CASE
+                               WHEN artigos_administrativos.human_modified_at IS NULL
+                               THEN COALESCE(artigos_administrativos.unidade, EXCLUDED.unidade)
+                               ELSE artigos_administrativos.unidade
+                           END,
+                           source_dataset = COALESCE(
+                               artigos_administrativos.source_dataset,
+                               EXCLUDED.source_dataset
+                           ),
+                           source_version = COALESCE(
+                               artigos_administrativos.source_version,
+                               EXCLUDED.source_version
+                           ),
+                           source_row = COALESCE(
+                               artigos_administrativos.source_row,
+                               EXCLUDED.source_row
+                           ),
+                           imported_at = COALESCE(
+                               artigos_administrativos.imported_at,
+                               EXCLUDED.imported_at
+                           ),
+                           updated_at = NOW()
+                    """,
+                    (
+                        origin_label, product, origin_id, origin_label,
+                        catalog_key, brand, unidade, CATALOG_SOURCE,
+                        CATALOG_VERSION, source_row,
+                    ),
+                )
+                if existing:
+                    stats['updated'] += 1
+                else:
+                    stats['created'] += 1
+
+            conn.commit()
+            logger.info(
+                "run_migrations_compras_catalogo: %s", stats
+            )
+            return stats
+        except Exception as exc:
+            logger.error("run_migrations_compras_catalogo failed: %s", exc)
+            conn.rollback()
+            raise
 
 
 def run_migrations_stock_producao_lojas():

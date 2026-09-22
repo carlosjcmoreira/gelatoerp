@@ -3,6 +3,7 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime, date, timedelta
 import logging
 import hashlib
+import re
 import unicodedata
 from db.connection import db_connection, logger
 from db.cache import ttl_cache_args, invalidate_prefix
@@ -68,6 +69,34 @@ def classify_compras_origin_label(label: str) -> dict:
         'store_name': None,
         'rotulo_original': display_label,
     }
+
+
+def catalog_key_for(origin_label: str, product: str) -> str:
+    """Build a stable identity from the validated source origin and product."""
+    value = (
+        normalise_compras_origin_label(origin_label)
+        + '\x00'
+        + normalise_compras_origin_label(product)
+    )
+    return f'bolhao:{hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]}'
+
+
+def infer_artigo_unidade(product: str) -> str | None:
+    """Infer only explicit units; ambiguous packaging stays blank."""
+    value = normalise_compras_origin_label(product)
+    if re.search(r'\(\s*kg\s*\)', value) or re.search(r'\b\d+\s*kg\b', value):
+        return 'kg'
+    if re.search(r'\(\s*l\s*\)', value) or re.search(r'\b\d+\s*l\b', value):
+        return 'l'
+    if re.search(r'\brolo\b', value):
+        return 'rolo'
+    if re.search(r'\bpct\b|\bpacote\b', value):
+        return 'pct'
+    if re.search(r'\bcaixa\b|\bcartao\b', value):
+        return 'cx'
+    if re.search(r'\bund\b|\bunidade\b|\bmanga\b', value):
+        return 'und'
+    return None
 
 
 def get_compras_origens(apenas_ativos: bool = True, tipo: str = None) -> list:
@@ -189,7 +218,9 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
         query = """
             SELECT a.id, a.fornecedor, a.produto, a.ativo,
                    a.origem_id, o.chave, o.tipo, o.nome,
-                   o.supplier_id, o.store_id, a.origem_original
+                   o.supplier_id, o.store_id, a.origem_original,
+                   a.marca, a.unidade, a.catalog_key, a.source_dataset,
+                   a.source_version, a.source_row
             FROM artigos_administrativos a
             LEFT JOIN compras_origens o ON o.id = a.origem_id
         """
@@ -204,37 +235,132 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
             'origem_id': r[4], 'origem_chave': r[5], 'origem_tipo': r[6],
             'origem_nome': r[7], 'origem_supplier_id': r[8],
             'origem_store_id': r[9], 'origem_original': r[10],
+            'marca': r[11], 'unidade': r[12],
+            'catalog_key': r[13], 'source_dataset': r[14],
+            'source_version': r[15], 'source_row': r[16],
         }
         for r in rows
     ]
 
 
-def add_artigo_administrativo(fornecedor: str, produto: str) -> bool:
+def add_artigo_administrativo(fornecedor: str, produto: str, marca: str = None,
+                              unidade: str = None, origem_id: int = None,
+                              actor: str = 'sistema') -> bool:
     with db_connection() as conn:
         cursor = conn.cursor()
         try:
-            cursor.execute("INSERT INTO artigos_administrativos (fornecedor, produto) VALUES (%s, %s)", (fornecedor, produto))
+            if origem_id is None:
+                origin = classify_compras_origin_label(fornecedor)
+                if origin.get('store_name'):
+                    cursor.execute(
+                        """
+                        INSERT INTO compras_origens
+                            (chave, tipo, nome, rotulo_original, store_id)
+                        SELECT %s, %s, %s, %s, s.id
+                        FROM stores s
+                        WHERE LOWER(s.name) = LOWER(%s)
+                        ON CONFLICT (chave) DO NOTHING
+                        """,
+                        (
+                            origin['key'], origin['tipo'], origin['nome'],
+                            origin['rotulo_original'], origin['store_name'],
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT INTO compras_origens (chave, tipo, nome, rotulo_original)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (chave) DO NOTHING
+                        """,
+                        (
+                            origin['key'], origin['tipo'], origin['nome'],
+                            origin['rotulo_original'],
+                        ),
+                    )
+                cursor.execute(
+                    "SELECT id FROM compras_origens WHERE chave = %s",
+                    (origin['key'],),
+                )
+                origin_row = cursor.fetchone()
+                origem_id = origin_row[0] if origin_row else None
+            cursor.execute(
+                """
+                INSERT INTO artigos_administrativos
+                    (fornecedor, produto, marca, unidade, origem_id,
+                     origem_original, human_modified_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                """,
+                (fornecedor, produto, marca or None, unidade or None,
+                 origem_id, fornecedor),
+            )
             conn.commit()
             success = True
-        except:
+        except psycopg2.Error:
             conn.rollback()
             success = False
     invalidate_prefix('artigos_administrativos')
     return success
 
 
-def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str):
+def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
+                                 marca: str = None, unidade: str = None,
+                                 origem_id: int = None, actor: str = 'sistema'):
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("UPDATE artigos_administrativos SET fornecedor = %s, produto = %s WHERE id = %s", (fornecedor, produto, artigo_id))
+        cursor.execute(
+            "SELECT origem_id, origem_original FROM artigos_administrativos "
+            "WHERE id = %s FOR UPDATE",
+            (artigo_id,),
+        )
+        current = cursor.fetchone()
+        if not current:
+            return False
+        if origem_id is not None:
+            cursor.execute(
+                "SELECT id FROM compras_origens WHERE id = %s AND ativo = TRUE",
+                (origem_id,),
+            )
+            if not cursor.fetchone():
+                raise ValueError('A origem selecionada não existe ou está inativa.')
+        cursor.execute(
+            """
+            UPDATE artigos_administrativos
+               SET fornecedor = %s, produto = %s, marca = %s, unidade = %s,
+                   origem_id = COALESCE(%s, origem_id),
+                   origem_original = COALESCE(origem_original, %s),
+                   human_modified_at = NOW(), updated_at = NOW()
+             WHERE id = %s
+            """,
+            (fornecedor, produto, marca or None, unidade or None, origem_id,
+             fornecedor, artigo_id),
+        )
+        if origem_id is not None and current[0] != origem_id:
+            cursor.execute(
+                """
+                INSERT INTO artigos_administrativos_origem_audit
+                    (artigo_id, origem_anterior_id, origem_nova_id,
+                     rotulo_original, actor, reason)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    artigo_id, current[0], origem_id,
+                    current[1] or fornecedor, actor, 'edição do catálogo',
+                ),
+            )
         conn.commit()
     invalidate_prefix('artigos_administrativos')
+    return True
 
 
 def toggle_artigo_administrativo(artigo_id: int, ativo: bool):
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("UPDATE artigos_administrativos SET ativo = %s WHERE id = %s", (ativo, artigo_id))
+        cursor.execute(
+            "UPDATE artigos_administrativos SET ativo = %s, updated_at = NOW(), "
+            "human_modified_at = NOW() WHERE id = %s",
+            (ativo, artigo_id),
+        )
         conn.commit()
     invalidate_prefix('artigos_administrativos')
 
@@ -242,79 +368,15 @@ def toggle_artigo_administrativo(artigo_id: int, ativo: bool):
 def delete_artigo_administrativo(artigo_id: int):
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM artigos_administrativos WHERE id = %s", (artigo_id,))
+        cursor.execute(
+            "UPDATE artigos_administrativos SET ativo = FALSE, updated_at = NOW(), "
+            "human_modified_at = NOW() WHERE id = %s",
+            (artigo_id,),
+        )
         conn.commit()
     invalidate_prefix('artigos_administrativos')
 
 
 def seed_artigos_administrativos():
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM artigos_administrativos")
-        if cursor.fetchone()[0] > 0:
-            return
-        artigos = [
-            ('Makro', 'Canela em pó 500g'), ('Makro', 'Mel (kg)'), ('Makro', 'Granola (pacote com 800g'),
-            ('Makro', 'Bolacha Maria (pacote com 800g)'), ('Makro', 'Açúcar para Café'),
-            ('Makro', 'Adoçante Café'), ('Makro', 'Álcool 96% 100ml'), ('Makro', 'Esponja und.'),
-            ('Makro', 'Papel vegetal'), ('Makro', 'Saco congelação 1 l'), ('Makro', 'Saco congelação 3l'),
-            ('Makro', 'Cheirinho casa de banho Spray'), ('Makro', 'Lixívia Spray'),
-            ('Makro', 'Detergente louça 4l'), ('Makro', 'Caixa Kraft pequena (pacote 50und.)'),
-            ('Makro', 'Caixa Kraft grande (und)'), ('Makro', 'Caneta permanente preta (und)'),
-            ('Makro', 'Neoblanc - Tira manchas (2l)'),
-            ('Porto Higiene', 'Rolo de papel térmico 80x60x11 (caixa - 10 und.)'),
-            ('Porto Higiene', 'Rolo de papel térmico 57x40x11 (cartão - 10 und.)'),
-            ('Porto Higiene', 'Luva S (caixa)'), ('Porto Higiene', 'Luva M (caixa)'),
-            ('Porto Higiene', 'Luva L (caixa)'), ('Porto Higiene', 'Saco de lixo 5l (pct - 10und)'),
-            ('Porto Higiene', 'Saco de lixo 50l (pct -10 und)'), ('Porto Higiene', 'Saco de lixo 100l (pct - 10Und.)'),
-            ('Porto Higiene', 'Película Aderente'), ('Porto Higiene', 'Pezinhos/Protetor de calçados'),
-            ('Porto Higiene', 'Desengordurante (und - 5l)'), ('Porto Higiene', 'Sabonete WC (und - 5l)'),
-            ('Porto Higiene', 'Abrilhantador máquina de louça (und - 5l)'),
-            ('Porto Higiene', 'Desinfetante para superfícies Ecomix'),
-            ('Porto Higiene', 'Detergente máquina de lavar louça (und - 5l)'),
-            ('Porto Higiene', 'Desinfetante VT 10 - Álcool 70% (und - 5l)'),
-            ('Porto Higiene', 'Desinfetante WC chão (und - 5l)'),
-            ('Porto Higiene', 'Desinfetante chão - Bioalcool (und - 5l)'),
-            ('Porto Higiene', 'Descalcificador (und - 5l)'), ('Porto Higiene', 'Guardanapos tipo L caixa'),
-            ('Porto Higiene', 'Papel Autocorte (6 und)'), ('Porto Higiene', 'Papel Zigzag'),
-            ('Porto Higiene', 'Papel Higiênico (12 und)'), ('Porto Higiene', 'Líquido de limpeza WC - (und - 5l)'),
-            ('Porto Higiene', 'Touca preta redinha - (100 und)'),
-            ('Greenpack', 'Tampas capuccino'), ('Greenpack', 'Tampa Milkshake'),
-            ('Greenpack', 'Saco de papel kraft para cones'), ('Greenpack', 'Sacos de cookies'),
-            ('Greenpack', 'Saco plástico para pastelaria'), ('Greenpack', 'Pratinho para Nivottos'),
-            ('Greenpack', 'Copo para Água'), ('Greenpack', 'Copos takeway kraft'),
-            ('Greenpack', 'Colheres Café embalada indivialmente 9cm'),
-            ('Sumol Compal', 'Água sem gás 330ml'), ('Sumol Compal', 'Água com gás frize'),
-            ('Sumol Compal', 'Frizze limão'), ('Sumol Compal', 'Frizze maracujá'),
-            ('Sumol Compal', 'Frizze laranja'), ('Sumol Compal', 'Pepsi'),
-            ('Sumol Compal', 'Pepsi zero'), ('Sumol Compal', 'Compal maga/laranja'),
-            ('Sumol Compal', 'Compal pêssego'),
-            ('SUVITA', 'Caixa Take Away 500g'), ('SUVITA', 'Caixa Take Away 1000g'),
-            ('SUVITA', 'Caixa Take Away 1500g'), ('SUVITA', 'Pistacchio em pedaços'),
-            ('SUVITA', 'Colheres para gelado'), ('SUVITA', 'Cone pequeno 40" (caixa 480 und)'),
-            ('SUVITA', 'Cone Médio 45" (caixa 420 und.)'),
-            ('LACTOGAL', 'Leite inteiro Gresso (l)'), ('LACTOGAL', 'Manteiga com sal Gresso (kg)'),
-            ('MATOSINHOS', 'Copo mini (manga- 50und)'), ('MATOSINHOS', 'Copo pequeno (manga- 50und)'),
-            ('MATOSINHOS', 'Copo médio (manga- 50und)'), ('MATOSINHOS', 'Copo grande (manga- 50und)'),
-            ('MATOSINHOS', 'Copo max (manga- 50und)'), ('MATOSINHOS', 'Copo Café (manga- 50und)'),
-            ('MATOSINHOS', 'Copo Cappucino/Branco Nivà (manga- 50und)'),
-            ('MATOSINHOS', 'Copo Milkshake (manga- 50und)'), ('MATOSINHOS', 'Colheres brancas cartão Açaí'),
-            ('MATOSINHOS', 'Guardanapos Nivà'), ('MATOSINHOS', 'Ricotta (kg)'),
-            ('MATOSINHOS', 'Cannolo (und)'), ('MATOSINHOS', 'Chocolate 64% (Cannolo) - (und)'),
-            ('MATOSINHOS', 'Brioche (und.)'), ('MATOSINHOS', 'Saco Nivà (und)'),
-            ('MATOSINHOS', 'Fita Niva caixas Take away (rolo)'),
-            ('MATOSINHOS', 'Capa para cone/Porta cones roxo'), ('MATOSINHOS', 'Base Branca Nivà'),
-            ('MATOSINHOS', 'Cerejas em calda'), ('MATOSINHOS', 'Esfregona'),
-            ('MATOSINHOS', 'Palhinha milkshake'), ('MATOSINHOS', 'Pote takeway p/ amarena'),
-            ('Progelcone', 'Mini Cone'),
-            ('CAFÉ ILLY', 'Café Classico'), ('CAFÉ ILLY', 'Descafeinado'),
-            ('CAFÉ ILLY', 'Chá black'), ('CAFÉ ILLY', 'Chá lime'),
-            ('CAFÉ ILLY', 'Chá citrus'), ('CAFÉ ILLY', 'Chá Red fruits'),
-            ('GRÁFICA', 'Registro de temperaturas'), ('GRÁFICA', 'Limpeza WC'),
-            ('GRÁFICA', 'Limpeza área clientes'), ('GRÁFICA', 'Limpeza zona de produção'),
-            ('GRÁFICA', 'Rastreabilidade'), ('GRÁFICA', 'Entrada de mercadorias'),
-            ('GRÁFICA', 'Fecho de caixa'),
-        ]
-        for forn, prod in artigos:
-            cursor.execute("INSERT INTO artigos_administrativos (fornecedor, produto) VALUES (%s, %s) ON CONFLICT DO NOTHING", (forn, prod))
-        conn.commit()
+    from db.schema import run_migrations_compras_catalogo
+    return run_migrations_compras_catalogo()

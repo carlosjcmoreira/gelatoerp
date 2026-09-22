@@ -3,74 +3,151 @@
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
-<h5 class="mb-2">Artigos de Fornecimento</h5>
-<p class="text-muted small mb-3">Gerir artigos disponíveis para encomendas. Desative artigos que não pretende encomendar.</p>
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">Catálogo de Compras</h5>
+            <p class="text-muted small mb-0">
+                Gerir artigos disponíveis para encomendas. Desative artigos para preservar o histórico.
+            </p>
+        </div>
+        <span class="badge text-bg-light">{{ artigos|length }} artigo(s)</span>
+    </div>
 
-<div class="card mb-3">
-    <div class="card-body p-2">
-        <form method="post">
-            <input type="hidden" name="action" value="add">
-            <div class="row g-2 align-items-end">
-                <div class="col-5">
-                    <input type="text" name="fornecedor" class="form-control form-control-sm" placeholder="Fornecedor" list="fornecedores-list">
-                    <datalist id="fornecedores-list">
-                        {% for f in fornecedores %}
-                        <option value="{{ f }}">
+    <div class="card mb-3">
+        <div class="card-body p-2">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col">
+                    <input type="search" name="q" value="{{ search or '' }}"
+                           class="form-control form-control-sm"
+                           placeholder="Pesquisar origem, produto ou marca">
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-outline-primary btn-sm" type="submit">Pesquisar</button>
+                </div>
+                {% if search %}
+                <div class="col-auto">
+                    <a class="btn btn-link btn-sm" href="{{ url_for('compras.artigos') }}">Limpar</a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header py-2"><strong class="small">Adicionar artigo</strong></div>
+        <div class="card-body p-2">
+            <form method="post" class="row g-2 align-items-end">
+                <input type="hidden" name="action" value="add">
+                <div class="col-12 col-md-3">
+                    <label class="form-label small mb-1">Origem</label>
+                    <select name="origem_id" class="form-select form-select-sm" required>
+                        <option value="">Selecionar origem...</option>
+                        {% for origem in origens %}
+                        <option value="{{ origem.id }}">
+                            {{ origem.nome }} · {{ origem.tipo|replace('_', ' ') }}
+                        </option>
                         {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label small mb-1">Etiqueta da origem</label>
+                    <input type="text" name="fornecedor" class="form-control form-control-sm"
+                           placeholder="Texto original / fornecedor" required list="fornecedores-list">
+                    <datalist id="fornecedores-list">
+                        {% for f in fornecedores %}<option value="{{ f }}">{% endfor %}
                     </datalist>
                 </div>
-                <div class="col-5">
-                    <input type="text" name="produto" class="form-control form-control-sm" placeholder="Produto">
+                <div class="col-12 col-md-3">
+                    <label class="form-label small mb-1">Produto</label>
+                    <input type="text" name="produto" class="form-control form-control-sm" required>
                 </div>
-                <div class="col-2">
-                    <button type="submit" class="btn btn-primary btn-sm w-100">+</button>
+                <div class="col-6 col-md-1">
+                    <label class="form-label small mb-1">Marca</label>
+                    <input type="text" name="marca" class="form-control form-control-sm">
                 </div>
-            </div>
-        </form>
+                <div class="col-6 col-md-1">
+                    <label class="form-label small mb-1">Unidade</label>
+                    <input type="text" name="unidade" class="form-control form-control-sm"
+                           placeholder="und/kg">
+                </div>
+                <div class="col-12 col-md-1">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">Adicionar</button>
+                </div>
+            </form>
+        </div>
     </div>
-</div>
 
-{% set current_forn = namespace(val='') %}
-{% for a in artigos %}
-{% if a.fornecedor != current_forn.val %}
-{% if current_forn.val != '' %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
-{% set current_forn.val = a.fornecedor %}
-<div class="card mb-3">
-    <div class="card-header py-1 px-2">
-        <strong class="small">{{ a.fornecedor }}</strong>
-    </div>
+    {% if artigos %}
     <div class="table-responsive">
-        <table class="table table-sm mb-0" style="font-size:0.82rem;">
+        <table class="table table-sm table-hover align-middle" style="font-size:0.82rem;">
+            <thead>
+                <tr>
+                    <th>Origem</th>
+                    <th>Produto</th>
+                    <th>Marca</th>
+                    <th>Un.</th>
+                    <th>Estado</th>
+                    <th class="text-end">Ações</th>
+                </tr>
+            </thead>
             <tbody>
-{% endif %}
-                <tr class="{% if not a.ativo %}text-muted{% endif %}">
-                    <td class="{% if not a.ativo %}text-decoration-line-through{% endif %}">{{ a.produto }}</td>
-                    <td class="text-end" style="width:90px;white-space:nowrap;">
+            {% for a in artigos %}
+            <tr class="{% if not a.ativo %}text-muted{% endif %}">
+                    <td style="min-width:210px;">
+                        <form id="edit-artigo-{{ a.id }}" method="post">
+                            <input type="hidden" name="action" value="edit">
+                            <input type="hidden" name="artigo_id" value="{{ a.id }}">
+                            <select name="origem_id" class="form-select form-select-sm" required>
+                            {% for origem in origens %}
+                            <option value="{{ origem.id }}" {% if origem.id == a.origem_id %}selected{% endif %}>
+                                {{ origem.nome }} · {{ origem.tipo|replace('_', ' ') }}
+                            </option>
+                            {% endfor %}
+                            </select>
+                            <input type="text" name="fornecedor" value="{{ a.fornecedor }}"
+                                   class="form-control form-control-sm mt-1" required>
+                        </form>
+                    </td>
+                    <td style="min-width:240px;">
+                        <input form="edit-artigo-{{ a.id }}" type="text" name="produto" value="{{ a.produto }}"
+                               class="form-control form-control-sm" required>
+                    </td>
+                    <td style="min-width:120px;">
+                        <input form="edit-artigo-{{ a.id }}" type="text" name="marca" value="{{ a.marca or '' }}"
+                               class="form-control form-control-sm">
+                    </td>
+                    <td style="width:90px;">
+                        <input form="edit-artigo-{{ a.id }}" type="text" name="unidade" value="{{ a.unidade or '' }}"
+                               class="form-control form-control-sm">
+                    </td>
+                    <td>
+                        {% if a.ativo %}
+                        <span class="badge text-bg-success">Ativo</span>
+                        {% else %}
+                        <span class="badge text-bg-secondary">Inativo</span>
+                        {% endif %}
+                        {% if a.source_version %}
+                        <div class="small text-muted mt-1">{{ a.source_version }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="text-end text-nowrap">
+                        <button form="edit-artigo-{{ a.id }}" type="submit" class="btn btn-outline-primary btn-sm">Guardar</button>
                         <form method="post" class="d-inline">
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="artigo_id" value="{{ a.id }}">
                             <input type="hidden" name="ativo" value="{{ '0' if a.ativo else '1' }}">
-                            <button type="submit" class="btn btn-sm {% if a.ativo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}" style="padding:1px 6px;font-size:0.72rem;">
+                            <button type="submit" class="btn btn-sm {% if a.ativo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">
                                 {{ 'Desativar' if a.ativo else 'Ativar' }}
                             </button>
                         </form>
                     </td>
-                </tr>
-{% endfor %}
-{% if current_forn.val != '' %}
+            </tr>
+            {% endfor %}
             </tbody>
         </table>
     </div>
-</div>
-{% endif %}
-
-{% if not artigos %}
-<div class="alert alert-info">Sem artigos registados.</div>
-{% endif %}
+    {% else %}
+    <div class="alert alert-info">Nenhum artigo corresponde à pesquisa.</div>
+    {% endif %}
 </div>
 {% endblock %}

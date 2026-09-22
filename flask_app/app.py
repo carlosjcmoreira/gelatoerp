@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 STARTUP_SLOW_STEP_SECONDS = 0.05
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, run_migrations_wind_config, sync_produtos_vendas_config, seed_artigos_administrativos, authenticate_user, create_session
+from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, run_migrations_wind_config, sync_produtos_vendas_config, authenticate_user, create_session
 from db.cashflow import run_migrations_cashflow
 from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_data_fix_pesagem_april2026, run_migrations_centros_custo,
@@ -70,7 +70,7 @@ from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clie
 from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
 from db.schema import run_migrations_drop_supplier_category, run_migrations_acesso_compras
 from db.schema import run_migrations_cost_centers_store_id
-from db.schema import run_migrations_compras_origens
+from db.schema import run_migrations_compras_origens, run_migrations_compras_catalogo
 from db.schema import run_migrations_doseamento_gelado
 from db.schema import (
     run_migrations_pastelaria_plano,
@@ -205,11 +205,8 @@ def run_deferred_startup_maintenance(app):
         # These are recurring reconciliations, not historical one-off fixes.
         _seed_all_tiles()
         sync_produtos_vendas_config()
-        seed_artigos_administrativos()
-        # The legacy catalogue seed runs after schema migrations on a clean
-        # database. Re-run the idempotent origin classifier so those rows are
-        # classified during the same boot instead of waiting for a later one.
         run_migrations_compras_origens()
+        run_migrations_compras_catalogo()
         try:
             _promote_overdue_faturas_clientes()
         except Exception as exc:
@@ -330,7 +327,8 @@ def create_app():
         ('run_migrations_supplier_categoria_custo', run_migrations_supplier_categoria_custo),
         ('run_migrations_drop_supplier_category', run_migrations_drop_supplier_category),
         ('run_migrations_acesso_compras', run_migrations_acesso_compras),
-         ('run_migrations_compras_origens', run_migrations_compras_origens),
+        ('run_migrations_compras_origens', run_migrations_compras_origens),
+        ('run_migrations_compras_catalogo', run_migrations_compras_catalogo),
     )
     startup_slow_steps = []
     schema_started = time.monotonic()

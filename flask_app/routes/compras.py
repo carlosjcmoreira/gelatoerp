@@ -9,6 +9,7 @@ from database import (
     get_artigos_administrativos, add_artigo_administrativo,
     update_artigo_administrativo, toggle_artigo_administrativo,
     delete_artigo_administrativo,
+    get_compras_origens,
     criar_ordem_transferencia,
     create_invoice,
     update_invoice,
@@ -978,7 +979,7 @@ def finalize_upload(invoice_id: int):
 
 
 @compras_bp.route('/artigos', methods=['GET', 'POST'])
-@perm_required('acesso_administrativo')  # intentionally admin-only — supply-article catalogue config
+@any_perm_required('acesso_administrativo', 'acesso_compras')
 def artigos():
     if request.method == 'POST':
         action = request.form.get('action')
@@ -986,8 +987,15 @@ def artigos():
         if action == 'add':
             fornecedor = request.form.get('fornecedor', '').strip()
             produto = request.form.get('produto', '').strip()
+            marca = request.form.get('marca', '').strip() or None
+            unidade = request.form.get('unidade', '').strip() or None
+            origem_raw = request.form.get('origem_id', '').strip()
+            origem_id = int(origem_raw) if origem_raw.isdigit() else None
             if fornecedor and produto:
-                success = add_artigo_administrativo(fornecedor, produto)
+                success = add_artigo_administrativo(
+                    fornecedor, produto, marca=marca, unidade=unidade,
+                    origem_id=origem_id, actor=_get_username(),
+                )
                 if success:
                     flash(f'Artigo "{produto}" adicionado!', 'success')
                 else:
@@ -995,22 +1003,68 @@ def artigos():
             else:
                 flash('Preencha fornecedor e produto.', 'warning')
 
+        elif action == 'edit':
+            try:
+                artigo_id = int(request.form.get('artigo_id', 0))
+            except (TypeError, ValueError):
+                artigo_id = 0
+            fornecedor = request.form.get('fornecedor', '').strip()
+            produto = request.form.get('produto', '').strip()
+            marca = request.form.get('marca', '').strip() or None
+            unidade = request.form.get('unidade', '').strip() or None
+            origem_raw = request.form.get('origem_id', '').strip()
+            origem_id = int(origem_raw) if origem_raw.isdigit() else None
+            if artigo_id and fornecedor and produto:
+                try:
+                    updated = update_artigo_administrativo(
+                        artigo_id, fornecedor, produto, marca=marca,
+                        unidade=unidade, origem_id=origem_id,
+                        actor=_get_username(),
+                    )
+                    flash(
+                        'Artigo atualizado.' if updated else 'Artigo não encontrado.',
+                        'success' if updated else 'warning',
+                    )
+                except ValueError as exc:
+                    flash(str(exc), 'danger')
+            else:
+                flash('Preencha origem, fornecedor e produto.', 'warning')
+
         elif action == 'toggle':
-            artigo_id = int(request.form.get('artigo_id', 0))
+            try:
+                artigo_id = int(request.form.get('artigo_id', 0))
+            except (TypeError, ValueError):
+                artigo_id = 0
             ativo = request.form.get('ativo') == '1'
-            toggle_artigo_administrativo(artigo_id, ativo)
+            if artigo_id:
+                toggle_artigo_administrativo(artigo_id, ativo)
 
         elif action == 'delete':
-            artigo_id = int(request.form.get('artigo_id', 0))
-            delete_artigo_administrativo(artigo_id)
-            flash('Artigo eliminado!', 'success')
+            try:
+                artigo_id = int(request.form.get('artigo_id', 0))
+            except (TypeError, ValueError):
+                artigo_id = 0
+            if artigo_id:
+                delete_artigo_administrativo(artigo_id)
+                flash('Artigo desativado para preservar o histórico.', 'success')
 
         return redirect(url_for('compras.artigos'))
 
+    search = request.args.get('q', '').strip().casefold()
     artigos_list = get_artigos_administrativos(apenas_ativos=False)
+    if search:
+        artigos_list = [
+            a for a in artigos_list
+            if search in ' '.join(
+                str(a.get(key) or '') for key in
+                ('fornecedor', 'produto', 'marca', 'origem_nome')
+            ).casefold()
+        ]
     fornecedores = sorted(set(a['fornecedor'] for a in artigos_list))
+    origens = get_compras_origens(apenas_ativos=True)
     return render_template('compras/artigos.html',
-                           artigos=artigos_list, fornecedores=fornecedores)
+                           artigos=artigos_list, fornecedores=fornecedores,
+                           origens=origens, search=search)
 
 
 @compras_bp.route('/nova-fatura/upload-chunk', methods=['POST'])

@@ -77,6 +77,8 @@ _DB_PATCHES = [
     patch('flask_app.routes.compras.get_suppliers',             return_value=[]),
     patch('flask_app.routes.compras.get_cost_centers',          return_value=[]),
     patch('flask_app.routes.compras.get_cost_categories_tree',  return_value=[]),
+    patch('flask_app.routes.compras.get_artigos_administrativos', return_value=[]),
+    patch('flask_app.routes.compras.get_compras_origens',        return_value=[]),
     # render_template — return a plain string so no template files are needed
     # Must be patched where it is *used* (imported into compras module), not at flask.templating
     patch('flask_app.routes.compras.render_template',           return_value='ok'),
@@ -165,6 +167,12 @@ class TestComprasAccess(unittest.TestCase):
         self.assertEqual(resp.status_code, 200,
                          "acesso_compras user should not be redirected from /compras/nova-fatura")
 
+    def test_compras_catalogue_accessible_with_acesso_compras(self):
+        """acesso_compras=True → GET /compras/artigos returns 200."""
+        self._set_session_user(_user(acesso_compras=True))
+        resp = self.client.get('/compras/artigos')
+        self.assertEqual(resp.status_code, 200)
+
     # ------------------------------------------------------------------
     # User without any relevant perm must be redirected (3xx)
     # ------------------------------------------------------------------
@@ -189,6 +197,12 @@ class TestComprasAccess(unittest.TestCase):
         resp = self.client.get('/compras/nova-fatura')
         self.assertIn(resp.status_code, (301, 302, 303, 307, 308),
                       "User without compras permission should be redirected from /compras/nova-fatura")
+
+    def test_compras_catalogue_blocked_without_perm(self):
+        """No compras/admin/gestor perm → GET /compras/artigos redirects."""
+        self._set_session_user(_user())
+        resp = self.client.get('/compras/artigos')
+        self.assertIn(resp.status_code, (301, 302, 303, 307, 308))
 
     def test_unauthenticated_user_is_redirected(self):
         """No session at all → GET /compras/ redirects to login."""
