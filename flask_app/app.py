@@ -2,11 +2,13 @@ import os
 import sys
 import threading
 import logging
+import time
 import uuid
 from flask import Flask, session, redirect, url_for, g, request, render_template
 from functools import wraps
 
 logger = logging.getLogger(__name__)
+STARTUP_SLOW_STEP_SECONDS = 0.05
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, run_migrations_wind_config, sync_produtos_vendas_config, seed_artigos_administrativos, authenticate_user, create_session
@@ -180,6 +182,13 @@ def run_deferred_startup_maintenance(app):
             run_backfill_invoice_categoria_custo()
         except Exception as exc:
             logger.warning('run_backfill_invoice_categoria_custo startup failed: %s', exc)
+        # This is a retryable data-only backfill. The invoice schema is ready
+        # before this point, and missing filenames are not required to serve
+        # requests, so do not make the pre-fork startup wait on PDF payloads.
+        try:
+            run_migrations_pdf_filename_backfill()
+        except Exception as exc:
+            logger.warning('run_migrations_pdf_filename_backfill startup failed: %s', exc)
 
         # These are recurring reconciliations, not historical one-off fixes.
         _seed_all_tiles()
@@ -193,6 +202,9 @@ def run_deferred_startup_maintenance(app):
 
 
 def create_app():
+    startup_started = time.monotonic()
+    startup_logger = logging.getLogger('gunicorn.error')
+    startup_logger.info("Application startup initialization started")
     app = Flask(__name__, static_folder='static', template_folder='templates')
     app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
     app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -234,76 +246,104 @@ def create_app():
         from performance_metrics import end_request
         end_request(g.pop('_performance_token', None))
 
-    with app.app_context():
-        init_database()
-        run_migrations()
-        run_migrations_m0()
-        run_faturas_migrations()
-        run_migrations_forecast()
-        run_migrations_wind_config()
-        run_migrations_cashflow()
-        run_migrations_credito()
-        run_migrations_eventos_v2_foundation()
-        run_migrations_eventos_customer_portal()
-        run_data_fix_stock_gelado_dedup_and_unique()
-        run_migrations_caixa_loja()
-        run_migrations_preco_caixa_kg()
-        run_migrations_centros_custo()
-        run_migrations_cost_centers_store_id()
-        run_migrations_pastelaria_plano()
-        run_migrations_pastelaria_count_product_id()
-        run_migrations_pastelaria_product_state_audit()
-        run_migrations_colaboradores_smart()
-        run_migrations_transferencias_motivo()
-        run_migrations_transferencias_eventos()
-        run_migrations_batch_id()
-        run_migrations_stock_producao_lojas()
-        run_migrations_tarefas()
-        run_migrations_tarefas_v2()
-        run_migrations_tarefas_v3()
-        run_migrations_tile_config()
-        run_migrations_agente()
-        run_migrations_fecho_caixa_audit()
-        run_migrations_pesagem_draft_batches()
-        run_migrations_pesagem_day_justifications()
-        run_migrations_pesagem_audit()
-        run_migrations_conta_vendas_diarias()
-        run_migrations_b2b_vendas_diarias()
-        run_migrations_tesouraria_manuais()
-        run_migrations_user_audit_log()
-        run_migrations_cost_center_allocation()
-        run_migrations_stock_gelado_carapinas()
-        run_migrations_suppliers_nullable_nif()
-        run_migrations_normalise_supplier_nifs()
-        run_migrations_onedrive_retry()
-        run_migrations_invoice_centros_custo()
-        run_migrations_invoice_installments()
-        run_migrations_supplier_aliases()
-        run_migrations_supplier_centro_custo()
-        run_migrations_custos_recorrentes()
-        run_migrations_normalise_producao_sabores()
-        run_migrations_quantidade_kg_to_numeric()
-        run_migrations_loja_origem()
-        run_migrations_transferencias_destino()
-        run_migrations_transferencias_aceitacao_opcional()
-        run_migrations_doseamento_gelado()
-        run_migrations_invoice_status_config()
-        run_migrations_produto_aliases()
-        run_migrations_pdf_filename_backfill()
-        run_migrations_b2b()
-        run_migrations_faturas_clientes_status()
-        run_migrations_faturas_clientes_data_pagamento()
-        run_migrations_faturas_clientes_document_type()
-        run_migrations_contabilidade()
-        run_migrations_invoice_payment_audit()
-        run_migrations_saved_invoice_views()
-        run_migrations_invoice_audit_complete()
-        run_migrations_supplier_entidade_governamental()
-        run_migrations_orcamento()
-        run_migrations_cost_category_is_cmvmc()
-        run_migrations_supplier_categoria_custo()
-        run_migrations_drop_supplier_category()
-        run_migrations_acesso_compras()
+    startup_steps = (
+        ('init_database', init_database),
+        ('run_migrations', run_migrations),
+        ('run_migrations_m0', run_migrations_m0),
+        ('run_faturas_migrations', run_faturas_migrations),
+        ('run_migrations_forecast', run_migrations_forecast),
+        ('run_migrations_wind_config', run_migrations_wind_config),
+        ('run_migrations_cashflow', run_migrations_cashflow),
+        ('run_migrations_credito', run_migrations_credito),
+        ('run_migrations_eventos_v2_foundation', run_migrations_eventos_v2_foundation),
+        ('run_migrations_eventos_customer_portal', run_migrations_eventos_customer_portal),
+        ('run_data_fix_stock_gelado_dedup_and_unique', run_data_fix_stock_gelado_dedup_and_unique),
+        ('run_migrations_caixa_loja', run_migrations_caixa_loja),
+        ('run_migrations_preco_caixa_kg', run_migrations_preco_caixa_kg),
+        ('run_migrations_centros_custo', run_migrations_centros_custo),
+        ('run_migrations_cost_centers_store_id', run_migrations_cost_centers_store_id),
+        ('run_migrations_pastelaria_plano', run_migrations_pastelaria_plano),
+        ('run_migrations_pastelaria_count_product_id', run_migrations_pastelaria_count_product_id),
+        ('run_migrations_pastelaria_product_state_audit', run_migrations_pastelaria_product_state_audit),
+        ('run_migrations_colaboradores_smart', run_migrations_colaboradores_smart),
+        ('run_migrations_transferencias_motivo', run_migrations_transferencias_motivo),
+        ('run_migrations_transferencias_eventos', run_migrations_transferencias_eventos),
+        ('run_migrations_batch_id', run_migrations_batch_id),
+        ('run_migrations_stock_producao_lojas', run_migrations_stock_producao_lojas),
+        ('run_migrations_tarefas', run_migrations_tarefas),
+        ('run_migrations_tarefas_v2', run_migrations_tarefas_v2),
+        ('run_migrations_tarefas_v3', run_migrations_tarefas_v3),
+        ('run_migrations_tile_config', run_migrations_tile_config),
+        ('run_migrations_agente', run_migrations_agente),
+        ('run_migrations_fecho_caixa_audit', run_migrations_fecho_caixa_audit),
+        ('run_migrations_pesagem_draft_batches', run_migrations_pesagem_draft_batches),
+        ('run_migrations_pesagem_day_justifications', run_migrations_pesagem_day_justifications),
+        ('run_migrations_pesagem_audit', run_migrations_pesagem_audit),
+        ('run_migrations_conta_vendas_diarias', run_migrations_conta_vendas_diarias),
+        ('run_migrations_b2b_vendas_diarias', run_migrations_b2b_vendas_diarias),
+        ('run_migrations_tesouraria_manuais', run_migrations_tesouraria_manuais),
+        ('run_migrations_user_audit_log', run_migrations_user_audit_log),
+        ('run_migrations_cost_center_allocation', run_migrations_cost_center_allocation),
+        ('run_migrations_stock_gelado_carapinas', run_migrations_stock_gelado_carapinas),
+        ('run_migrations_suppliers_nullable_nif', run_migrations_suppliers_nullable_nif),
+        ('run_migrations_normalise_supplier_nifs', run_migrations_normalise_supplier_nifs),
+        ('run_migrations_onedrive_retry', run_migrations_onedrive_retry),
+        ('run_migrations_invoice_centros_custo', run_migrations_invoice_centros_custo),
+        ('run_migrations_invoice_installments', run_migrations_invoice_installments),
+        ('run_migrations_supplier_aliases', run_migrations_supplier_aliases),
+        ('run_migrations_supplier_centro_custo', run_migrations_supplier_centro_custo),
+        ('run_migrations_custos_recorrentes', run_migrations_custos_recorrentes),
+        ('run_migrations_normalise_producao_sabores', run_migrations_normalise_producao_sabores),
+        ('run_migrations_quantidade_kg_to_numeric', run_migrations_quantidade_kg_to_numeric),
+        ('run_migrations_loja_origem', run_migrations_loja_origem),
+        ('run_migrations_transferencias_destino', run_migrations_transferencias_destino),
+        ('run_migrations_doseamento_gelado', run_migrations_doseamento_gelado),
+        ('run_migrations_invoice_status_config', run_migrations_invoice_status_config),
+        ('run_migrations_produto_aliases', run_migrations_produto_aliases),
+        ('run_migrations_b2b', run_migrations_b2b),
+        ('run_migrations_faturas_clientes_status', run_migrations_faturas_clientes_status),
+        ('run_migrations_faturas_clientes_data_pagamento', run_migrations_faturas_clientes_data_pagamento),
+        ('run_migrations_faturas_clientes_document_type', run_migrations_faturas_clientes_document_type),
+        ('run_migrations_contabilidade', run_migrations_contabilidade),
+        ('run_migrations_invoice_payment_audit', run_migrations_invoice_payment_audit),
+        ('run_migrations_saved_invoice_views', run_migrations_saved_invoice_views),
+        ('run_migrations_invoice_audit_complete', run_migrations_invoice_audit_complete),
+        ('run_migrations_supplier_entidade_governamental', run_migrations_supplier_entidade_governamental),
+        ('run_migrations_orcamento', run_migrations_orcamento),
+        ('run_migrations_cost_category_is_cmvmc', run_migrations_cost_category_is_cmvmc),
+        ('run_migrations_supplier_categoria_custo', run_migrations_supplier_categoria_custo),
+        ('run_migrations_drop_supplier_category', run_migrations_drop_supplier_category),
+        ('run_migrations_acesso_compras', run_migrations_acesso_compras),
+    )
+    startup_slow_steps = []
+    schema_started = time.monotonic()
+    try:
+        with app.app_context():
+            for step_name, step in startup_steps:
+                step_started = time.monotonic()
+                try:
+                    step()
+                finally:
+                    step_duration = time.monotonic() - step_started
+                    if step_duration >= STARTUP_SLOW_STEP_SECONDS:
+                        startup_slow_steps.append((step_name, step_duration))
+                        startup_logger.info(
+                            "startup_step name=%s duration_ms=%.1f",
+                            step_name,
+                            step_duration * 1000,
+                        )
+    finally:
+        schema_duration = time.monotonic() - schema_started
+        slow_summary = ','.join(
+            f'{name}:{duration * 1000:.1f}ms'
+            for name, duration in startup_slow_steps
+        ) or 'none'
+        startup_logger.info(
+            "startup_schema_phase duration_ms=%.1f steps=%d slow_steps=%s",
+            schema_duration * 1000,
+            len(startup_steps),
+            slow_summary,
+        )
 
     from flask_app.routes.auth import auth_bp
     from flask_app.routes.home import home_bp
@@ -465,6 +505,11 @@ def create_app():
         logger.error("Unhandled 500: %s", exc, exc_info=True)
         return render_template('errors/500.html'), 500
 
+    startup_logger.info(
+        "application_startup duration_ms=%.1f schema_phase_duration_ms=%.1f",
+        (time.monotonic() - startup_started) * 1000,
+        schema_duration * 1000,
+    )
     return app
 
 
