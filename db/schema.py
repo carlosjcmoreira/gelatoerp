@@ -1,5 +1,5 @@
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 from datetime import datetime, date, timedelta
 import logging
 from db.connection import db_connection, logger, hash_password
@@ -291,6 +291,8 @@ def run_migrations_compras_catalogo():
 
             seen_keys = set()
             stats = {'created': 0, 'existing': 0, 'updated': 0, 'rejected': 0}
+            seed_rows = []
+            origins_by_key = {}
             for source_row, origin_label, product, brand in CATALOG_ROWS:
                 origin_label = str(origin_label or '').strip()
                 product = str(product or '').strip()
@@ -302,85 +304,124 @@ def run_migrations_compras_catalogo():
                     stats['rejected'] += 1
                     continue
                 seen_keys.add(catalog_key)
-
                 origin = classify_compras_origin_label(origin_label)
-                if origin.get('store_name'):
-                    cursor.execute(
-                        """
-                        INSERT INTO compras_origens
-                            (chave, tipo, nome, rotulo_original, store_id)
-                        SELECT %s, %s, %s, %s, s.id
-                        FROM stores s
-                        WHERE LOWER(s.name) = LOWER(%s)
-                        ON CONFLICT (chave) DO NOTHING
-                        """,
-                        (
-                            origin['key'], origin['tipo'], origin['nome'],
-                            origin['rotulo_original'], origin['store_name'],
-                        ),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        INSERT INTO compras_origens
-                            (chave, tipo, nome, rotulo_original)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT (chave) DO NOTHING
-                        """,
-                        (
-                            origin['key'], origin['tipo'], origin['nome'],
-                            origin['rotulo_original'],
-                        ),
-                    )
-                cursor.execute(
-                    "SELECT id FROM compras_origens WHERE chave = %s",
-                    (origin['key'],),
+                origins_by_key[origin['key']] = origin
+                seed_rows.append(
+                    {
+                        'source_row': source_row,
+                        'origin_label': origin_label,
+                        'product': product,
+                        'brand': brand,
+                        'catalog_key': catalog_key,
+                        'origin_key': origin['key'],
+                        'unidade': infer_artigo_unidade(product),
+                    }
                 )
-                origin_row = cursor.fetchone()
-                if not origin_row:
+
+            store_names = sorted({
+                origin['store_name'].casefold()
+                for origin in origins_by_key.values()
+                if origin.get('store_name')
+            })
+            stores_by_name = {}
+            if store_names:
+                cursor.execute(
+                    "SELECT LOWER(name), id FROM stores WHERE LOWER(name) = ANY(%s)",
+                    (store_names,),
+                )
+                stores_by_name = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Production PostgreSQL has materially higher round-trip latency
+            # than the development database.  Insert every distinct origin in
+            # one statement instead of repeating an INSERT + SELECT per row.
+            origin_values = []
+            for origin in origins_by_key.values():
+                store_id = None
+                if origin.get('store_name'):
+                    store_id = stores_by_name.get(origin['store_name'].casefold())
+                    if store_id is None:
+                        continue
+                origin_values.append(
+                    (
+                        origin['key'], origin['tipo'], origin['nome'],
+                        origin['rotulo_original'], store_id,
+                    )
+                )
+            if origin_values:
+                execute_values(
+                    cursor,
+                    """
+                    INSERT INTO compras_origens
+                        (chave, tipo, nome, rotulo_original, store_id)
+                    VALUES %s
+                    ON CONFLICT (chave) DO NOTHING
+                    """,
+                    origin_values,
+                )
+            cursor.execute(
+                "SELECT chave, id FROM compras_origens WHERE chave = ANY(%s)",
+                (list(origins_by_key),),
+            )
+            origin_ids = {row[0]: row[1] for row in cursor.fetchall()}
+
+            resolved_rows = []
+            for row in seed_rows:
+                origin_id = origin_ids.get(row['origin_key'])
+                if origin_id is None:
                     stats['rejected'] += 1
                     continue
-                origin_id = origin_row[0]
-                unidade = infer_artigo_unidade(product)
+                resolved_rows.append(
+                    (
+                        row['catalog_key'], origin_id, CATALOG_SOURCE,
+                        CATALOG_VERSION, row['source_row'], row['origin_label'],
+                        row['product'], row['brand'], row['unidade'],
+                    )
+                )
 
-                # Adopt an exact legacy row without changing its human data.
+            if resolved_rows:
+                # Adopt exact legacy rows in one pass without changing their
+                # human-maintained catalogue values.
+                execute_values(
+                    cursor,
+                    """
+                    UPDATE artigos_administrativos AS a
+                       SET catalog_key = seed.catalog_key,
+                           origem_id = COALESCE(a.origem_id, seed.origin_id),
+                           origem_original = COALESCE(a.origem_original, a.fornecedor),
+                           source_dataset = COALESCE(a.source_dataset, seed.source_dataset),
+                           source_version = COALESCE(a.source_version, seed.source_version),
+                           source_row = COALESCE(a.source_row, seed.source_row),
+                           imported_at = COALESCE(a.imported_at, NOW()),
+                           updated_at = NOW()
+                      FROM (VALUES %s) AS seed(
+                           catalog_key, origin_id, source_dataset, source_version,
+                           source_row, origin_label, product, brand, unidade
+                      )
+                     WHERE a.catalog_key IS NULL
+                       AND a.fornecedor = seed.origin_label
+                       AND a.produto = seed.product
+                    """,
+                    resolved_rows,
+                )
                 cursor.execute(
                     """
-                    UPDATE artigos_administrativos
-                       SET catalog_key = %s,
-                           origem_id = COALESCE(origem_id, %s),
-                           origem_original = COALESCE(origem_original, fornecedor),
-                           source_dataset = COALESCE(source_dataset, %s),
-                           source_version = COALESCE(source_version, %s),
-                           source_row = COALESCE(source_row, %s),
-                           imported_at = COALESCE(imported_at, NOW()),
-                           updated_at = NOW()
-                     WHERE catalog_key IS NULL
-                       AND fornecedor = %s
-                       AND produto = %s
+                    SELECT catalog_key
+                    FROM artigos_administrativos
+                    WHERE catalog_key = ANY(%s)
                     """,
-                    (
-                        catalog_key, origin_id, CATALOG_SOURCE, CATALOG_VERSION,
-                        source_row, origin_label, product,
-                    ),
+                    ([row[0] for row in resolved_rows],),
                 )
+                existing_keys = {row[0] for row in cursor.fetchall()}
+                stats['existing'] = len(existing_keys)
 
-                cursor.execute(
-                    "SELECT id, marca, unidade, ativo, human_modified_at "
-                    "FROM artigos_administrativos WHERE catalog_key = %s",
-                    (catalog_key,),
-                )
-                existing = cursor.fetchone()
-                if existing:
-                    stats['existing'] += 1
-                cursor.execute(
+                execute_values(
+                    cursor,
                     """
                     INSERT INTO artigos_administrativos
-                        (fornecedor, produto, ativo, origem_id, origem_original,
-                         catalog_key, marca, unidade, source_dataset,
-                         source_version, source_row, imported_at, updated_at)
-                    VALUES (%s, %s, TRUE, %s, %s, %s, %s, %s, %s, %s, %s,
-                            NOW(), NOW())
+                        (catalog_key, origem_id, source_dataset, source_version,
+                         source_row, fornecedor, produto, marca, unidade,
+                         ativo, origem_original, imported_at, updated_at)
+                    VALUES %s
                     ON CONFLICT (catalog_key) DO UPDATE
                        SET marca = CASE
                                WHEN artigos_administrativos.human_modified_at IS NULL
@@ -410,16 +451,21 @@ def run_migrations_compras_catalogo():
                            ),
                            updated_at = NOW()
                     """,
-                    (
-                        origin_label, product, origin_id, origin_label,
-                        catalog_key, brand, unidade, CATALOG_SOURCE,
-                        CATALOG_VERSION, source_row,
-                    ),
+                    [
+                        (
+                            catalog_key, origin_id, source_dataset, source_version,
+                            source_row, origin_label, product, brand, unidade,
+                            True, origin_label,
+                            datetime.now(), datetime.now(),
+                        )
+                        for (
+                            catalog_key, origin_id, source_dataset, source_version,
+                            source_row, origin_label, product, brand, unidade,
+                        ) in resolved_rows
+                    ],
                 )
-                if existing:
-                    stats['updated'] += 1
-                else:
-                    stats['created'] += 1
+                stats['updated'] = len(existing_keys)
+                stats['created'] = len(resolved_rows) - len(existing_keys)
 
             conn.commit()
             logger.info(
