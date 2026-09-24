@@ -46,14 +46,62 @@ pastelaria_bp = Blueprint('pastelaria', __name__)
 AREA = 'pastelaria'
 
 TABS = [
-    {'id': 'stock_balcao', 'label': 'Visão de Stock', 'icon': '📦', 'endpoint': 'pastelaria.stock_balcao'},
-    {'id': 'inteligencia', 'label': 'Rotação e Sazonalidade', 'icon': '📈', 'endpoint': 'pastelaria.inteligencia'},
-    {'id': 'planear', 'label': 'Planear Produção', 'icon': '📋', 'endpoint': 'pastelaria.planear'},
-    {'id': 'stock_producao', 'label': 'Stock de Produção', 'icon': '📦', 'endpoint': 'pastelaria.stock_producao'},
-    {'id': 'transferir', 'label': 'Transferir para Loja', 'icon': '🔄', 'endpoint': 'pastelaria.transferir'},
-    {'id': 'quebra', 'label': 'Registar Quebra', 'icon': '⚠️', 'endpoint': 'pastelaria.registar_quebra'},
-    {'id': 'reconciliacao', 'label': 'Reconciliação', 'icon': '📊', 'endpoint': 'pastelaria.reconciliacao'},
-    {'id': 'gerir_produtos', 'label': 'Gerir Produtos', 'icon': '🍡', 'endpoint': 'pastelaria.gerir_produtos'},
+    {
+        'id': 'stock_balcao',
+        'label': 'Visão de Stock',
+        'icon': '📦',
+        'endpoint': 'pastelaria.stock_balcao',
+        'description': 'Consultar contagens físicas das lojas e respetivo histórico.',
+    },
+    {
+        'id': 'inteligencia',
+        'label': 'Rotação e Sazonalidade',
+        'icon': '📈',
+        'endpoint': 'pastelaria.inteligencia',
+        'description': 'Analisar rotação, vendas e sazonalidade.',
+    },
+    {
+        'id': 'planear',
+        'label': 'Planear Produção',
+        'icon': '📋',
+        'endpoint': 'pastelaria.planear',
+        'description': 'Gerar prioridades a partir de contagens e mínimos.',
+    },
+    {
+        'id': 'stock_producao',
+        'label': 'Stock de Produção',
+        'icon': '📦',
+        'endpoint': 'pastelaria.stock_producao',
+        'description': 'Confirmar saldos e registar produção ou correções.',
+    },
+    {
+        'id': 'transferir',
+        'label': 'Transferir para Loja',
+        'icon': '🔄',
+        'endpoint': 'pastelaria.transferir',
+        'description': 'Transferir artigos com saldo de produção disponível.',
+    },
+    {
+        'id': 'quebra',
+        'label': 'Registar Quebra',
+        'icon': '⚠️',
+        'endpoint': 'pastelaria.registar_quebra',
+        'description': 'Registar perdas de artigos de Pastelaria.',
+    },
+    {
+        'id': 'reconciliacao',
+        'label': 'Reconciliação',
+        'icon': '📊',
+        'endpoint': 'pastelaria.reconciliacao',
+        'description': 'Conferir diferenças entre registos de Pastelaria.',
+    },
+    {
+        'id': 'gerir_produtos',
+        'label': 'Gerir Produtos',
+        'icon': '🍡',
+        'endpoint': 'pastelaria.gerir_produtos',
+        'description': 'Adicionar e gerir produtos de Pastelaria.',
+    },
 ]
 
 
@@ -236,7 +284,12 @@ def index():
     icons = get_tile_icons('pastelaria')
     custom_mod = get_module_labels().get('pastelaria')
     items = [
-        {'icon': icons.get(t['id']) or t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['endpoint'])}
+        {
+            'icon': icons.get(t['id']) or t['icon'],
+            'label': labels.get(t['id']) or t['label'],
+            'url': url_for(t['endpoint']),
+            'description': t['description'],
+        }
         for t in TABS
         if visibility.get(t['id'], True)
     ]

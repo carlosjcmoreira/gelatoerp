@@ -2,10 +2,75 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
-from flask import Flask, session
+from flask import Flask, session, url_for
 
 from db.pastelaria import build_bolo_product_label
 from flask_app.routes import pastelaria as pastelaria_routes
+
+
+class PastelariaMenuTests(unittest.TestCase):
+    def test_home_menu_passes_descriptions_and_keeps_tile_preferences(self):
+        app = Flask(__name__)
+        app.secret_key = 'test'
+        app.register_blueprint(
+            pastelaria_routes.pastelaria_bp,
+            url_prefix='/pastelaria',
+        )
+
+        hidden_tile = 'transferir'
+        custom_label = 'Contagens das lojas'
+        custom_icon = '🧁'
+        with app.test_request_context('/pastelaria/'):
+            session['user'] = {'acesso_pastelaria': True}
+            with patch(
+                'db.tiles.get_tile_visibility',
+                return_value={hidden_tile: False},
+            ), patch(
+                'db.tiles.get_tile_labels',
+                return_value={'stock_balcao': custom_label},
+            ), patch(
+                'db.tiles.get_tile_icons',
+                return_value={'stock_balcao': custom_icon},
+            ), patch(
+                'db.tiles.get_module_labels',
+                return_value={'pastelaria': 'Pastelaria personalizada'},
+            ), patch.object(
+                pastelaria_routes,
+                'render_template',
+                return_value='menu',
+            ) as render_menu:
+                response = pastelaria_routes.index()
+
+            self.assertEqual(response, 'menu')
+            items = render_menu.call_args.kwargs['items']
+            menu_title = render_menu.call_args.kwargs['menu_title']
+            expected_descriptions = {
+                url_for(tab['endpoint']): tab['description']
+                for tab in pastelaria_routes.TABS
+            }
+            hidden_url = url_for('pastelaria.transferir')
+            stock_url = url_for('pastelaria.stock_balcao')
+
+        self.assertEqual(len(expected_descriptions), 8)
+        self.assertTrue(all(expected_descriptions.values()))
+        self.assertLessEqual(
+            max(len(description) for description in expected_descriptions.values()),
+            80,
+        )
+        self.assertEqual(len(items), 7)
+        self.assertNotIn(hidden_url, {item['url'] for item in items})
+        self.assertEqual(menu_title, '🍰 Pastelaria personalizada')
+        stock_item = next(
+            item for item in items
+            if item['url'] == stock_url
+        )
+        self.assertEqual(stock_item['label'], custom_label)
+        self.assertEqual(stock_item['icon'], custom_icon)
+        for item in items:
+            self.assertEqual(
+                item['description'],
+                expected_descriptions[item['url']],
+            )
 
 
 class PastelariaWeeklyPlanTests(unittest.TestCase):
