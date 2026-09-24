@@ -26,6 +26,8 @@ from db.pastelaria import (
     save_pastelaria_stock_minimums,
     get_pastelaria_sunday_count_grid,
     save_pastelaria_sunday_counts,
+    get_pastelaria_store_count_grid,
+    save_pastelaria_store_counts,
     get_pastelaria_priority_status,
     generate_pastelaria_priority_plan,
     get_pastelaria_priority_plan,
@@ -172,6 +174,13 @@ def _parse_sunday(value):
     return selected
 
 
+def _parse_pastelaria_count_date(value):
+    try:
+        return date.fromisoformat(str(value or date.today().isoformat()))
+    except (TypeError, ValueError):
+        raise ValueError('Escolha uma data válida para a contagem.') from None
+
+
 def validate_bolo_configuration(tamanho, sabores, cobertura, tamanhos, sabores_validos, coberturas):
     """Validate and canonicalise the configurable cake fields."""
     options = {str(option).strip().casefold(): str(option).strip() for option in tamanhos}
@@ -312,6 +321,100 @@ def stock_balcao():
                            count_status=count_status,
                            store_status=store_status,
                            missing_counts=missing_counts)
+
+
+@pastelaria_bp.route('/contagem-stock', methods=['GET', 'POST'])
+@perm_required('acesso_pastelaria')
+def contagem_stock():
+    """Let a Pastelaria user count any active sales store on any date."""
+    stores = get_pastelaria_stock_minimums()['stores']
+    store_ids = {int(store['id']) for store in stores}
+    raw_store_id = request.values.get('loja_id', '').strip()
+    raw_count_date = request.values.get('data_contagem', '')
+    selected_store_id = None
+    count_date = date.today()
+    grid = None
+    error = None
+    date_error = False
+
+    try:
+        count_date = _parse_pastelaria_count_date(raw_count_date)
+    except ValueError as exc:
+        error = str(exc)
+        date_error = True
+
+    if raw_store_id:
+        try:
+            selected_store_id = int(raw_store_id)
+        except (TypeError, ValueError):
+            error = 'Loja inválida.'
+    elif stores:
+        selected_store_id = int(stores[0]['id'])
+
+    if selected_store_id is not None and selected_store_id not in store_ids:
+        error = 'Loja inválida ou inativa.'
+    if not stores:
+        error = 'Não existem lojas ativas disponíveis para contagem.'
+
+    if not error and selected_store_id is not None:
+        try:
+            grid = get_pastelaria_store_count_grid(
+                count_date, selected_store_id, allow_non_sunday=True,
+            )
+        except (TypeError, ValueError) as exc:
+            error = str(exc)
+
+    if request.method == 'POST' and not error and grid:
+        values = []
+        try:
+            for product in grid['products']:
+                raw_quantity = request.form.get(f"count_{product['id']}", '')
+                if raw_quantity is None or not raw_quantity.strip().isdigit():
+                    raise ValueError(
+                        'Preencha todas as contagens com números inteiros não negativos.'
+                    )
+                values.append((product['id'], int(raw_quantity)))
+            saved = save_pastelaria_store_counts(
+                count_date,
+                selected_store_id,
+                values,
+                request.form.get('snapshot_token'),
+                allow_non_sunday=True,
+            )
+            store_name = grid['store']['name']
+            flash(
+                f'Contagem de {store_name} guardada: {saved} valores.',
+                'success',
+            )
+            return redirect(url_for(
+                'pastelaria.contagem_stock',
+                loja_id=selected_store_id,
+                data_contagem=count_date.isoformat(),
+            ))
+        except (TypeError, ValueError) as exc:
+            error = str(exc)
+            try:
+                grid = get_pastelaria_store_count_grid(
+                    count_date, selected_store_id, allow_non_sunday=True,
+                )
+            except (TypeError, ValueError):
+                grid = None
+            submitted = dict(values)
+            for product in (grid or {}).get('products', []):
+                if product['id'] in submitted:
+                    product['count'] = submitted[product['id']]
+
+    return render_template(
+        'pastelaria/contagem_stock.html',
+        active_tab='stock_balcao',
+        tabs=_tabs_with_urls(),
+        stores=stores,
+        selected_store_id=selected_store_id,
+        count_date=count_date,
+        grid=grid,
+        error=error,
+        date_error=date_error,
+    )
 
 
 @pastelaria_bp.route('/inteligencia')

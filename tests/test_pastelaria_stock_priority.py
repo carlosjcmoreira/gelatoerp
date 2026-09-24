@@ -265,6 +265,37 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertEqual(grid['completed'], 1)
         self.assertEqual(grid['total'], 1)
 
+    def test_weekday_store_grid_requires_explicit_daily_mode(self):
+        count_date = date(2026, 9, 9)
+        with self.assertRaisesRegex(ValueError, 'domingo'):
+            pastelaria.get_pastelaria_store_count_grid(count_date, 2)
+
+        cursor = _Cursor([
+            [{'id': 2, 'name': 'Matosinhos'}],
+            [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
+            [],
+            [{'snapshot_token': self.TOKEN_81}],
+        ])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            grid = pastelaria.get_pastelaria_store_count_grid(
+                count_date, 2, allow_non_sunday=True,
+            )
+
+        self.assertEqual(grid['date'], count_date)
+        self.assertEqual(grid['products'][0]['count'], None)
+        self.assertFalse(grid['complete'])
+        self.assertTrue(any(
+            "origem='contagem'" in query for query, _ in cursor.queries
+        ))
+        self.assertIn(
+            (f'pastelaria-count:{count_date.isoformat()}',),
+            [params for query, params in cursor.queries
+             if 'pg_advisory_xact_lock' in query],
+        )
+
     def test_unlinked_legacy_label_is_not_invented_as_catalogue_identity(self):
         cursor = _Cursor([
             [{'id': 2, 'name': 'Matosinhos'}],
@@ -308,6 +339,35 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             [params for query, params in cursor.queries if 'pg_advisory_xact_lock' in query],
         )
         self.assertNotIn('DELETE FROM contagem_stock', statements)
+
+    @patch('db.pastelaria.execute_values')
+    def test_daily_store_count_saves_physical_rows_on_weekdays(self, bulk):
+        count_date = date(2026, 9, 9)
+        cursor = _Cursor([
+            [{'id': 2, 'name': 'Matosinhos'}],
+            [{'snapshot_token': self.TOKEN_81}],
+            [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
+        ])
+        connection = _Connection(cursor)
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=connection,
+        ):
+            saved = pastelaria.save_pastelaria_store_counts(
+                count_date, 2, [(10, 7)], self.TOKEN_81,
+                allow_non_sunday=True,
+            )
+
+        self.assertEqual(saved, 1)
+        self.assertTrue(connection.committed)
+        self.assertEqual(
+            bulk.call_args.args[2],
+            [(count_date, 'Matosinhos', 'Palito', 7, 'pastelaria',
+              'contagem', 10)],
+        )
+        statements = '\n'.join(query for query, _ in cursor.queries)
+        self.assertIn("origem='contagem'", statements)
+        self.assertIn('pg_advisory_xact_lock', statements)
 
     @patch('db.pastelaria.execute_values')
     def test_complete_sunday_grid_is_saved_once_and_keeps_history(self, bulk):
@@ -834,6 +894,201 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertEqual(response.get_data(as_text=True), '7')
         self.assertIn('alterada por outro utilizador', rendered['error'])
         self.assertEqual(client.post('/pastelaria/stock-balcao').status_code, 405)
+
+    def test_pastelaria_count_page_allows_authorized_cross_store_weekday_count(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.add_url_rule('/home', endpoint='home.index', view_func=lambda: '')
+        app.add_url_rule('/login', endpoint='auth.login', view_func=lambda: '')
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        stores = [
+            {'id': 1, 'name': 'Bolhão'},
+            {'id': 2, 'name': 'Matosinhos'},
+        ]
+        grid = {
+            'store': stores[1],
+            'products': [{
+                'id': 10, 'nome': 'Palito', 'count': None,
+            }],
+            'completed': 0, 'total': 1, 'complete': False,
+            'snapshot_token': self.TOKEN_81,
+        }
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'pastelaria',
+                'role': 'vendas',
+                'vendas_store_ids': [1],
+                'acesso_pastelaria': True,
+            }
+
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_stock_minimums',
+                return_value={'stores': stores, 'products': []},
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_store_count_grid',
+                return_value=grid,
+            ) as get_grid,
+            patch('flask_app.routes.pastelaria._tabs_with_urls', return_value=[]),
+        ):
+            response = client.get(
+                '/pastelaria/contagem-stock?loja_id=2&data_contagem=2026-09-09'
+            )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('Contagem física de Pastelaria', html)
+        self.assertIn('Matosinhos', html)
+        self.assertIn('name="count_10"', html)
+        get_grid.assert_called_once_with(
+            date(2026, 9, 9), 2, allow_non_sunday=True,
+        )
+
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_stock_minimums',
+                return_value={'stores': stores, 'products': []},
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_store_count_grid',
+                return_value=grid,
+            ) as get_grid,
+            patch(
+                'flask_app.routes.pastelaria.save_pastelaria_store_counts',
+                return_value=1,
+            ) as save_counts,
+        ):
+            response = client.post('/pastelaria/contagem-stock', data={
+                'loja_id': '2',
+                'data_contagem': '2026-09-09',
+                'snapshot_token': self.TOKEN_81,
+                'count_10': '4',
+            })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('loja_id=2', response.location)
+        self.assertIn('data_contagem=2026-09-09', response.location)
+        get_grid.assert_called_once_with(
+            date(2026, 9, 9), 2, allow_non_sunday=True,
+        )
+        save_counts.assert_called_once_with(
+            date(2026, 9, 9), 2, [(10, 4)], self.TOKEN_81,
+            allow_non_sunday=True,
+        )
+
+    def test_pastelaria_count_rejects_forged_store_and_missing_permission(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.add_url_rule('/home', endpoint='home.index', view_func=lambda: '')
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        stores = [{'id': 1, 'name': 'Bolhão'}]
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'pastelaria',
+                'role': 'vendas',
+                'acesso_pastelaria': True,
+            }
+
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_stock_minimums',
+                return_value={'stores': stores, 'products': []},
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_store_count_grid'
+            ) as get_grid,
+            patch(
+                'flask_app.routes.pastelaria.save_pastelaria_store_counts'
+            ) as save_counts,
+            patch(
+                'flask_app.routes.pastelaria._tabs_with_urls',
+                return_value=[],
+            ),
+        ):
+            response = client.post('/pastelaria/contagem-stock', data={
+                'loja_id': '2',
+                'data_contagem': '2026-09-09',
+                'count_10': '4',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Loja inválida', response.get_data(as_text=True))
+        get_grid.assert_not_called()
+        save_counts.assert_not_called()
+
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'vendas',
+                'role': 'vendas',
+                'vendas_store_ids': [1],
+            }
+        response = client.get('/pastelaria/contagem-stock')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.location, '/home')
+
+    def test_pastelaria_stale_daily_count_keeps_entered_values(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        store = {'id': 2, 'name': 'Matosinhos'}
+
+        def fresh_grid():
+            return {
+                'store': store,
+                'products': [{
+                    'id': 10, 'nome': 'Palito', 'count': None,
+                }],
+                'completed': 0, 'total': 1, 'complete': False,
+                'snapshot_token': self.TOKEN_82,
+            }
+
+        rendered = {}
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'pastelaria',
+                'acesso_pastelaria': True,
+            }
+
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_stock_minimums',
+                return_value={'stores': [store], 'products': []},
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_store_count_grid',
+                side_effect=[fresh_grid(), fresh_grid()],
+            ),
+            patch(
+                'flask_app.routes.pastelaria.save_pastelaria_store_counts',
+                side_effect=ValueError('A grelha foi alterada por outro utilizador.'),
+            ),
+            patch('flask_app.routes.pastelaria._tabs_with_urls', return_value=[]),
+            patch(
+                'flask_app.routes.pastelaria.render_template',
+                side_effect=lambda _name, **context: (
+                    rendered.update(context) or 'rendered'
+                ),
+            ),
+        ):
+            response = client.post('/pastelaria/contagem-stock', data={
+                'loja_id': '2',
+                'data_contagem': '2026-09-09',
+                'snapshot_token': self.TOKEN_81,
+                'count_10': '8',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('outro utilizador', rendered['error'])
+        self.assertEqual(rendered['grid']['products'][0]['count'], 8)
 
     def test_intelligence_calculates_rotation_and_keeps_sales_at_typology_level(self):
         cursor = _Cursor([
@@ -1933,6 +2188,77 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                 ('Matosinhos', 'Palito', 7),
             ],
         )
+
+    def test_weekday_count_is_saved_and_transfer_receipt_is_not_a_count(self):
+        weekday_date = date(2099, 12, 30)
+        sunday_date = date(2099, 12, 27)
+        try:
+            with patch(
+                'db.pastelaria.db_connection',
+                self.isolated_connection,
+            ):
+                grid = pastelaria.get_pastelaria_store_count_grid(
+                    weekday_date, 1, allow_non_sunday=True,
+                )
+                self.assertEqual(grid['products'][0]['count'], None)
+                saved = pastelaria.save_pastelaria_store_counts(
+                    weekday_date, 1, [(1, 7)], grid['snapshot_token'],
+                    allow_non_sunday=True,
+                )
+            self.assertEqual(saved, 1)
+
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        INSERT INTO contagem_stock (
+                            data, loja, produto, quantidade, tipo, origem,
+                            produto_pastelaria_id
+                        ) VALUES (
+                            %s, 'Bolhão', 'Palito', 5, 'pastelaria',
+                            'transferencia', 1
+                        )
+                    """, (sunday_date,))
+                    connection.commit()
+
+            with patch(
+                'db.pastelaria.db_connection',
+                self.isolated_connection,
+            ):
+                sunday_grid = pastelaria.get_pastelaria_store_count_grid(
+                    sunday_date, 1,
+                )
+                sunday_planning_grid = (
+                    pastelaria.get_pastelaria_sunday_count_grid(sunday_date)
+                )
+                history = pastelaria.get_contagem_stock_df(
+                    'pastelaria', sunday_date, weekday_date,
+                )
+            self.assertEqual(sunday_grid['completed'], 0)
+            self.assertIsNone(sunday_grid['products'][0]['count'])
+            self.assertEqual(sunday_planning_grid['completed'], 0)
+            self.assertEqual(len(history), 1)
+            self.assertEqual(
+                str(history.iloc[0]['data'])[:10], weekday_date.isoformat(),
+            )
+            self.assertEqual(int(history.iloc[0]['quantidade']), 7)
+
+            with patch('db.area.db_connection', self.isolated_connection):
+                latest = area.get_ultimo_stock_balcao('pastelaria')
+            self.assertEqual(
+                [row for row in latest if row['loja'] == 'Bolhão'],
+                [{
+                    'produto': 'Palito', 'loja': 'Bolhão',
+                    'quantidade': 7, 'data': weekday_date,
+                }],
+            )
+        finally:
+            with self.isolated_connection() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "DELETE FROM contagem_stock WHERE data IN (%s, %s)",
+                        (weekday_date, sunday_date),
+                    )
+                    connection.commit()
 
 
 if __name__ == '__main__':

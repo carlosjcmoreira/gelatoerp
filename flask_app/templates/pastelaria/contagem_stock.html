@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.stock_balcao") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    {% include "components/tabs.html" %}
+    <div class="mb-3">
+        <h5 class="mb-1">🍰 Contagem física de Pastelaria</h5>
+        <p class="text-muted small mb-0">
+            Escolha a loja e o dia da contagem. As contagens anteriores ficam no histórico.
+        </p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-warning py-2">{{ error }}</div>
+    {% endif %}
+
+    <form method="get" class="card card-body mb-3">
+        <div class="row g-2 align-items-end">
+            <div class="col-sm-5">
+                <label for="count-store" class="form-label small">Loja</label>
+                <select id="count-store" name="loja_id" class="form-select form-select-sm" required>
+                    {% for store in stores %}
+                    <option value="{{ store.id }}"
+                            {% if store.id == selected_store_id %}selected{% endif %}>
+                        {{ store.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-sm-4">
+                <label for="count-date" class="form-label small">Data da contagem</label>
+                <input id="count-date" type="date" name="data_contagem"
+                       class="form-control form-control-sm"
+                       value="{{ count_date.isoformat() }}" required>
+            </div>
+            <div class="col-sm-3">
+                <button class="btn btn-outline-secondary btn-sm w-100">Abrir grelha</button>
+            </div>
+        </div>
+    </form>
+
+    {% if grid %}
+    <section class="card border-primary">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <span class="fw-semibold">{{ grid.store.name }} · {{ count_date.strftime('%d/%m/%Y') }}</span>
+            <span class="badge {% if grid.complete %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                {{ grid.completed }}/{{ grid.total }} preenchidos
+            </span>
+        </div>
+        <div class="card-body">
+            <form method="post" id="pastelaria-daily-count-form">
+                <input type="hidden" name="loja_id" value="{{ selected_store_id }}">
+                <input type="hidden" name="data_contagem" value="{{ count_date.isoformat() }}">
+                <input type="hidden" name="snapshot_token" value="{{ grid.snapshot_token }}">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-2">
+                        <thead>
+                            <tr><th>Produto</th><th class="text-center">Quantidade</th></tr>
+                        </thead>
+                        <tbody>
+                        {% for product in grid.products %}
+                        <tr>
+                            <th class="fw-normal">{{ product.nome }}</th>
+                            <td>
+                                <input type="number" min="0" step="1" required
+                                       class="form-control form-control-sm text-center count-input"
+                                       name="count_{{ product.id }}"
+                                       value="{{ '' if product.count is none else product.count }}"
+                                       aria-label="{{ product.nome }}">
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="2" class="text-muted small">Sem produtos ativos.</td></tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if grid.products %}
+                <button type="submit" class="btn btn-primary btn-sm w-100">Guardar contagem física</button>
+                {% else %}
+                <button type="submit" class="btn btn-primary btn-sm w-100" disabled>Sem produtos para contar</button>
+                {% endif %}
+            </form>
+        </div>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

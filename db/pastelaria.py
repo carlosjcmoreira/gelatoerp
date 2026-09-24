@@ -186,7 +186,7 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
             SELECT DISTINCT ON (cs.loja, COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto))
                    cs.loja, cs.produto, cs.quantidade, cs.produto_pastelaria_id
             FROM contagem_stock cs
-            WHERE tipo='pastelaria' AND data=%s
+            WHERE tipo='pastelaria' AND origem='contagem' AND data=%s
             ORDER BY cs.loja, COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto), cs.id DESC
         """, (count_date,))
         counts = {
@@ -209,7 +209,7 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
                        COALESCE(produto_pastelaria_id::text, 'text:' || produto)
                            AS product_key
                 FROM contagem_stock
-                WHERE tipo='pastelaria' AND data=%s
+                WHERE tipo='pastelaria' AND origem='contagem' AND data=%s
                 {token_filter}
                 ORDER BY loja,
                          COALESCE(produto_pastelaria_id::text, 'text:' || produto),
@@ -243,9 +243,11 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
     }
 
 
-def get_pastelaria_store_count_grid(count_date, store_id):
-    """Return the Sunday count grid for one active sales store."""
-    if count_date.weekday() != 6:
+def get_pastelaria_store_count_grid(
+    count_date, store_id, allow_non_sunday=False,
+):
+    """Return a physical count grid for one active sales store."""
+    if count_date.weekday() != 6 and not allow_non_sunday:
         raise ValueError('Escolha um domingo para preencher a grelha de contagem.')
     try:
         store_id = int(store_id)
@@ -276,7 +278,8 @@ def get_pastelaria_store_count_grid(count_date, store_id):
             SELECT DISTINCT ON (COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto))
                    cs.produto, cs.quantidade, cs.produto_pastelaria_id
             FROM contagem_stock cs
-            WHERE tipo='pastelaria' AND data=%s AND loja=%s
+            WHERE tipo='pastelaria' AND origem='contagem'
+              AND data=%s AND loja=%s
             ORDER BY COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto), cs.id DESC
         """, (count_date, store['name']))
         counts = {
@@ -294,7 +297,8 @@ def get_pastelaria_store_count_grid(count_date, store_id):
                        COALESCE(produto_pastelaria_id::text, 'text:' || produto)
                            AS product_key
                 FROM contagem_stock
-                WHERE tipo='pastelaria' AND data=%s AND loja=%s
+                WHERE tipo='pastelaria' AND origem='contagem'
+                  AND data=%s AND loja=%s
                 ORDER BY COALESCE(produto_pastelaria_id::text, 'text:' || produto),
                          id DESC
             ) latest
@@ -321,9 +325,11 @@ def get_pastelaria_store_count_grid(count_date, store_id):
     }
 
 
-def save_pastelaria_store_counts(count_date, store_id, values, snapshot_token):
-    """Append one store's complete Sunday count snapshot."""
-    if count_date.weekday() != 6:
+def save_pastelaria_store_counts(
+    count_date, store_id, values, snapshot_token, allow_non_sunday=False,
+):
+    """Append one store's complete physical count snapshot."""
+    if count_date.weekday() != 6 and not allow_non_sunday:
         raise ValueError('A data da contagem tem de ser um domingo.')
     try:
         store_id = int(store_id)
@@ -370,7 +376,8 @@ def save_pastelaria_store_counts(count_date, store_id, values, snapshot_token):
                        COALESCE(produto_pastelaria_id::text, 'text:' || produto)
                            AS product_key
                 FROM contagem_stock
-                WHERE tipo='pastelaria' AND data=%s AND loja=%s
+                WHERE tipo='pastelaria' AND origem='contagem'
+                  AND data=%s AND loja=%s
                 ORDER BY COALESCE(produto_pastelaria_id::text, 'text:' || produto),
                          id DESC
             ) latest
@@ -399,13 +406,14 @@ def save_pastelaria_store_counts(count_date, store_id, values, snapshot_token):
         rows = [
             (
                 count_date, store['name'], product_names[product_id],
-                quantity, 'pastelaria', product_id,
+                quantity, 'pastelaria', 'contagem', product_id,
             )
             for product_id, quantity in normalized.items()
         ]
         execute_values(cursor, """
             INSERT INTO contagem_stock
-                (data, loja, produto, quantidade, tipo, produto_pastelaria_id)
+                (data, loja, produto, quantidade, tipo, origem,
+                 produto_pastelaria_id)
             VALUES %s
         """, rows)
         conn.commit()
@@ -457,7 +465,7 @@ def save_pastelaria_sunday_counts(
                        COALESCE(produto_pastelaria_id::text, 'text:' || produto)
                            AS product_key
                 FROM contagem_stock
-                WHERE tipo='pastelaria' AND data=%s
+                WHERE tipo='pastelaria' AND origem='contagem' AND data=%s
                 {token_filter}
                 ORDER BY loja,
                          COALESCE(produto_pastelaria_id::text, 'text:' || produto),
@@ -499,13 +507,14 @@ def save_pastelaria_sunday_counts(
         rows = [
             (
                 count_date, store_names[store_id], product_names[product_id],
-                quantity, 'pastelaria', product_id,
+                quantity, 'pastelaria', 'contagem', product_id,
             )
             for (product_id, store_id), quantity in normalized.items()
         ]
         execute_values(cursor, """
             INSERT INTO contagem_stock
-                (data, loja, produto, quantidade, tipo, produto_pastelaria_id)
+                (data, loja, produto, quantidade, tipo, origem,
+                 produto_pastelaria_id)
             VALUES %s
         """, rows)
         conn.commit()
@@ -545,6 +554,8 @@ def get_contagem_stock_df(tipo: str, data_inicio: date = None, data_fim: date = 
             WHERE cs.tipo = %s
         """
         params = [tipo]
+        if tipo == 'pastelaria':
+            query += " AND cs.origem='contagem'"
         if data_inicio:
             query += " AND cs.data >= %s"
             params.append(data_inicio)

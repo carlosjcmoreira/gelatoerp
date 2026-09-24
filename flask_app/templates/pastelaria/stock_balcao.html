@@ -11,8 +11,12 @@
                 Consulta do stock atual, da data de cada valor e do histórico de contagens.
             </p>
         </div>
-        <a class="btn btn-outline-primary btn-sm text-nowrap"
-           href="{{ url_for('pastelaria.planear') }}">Planear produção</a>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-primary btn-sm text-nowrap"
+               href="{{ url_for('pastelaria.contagem_stock') }}">Registar contagem</a>
+            <a class="btn btn-outline-primary btn-sm text-nowrap"
+               href="{{ url_for('pastelaria.planear') }}">Planear produção</a>
+        </div>
     </div>
 
     <div class="card mb-3">

@@ -40,6 +40,7 @@ def get_ultimo_stock_balcao(area: str) -> list:
                     LEFT JOIN produtos_pastelaria p
                       ON p.id=cs.produto_pastelaria_id
                     WHERE cs.tipo = %s
+                      AND cs.origem = 'contagem'
                     ORDER BY COALESCE(
                                  cs.produto_pastelaria_id::text,
                                  'text:' || cs.produto
