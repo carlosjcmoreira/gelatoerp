@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_app.auth import perm_required
 import sys, os
 import json
+from uuid import uuid4
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import database as db
 import pandas as pd
@@ -13,12 +14,16 @@ from database import (
     get_plano_do_dia_area, get_plano_produto, get_plano_intervalo_area,
     update_producao_real_area, update_plano_status_area,
     upsert_stock_producao_area, get_stock_producao_area_all,
-    get_stock_producao_area, reduzir_stock_producao_area,
-    criar_ordem_transferencia,
     add_quebra_area, get_quebras_df_area, delete_quebra_area,
     get_active_venda_stores,
-    get_or_create_pending_batch,
     get_reconciliacao_pastelaria,
+)
+from db.plano import criar_ordens_transferencia_pastelaria
+from db.pastelaria_stock import (
+    PastelariaStockError,
+    get_pastelaria_stock_options,
+    get_pastelaria_stock_movements,
+    register_pastelaria_stock_movement,
 )
 from datetime import date, timedelta
 from db.pastelaria import (
@@ -44,6 +49,7 @@ TABS = [
     {'id': 'stock_balcao', 'label': 'Visão de Stock', 'icon': '📦', 'endpoint': 'pastelaria.stock_balcao'},
     {'id': 'inteligencia', 'label': 'Rotação e Sazonalidade', 'icon': '📈', 'endpoint': 'pastelaria.inteligencia'},
     {'id': 'planear', 'label': 'Planear Produção', 'icon': '📋', 'endpoint': 'pastelaria.planear'},
+    {'id': 'stock_producao', 'label': 'Stock de Produção', 'icon': '📦', 'endpoint': 'pastelaria.stock_producao'},
     {'id': 'transferir', 'label': 'Transferir para Loja', 'icon': '🔄', 'endpoint': 'pastelaria.transferir'},
     {'id': 'quebra', 'label': 'Registar Quebra', 'icon': '⚠️', 'endpoint': 'pastelaria.registar_quebra'},
     {'id': 'reconciliacao', 'label': 'Reconciliação', 'icon': '📊', 'endpoint': 'pastelaria.reconciliacao'},
@@ -626,14 +632,68 @@ def gerir_produtos():
                            tabs=_tabs_with_urls())
 
 
+@pastelaria_bp.route('/stock-producao', methods=['GET', 'POST'])
+@perm_required('acesso_pastelaria')
+def stock_producao():
+    if request.method == 'POST':
+        identity_key = request.form.get('identity_key', '').strip()
+        tipo = request.form.get('tipo', '').strip()
+        data_str = request.form.get('data', '').strip()
+        motivo = request.form.get('motivo', '').strip()
+        quantidade_str = request.form.get('quantidade', '').strip()
+        try:
+            data_movimento = date.fromisoformat(data_str)
+        except ValueError:
+            flash('Indique uma data válida para o movimento.', 'error')
+            return redirect(url_for('pastelaria.stock_producao'))
+        try:
+            quantidade = int(quantidade_str)
+        except (TypeError, ValueError):
+            flash('A quantidade tem de ser um número inteiro.', 'error')
+            return redirect(url_for('pastelaria.stock_producao'))
+
+        try:
+            result = register_pastelaria_stock_movement(
+                identity_key=identity_key,
+                tipo=tipo,
+                quantidade=quantidade,
+                data=data_movimento,
+                responsavel=session.get('user', {}).get('username', ''),
+                motivo=motivo,
+            )
+        except PastelariaStockError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('pastelaria.stock_producao'))
+
+        flash(
+            f"Movimento guardado. Saldo confirmado de {result['produto']}: "
+            f"{result['saldo']}.",
+            'success',
+        )
+        return redirect(url_for('pastelaria.stock_producao'))
+
+    return render_template(
+        'pastelaria/stock_producao.html',
+        active_tab='stock_producao',
+        tabs=_tabs_with_urls(),
+        options=get_pastelaria_stock_options(),
+        movements=get_pastelaria_stock_movements(),
+        today=date.today().isoformat(),
+    )
+
+
 @pastelaria_bp.route('/transferir', methods=['GET', 'POST'])
 @perm_required('acesso_pastelaria')
 def transferir():
     today = date.today()
 
     if request.method == 'POST':
-        ordens_count = 0
         username = session.get('user', {}).get('username', '')
+        request_key = request.form.get('request_key', '').strip()
+        if not request_key:
+            flash('Formulário de transferência inválido. Atualize a página.', 'error')
+            return redirect(url_for('pastelaria.transferir'))
+
         data_prevista_str = request.form.get('data_prevista', '')
         data_prevista = None
         if data_prevista_str:
@@ -650,6 +710,7 @@ def transferir():
         if loja_destino not in active_store_names:
             flash('Loja de destino inválida.', 'error')
             return redirect(url_for('pastelaria.transferir'))
+
         import re as _re
         form_pairs = []
         for key in request.form:
@@ -659,10 +720,40 @@ def transferir():
                 form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
 
         requested = []
+        invalid_lines = False
         for _, produto, qty_str in sorted(form_pairs, key=lambda x: x[0]):
-            qty = _parse_int(qty_str)
-            if produto and qty > 0:
-                requested.append((produto, qty))
+            produto = (produto or '').strip()
+            qty_str = (qty_str or '').strip()
+            if not produto and not qty_str:
+                continue
+            if not produto or not qty_str:
+                invalid_lines = True
+                break
+            try:
+                qty = int(qty_str)
+            except (TypeError, ValueError):
+                invalid_lines = True
+                break
+            if qty <= 0:
+                invalid_lines = True
+                break
+            requested.append({'identity_key': produto, 'quantidade': qty})
+        if invalid_lines:
+            flash(
+                'Cada linha preenchida tem de incluir um artigo e uma '
+                'quantidade inteira superior a zero.',
+                'error',
+            )
+            return redirect(url_for(
+                'pastelaria.transferir',
+                data_prevista=data_prevista.isoformat(),
+            ))
+        if not requested:
+            flash('Indique pelo menos um artigo e uma quantidade.', 'info')
+            return redirect(url_for(
+                'pastelaria.transferir',
+                data_prevista=data_prevista.isoformat(),
+            ))
 
         configured_products = {
             produto for produto in get_produtos_pastelaria()
@@ -679,11 +770,33 @@ def transferir():
             product for product in persisted_plan_products
             if cake_enabled and product.startswith('Bolo — ')
         }
-        allowed_products = configured_products | active_cake_configurations
-        invalid_products = sorted({
-            produto for produto, _ in requested if produto not in allowed_products
+        stock_options = get_pastelaria_stock_options()
+        options_by_key = {
+            item['identity_key']: item for item in stock_options
+        }
+        allowed_keys = {
+            item['identity_key']
+            for item in stock_options
+            if item['ativo']
+            and item['kind'] == 'catalogue'
+            and item['produto'] in configured_products
+        }
+        allowed_keys.update(
+            item['identity_key']
+            for item in stock_options
+            if item['ativo']
+            and item['kind'] == 'cake'
+            and item['produto'] in active_cake_configurations
+        )
+        invalid_keys = sorted({
+            line['identity_key'] for line in requested
+            if line['identity_key'] not in allowed_keys
         })
-        if invalid_products:
+        if invalid_keys:
+            invalid_products = [
+                options_by_key[key]['produto'] if key in options_by_key else key
+                for key in invalid_keys
+            ]
             flash(
                 'Artigo inválido ou não planeado para a data prevista: '
                 + ', '.join(invalid_products),
@@ -694,19 +807,34 @@ def transferir():
                 data_prevista=data_prevista.isoformat(),
             ))
 
-        batch_id = get_or_create_pending_batch(today, 'Pastelaria', loja_destino)
-        for produto, qty in requested:
-            # The weekly plan is a manual dispatch decision. Digital production
-            # stock is informational only and must not block or truncate it.
-            criar_ordem_transferencia(
-                today, 'Pastelaria', produto, qty, 'und', loja_destino,
-                criado_por=username, data_prevista=data_prevista, batch_id=batch_id
+        try:
+            result = criar_ordens_transferencia_pastelaria(
+                data=today,
+                loja_destino=loja_destino,
+                lines=requested,
+                criado_por=username,
+                data_prevista=data_prevista,
+                request_key=request_key,
             )
-            ordens_count += 1
-        if ordens_count > 0:
-            flash(f"{ordens_count} ordem(ns) de transferência criada(s)!", "success")
-        else:
-            flash("Nenhuma transferência registada. Verifique as quantidades.", "info")
+        except PastelariaStockError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for(
+                'pastelaria.transferir',
+                data_prevista=data_prevista.isoformat(),
+            ))
+
+        order_count = len(result['order_ids'])
+        if result['replayed']:
+            flash(
+                f"Esta submissão já tinha sido processada "
+                f"({order_count} ordem(ns)); o stock não foi debitado novamente.",
+                'info',
+            )
+        elif order_count:
+            flash(
+                f"{order_count} ordem(ns) de transferência criada(s)!",
+                'success',
+            )
         return redirect(url_for(
             'pastelaria.transferir',
             data_prevista=data_prevista.isoformat(),
@@ -730,7 +858,11 @@ def transferir():
             balcao_map[key] = {}
         balcao_map[key][s['loja']] = {'quantidade': s['quantidade'], 'data': s['data']}
 
-    prod_map = {sp['produto']: sp['quantidade'] for sp in stock_prod}
+    prod_map = {}
+    for stock in stock_prod:
+        label = stock['produto']
+        prod_map[label] = prod_map.get(label, 0) + stock['quantidade']
+
     plano_data_prevista = get_plano_do_dia_area(AREA, data_prevista)
     configured_products = [
         produto for produto in get_produtos_pastelaria()
@@ -744,34 +876,101 @@ def transferir():
         row['produto'] for row in plano_data_prevista
         if cake_enabled and row['produto'].startswith('Bolo — ')
     }
-    all_produtos = sorted(set(
-        list(prod_map.keys())
-        + list(balcao_map.keys())
-        + configured_products
-        + [row['produto'] for row in plano_data_prevista]
-    ))
+    stock_options = get_pastelaria_stock_options()
+    options_by_label = {}
+    for option in stock_options:
+        options_by_label.setdefault(option['produto'], []).append(option)
 
+    transfer_options = [
+        item for item in stock_options
+        if item['ativo']
+        and item['kind'] == 'catalogue'
+        and item['produto'] in set(configured_products)
+    ]
+    transfer_options.extend(
+        item for item in stock_options
+        if item['ativo']
+        and item['kind'] == 'cake'
+        and item['produto'] in active_cake_configurations
+    )
+    transfer_options.sort(
+        key=lambda item: (item['produto'].casefold(), item['identity_key'])
+    )
+
+    duplicate_labels = {
+        label for label, items in options_by_label.items()
+        if len(items) > 1
+    }
     cards = []
-    for produto in all_produtos:
-        balcao = balcao_map.get(produto, {})
+    displayed_labels = set()
+    for item in stock_options:
+        label = item['produto']
+        if not label:
+            continue
+        balcao = balcao_map.get(label, {})
         balcao_mat = balcao.get('Matosinhos', {})
         balcao_bol = balcao.get('Bolhão', {})
         data_mat = balcao_mat.get('data')
         data_bol = balcao_bol.get('data')
+        identity_hint = ''
+        if label in duplicate_labels and item.get('produto_pastelaria_id'):
+            identity_hint = f"ID {item['produto_pastelaria_id']}"
         cards.append({
-            'produto': produto,
-            'stock_prod': prod_map.get(produto, 0),
+            'produto': label,
+            'identity_hint': identity_hint,
+            'identity_key': item['identity_key'],
+            'stock_prod': prod_map.get(label, 0),
+            'saldo_producao': item['saldo'],
+            'saldo_confirmado': item['saldo_inicial_confirmado'],
             'balcao_matosinhos': balcao_mat.get('quantidade', 0),
             'balcao_bolhao': balcao_bol.get('quantidade', 0),
             'data_balcao_matosinhos': data_mat.strftime('%d/%m') if data_mat else '-',
             'data_balcao_bolhao': data_bol.strftime('%d/%m') if data_bol else '-',
         })
+        displayed_labels.add(label)
 
-    # Every known article is selectable: the operator confirms physical
-    # availability when preparing the dispatch.
+    reference_labels = set(prod_map)
+    physical_labels = set(balcao_map)
+    legacy_only_labels = (
+        reference_labels | physical_labels
+        | set(configured_products)
+        | active_cake_configurations
+        | {row['produto'] for row in plano_data_prevista}
+    ) - displayed_labels
+    for label in sorted(legacy_only_labels):
+        balcao = balcao_map.get(label, {})
+        balcao_mat = balcao.get('Matosinhos', {})
+        balcao_bol = balcao.get('Bolhão', {})
+        data_mat = balcao_mat.get('data')
+        data_bol = balcao_bol.get('data')
+        cards.append({
+            'produto': label,
+            'identity_hint': '',
+            'identity_key': '',
+            'stock_prod': prod_map.get(label, 0),
+            'saldo_producao': 0,
+            'saldo_confirmado': False,
+            'balcao_matosinhos': balcao_mat.get('quantidade', 0),
+            'balcao_bolhao': balcao_bol.get('quantidade', 0),
+            'data_balcao_matosinhos': data_mat.strftime('%d/%m') if data_mat else '-',
+            'data_balcao_bolhao': data_bol.strftime('%d/%m') if data_bol else '-',
+        })
+    cards.sort(key=lambda item: (item['produto'].casefold(), item['identity_hint']))
+
     cards_transferivel = [
-        card for card in cards
-        if card['produto'] in set(configured_products) | active_cake_configurations
+        {
+            **item,
+            'pode_transferir': (
+                item['saldo_inicial_confirmado'] and item['saldo'] > 0
+            ),
+            'identity_hint': (
+                f" — ID {item['produto_pastelaria_id']}"
+                if item['produto'] in duplicate_labels
+                and item.get('produto_pastelaria_id')
+                else ''
+            ),
+        }
+        for item in transfer_options
     ]
 
     return render_template('pastelaria/transferir.html',
@@ -780,7 +979,8 @@ def transferir():
                            cards=cards,
                            cards_transferivel=cards_transferivel,
                            lojas_venda=lojas_venda,
-                           data_prevista=data_prevista.isoformat())
+                           data_prevista=data_prevista.isoformat(),
+                           request_key=str(uuid4()))
 
 
 def _parse_decimal(val_str, default=0.0):

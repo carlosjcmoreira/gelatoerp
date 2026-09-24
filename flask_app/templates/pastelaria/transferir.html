@@ -5,9 +5,12 @@
 <div class="container-fluid px-3 py-3">
     {% include "components/tabs.html" %}
     <h5 class="mb-1">🔄 Transferir Stock</h5>
-    <p class="text-muted small mb-3">Adicione os artigos a enviar e confirme a ordem.</p>
+    <p class="text-muted small mb-3">
+        Só é possível transferir artigos com saldo inicial confirmado e stock de produção disponível.
+    </p>
 
     <form method="post" id="transferForm">
+    <input type="hidden" name="request_key" value="{{ request_key }}">
     <div class="mb-3">
         <button type="submit" class="btn btn-primary w-100">Criar ordem de transferência</button>
     </div>
@@ -42,29 +45,38 @@
                 <button class="accordion-button collapsed py-2 px-3" type="button"
                         data-bs-toggle="collapse" data-bs-target="#stockRefBody"
                         style="font-size:0.83rem;">
-                    📊 Visão de stock (referência)
+                    📊 Stock de produção e contagens das lojas
                 </button>
             </h2>
             <div id="stockRefBody" class="accordion-collapse collapse">
                 <div class="accordion-body p-0">
                     <p class="text-muted px-2 pt-2 mb-1" style="font-size:0.75rem;">
-                        <strong>Stock digital</strong> = produção anteriormente registada; serve apenas como referência e não limita a ordem.<br>
-                        <strong>Balcão</strong> = última contagem manual (ver "Visão de Stock").
+                        <strong>Saldo de produção</strong> = saldo auditado disponível para transferir. É necessário confirmar um saldo inicial, mesmo quando é zero.<br>
+                        <strong>Histórico digital</strong> = registos antigos, apenas para consulta; não são adicionados ao saldo novo.<br>
+                        <strong>Contagens das lojas</strong> = contagens físicas independentes do stock de produção.
                     </p>
                     <table class="table table-sm mb-0" style="font-size:0.8rem;">
                         <thead class="table-light">
                             <tr>
                                 <th>Produto</th>
-                                <th class="text-center">Stock digital</th>
+                                <th class="text-center">Saldo de produção</th>
+                                <th class="text-center">Histórico digital</th>
                                 <th class="text-center">Balcão Mat.</th>
                                 <th class="text-center">Balcão Bol.</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for card in cards %}
-                            <tr {% if card.stock_prod == 0 %}class="text-muted"{% endif %}>
-                                <td>{{ card.produto }}</td>
-                                <td class="text-center fw-bold">{{ card.stock_prod }}</td>
+                            <tr {% if not card.saldo_confirmado %}class="text-muted"{% endif %}>
+                                <td>{{ card.produto }} {% if card.identity_hint %}<small class="text-muted">({{ card.identity_hint }})</small>{% endif %}</td>
+                                <td class="text-center fw-bold">
+                                    {% if card.saldo_confirmado %}
+                                        {{ card.saldo_producao }}
+                                    {% else %}
+                                        <span class="badge bg-secondary">Saldo inicial por confirmar</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">{{ card.stock_prod }}</td>
                                 <td class="text-center">
                                     {% if card.data_balcao_matosinhos != '-' %}
                                     {{ card.balcao_matosinhos }} <span style="font-size:0.7rem;">({{ card.data_balcao_matosinhos }})</span>
@@ -84,6 +96,12 @@
         </div>
     </div>
 
+    {% if not cards_transferivel|selectattr('pode_transferir')|list %}
+    <div class="alert alert-warning small">
+        Não há saldo de produção confirmado disponível para transferência.
+        <a href="{{ url_for('pastelaria.stock_producao') }}">Registe o saldo inicial ou produção.</a>
+    </div>
+    {% endif %}
     <div id="artigos-container"></div>
 
     <button type="button" class="btn btn-outline-secondary w-100 mb-3"
@@ -103,9 +121,28 @@
     var rowCount = 0;
     var produtos = [
         {% for card in cards_transferivel %}
-        {nome: {{ card.produto | tojson }}, stock: {{ card.stock_prod }} }{% if not loop.last %},{% endif %}
+        {
+            key: {{ card.identity_key | tojson }},
+            nome: {{ card.produto | tojson }},
+            hint: {{ card.identity_hint | tojson }},
+            saldo: {{ card.saldo }},
+            confirmado: {{ card.saldo_inicial_confirmado | tojson }},
+            transferivel: {{ card.pode_transferir | tojson }}
+        }{% if not loop.last %},{% endif %}
         {% endfor %}
     ];
+
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, function(character) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[character];
+        });
+    }
 
     window.adicionarArtigo = function() {
         if (produtos.length === 0) return;
@@ -115,7 +152,12 @@
         var div = document.createElement('div');
         div.className = 'card mb-2 artigo-row';
         var options = produtos.map(function(p) {
-            return '<option value="' + p.nome + '">' + p.nome + '</option>';
+            var saldoText = p.confirmado
+                ? ' — saldo ' + p.saldo
+                : ' — saldo inicial por confirmar';
+            var disabled = p.transferivel ? '' : ' disabled';
+            return '<option value="' + escapeHtml(p.key) + '"' + disabled + '>' +
+                escapeHtml(p.nome + p.hint + saldoText) + '</option>';
         }).join('');
         div.innerHTML =
             '<div class="card-body p-2">' +
@@ -123,7 +165,7 @@
             '<select name="produto_' + idx + '" class="form-select form-select-sm" style="flex:1;">' +
             '<option value="">— Escolher artigo —</option>' + options +
             '</select>' +
-            '<input type="number" name="qty_' + idx + '" class="form-control form-control-sm text-center" placeholder="Qtd" min="0" step="1" inputmode="numeric" style="width:72px;">' +
+            '<input type="number" name="qty_' + idx + '" class="form-control form-control-sm text-center" placeholder="Qtd" min="1" step="1" inputmode="numeric" style="width:72px;">' +
             '<button type="button" class="btn btn-outline-danger btn-sm px-2" onclick="this.closest(\'.artigo-row\').remove()">×</button>' +
             '</div></div>';
         container.appendChild(div);

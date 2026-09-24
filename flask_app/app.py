@@ -82,6 +82,7 @@ from db.schema import (
     run_migrations_pastelaria_plano,
     run_migrations_pastelaria_count_product_id,
     run_migrations_pastelaria_product_state_audit,
+    run_migrations_pastelaria_production_stock,
 )
 from db.schema import run_migrations_eventos_v2_foundation, run_migrations_eventos_customer_portal
 
@@ -287,6 +288,7 @@ def create_app():
         ('run_migrations_colaboradores_smart', run_migrations_colaboradores_smart),
         ('run_migrations_transferencias_motivo', run_migrations_transferencias_motivo),
         ('run_migrations_transferencias_eventos', run_migrations_transferencias_eventos),
+        ('run_migrations_pastelaria_production_stock', run_migrations_pastelaria_production_stock),
         ('run_migrations_batch_id', run_migrations_batch_id),
         ('run_migrations_stock_producao_lojas', run_migrations_stock_producao_lojas),
         ('run_migrations_tarefas', run_migrations_tarefas),

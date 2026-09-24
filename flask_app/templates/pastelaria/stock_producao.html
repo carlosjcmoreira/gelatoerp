@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% set back_url = url_for("pastelaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    {% include "components/tabs.html" %}
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h5 class="mb-1">📦 Stock de Produção</h5>
+            <p class="text-muted small mb-0">
+                Confirme o saldo inicial por produto. Registe depois produção e correções com data e motivo.
+            </p>
+        </div>
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('pastelaria.transferir') }}">
+            Transferir
+        </a>
+    </div>
+
+    <div class="alert alert-info small">
+        Os saldos digitais antigos ficam apenas como referência. Não são importados automaticamente.
+        As contagens físicas das lojas são independentes. Sem saldo inicial confirmado, o produto não pode ser transferido.
+    </div>
+
+    {% if options %}
+    <div class="card mb-3">
+        <div class="card-header py-2 fw-semibold">Registar movimento</div>
+        <div class="card-body">
+            <form method="post" class="row g-2">
+                <div class="col-12 col-md-6">
+                    <label for="identity_key" class="form-label small mb-1">Produto</label>
+                    <select class="form-select form-select-sm" name="identity_key" id="identity_key" required>
+                        <option value="">— Escolher produto —</option>
+                        {% for option in options %}
+                        <option value="{{ option.identity_key }}">
+                            {{ option.produto }}
+                            {% if option.kind == 'catalogue' and option.produto_pastelaria_id %}
+                                (ID {{ option.produto_pastelaria_id }})
+                            {% elif option.kind == 'historico' %}
+                                (histórico)
+                            {% endif %}
+                            — {% if option.saldo_inicial_confirmado %}
+                                saldo {{ option.saldo }}
+                            {% else %}
+                                saldo inicial por confirmar
+                            {% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label for="tipo" class="form-label small mb-1">Tipo de movimento</label>
+                    <select class="form-select form-select-sm" name="tipo" id="tipo" required>
+                        <option value="saldo_inicial">Confirmar saldo inicial</option>
+                        <option value="producao">Registar unidades produzidas</option>
+                        <option value="correcao">Correção (+ ou −)</option>
+                    </select>
+                </div>
+                <div class="col-6 col-md-1">
+                    <label for="quantidade" class="form-label small mb-1">Unidades</label>
+                    <input type="number" class="form-control form-control-sm" name="quantidade"
+                           id="quantidade" step="1" min="0" required>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label for="data" class="form-label small mb-1">Data</label>
+                    <input type="date" class="form-control form-control-sm" name="data"
+                           id="data" value="{{ today }}" required>
+                </div>
+                <div class="col-12">
+                    <label for="motivo" class="form-label small mb-1">Motivo</label>
+                    <input type="text" class="form-control form-control-sm" name="motivo"
+                           id="motivo" maxlength="500" required
+                           placeholder="Explique o saldo inicial, a produção ou a correção">
+                </div>
+                <div class="col-12">
+                    <div class="form-text mb-2" id="quantity-help">
+                        O saldo inicial pode ser zero e só pode ser confirmado uma vez por produto.
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        Guardar movimento
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-warning">Não existem produtos ou bolos configurados.</div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-header py-2 fw-semibold">Saldo atual por produto</div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-center">Saldo inicial</th>
+                        <th class="text-end">Saldo de produção</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for option in options %}
+                    <tr>
+                        <td>
+                            {{ option.produto }}
+                            {% if option.kind == 'catalogue' and option.produto_pastelaria_id %}
+                                <small class="text-muted">(ID {{ option.produto_pastelaria_id }})</small>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if option.saldo_inicial_confirmado %}
+                                <span class="badge bg-success">Confirmado</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Por confirmar</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end fw-semibold">
+                            {% if option.saldo_inicial_confirmado %}{{ option.saldo }}{% else %}—{% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="3" class="text-center text-muted py-3">Sem produtos configurados.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header py-2 fw-semibold">Movimentos recentes</div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Data</th>
+                        <th>Produto</th>
+                        <th>Movimento</th>
+                        <th class="text-end">Unidades</th>
+                        <th>Responsável</th>
+                        <th>Motivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for movement in movements %}
+                    <tr>
+                        <td>{{ movement.data.strftime('%d/%m/%Y') }}</td>
+                        <td>{{ movement.produto }}</td>
+                        <td>{{ movement.tipo_label }}</td>
+                        <td class="text-end">{{ '+' if movement.quantidade > 0 else '' }}{{ movement.quantidade }}</td>
+                        <td>{{ movement.responsavel }}</td>
+                        <td>{{ movement.motivo }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="6" class="text-center text-muted py-3">Ainda não há movimentos registados.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var type = document.getElementById('tipo');
+    var quantity = document.getElementById('quantidade');
+    var help = document.getElementById('quantity-help');
+    if (!type || !quantity || !help) return;
+
+    function updateQuantityHelp() {
+        if (type.value === 'saldo_inicial') {
+            quantity.min = '0';
+            help.textContent = 'O saldo inicial pode ser zero e só pode ser confirmado uma vez por produto.';
+        } else if (type.value === 'producao') {
+            quantity.min = '1';
+            help.textContent = 'Registe apenas unidades produzidas; o valor tem de ser superior a zero.';
+        } else {
+            quantity.removeAttribute('min');
+            help.textContent = 'Use um valor positivo ou negativo. A correção não pode deixar o saldo abaixo de zero.';
+        }
+    }
+    type.addEventListener('change', updateQuantityHelp);
+    updateQuantityHelp();
+})();
+</script>
+{% endblock %}

@@ -122,11 +122,12 @@ class PastelariaTransferTests(unittest.TestCase):
             url_prefix='/pastelaria',
         )
 
-    def test_transfer_uses_requested_quantity_without_digital_stock(self):
+    def test_transfer_delegates_the_whole_request_to_atomic_stock_batch(self):
         data = {
             'loja_destino': 'Bolhão',
             'data_prevista': '2026-09-01',
-            'produto_0': 'Bolo — 22 cm — Chocolate',
+            'request_key': 'request-1',
+            'produto_0': 'cake:Bolo — 22 cm — Chocolate',
             'qty_0': '8',
         }
         with self.app.test_request_context(
@@ -144,13 +145,6 @@ class PastelariaTransferTests(unittest.TestCase):
                 return_value=[{'name': 'Bolhão'}],
             ), patch.object(
                 pastelaria_routes,
-                'get_or_create_pending_batch',
-                return_value='batch-1',
-            ), patch.object(
-                pastelaria_routes,
-                'criar_ordem_transferencia',
-            ) as create_order, patch.object(
-                pastelaria_routes,
                 'get_produtos_pastelaria',
                 return_value=['Bolo Individual'],
             ), patch.object(
@@ -159,35 +153,40 @@ class PastelariaTransferTests(unittest.TestCase):
                 return_value=[{'produto': 'Bolo — 22 cm — Chocolate'}],
             ), patch.object(
                 pastelaria_routes,
-                'get_stock_producao_area_all',
-                return_value=[],
+                'get_pastelaria_stock_options',
+                return_value=[{
+                    'identity_key': 'cake:Bolo — 22 cm — Chocolate',
+                    'produto': 'Bolo — 22 cm — Chocolate',
+                    'kind': 'cake',
+                    'ativo': True,
+                    'saldo': 12,
+                    'saldo_inicial_confirmado': True,
+                }],
             ), patch.object(
                 pastelaria_routes,
-                'get_ultimo_stock_balcao',
-                return_value=[],
-            ), patch.object(
-                pastelaria_routes,
-                'get_stock_producao_area',
-            ) as get_stock, patch.object(
-                pastelaria_routes,
-                'reduzir_stock_producao_area',
-            ) as reduce_stock:
+                'criar_ordens_transferencia_pastelaria',
+                return_value={'order_ids': [101], 'replayed': False},
+            ) as create_batch:
                 response = pastelaria_routes.transferir()
 
         self.assertEqual(response.status_code, 302)
-        get_stock.assert_not_called()
-        reduce_stock.assert_not_called()
-        create_order.assert_called_once()
-        args = create_order.call_args.args
-        self.assertEqual(args[2], 'Bolo — 22 cm — Chocolate')
-        self.assertEqual(args[3], 8)
-        self.assertEqual(args[5], 'Bolhão')
+        create_batch.assert_called_once()
+        self.assertEqual(
+            create_batch.call_args.kwargs['lines'],
+            [{
+                'identity_key': 'cake:Bolo — 22 cm — Chocolate',
+                'quantidade': 8,
+            }],
+        )
+        self.assertEqual(create_batch.call_args.kwargs['loja_destino'], 'Bolhão')
+        self.assertEqual(create_batch.call_args.kwargs['request_key'], 'request-1')
 
     def test_transfer_rejects_forged_cake_configuration(self):
         data = {
             'loja_destino': 'Bolhão',
             'data_prevista': '2026-09-01',
-            'produto_0': 'Bolo — 99 cm — Inventado',
+            'request_key': 'request-2',
+            'produto_0': 'cake:Bolo — 99 cm — Inventado',
             'qty_0': '1',
         }
         with self.app.test_request_context(
@@ -213,24 +212,16 @@ class PastelariaTransferTests(unittest.TestCase):
                 return_value=[],
             ), patch.object(
                 pastelaria_routes,
-                'get_stock_producao_area_all',
+                'get_pastelaria_stock_options',
                 return_value=[],
             ), patch.object(
                 pastelaria_routes,
-                'get_ultimo_stock_balcao',
-                return_value=[],
-            ), patch.object(
-                pastelaria_routes,
-                'get_or_create_pending_batch',
-            ) as get_batch, patch.object(
-                pastelaria_routes,
-                'criar_ordem_transferencia',
-            ) as create_order:
+                'criar_ordens_transferencia_pastelaria',
+            ) as create_batch:
                 response = pastelaria_routes.transferir()
 
         self.assertEqual(response.status_code, 302)
-        get_batch.assert_not_called()
-        create_order.assert_not_called()
+        create_batch.assert_not_called()
 
 
 if __name__ == '__main__':

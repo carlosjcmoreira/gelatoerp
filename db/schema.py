@@ -8686,3 +8686,167 @@ def run_migrations_pastelaria_product_state_audit():
         """)
         conn.commit()
         logger.info("run_migrations_pastelaria_product_state_audit: schema ready")
+
+
+def run_migrations_pastelaria_production_stock():
+    """Create the trusted Pastelaria production-stock ledger and safeguards."""
+    lock_id = 202692
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", (lock_id,))
+        if not cursor.fetchone()[0]:
+            logger.info(
+                "run_migrations_pastelaria_production_stock: lock held, skipping"
+            )
+            return
+
+        cursor.execute(
+            "ALTER TABLE ordens_transferencia "
+            "ADD COLUMN IF NOT EXISTS motivo_rejeicao TEXT"
+        )
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pastelaria_stock_movements (
+                id BIGSERIAL PRIMARY KEY,
+                identity_key TEXT NOT NULL,
+                produto_pastelaria_id INTEGER
+                    REFERENCES produtos_pastelaria(id) ON DELETE SET NULL,
+                produto VARCHAR(255) NOT NULL,
+                tipo VARCHAR(32) NOT NULL CHECK (tipo IN (
+                    'saldo_inicial', 'producao', 'correcao',
+                    'transferencia_saida', 'transferencia_anulacao'
+                )),
+                quantidade INTEGER NOT NULL,
+                data DATE NOT NULL,
+                responsavel VARCHAR(100) NOT NULL
+                    CHECK (BTRIM(responsavel) <> ''),
+                motivo TEXT NOT NULL CHECK (BTRIM(motivo) <> ''),
+                ordem_transferencia_id INTEGER
+                    REFERENCES ordens_transferencia(id) ON DELETE RESTRICT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CHECK (
+                    (tipo = 'saldo_inicial' AND quantidade >= 0)
+                    OR (tipo = 'producao' AND quantidade > 0)
+                    OR (tipo = 'correcao' AND quantidade <> 0)
+                    OR (tipo = 'transferencia_saida' AND quantidade < 0)
+                    OR (tipo = 'transferencia_anulacao' AND quantidade > 0)
+                )
+            )
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_pastelaria_stock_opening_identity
+            ON pastelaria_stock_movements(identity_key)
+            WHERE tipo = 'saldo_inicial'
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_pastelaria_stock_transfer_debit
+            ON pastelaria_stock_movements(ordem_transferencia_id)
+            WHERE tipo = 'transferencia_saida'
+              AND ordem_transferencia_id IS NOT NULL
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_pastelaria_stock_transfer_reversal
+            ON pastelaria_stock_movements(ordem_transferencia_id)
+            WHERE tipo = 'transferencia_anulacao'
+              AND ordem_transferencia_id IS NOT NULL
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_pastelaria_stock_identity_history
+            ON pastelaria_stock_movements(identity_key, data DESC, id DESC)
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pastelaria_stock_transfer_requests (
+                request_key UUID PRIMARY KEY,
+                payload_hash CHAR(64) NOT NULL,
+                batch_id VARCHAR(100) NOT NULL UNIQUE,
+                criado_por VARCHAR(100) NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+        cursor.execute("""
+            ALTER TABLE transferencias_eventos
+            DROP CONSTRAINT IF EXISTS transferencias_eventos_event_type_check
+        """)
+        cursor.execute("""
+            ALTER TABLE transferencias_eventos
+            ADD CONSTRAINT transferencias_eventos_event_type_check
+            CHECK (event_type IN (
+                'criado', 'confirmado', 'rejeitado', 'executado',
+                'aceite', 'problema_reportado', 'anulado'
+            ))
+        """)
+        cursor.execute("""
+            CREATE OR REPLACE FUNCTION
+                pastelaria_repor_stock_em_anulacao_transferencia()
+            RETURNS TRIGGER
+            LANGUAGE plpgsql
+            AS $$
+            DECLARE
+                actor_name TEXT;
+                cancellation_reason TEXT;
+            BEGIN
+                IF LOWER(BTRIM(NEW.status)) IN (
+                    'rejeitada', 'anulada', 'anulado',
+                    'cancelada', 'cancelado', 'cancelled'
+                )
+                   AND NEW.status IS DISTINCT FROM OLD.status
+                   AND NEW.area_origem = 'Pastelaria' THEN
+                    actor_name := COALESCE(
+                        NULLIF(BTRIM(NEW.confirmado_por), ''),
+                        NULLIF(BTRIM(NEW.criado_por), ''),
+                        'sistema'
+                    );
+                    cancellation_reason := COALESCE(
+                        NULLIF(BTRIM(NEW.motivo_rejeicao), ''),
+                        'Anulação da ordem de transferência ' || NEW.id
+                    );
+
+                    WITH inserted_reversals AS (
+                        INSERT INTO pastelaria_stock_movements (
+                            identity_key, produto_pastelaria_id, produto,
+                            tipo, quantidade, data, responsavel, motivo,
+                            ordem_transferencia_id
+                        )
+                        SELECT movement.identity_key,
+                               movement.produto_pastelaria_id,
+                               movement.produto,
+                               'transferencia_anulacao',
+                               -movement.quantidade,
+                               (NOW() AT TIME ZONE 'Europe/Lisbon')::date,
+                               actor_name,
+                               cancellation_reason,
+                               NEW.id
+                        FROM pastelaria_stock_movements AS movement
+                        WHERE movement.ordem_transferencia_id = NEW.id
+                          AND movement.tipo = 'transferencia_saida'
+                        ON CONFLICT (ordem_transferencia_id)
+                            WHERE tipo = 'transferencia_anulacao'
+                              AND ordem_transferencia_id IS NOT NULL
+                            DO NOTHING
+                        RETURNING ordem_transferencia_id
+                    )
+                    INSERT INTO transferencias_eventos (
+                        ordem_id, event_type, utilizador, motivo
+                    )
+                    SELECT NEW.id, 'anulado', actor_name, cancellation_reason
+                    WHERE EXISTS (SELECT 1 FROM inserted_reversals);
+                END IF;
+                RETURN NEW;
+            END
+            $$
+        """)
+        cursor.execute("""
+            DROP TRIGGER IF EXISTS trg_pastelaria_repor_stock_anulacao
+            ON ordens_transferencia
+        """)
+        cursor.execute("""
+            CREATE TRIGGER trg_pastelaria_repor_stock_anulacao
+            AFTER UPDATE OF status ON ordens_transferencia
+            FOR EACH ROW
+            EXECUTE FUNCTION pastelaria_repor_stock_em_anulacao_transferencia()
+        """)
+        conn.commit()
+        logger.info("run_migrations_pastelaria_production_stock: schema ready")

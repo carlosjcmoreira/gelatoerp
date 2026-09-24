@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import psycopg2
 from flask import Flask
-from db import area, pastelaria, plano, schema
+from db import area, pastelaria, pastelaria_stock, plano, schema
 
 
 class _Cursor:
@@ -2259,6 +2259,337 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                         (weekday_date, sunday_date),
                     )
                     connection.commit()
+
+    def _ensure_pastelaria_stock_schema(self):
+        with patch('db.schema.db_connection', self.isolated_connection):
+            schema.run_migrations_pastelaria_production_stock()
+
+    def _new_stock_product(self):
+        label = f"Produto stock {uuid.uuid4().hex[:10]}"
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO produtos_pastelaria (
+                        tipologia, sabor, cobertura, ativo
+                    )
+                    VALUES (%s, '', '', TRUE)
+                    RETURNING id
+                """, (label,))
+                product_id = cursor.fetchone()[0]
+            connection.commit()
+        self.addCleanup(self._deactivate_stock_test_product, product_id)
+        return product_id, label
+
+    def _deactivate_stock_test_product(self, product_id):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE produtos_pastelaria
+                    SET ativo = FALSE
+                    WHERE id = %s
+                """, (product_id,))
+            connection.commit()
+
+    def _register_stock_movement(
+        self, product_id, tipo, quantity, reason, movement_date=None,
+    ):
+        with patch(
+            'db.pastelaria_stock.db_connection',
+            self.isolated_connection,
+        ):
+            return pastelaria_stock.register_pastelaria_stock_movement(
+                identity_key=f'catalog:{product_id}',
+                tipo=tipo,
+                quantidade=quantity,
+                data=movement_date or date(2026, 9, 24),
+                responsavel='gestor-teste',
+                motivo=reason,
+            )
+
+    def _create_stock_transfer(
+        self, product_id, quantity, request_key=None,
+        destination='Bolhão', transfer_date=None,
+    ):
+        request_key = request_key or str(uuid.uuid4())
+        transfer_date = transfer_date or date(2026, 9, 24)
+        with patch('db.plano.db_connection', self.isolated_connection):
+            return plano.criar_ordens_transferencia_pastelaria(
+                data=transfer_date,
+                loja_destino=destination,
+                lines=[{
+                    'identity_key': f'catalog:{product_id}',
+                    'quantidade': quantity,
+                }],
+                criado_por='operador-teste',
+                data_prevista=transfer_date,
+                request_key=request_key,
+            )
+
+    def _stock_balance(self, product_id):
+        with patch(
+            'db.pastelaria_stock.db_connection',
+            self.isolated_connection,
+        ):
+            options = pastelaria_stock.get_pastelaria_stock_options()
+        return next(
+            item for item in options
+            if item['identity_key'] == f'catalog:{product_id}'
+        )
+
+    def test_opening_production_and_correction_keep_an_audit_trail(self):
+        self._ensure_pastelaria_stock_schema()
+        product_id, label = self._new_stock_product()
+
+        self._register_stock_movement(
+            product_id, 'saldo_inicial', 10, 'Contagem inicial confirmada'
+        )
+        self._register_stock_movement(
+            product_id, 'producao', 4, 'Produção do turno da manhã'
+        )
+        self._register_stock_movement(
+            product_id, 'correcao', -2, 'Acerto após conferência'
+        )
+        with self.assertRaises(pastelaria_stock.PastelariaStockError):
+            self._register_stock_movement(
+                product_id, 'saldo_inicial', 10, 'Não pode duplicar'
+            )
+
+        state = self._stock_balance(product_id)
+        self.assertTrue(state['saldo_inicial_confirmado'])
+        self.assertEqual(state['saldo'], 12)
+        with patch(
+            'db.pastelaria_stock.db_connection',
+            self.isolated_connection,
+        ):
+            history = pastelaria_stock.get_pastelaria_stock_movements()
+        product_history = [
+            row for row in history if row['produto'] == label
+        ]
+        self.assertEqual(
+            [row['tipo'] for row in reversed(product_history)],
+            ['saldo_inicial', 'producao', 'correcao'],
+        )
+        self.assertTrue(all(row['responsavel'] == 'gestor-teste' for row in product_history))
+        self.assertEqual(
+            {row['motivo'] for row in product_history},
+            {
+                'Contagem inicial confirmada',
+                'Produção do turno da manhã',
+                'Acerto após conferência',
+            },
+        )
+
+    def test_insufficient_line_rolls_back_the_entire_transfer_batch(self):
+        self._ensure_pastelaria_stock_schema()
+        first_id, _ = self._new_stock_product()
+        second_id, _ = self._new_stock_product()
+        self._register_stock_movement(
+            first_id, 'saldo_inicial', 10, 'Saldo confirmado'
+        )
+        self._register_stock_movement(
+            second_id, 'saldo_inicial', 2, 'Saldo confirmado'
+        )
+        batch_key = str(uuid.uuid4())
+        with patch('db.plano.db_connection', self.isolated_connection):
+            with self.assertRaisesRegex(
+                pastelaria_stock.PastelariaStockError,
+                'Saldo insuficiente',
+            ):
+                plano.criar_ordens_transferencia_pastelaria(
+                    data=date(2026, 9, 24),
+                    loja_destino='Bolhão',
+                    lines=[
+                        {'identity_key': f'catalog:{first_id}', 'quantidade': 4},
+                        {'identity_key': f'catalog:{second_id}', 'quantidade': 3},
+                    ],
+                    criado_por='operador-teste',
+                    data_prevista=date(2026, 9, 24),
+                    request_key=batch_key,
+                )
+
+        self.assertEqual(self._stock_balance(first_id)['saldo'], 10)
+        self.assertEqual(self._stock_balance(second_id)['saldo'], 2)
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM ordens_transferencia
+                    WHERE batch_id = %s
+                """, (batch_key,))
+                self.assertEqual(cursor.fetchone()[0], 0)
+                cursor.execute("""
+                    SELECT COUNT(*) FROM pastelaria_stock_transfer_requests
+                    WHERE request_key = %s
+                """, (batch_key,))
+                self.assertEqual(cursor.fetchone()[0], 0)
+
+    def test_replaying_same_transfer_request_does_not_debit_twice(self):
+        self._ensure_pastelaria_stock_schema()
+        product_id, _ = self._new_stock_product()
+        self._register_stock_movement(
+            product_id, 'saldo_inicial', 10, 'Saldo confirmado'
+        )
+        request_key = str(uuid.uuid4())
+
+        first = self._create_stock_transfer(product_id, 3, request_key)
+        replay = self._create_stock_transfer(product_id, 3, request_key)
+
+        self.assertFalse(first['replayed'])
+        self.assertTrue(replay['replayed'])
+        self.assertEqual(first['order_ids'], replay['order_ids'])
+        self.assertEqual(self._stock_balance(product_id)['saldo'], 7)
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM pastelaria_stock_movements
+                    WHERE ordem_transferencia_id = %s
+                      AND tipo = 'transferencia_saida'
+                """, (first['order_ids'][0],))
+                self.assertEqual(cursor.fetchone()[0], 1)
+                cursor.execute("""
+                    SELECT COUNT(*) FROM contagem_stock
+                    WHERE ordem_transferencia_id = %s
+                """, (first['order_ids'][0],))
+                self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_transfer_requires_an_explicit_opening_balance(self):
+        self._ensure_pastelaria_stock_schema()
+        product_id, _ = self._new_stock_product()
+        with patch('db.plano.db_connection', self.isolated_connection):
+            with self.assertRaisesRegex(
+                pastelaria_stock.PastelariaStockError,
+                'Saldo inicial por confirmar',
+            ):
+                plano.criar_ordens_transferencia_pastelaria(
+                    data=date(2026, 9, 24),
+                    loja_destino='Matosinhos',
+                    lines=[{
+                        'identity_key': f'catalog:{product_id}',
+                        'quantidade': 1,
+                    }],
+                    criado_por='operador-teste',
+                    data_prevista=date(2026, 9, 24),
+                    request_key=str(uuid.uuid4()),
+                )
+        self.assertEqual(self._stock_balance(product_id)['saldo'], 0)
+        self.assertFalse(
+            self._stock_balance(product_id)['saldo_inicial_confirmado']
+        )
+
+    def test_store_acceptance_does_not_debit_or_receive_twice(self):
+        self._ensure_pastelaria_stock_schema()
+        product_id, _ = self._new_stock_product()
+        self._register_stock_movement(
+            product_id, 'saldo_inicial', 6, 'Saldo confirmado'
+        )
+        created = self._create_stock_transfer(product_id, 3)
+        order_id = created['order_ids'][0]
+        self.assertEqual(self._stock_balance(product_id)['saldo'], 3)
+
+        with patch('db.plano.db_connection', self.isolated_connection):
+            self.assertTrue(
+                plano.confirmar_ordem_transferencia(order_id, 'loja-teste')
+            )
+            self.assertFalse(
+                plano.confirmar_ordem_transferencia(order_id, 'loja-teste')
+            )
+
+        self.assertEqual(self._stock_balance(product_id)['saldo'], 3)
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM pastelaria_stock_movements
+                    WHERE ordem_transferencia_id = %s
+                      AND tipo = 'transferencia_saida'
+                """, (order_id,))
+                self.assertEqual(cursor.fetchone()[0], 1)
+                cursor.execute("""
+                    SELECT COUNT(*) FROM contagem_stock
+                    WHERE ordem_transferencia_id = %s
+                """, (order_id,))
+                self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_concurrent_transfers_for_same_product_cannot_overdraw(self):
+        self._ensure_pastelaria_stock_schema()
+        product_id, _ = self._new_stock_product()
+        self._register_stock_movement(
+            product_id, 'saldo_inicial', 5, 'Saldo confirmado'
+        )
+        barrier = Barrier(2)
+
+        def submit():
+            barrier.wait(timeout=10)
+            try:
+                return plano.criar_ordens_transferencia_pastelaria(
+                    data=date(2026, 9, 24),
+                    loja_destino='Bolhão',
+                    lines=[{
+                        'identity_key': f'catalog:{product_id}',
+                        'quantidade': 4,
+                    }],
+                    criado_por='operador-teste',
+                    data_prevista=date(2026, 9, 24),
+                    request_key=str(uuid.uuid4()),
+                )
+            except pastelaria_stock.PastelariaStockError as exc:
+                return exc
+
+        with patch('db.plano.db_connection', self.isolated_connection):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(lambda _: submit(), range(2)))
+
+        successes = [result for result in results if isinstance(result, dict)]
+        failures = [
+            result for result in results
+            if isinstance(result, pastelaria_stock.PastelariaStockError)
+        ]
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(self._stock_balance(product_id)['saldo'], 1)
+
+    def test_cancelling_transfer_restores_stock_only_once(self):
+        self._ensure_pastelaria_stock_schema()
+        product_id, _ = self._new_stock_product()
+        self._register_stock_movement(
+            product_id, 'saldo_inicial', 6, 'Saldo confirmado'
+        )
+        created = self._create_stock_transfer(product_id, 3)
+        order_id = created['order_ids'][0]
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE ordens_transferencia
+                    SET status = 'rejeitada',
+                        motivo_rejeicao = 'Ordem anulada pelo gestor',
+                        confirmado_por = 'gestor-teste'
+                    WHERE id = %s
+                """, (order_id,))
+                cursor.execute("""
+                    UPDATE ordens_transferencia
+                    SET status = 'confirmada'
+                    WHERE id = %s
+                """, (order_id,))
+                cursor.execute("""
+                    UPDATE ordens_transferencia
+                    SET status = 'rejeitada'
+                    WHERE id = %s
+                """, (order_id,))
+            connection.commit()
+
+        self.assertEqual(self._stock_balance(product_id)['saldo'], 6)
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM pastelaria_stock_movements
+                    WHERE ordem_transferencia_id = %s
+                      AND tipo = 'transferencia_anulacao'
+                """, (order_id,))
+                self.assertEqual(cursor.fetchone()[0], 1)
+                cursor.execute("""
+                    SELECT COUNT(*) FROM transferencias_eventos
+                    WHERE ordem_id = %s AND event_type = 'anulado'
+                """, (order_id,))
+                self.assertEqual(cursor.fetchone()[0], 1)
 
 
 if __name__ == '__main__':

@@ -878,6 +878,198 @@ def _insert_transfer_receipt(
         ))
 
 
+def criar_ordens_transferencia_pastelaria(
+    *, data: date, loja_destino: str, lines: list, criado_por: str,
+    data_prevista: date, request_key: str,
+) -> dict:
+    """Create a Pastelaria transfer batch and debit its stock in one transaction.
+
+    The request key makes browser retries idempotent. Per-product advisory
+    locks serialize different requests competing for the same balance.
+    """
+    import hashlib
+    import json as _json
+    import uuid as _uuid
+    from db.pastelaria_stock import (
+        PastelariaStockError,
+        _insert_stock_movement_cursor,
+        _lock_stock_identity,
+        _resolve_identity_cursor,
+        _stock_state_cursor,
+    )
+
+    try:
+        request_uuid = _uuid.UUID(str(request_key))
+    except (TypeError, ValueError, AttributeError):
+        raise PastelariaStockError("Formulário de transferência inválido.")
+    request_uuid_text = str(request_uuid)
+
+    actor = str(criado_por or '').strip()
+    destination = str(loja_destino or '').strip()
+    if not actor:
+        raise PastelariaStockError("Não foi possível identificar o responsável.")
+    if not destination:
+        raise PastelariaStockError("A loja de destino é obrigatória.")
+    if not data_prevista:
+        raise PastelariaStockError("A data prevista de entrega é obrigatória.")
+
+    requested_by_identity = {}
+    for line in lines or []:
+        identity_key = str(line.get('identity_key') or '').strip()
+        try:
+            quantity = int(line.get('quantidade'))
+        except (TypeError, ValueError):
+            raise PastelariaStockError(
+                "As quantidades têm de ser números inteiros."
+            )
+        if not identity_key or quantity <= 0:
+            raise PastelariaStockError(
+                "Cada artigo tem de ter uma quantidade superior a zero."
+            )
+        requested_by_identity[identity_key] = (
+            requested_by_identity.get(identity_key, 0) + quantity
+        )
+    if not requested_by_identity:
+        raise PastelariaStockError("Indique pelo menos um artigo.")
+
+    canonical_lines = [
+        {"identity_key": key, "quantidade": quantity}
+        for key, quantity in sorted(requested_by_identity.items())
+    ]
+    payload = {
+        "data": data.isoformat(),
+        "data_prevista": data_prevista.isoformat(),
+        "loja_destino": destination,
+        "lines": canonical_lines,
+    }
+    payload_hash = hashlib.sha256(
+        _json.dumps(
+            payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(',', ':'),
+        ).encode('utf-8')
+    ).hexdigest()
+    batch_id = request_uuid_text
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f'pastelaria-transfer-request:{request_uuid_text}',),
+        )
+        cursor.execute("""
+            SELECT payload_hash, batch_id
+            FROM pastelaria_stock_transfer_requests
+            WHERE request_key = %s
+        """, (request_uuid_text,))
+        existing_request = cursor.fetchone()
+        if existing_request:
+            if existing_request[0].strip() != payload_hash:
+                raise PastelariaStockError(
+                    "Este formulário já foi utilizado com outros dados."
+                )
+            cursor.execute("""
+                SELECT id FROM ordens_transferencia
+                WHERE batch_id = %s AND area_origem = 'Pastelaria'
+                ORDER BY id
+            """, (existing_request[1],))
+            return {
+                "order_ids": [row[0] for row in cursor.fetchall()],
+                "replayed": True,
+            }
+
+        identities = {}
+        for identity_key in sorted(requested_by_identity):
+            identities[identity_key] = _resolve_identity_cursor(
+                cursor,
+                identity_key,
+                cake_plan_date=data_prevista,
+                require_active=True,
+            )
+
+        for identity_key in sorted(identities):
+            _lock_stock_identity(cursor, identity_key)
+
+        for identity_key in sorted(identities):
+            identity = identities[identity_key]
+            available, opening_confirmed = _stock_state_cursor(
+                cursor, identity_key
+            )
+            requested_quantity = requested_by_identity[identity_key]
+            if not opening_confirmed:
+                raise PastelariaStockError(
+                    f"Saldo inicial por confirmar para {identity['produto']}. "
+                    "Registe-o em Stock de Produção antes de transferir."
+                )
+            if available < requested_quantity:
+                raise PastelariaStockError(
+                    f"Saldo insuficiente de {identity['produto']}: "
+                    f"disponível {available}, pedido {requested_quantity}."
+                )
+
+        cursor.execute("""
+            INSERT INTO pastelaria_stock_transfer_requests (
+                request_key, payload_hash, batch_id, criado_por
+            )
+            VALUES (%s, %s, %s, %s)
+        """, (request_uuid_text, payload_hash, batch_id, actor))
+
+        order_ids = []
+        for identity_key in sorted(identities):
+            identity = identities[identity_key]
+            quantity = requested_by_identity[identity_key]
+            cursor.execute("""
+                INSERT INTO ordens_transferencia (
+                    data, area_origem, produto, sabor, quantidade, unidade,
+                    loja_destino, criado_por, data_prevista, batch_id,
+                    destino_tipo, destino_nome, produto_pastelaria_id,
+                    status, confirmado_por, confirmado_em, rececao_estado,
+                    loja_origem
+                )
+                VALUES (
+                    %s, 'Pastelaria', %s, NULL, %s, 'und',
+                    %s, %s, %s, %s,
+                    'loja', NULL, %s,
+                    'confirmada', %s, NOW(), 'por_verificar',
+                    NULL
+                )
+                RETURNING id
+            """, (
+                data, identity['produto'], quantity, destination, actor,
+                data_prevista, batch_id, identity['produto_pastelaria_id'],
+                actor,
+            ))
+            order_id = cursor.fetchone()[0]
+            order_ids.append(order_id)
+            _insert_evento(cursor, order_id, 'criado', actor)
+            _insert_evento(cursor, order_id, 'executado', actor)
+            _insert_stock_movement_cursor(
+                cursor,
+                identity=identity,
+                tipo='transferencia_saida',
+                quantidade=-quantity,
+                data=data,
+                responsavel=actor,
+                motivo=f'Transferência para {destination} (ordem {order_id})',
+                ordem_transferencia_id=order_id,
+            )
+            _insert_transfer_receipt(
+                cursor,
+                order_id,
+                data,
+                'Pastelaria',
+                identity['produto'],
+                None,
+                quantity,
+                destination,
+                identity['produto_pastelaria_id'],
+            )
+
+        conn.commit()
+    return {"order_ids": order_ids, "replayed": False}
+
+
 def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
     """Record the destination store's optional acceptance without moving stock."""
     with db_connection() as conn:
