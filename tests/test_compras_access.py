@@ -20,7 +20,7 @@ Covers:
 
 import unittest
 from unittest.mock import patch, MagicMock
-from flask import Blueprint, Flask
+from flask import Blueprint, Flask, url_for
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +165,95 @@ class TestComprasAccess(unittest.TestCase):
         resp = self.client.get('/compras/')
         self.assertEqual(resp.status_code, 200,
                          "acesso_compras user should not be redirected from /compras/")
+
+    def test_compras_index_passes_descriptions_and_keeps_tile_preferences(self):
+        from flask_app.routes import compras as compras_routes
+
+        self._set_session_user(_user(acesso_compras=True))
+        hidden_tile = 'criar_ordem'
+        custom_label = 'Artigos para encomenda'
+        custom_icon = '⭐'
+        with patch(
+            'db.tiles.get_tile_visibility',
+            return_value={hidden_tile: False},
+        ), patch(
+            'db.tiles.get_tile_labels',
+            return_value={'artigos': custom_label},
+        ), patch(
+            'db.tiles.get_tile_icons',
+            return_value={'artigos': custom_icon},
+        ), patch(
+            'db.tiles.get_module_labels',
+            return_value={'compras': 'Compras personalizadas'},
+        ), patch(
+            'flask_app.routes.compras.render_template',
+            return_value='ok',
+        ) as render_menu:
+            response = self.client.get('/compras/')
+
+        self.assertEqual(response.status_code, 200)
+        items = render_menu.call_args.kwargs['items']
+        menu_title = render_menu.call_args.kwargs['menu_title']
+        with self.app.test_request_context():
+            expected_descriptions = {
+                url_for(
+                    tab['url_endpoint'],
+                    **tab.get('url_kwargs', {}),
+                ): tab['description']
+                for tab in compras_routes.TABS
+            }
+            hidden_url = url_for('compras.criar_ordem')
+            articles_url = url_for('compras.artigos')
+
+        self.assertEqual(len(expected_descriptions), 9)
+        self.assertTrue(all(expected_descriptions.values()))
+        self.assertLessEqual(
+            max(len(description) for description in expected_descriptions.values()),
+            80,
+        )
+        self.assertEqual(len(items), 8)
+        self.assertNotIn(hidden_url, {item['url'] for item in items})
+        self.assertEqual(menu_title, '🛒 Compras personalizadas')
+        article_item = next(
+            item for item in items
+            if item['url'] == articles_url
+        )
+        self.assertEqual(article_item['label'], custom_label)
+        self.assertEqual(article_item['icon'], custom_icon)
+        for item in items:
+            self.assertEqual(
+                item['description'],
+                expected_descriptions[item['url']],
+            )
+
+    def test_catalogue_explains_unresolved_origins_and_safe_next_step(self):
+        with open(
+            'flask_app/templates/compras/artigos.html',
+            encoding='utf-8',
+        ) as template:
+            html = ' '.join(template.read().split())
+
+        self.assertIn(
+            'Pesquise, acrescente e corrija artigos disponíveis para encomendas.',
+            html,
+        )
+        self.assertIn('Origem por resolver:', html)
+        self.assertIn(
+            'A designação original foi preservada',
+            html,
+        )
+        self.assertIn(
+            'Isto não significa que o artigo esteja inativo.',
+            html,
+        )
+        self.assertIn(
+            'selecione-a na lista e carregue em <strong>Guardar</strong>',
+            html,
+        )
+        self.assertIn(
+            'mantenha-a por resolver até haver confirmação.',
+            html,
+        )
 
     def test_compras_faturas_accessible_with_acesso_compras(self):
         """acesso_compras=True → GET /compras/faturas returns 200."""

@@ -66,15 +66,70 @@ def _ext(filename: str) -> str:
 compras_bp = Blueprint('compras', __name__)
 
 TABS = [
-    {'id': 'operacao_abastecimento', 'label': 'Operação de Abastecimento', 'icon': '🧭', 'url_endpoint': 'compras.operacao_abastecimento'},
-    {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'compras.faturas'},
-    {'id': 'fornecedores', 'label': 'Fornecedores', 'icon': '🏭', 'url_endpoint': 'faturas.fornecedores', 'url_kwargs': {'origem': 'compras'}},
-    {'id': 'nova_fatura', 'label': 'Registar Documento', 'icon': '➕', 'url_endpoint': 'compras.nova_fatura'},
-    {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
-    {'id': 'encomendas_semanais', 'label': 'Encomendas Semanais', 'icon': '📅', 'url_endpoint': 'compras.encomendas_semanais'},
-    {'id': 'pedidos_urgentes', 'label': 'Pedidos Urgentes', 'icon': '⚡', 'url_endpoint': 'compras.pedidos_urgentes'},
-    {'id': 'contagens_artigos', 'label': 'Contagens de Artigos', 'icon': '🔢', 'url_endpoint': 'compras.contagens_artigos'},
-    {'id': 'criar_ordem', 'label': 'Criar Ordem de Transferência', 'icon': '📦', 'url_endpoint': 'compras.criar_ordem'},
+    {
+        'id': 'operacao_abastecimento',
+        'label': 'Operação de Abastecimento',
+        'icon': '🧭',
+        'url_endpoint': 'compras.operacao_abastecimento',
+        'description': 'Acompanhar encomendas, urgências e contagens.',
+    },
+    {
+        'id': 'faturas',
+        'label': 'Faturas',
+        'icon': '🧾',
+        'url_endpoint': 'compras.faturas',
+        'description': 'Consultar e acompanhar documentos de compra.',
+    },
+    {
+        'id': 'fornecedores',
+        'label': 'Fornecedores',
+        'icon': '🏭',
+        'url_endpoint': 'faturas.fornecedores',
+        'url_kwargs': {'origem': 'compras'},
+        'description': 'Consultar e gerir fornecedores.',
+    },
+    {
+        'id': 'nova_fatura',
+        'label': 'Registar Documento',
+        'icon': '➕',
+        'url_endpoint': 'compras.nova_fatura',
+        'description': 'Registar um documento de compra.',
+    },
+    {
+        'id': 'artigos',
+        'label': 'Artigos de Fornecimento',
+        'icon': '📋',
+        'url_endpoint': 'compras.artigos',
+        'description': 'Gerir artigos disponíveis para encomendas.',
+    },
+    {
+        'id': 'encomendas_semanais',
+        'label': 'Encomendas Semanais',
+        'icon': '📅',
+        'url_endpoint': 'compras.encomendas_semanais',
+        'description': 'Preparar encomendas semanais das lojas.',
+    },
+    {
+        'id': 'pedidos_urgentes',
+        'label': 'Pedidos Urgentes',
+        'icon': '⚡',
+        'url_endpoint': 'compras.pedidos_urgentes',
+        'description': 'Registar necessidades urgentes fora do plano semanal.',
+    },
+    {
+        'id': 'contagens_artigos',
+        'label': 'Contagens de Artigos',
+        'icon': '🔢',
+        'url_endpoint': 'compras.contagens_artigos',
+        'description': 'Registar e consultar contagens físicas nas lojas.',
+    },
+    {
+        'id': 'criar_ordem',
+        'label': 'Criar Ordem de Transferência',
+        'icon': '📦',
+        'url_endpoint': 'compras.criar_ordem',
+        'description': 'Registar uma ordem de transferência de artigos.',
+    },
 ]
 
 
@@ -96,6 +151,7 @@ def index():
             'icon': icons.get(t['id']) or t['icon'],
             'label': labels.get(t['id']) or t['label'],
             'url': url_for(t['url_endpoint'], **t.get('url_kwargs', {})),
+            'description': t['description'],
         }
         for t in TABS
         if visibility.get(t['id'], True)

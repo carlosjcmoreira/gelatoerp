@@ -7,10 +7,24 @@
         <div>
             <h5 class="mb-1">Catálogo de Compras</h5>
             <p class="text-muted small mb-0">
-                Gerir artigos disponíveis para encomendas. Desative artigos para preservar o histórico.
+                Pesquise, acrescente e corrija artigos disponíveis para encomendas.
+                Desative-os para preservar o histórico.
             </p>
         </div>
         <span class="badge text-bg-light">{{ artigos|length }} artigo(s)</span>
+    </div>
+
+    <div class="alert alert-info small py-2 px-3 mb-3" role="note">
+        <div>
+            <strong>Origem por resolver:</strong>
+            A designação original foi preservada, mas ainda não foi associada a
+            uma origem confirmada. Isto não significa que o artigo esteja inativo.
+        </div>
+        <div class="mt-1">
+            Se confirmar a origem correta, selecione-a na lista e carregue em
+            <strong>Guardar</strong>. Caso contrário, mantenha-a por resolver
+            até haver confirmação.
+        </div>
     </div>
 
     <div class="card mb-3">
