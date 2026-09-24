@@ -18,12 +18,18 @@
         <div>
             <strong>Origem por resolver:</strong>
             A designação original foi preservada, mas ainda não foi associada a
-            uma origem confirmada. Isto não significa que o artigo esteja inativo.
+            uma origem confirmada. Estar Ativo não significa que o artigo esteja
+            disponível para encomendas semanais ou contagens.
         </div>
         <div class="mt-1">
-            Se confirmar a origem correta, selecione-a na lista e carregue em
-            <strong>Guardar</strong>. Caso contrário, mantenha-a por resolver
-            até haver confirmação.
+            Para associar um fornecedor, use <strong>Confirmar fornecedor</strong>
+            na linha do artigo. Se não souber qual é o correto, deixe por resolver
+            e <a href="{{ url_for('faturas.fornecedores', origem='compras') }}">consulte os fornecedores</a>.
+        </div>
+        <div class="mt-1">
+            <strong>Campos:</strong> Origem pode ser fornecedor, centro interno ou
+            categoria. Unidade é a medida usada nas quantidades (ex.: und, kg, cx),
+            não a quantidade. Marca é opcional e pode ser diferente do fornecedor.
         </div>
     </div>
 
@@ -53,7 +59,7 @@
             <form method="post" class="row g-2 align-items-end">
                 <input type="hidden" name="action" value="add">
                 <div class="col-12 col-md-3">
-                    <label class="form-label small mb-1">Origem</label>
+                    <label class="form-label small mb-1">Origem de abastecimento</label>
                     <select name="origem_id" class="form-select form-select-sm" required>
                         <option value="">Selecionar origem...</option>
                         {% for origem in origens %}
@@ -66,7 +72,11 @@
                 <div class="col-12 col-md-3">
                     <label class="form-label small mb-1">Etiqueta da origem</label>
                     <input type="text" name="fornecedor" class="form-control form-control-sm"
-                           placeholder="Texto original / fornecedor" required list="fornecedores-list">
+                           placeholder="Texto original" required list="fornecedores-list"
+                           aria-describedby="etiqueta-origem-ajuda">
+                    <div id="etiqueta-origem-ajuda" class="form-text small">
+                        O texto não confirma um fornecedor.
+                    </div>
                     <datalist id="fornecedores-list">
                         {% for f in fornecedores %}<option value="{{ f }}">{% endfor %}
                     </datalist>
@@ -76,13 +86,13 @@
                     <input type="text" name="produto" class="form-control form-control-sm" required>
                 </div>
                 <div class="col-6 col-md-1">
-                    <label class="form-label small mb-1">Marca</label>
+                    <label class="form-label small mb-1">Marca (opcional)</label>
                     <input type="text" name="marca" class="form-control form-control-sm">
                 </div>
                 <div class="col-6 col-md-1">
                     <label class="form-label small mb-1">Unidade</label>
                     <input type="text" name="unidade" class="form-control form-control-sm"
-                           placeholder="und/kg">
+                           placeholder="und/kg/cx" aria-label="Unidade de encomenda e contagem">
                 </div>
                 <div class="col-12 col-md-1">
                     <button type="submit" class="btn btn-primary btn-sm w-100">Adicionar</button>
@@ -96,9 +106,9 @@
         <table class="table table-sm table-hover align-middle" style="font-size:0.82rem;">
             <thead>
                 <tr>
-                    <th>Origem</th>
+                    <th>Origem / etiqueta</th>
                     <th>Produto</th>
-                    <th>Marca</th>
+                    <th>Marca (opcional)</th>
                     <th>Un.</th>
                     <th>Estado</th>
                     <th class="text-end">Ações</th>
@@ -118,8 +128,17 @@
                             </option>
                             {% endfor %}
                             </select>
+                            {% if a.origem_tipo == 'por_resolver' or not a.origem_id %}
+                            <div class="small mt-1">
+                                <span class="badge text-bg-warning">Por resolver</span>
+                                <span class="text-muted">
+                                    Etiqueta original: {{ a.origem_original or a.fornecedor }}
+                                </span>
+                            </div>
+                            {% endif %}
                             <input type="text" name="fornecedor" value="{{ a.fornecedor }}"
-                                   class="form-control form-control-sm mt-1" required>
+                                   class="form-control form-control-sm mt-1"
+                                   aria-label="Etiqueta da origem para {{ a.produto }}" required>
                         </form>
                     </td>
                     <td style="min-width:240px;">
@@ -145,6 +164,15 @@
                         {% endif %}
                     </td>
                     <td class="text-end text-nowrap">
+                        {% if a.origem_tipo == 'por_resolver' or not a.origem_id %}
+                        <button type="button" class="btn btn-outline-warning btn-sm"
+                                data-bs-toggle="modal" data-bs-target="#confirmarFornecedorModal"
+                                data-artigo-id="{{ a.id }}"
+                                data-artigo-produto="{{ a.produto }}"
+                                data-etiqueta-original="{{ a.origem_original or a.fornecedor }}">
+                            Confirmar fornecedor
+                        </button>
+                        {% endif %}
                         <a href="{{ url_for('compras.artigo_detalhe', artigo_id=a.id) }}"
                            class="btn btn-outline-info btn-sm">Histórico</a>
                         <button form="edit-artigo-{{ a.id }}" type="submit" class="btn btn-outline-primary btn-sm">Guardar</button>
@@ -165,5 +193,87 @@
     {% else %}
     <div class="alert alert-info">Nenhum artigo corresponde à pesquisa.</div>
     {% endif %}
+
+    <div class="modal fade" id="confirmarFornecedorModal" tabindex="-1"
+         aria-labelledby="confirmarFornecedorTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="post" action="{{ url_for('compras.artigos') }}">
+                    <input type="hidden" name="action" value="confirm_supplier">
+                    <input type="hidden" name="artigo_id" id="confirmFornecedorArtigoId">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="confirmarFornecedorTitulo">Confirmar fornecedor</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                aria-label="Fechar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-2">
+                            Artigo: <strong id="confirmFornecedorProduto"></strong>
+                        </p>
+                        <p class="small text-muted">
+                            Etiqueta original: <span id="confirmFornecedorEtiqueta"></span>
+                        </p>
+                        {% if suppliers %}
+                        <label for="confirmFornecedorSupplierId" class="form-label">
+                            Escolha o fornecedor confirmado
+                        </label>
+                        <select name="supplier_id" id="confirmFornecedorSupplierId"
+                                class="form-select" required>
+                            <option value="">Selecionar fornecedor...</option>
+                            {% for supplier in suppliers %}
+                            <option value="{{ supplier.id }}">
+                                {{ supplier.common_name or supplier.name }}
+                                {% if supplier.common_name %} — {{ supplier.name }}{% endif %}
+                                {% if supplier.nif %} · NIF {{ supplier.nif }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            A escolha liga este artigo ao fornecedor pelo registo confirmado.
+                        </div>
+                        {% else %}
+                        <div class="alert alert-warning small mb-2">
+                            Ainda não há fornecedores registados; mantenha o artigo por resolver.
+                        </div>
+                        {% endif %}
+                        <a href="{{ url_for('faturas.fornecedores', origem='compras') }}">
+                            Consultar ou registar fornecedores
+                        </a>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary"
+                                {% if not suppliers %}disabled{% endif %}>
+                            Confirmar fornecedor
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const modal = document.getElementById('confirmarFornecedorModal');
+    if (!modal) return;
+
+    modal.addEventListener('show.bs.modal', function (event) {
+        const button = event.relatedTarget;
+        if (!button) return;
+        document.getElementById('confirmFornecedorArtigoId').value =
+            button.getAttribute('data-artigo-id') || '';
+        document.getElementById('confirmFornecedorProduto').textContent =
+            button.getAttribute('data-artigo-produto') || '';
+        document.getElementById('confirmFornecedorEtiqueta').textContent =
+            button.getAttribute('data-etiqueta-original') || '';
+        const supplierSelect =
+            document.getElementById('confirmFornecedorSupplierId');
+        if (supplierSelect) supplierSelect.value = '';
+    });
+});
+</script>
 {% endblock %}

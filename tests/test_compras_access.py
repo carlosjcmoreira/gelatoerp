@@ -226,7 +226,7 @@ class TestComprasAccess(unittest.TestCase):
                 expected_descriptions[item['url']],
             )
 
-    def test_catalogue_explains_unresolved_origins_and_safe_next_step(self):
+    def test_catalogue_explains_origin_supplier_unit_and_brand(self):
         with open(
             'flask_app/templates/compras/artigos.html',
             encoding='utf-8',
@@ -243,16 +243,137 @@ class TestComprasAccess(unittest.TestCase):
             html,
         )
         self.assertIn(
-            'Isto não significa que o artigo esteja inativo.',
+            'Estar Ativo não significa que o artigo esteja disponível para encomendas semanais ou contagens.',
             html,
         )
         self.assertIn(
-            'selecione-a na lista e carregue em <strong>Guardar</strong>',
+            'use <strong>Confirmar fornecedor</strong> na linha do artigo.',
             html,
         )
         self.assertIn(
-            'mantenha-a por resolver até haver confirmação.',
+            'Origem pode ser fornecedor, centro interno ou categoria.',
             html,
+        )
+        self.assertIn(
+            'Unidade é a medida usada nas quantidades (ex.: und, kg, cx), não a quantidade.',
+            html,
+        )
+        self.assertIn(
+            'Marca é opcional e pode ser diferente do fornecedor.',
+            html,
+        )
+        self.assertIn('data-bs-target="#confirmarFornecedorModal"', html)
+        self.assertIn('name="supplier_id"', html)
+        self.assertIn('value="confirm_supplier"', html)
+        self.assertIn("url_for('faturas.fornecedores', origem='compras')", html)
+
+    def test_catalogue_passes_canonical_suppliers_to_resolution_dialog(self):
+        self._set_session_user(_user(acesso_compras=True))
+        suppliers = [{
+            'id': 42,
+            'name': 'Fornecedor Legal, Lda.',
+            'common_name': 'Fornecedor',
+            'nif': '501234567',
+        }]
+        with patch(
+            'flask_app.routes.compras.get_suppliers',
+            return_value=suppliers,
+        ), patch(
+            'flask_app.routes.compras.render_template',
+            return_value='ok',
+        ) as render_catalogue:
+            response = self.client.get('/compras/artigos')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            render_catalogue.call_args.kwargs['suppliers'],
+            suppliers,
+        )
+
+    def test_catalogue_confirms_supplier_using_submitted_id(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.confirm_artigo_fornecedor',
+            return_value={
+                'changed': True,
+                'supplier_name': 'Fornecedor Canónico',
+            },
+        ) as confirm_supplier:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'confirm_supplier',
+                    'artigo_id': '18',
+                    'supplier_id': '42',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            confirm_supplier.call_args.args,
+            (18, 42),
+        )
+        self.assertEqual(
+            confirm_supplier.call_args.kwargs['actor'],
+            'testuser',
+        )
+        with self.client.session_transaction() as sess:
+            messages = [message for _, message in sess.get('_flashes', [])]
+        self.assertIn('Fornecedor "Fornecedor Canónico" confirmado.', messages)
+
+    def test_catalogue_noop_save_has_accurate_feedback(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.update_artigo_administrativo',
+            return_value={
+                'found': True,
+                'changed': False,
+                'origin_type': 'por_resolver',
+            },
+        ):
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'edit',
+                    'artigo_id': '18',
+                    'origem_id': '8',
+                    'fornecedor': 'CAFÉ ILLY',
+                    'produto': 'Café Clássico',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as sess:
+            flashes = sess.get('_flashes', [])
+        self.assertIn(('info', 'Sem alterações.'), flashes)
+
+    def test_catalogue_edit_keeps_unresolved_status_in_feedback(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.update_artigo_administrativo',
+            return_value={
+                'found': True,
+                'changed': True,
+                'origin_type': 'por_resolver',
+            },
+        ):
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'edit',
+                    'artigo_id': '18',
+                    'origem_id': '8',
+                    'fornecedor': 'CAFÉ ILLY',
+                    'produto': 'Café Clássico Descafeinado',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        with self.client.session_transaction() as sess:
+            flashes = sess.get('_flashes', [])
+        self.assertIn(
+            ('warning', 'Artigo guardado; origem ainda por resolver.'),
+            flashes,
         )
 
     def test_compras_faturas_accessible_with_acesso_compras(self):

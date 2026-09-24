@@ -9,6 +9,7 @@ from database import (
     get_artigos_administrativos, add_artigo_administrativo,
     get_artigo_administrativo, get_artigo_comercial_history,
     update_artigo_administrativo, toggle_artigo_administrativo,
+    confirm_artigo_fornecedor,
     delete_artigo_administrativo,
     get_compras_origens,
     criar_ordem_transferencia,
@@ -1239,19 +1240,53 @@ def artigos():
             origem_id = int(origem_raw) if origem_raw.isdigit() else None
             if artigo_id and fornecedor and produto:
                 try:
-                    updated = update_artigo_administrativo(
+                    result = update_artigo_administrativo(
                         artigo_id, fornecedor, produto, marca=marca,
                         unidade=unidade, origem_id=origem_id,
                         actor=_get_username(),
                     )
-                    flash(
-                        'Artigo atualizado.' if updated else 'Artigo não encontrado.',
-                        'success' if updated else 'warning',
-                    )
+                    if not result:
+                        flash('Artigo não encontrado.', 'warning')
+                    elif not result['changed']:
+                        flash('Sem alterações.', 'info')
+                    elif result['origin_type'] in (None, 'por_resolver'):
+                        flash(
+                            'Artigo guardado; origem ainda por resolver.',
+                            'warning',
+                        )
+                    else:
+                        flash('Artigo atualizado.', 'success')
                 except ValueError as exc:
                     flash(str(exc), 'danger')
             else:
                 flash('Preencha origem, fornecedor e produto.', 'warning')
+
+        elif action == 'confirm_supplier':
+            article_raw = request.form.get('artigo_id', '').strip()
+            supplier_raw = request.form.get('supplier_id', '').strip()
+            if not article_raw.isdigit() or not supplier_raw.isdigit():
+                flash('Selecione um artigo e um fornecedor válido.', 'warning')
+            else:
+                try:
+                    result = confirm_artigo_fornecedor(
+                        int(article_raw),
+                        int(supplier_raw),
+                        actor=_get_username(),
+                    )
+                    if result is None:
+                        flash('Artigo não encontrado.', 'warning')
+                    elif result['changed']:
+                        flash(
+                            f'Fornecedor "{result["supplier_name"]}" confirmado.',
+                            'success',
+                        )
+                    else:
+                        flash(
+                            f'Fornecedor "{result["supplier_name"]}" já estava confirmado.',
+                            'info',
+                        )
+                except ValueError as exc:
+                    flash(str(exc), 'danger')
 
         elif action == 'toggle':
             try:
@@ -1285,9 +1320,10 @@ def artigos():
         ]
     fornecedores = sorted(set(a['fornecedor'] for a in artigos_list))
     origens = get_compras_origens(apenas_ativos=True)
+    suppliers = get_suppliers()
     return render_template('compras/artigos.html',
                            artigos=artigos_list, fornecedores=fornecedores,
-                           origens=origens, search=search)
+                           origens=origens, suppliers=suppliers, search=search)
 
 
 @compras_bp.route('/artigos/<int:artigo_id>')
