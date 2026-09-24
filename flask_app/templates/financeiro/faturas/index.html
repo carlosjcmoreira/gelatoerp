@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% set back_url = url_for("financeiro.index") %}
+{% set back_url = url_for("compras.index") if scope == 'compras' else url_for("financeiro.index") %}
+{% set supplier_origin = 'compras_documentos' if scope == 'compras' else 'documentos' %}
 
 {% block head %}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
@@ -125,10 +126,10 @@
                     Por categoria
                 </a>
             </div>
-            <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm">Fornecedores</a>
+            <a href="{{ url_for('faturas.fornecedores', origem=supplier_origin) }}" class="btn btn-outline-secondary btn-sm">Fornecedores</a>
             <a href="{{ url_for('faturas.registar') }}" class="btn btn-primary btn-sm">+ Registar Documento</a>
             {% else %}
-            <a href="{{ url_for('faturas.fornecedores') }}" class="btn btn-outline-secondary btn-sm">🏭 Fornecedores</a>
+            <a href="{{ url_for('faturas.fornecedores', origem=supplier_origin) }}" class="btn btn-outline-secondary btn-sm">🏭 Fornecedores</a>
             <a href="{{ url_for('compras.nova_fatura') }}" class="btn btn-primary btn-sm">+ Registar Documento</a>
             {% endif %}
         </div>

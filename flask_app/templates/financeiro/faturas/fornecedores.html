@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set back_url = url_for("faturas.index") %}
+{% set back_url = return_url %}
 
 {% block content %}
 <div class="container-fluid px-3 py-3 pb-5">
@@ -11,14 +11,14 @@
                 <button type="button" id="btnListView" class="btn btn-primary" onclick="setView('list')">☰ Lista</button>
                 <button type="button" id="btnTableView" class="btn btn-outline-primary" onclick="setView('table')">⊞ Tabela</button>
             </div>
-            <form method="post" class="d-inline">
+            <form method="post" action="{{ supplier_post_url }}" class="d-inline">
                 <input type="hidden" name="action" value="normalise">
                 <button type="submit" class="btn btn-outline-success btn-sm"
                         title="Copia o nome canónico do fornecedor para todas as faturas já ligadas, eliminando variantes OCR">
                     ✅ Normalizar nomes
                 </button>
             </form>
-            <form method="post" class="d-inline">
+            <form method="post" action="{{ supplier_post_url }}" class="d-inline">
                 <input type="hidden" name="action" value="backfill">
                 <button type="submit" class="btn btn-outline-secondary btn-sm"
                         title="Cria fornecedores para todos os nomes em faturas e liga as faturas automaticamente">
@@ -49,7 +49,7 @@
                     {{ u.invoice_count }} fatura(s)
                 </div>
                 <div class="d-flex flex-column gap-2">
-                    <form method="post" class="d-flex gap-2 flex-wrap align-items-center">
+                    <form method="post" action="{{ supplier_post_url }}" class="d-flex gap-2 flex-wrap align-items-center">
                         <input type="hidden" name="action" value="associate">
                         <input type="hidden" name="unlinked_name" value="{{ u.name | e }}">
                         <select name="associate_supplier_id" class="form-select form-select-sm" style="max-width:260px" required>
@@ -65,7 +65,7 @@
                             Criar fornecedor
                         </button>
                     </form>
-                    <form method="post" class="d-flex gap-2 flex-wrap align-items-center">
+                    <form method="post" action="{{ supplier_post_url }}" class="d-flex gap-2 flex-wrap align-items-center">
                         <input type="hidden" name="action" value="rename_variant">
                         <input type="hidden" name="old_name" value="{{ u.name | e }}">
                         <input type="text" name="new_name" class="form-control form-control-sm"
@@ -121,7 +121,7 @@
                                 onclick="openMergePreset({{ pair.a.id }}, {{ pair.b.id }})">
                             🔀 Fundir
                         </button>
-                        <form method="post" class="d-inline">
+                        <form method="post" action="{{ supplier_post_url }}" class="d-inline">
                             <input type="hidden" name="action" value="ignore_pair">
                             <input type="hidden" name="id_a" value="{{ pair.a.id }}">
                             <input type="hidden" name="id_b" value="{{ pair.b.id }}">
@@ -419,7 +419,7 @@
                                                 {% if a.source == 'manual' %}<span class="badge bg-secondary bg-opacity-50 ms-1" style="font-size:.65rem">manual</span>{% endif %}
                                             </span>
                                             {% endif %}
-                                            <form method="post" class="d-inline" onsubmit="return confirm('Eliminar alias?')">
+                                            <form method="post" action="{{ supplier_post_url }}" class="d-inline" onsubmit="return confirm('Eliminar alias?')">
                                                 <input type="hidden" name="action" value="delete_alias">
                                                 <input type="hidden" name="alias_id" value="{{ a.id }}">
                                                 <button type="submit" class="btn btn-link btn-sm p-0 text-danger" title="Eliminar alias" style="font-size:.8rem">✕</button>
@@ -430,7 +430,7 @@
                                     {% else %}
                                     <p class="small text-muted mb-2">Sem aliases.</p>
                                     {% endif %}
-                                    <form method="post" class="d-flex gap-1 align-items-center flex-wrap">
+                                    <form method="post" action="{{ supplier_post_url }}" class="d-flex gap-1 align-items-center flex-wrap">
                                         <input type="hidden" name="action" value="add_alias">
                                         <input type="hidden" name="supplier_id" value="{{ s.id }}">
                                         <input type="text" name="alias_name" class="form-control form-control-sm"
@@ -460,7 +460,7 @@
                                 title="Fundir com outro fornecedor">
                             🔀
                         </button>
-                        <form method="post" onsubmit="return confirm('Eliminar fornecedor?')">
+                        <form method="post" action="{{ supplier_post_url }}" onsubmit="return confirm('Eliminar fornecedor?')">
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="supplier_id" value="{{ s.id }}">
                             <button type="submit" class="btn btn-outline-danger btn-sm">🗑</button>
@@ -486,7 +486,7 @@
                 <h6 class="modal-title" id="modalAddTitle">Novo Fornecedor</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="post">
+            <form method="post" action="{{ supplier_post_url }}">
                 <input type="hidden" name="action" value="save">
                 <input type="hidden" name="supplier_id" id="sSupplierId">
                 <div class="modal-body">
@@ -580,7 +580,7 @@
                 <h6 class="modal-title">🔀 Fundir Fornecedores</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="post">
+            <form method="post" action="{{ supplier_post_url }}">
                 <input type="hidden" name="action" value="merge">
                 <div class="modal-body">
                     <div class="alert alert-warning py-2 small">
@@ -626,7 +626,7 @@
                 <h6 class="modal-title" id="bulkMergeTitle">🔀 Fundir duplicados em batch</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="post" id="bulkMergeForm">
+            <form method="post" action="{{ supplier_post_url }}" id="bulkMergeForm">
                 <input type="hidden" name="action" value="bulk_merge">
                 <input type="hidden" name="pair_count" value="{{ duplicate_pairs | length }}">
                 <div class="modal-body py-2">

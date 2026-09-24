@@ -2430,9 +2430,55 @@ def apply_supplier_classifications(supplier_id: int):
         return jsonify({'ok': False, 'error': 'Não foi possível aplicar as classificações.'}), 500
 
 
+def _resolve_supplier_return_origin(user: dict, requested_origin: str) -> str:
+    """Return a trusted supplier-page origin that the user can actually open."""
+    is_manager = bool(user.get('acesso_gestor'))
+    can_open_compras = bool(
+        is_manager or user.get('acesso_compras') or user.get('acesso_administrativo')
+    )
+    can_open_financeiro_docs = bool(
+        is_manager or user.get('acesso_financeiro') or user.get('acesso_compras')
+    )
+
+    if requested_origin == 'compras' and can_open_compras:
+        return 'compras'
+    if requested_origin == 'compras_documentos' and can_open_compras:
+        return 'compras_documentos'
+    if requested_origin == 'financeiro' and is_manager:
+        return 'financeiro'
+    if requested_origin == 'financeiro' and can_open_financeiro_docs:
+        # The Financeiro landing page itself is gestor-only.
+        return 'documentos'
+    if requested_origin == 'documentos' and can_open_financeiro_docs:
+        return 'documentos'
+
+    # Direct visits and invalid or unauthorized origins get a permission-safe
+    # destination. Managers can open the Financeiro landing page; users with
+    # only Compras access should not be sent into Financeiro.
+    if is_manager:
+        return 'financeiro'
+    if can_open_compras:
+        return 'compras'
+    return 'documentos'
+
+
 @faturas_bp.route('/fornecedores', methods=['GET', 'POST'])
 @any_perm_required('acesso_financeiro', 'acesso_compras')  # min: acesso_financeiro — supplier list/create/edit; destructive actions guarded below
 def fornecedores():
+    user = session.get('user', {})
+    requested_origin = (
+        request.form.get('origem') or request.args.get('origem', '')
+        if request.method == 'POST'
+        else request.args.get('origem', '')
+    )
+    # Accept only a small set of origins; never treat caller input as a URL.
+    return_origin = _resolve_supplier_return_origin(user, requested_origin)
+
+    supplier_post_url = url_for('faturas.fornecedores', origem=return_origin)
+
+    def redirect_to_supplier():
+        return redirect(supplier_post_url)
+
     stores = get_stores_list()
     if request.method == 'POST':
         action = request.form.get('action', '')
@@ -2443,7 +2489,7 @@ def fornecedores():
             _u = session.get('user', {})
             if not (_u.get('acesso_gestor') or _u.get('acesso_administrativo')):
                 flash('Não tens permissão para realizar esta acção.', 'danger')
-                return redirect(url_for('faturas.fornecedores'))
+                return redirect_to_supplier()
         # Supplier CRUD actions (delete, merge, rename) are allowed for
         # acesso_compras and acesso_financeiro — enforced by the route decorator.
 
@@ -2490,7 +2536,7 @@ def fornecedores():
                     flash(f'Fornecedor "{name}" criado.', 'success')
                 except ValueError as exc:
                     flash(str(exc), 'warning')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'delete':
             supplier_id = int(request.form.get('supplier_id', 0))
@@ -2499,7 +2545,7 @@ def fornecedores():
                 flash('Fornecedor eliminado.', 'success')
             else:
                 flash('Não é possível eliminar: fornecedor tem faturas associadas.', 'warning')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'merge':
             source_id_str = request.form.get('merge_source_id', '').strip()
@@ -2514,7 +2560,7 @@ def fornecedores():
                     flash(str(exc), 'warning')
                 except Exception as exc:
                     flash(f'Erro ao fundir fornecedores: {exc}', 'danger')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'associate':
             supplier_name_raw = request.form.get('unlinked_name', '').strip()
@@ -2525,7 +2571,7 @@ def fornecedores():
                 flash(f'"{supplier_name_raw}" associado: {count} fatura(s) ligada(s).', 'success')
             else:
                 flash('Selecciona um fornecedor para associar.', 'warning')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'backfill':
             result = backfill_supplier_ids()
@@ -2534,7 +2580,7 @@ def fornecedores():
                 f'{result["invoices_linked"]} fatura(s) ligada(s).',
                 'success'
             )
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'bulk_merge':
             pair_count = int(request.form.get('pair_count', 0))
@@ -2561,7 +2607,7 @@ def fornecedores():
                     flash(f'⚠ {err}', 'warning')
             if not total_merged and not errors:
                 flash('Nenhum par seleccionado.', 'info')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'ignore_pair':
             id_a_raw = request.form.get('id_a', '').strip()
@@ -2569,7 +2615,7 @@ def fornecedores():
             if id_a_raw.isdigit() and id_b_raw.isdigit():
                 ignore_supplier_pair(int(id_a_raw), int(id_b_raw))
                 flash('Par ignorado — não voltará a aparecer nas sugestões.', 'info')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'normalise':
             count = normalise_supplier_names()
@@ -2577,7 +2623,7 @@ def fornecedores():
                 flash(f'Nomes normalizados: {count} fatura(s) actualizadas com o nome canónico do fornecedor.', 'success')
             else:
                 flash('Todos os nomes já estão normalizados.', 'info')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'rename_variant':
             old_name = request.form.get('old_name', '').strip()
@@ -2592,7 +2638,7 @@ def fornecedores():
                     flash(f'"{old_name}" → "{new_name}": {count} fatura(s) renomeada(s).', 'success')
                 else:
                     flash(f'Nenhuma fatura sem ligação encontrada com o nome "{old_name}".', 'info')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'delete_alias':
             alias_id_str = request.form.get('alias_id', '').strip()
@@ -2612,7 +2658,7 @@ def fornecedores():
                     flash('Alias não encontrado.', 'warning')
             else:
                 flash('ID de alias inválido.', 'warning')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'add_alias':
             supplier_id_str = request.form.get('supplier_id', '').strip()
@@ -2625,7 +2671,7 @@ def fornecedores():
                     flash(f'Alias "{alias_name}" adicionado.', 'success')
                 else:
                     flash(f'Alias "{alias_name}" já existe ou não foi possível adicionar.', 'warning')
-            return redirect(url_for('faturas.fornecedores'))
+            return redirect_to_supplier()
 
         elif action == 'bulk_edit':
             from flask import jsonify as _jsonify
@@ -2675,6 +2721,14 @@ def fornecedores():
         supplier_aliases=supplier_aliases,
         cost_centers=cost_centers,
         can_bulk_edit=can_bulk_edit,
+        return_origin=return_origin,
+        return_url=(
+            url_for('compras.index') if return_origin == 'compras'
+            else url_for('compras.faturas') if return_origin == 'compras_documentos'
+            else url_for('financeiro.index') if return_origin == 'financeiro'
+            else url_for('faturas.index')
+        ),
+        supplier_post_url=supplier_post_url,
     )
 
 

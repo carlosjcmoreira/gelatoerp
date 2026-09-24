@@ -68,6 +68,7 @@ compras_bp = Blueprint('compras', __name__)
 TABS = [
     {'id': 'operacao_abastecimento', 'label': 'Operação de Abastecimento', 'icon': '🧭', 'url_endpoint': 'compras.operacao_abastecimento'},
     {'id': 'faturas', 'label': 'Faturas', 'icon': '🧾', 'url_endpoint': 'compras.faturas'},
+    {'id': 'fornecedores', 'label': 'Fornecedores', 'icon': '🏭', 'url_endpoint': 'faturas.fornecedores', 'url_kwargs': {'origem': 'compras'}},
     {'id': 'nova_fatura', 'label': 'Registar Documento', 'icon': '➕', 'url_endpoint': 'compras.nova_fatura'},
     {'id': 'artigos', 'label': 'Artigos de Fornecimento', 'icon': '📋', 'url_endpoint': 'compras.artigos'},
     {'id': 'encomendas_semanais', 'label': 'Encomendas Semanais', 'icon': '📅', 'url_endpoint': 'compras.encomendas_semanais'},
@@ -91,7 +92,11 @@ def index():
     icons = get_tile_icons('compras')
     custom_mod = get_module_labels().get('compras')
     items = [
-        {'icon': icons.get(t['id']) or t['icon'], 'label': labels.get(t['id']) or t['label'], 'url': url_for(t['url_endpoint'])}
+        {
+            'icon': icons.get(t['id']) or t['icon'],
+            'label': labels.get(t['id']) or t['label'],
+            'url': url_for(t['url_endpoint'], **t.get('url_kwargs', {})),
+        }
         for t in TABS
         if visibility.get(t['id'], True)
     ]

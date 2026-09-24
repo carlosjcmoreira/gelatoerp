@@ -30,6 +30,7 @@ from flask import Blueprint, Flask
 def _make_app():
     """Return a Flask test app with the real compras_bp registered."""
     from flask_app.routes.compras import compras_bp
+    from flask_app.routes.faturas import faturas_bp
 
     app = Flask(__name__)
     app.secret_key = 'test-secret-key'
@@ -50,6 +51,7 @@ def _make_app():
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
+    app.register_blueprint(faturas_bp, url_prefix='/financeiro/faturas')
     app.register_blueprint(compras_bp, url_prefix='/compras')
 
     return app
