@@ -138,12 +138,14 @@
                     </div>
                     <div class="col-4">
                         <label class="form-label small" for="novo-sabor-past">Sabor</label>
-                        <select name="novo_sabor_past" id="novo-sabor-past" class="form-select form-select-sm">
+                        <select name="novo_sabor_past" id="novo-sabor-past"
+                                data-custom-flavour-option="{{ custom_flavour_option }}"
+                                class="form-select form-select-sm">
                             <option value="">—</option>
                             {% for s in sabores_list %}
                             <option value="{{ s }}">{{ s }}</option>
                             {% endfor %}
-                            <option value="__pastelaria_outro_sabor__">Outro sabor (exceção)</option>
+                            <option value="{{ custom_flavour_option }}">Outro sabor (exceção)</option>
                         </select>
                     </div>
                     <div class="col-4">
@@ -179,7 +181,9 @@
     if (!flavourSelect || !customWrap || !customInput) return;
 
     function updateCustomFlavour() {
-        const useCustom = flavourSelect.value === '__pastelaria_outro_sabor__';
+        const useCustom = (
+            flavourSelect.value === flavourSelect.dataset.customFlavourOption
+        );
         customWrap.hidden = !useCustom;
         customInput.disabled = !useCustom;
         customInput.required = useCustom;

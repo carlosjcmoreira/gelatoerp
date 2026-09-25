@@ -161,7 +161,10 @@ class PastelariaCustomFlavourTests(unittest.TestCase):
 
         page = response.get_data(as_text=True)
         self.assertEqual(response.status_code, 200)
-        self.assertIn('Outro sabor (exceção)', page)
+        self.assertIn(
+            f'value="{PASTELARIA_CUSTOM_FLAVOUR_OPTION}">Outro sabor (exceção)',
+            page,
+        )
         self.assertIn('Nome do sabor', page)
         self.assertIn(
             'Este sabor fica apenas no produto de Pastelaria',

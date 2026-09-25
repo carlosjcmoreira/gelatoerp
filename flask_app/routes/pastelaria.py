@@ -1189,7 +1189,10 @@ def produtos():
                            state_change_history=db.get_pastelaria_product_state_history(),
                            state_token=db.pastelaria_product_state_token(
                                products
-                           ))
+                            ),
+                            custom_flavour_option=(
+                                PASTELARIA_CUSTOM_FLAVOUR_OPTION
+                            ))
 
 
 @pastelaria_bp.route('/plano-prioridade/<int:plan_id>')
