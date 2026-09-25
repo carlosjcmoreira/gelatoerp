@@ -58,8 +58,8 @@
                         <tr>
                             <th class="fw-normal">{{ product.nome }}</th>
                             <td>
-                                <input type="number" min="0" step="1" required
-                                       class="form-control form-control-sm text-center count-input{% if product.count is none %} border-warning{% endif %}"
+                                <input type="number" min="0" step="1"
+                                       class="form-control form-control-sm text-center count-input"
                                        name="count_{{ product.id }}"
                                        value="{{ '' if product.count is none else product.count }}"
                                        aria-label="{{ product.nome }}">
@@ -71,7 +71,7 @@
                         </tbody>
                     </table>
                 </div>
-                <div id="count-missing" class="small text-warning mb-2"></div>
+                <div id="count-status" class="small text-muted mb-2" aria-live="polite"></div>
                 <button type="submit" id="save-count" class="btn btn-primary btn-sm w-100">
                     Guardar contagem da {{ loja_nome }}
                 </button>
@@ -83,17 +83,17 @@
 (() => {
     const inputs = [...document.querySelectorAll('.count-input')];
     const save = document.getElementById('save-count');
-    const missing = document.getElementById('count-missing');
+    const status = document.getElementById('count-status');
     function update() {
-        const incomplete = inputs.filter(input =>
-            input.value.trim() === '' || !input.validity.valid
-        );
-        save.disabled = inputs.length === 0 || incomplete.length > 0;
-        missing.textContent = incomplete.length
-            ? `Faltam ${incomplete.length} campo(s).`
-            : 'Contagem completa e pronta a guardar.';
-        incomplete.forEach(input => input.classList.add('border-warning'));
-        inputs.filter(input => !incomplete.includes(input))
+        const invalid = inputs.filter(input => !input.validity.valid);
+        save.disabled = inputs.length === 0 || invalid.length > 0;
+        status.textContent = invalid.length
+            ? `Corrija ${invalid.length} campo(s). Use números inteiros não negativos; os vazios serão guardados como 0.`
+            : 'Campos vazios serão guardados como 0. Contagem pronta a guardar.';
+        status.classList.toggle('text-danger', invalid.length > 0);
+        status.classList.toggle('text-muted', invalid.length === 0);
+        invalid.forEach(input => input.classList.add('border-warning'));
+        inputs.filter(input => !invalid.includes(input))
             .forEach(input => input.classList.remove('border-warning'));
     }
     inputs.forEach(input => input.addEventListener('input', update));

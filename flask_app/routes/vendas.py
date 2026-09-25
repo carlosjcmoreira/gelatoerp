@@ -766,12 +766,29 @@ def contagem_pastelaria():
         values = []
         try:
             for product in grid['products']:
-                raw_quantity = request.form.get(f"count_{product['id']}", '')
-                if raw_quantity is None or not raw_quantity.strip().isdigit():
+                field_name = f"count_{product['id']}"
+                if field_name not in request.form:
                     raise ValueError(
-                        'Preencha todas as contagens com números inteiros não negativos.'
+                        'A grelha recebida está incompleta. '
+                        'Atualize a página antes de guardar.'
                     )
-                values.append((product['id'], int(raw_quantity)))
+                raw_quantity = request.form.get(field_name)
+                if raw_quantity is None:
+                    raise ValueError(
+                        'A grelha recebida está incompleta. '
+                        'Atualize a página antes de guardar.'
+                    )
+                raw_quantity = raw_quantity.strip()
+                if raw_quantity == '':
+                    quantity = 0
+                elif raw_quantity.isdigit():
+                    quantity = int(raw_quantity)
+                else:
+                    raise ValueError(
+                        'Use números inteiros não negativos; os campos '
+                        'vazios serão guardados como 0.'
+                    )
+                values.append((product['id'], quantity))
             if legacy_save:
                 saved = save_pastelaria_sunday_counts(
                     count_date,
