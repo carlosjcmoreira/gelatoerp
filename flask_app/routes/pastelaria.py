@@ -44,6 +44,7 @@ from db.doseamento import set_typology_dose
 pastelaria_bp = Blueprint('pastelaria', __name__)
 
 AREA = 'pastelaria'
+PASTELARIA_CUSTOM_FLAVOUR_OPTION = '__pastelaria_outro_sabor__'
 
 TABS = [
     {
@@ -1131,11 +1132,40 @@ def produtos():
                 flash(str(exc), 'warning')
         elif action == 'add_produto_past':
             tip = request.form.get('novo_tipologia', '')
-            sabor = request.form.get('novo_sabor_past', '')
+            sabor_choice = request.form.get('novo_sabor_past', '')
             cob = request.form.get('novo_cob_past', '')
             if tip:
-                success = db.add_produto_pastelaria(tip, sabor, cob)
-                flash('Produto adicionado!' if success else 'Produto já existe.', 'success' if success else 'warning')
+                try:
+                    if sabor_choice == PASTELARIA_CUSTOM_FLAVOUR_OPTION:
+                        sabor = request.form.get(
+                            'novo_sabor_past_custom', ''
+                        ).strip()
+                        if not sabor:
+                            raise ValueError(
+                                'Indique o nome do sabor excecional.'
+                            )
+                        if len(sabor) > 255:
+                            raise ValueError(
+                                'O sabor não pode exceder 255 caracteres.'
+                            )
+                    elif sabor_choice:
+                        if sabor_choice not in db.get_sabores_list():
+                            raise ValueError(
+                                'Escolha um sabor ativo ou a opção '
+                                '«Outro sabor (exceção)».'
+                            )
+                        sabor = sabor_choice
+                    else:
+                        sabor = ''
+                except ValueError as exc:
+                    flash(str(exc), 'warning')
+                else:
+                    success = db.add_produto_pastelaria(tip, sabor, cob)
+                    flash(
+                        'Produto adicionado!' if success
+                        else 'Produto já existe.',
+                        'success' if success else 'warning',
+                    )
             else:
                 flash('Por favor, selecione uma tipologia.', 'warning')
         elif action == 'delete_bulk_produtos_past':
