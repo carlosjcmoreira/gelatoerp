@@ -4,6 +4,8 @@ import uuid
 from datetime import date, timedelta
 from unittest.mock import patch
 
+from flask import session
+
 from db.connection import db_connection
 from db.pastelaria import (
     add_stock_gelado,
@@ -35,6 +37,13 @@ class MissingWeighingStatusIntegrationTests(unittest.TestCase):
         run_migrations_pesagem_day_justifications()
 
     def setUp(self):
+        self._session_user_patch = patch(
+            'db.auth.get_session_user',
+            side_effect=lambda _token: session.get('_test_authenticated_user'),
+        )
+        self._session_user_patch.start()
+        self.addCleanup(self._session_user_patch.stop)
+
         self.store_name = f'__test_eod_{uuid.uuid4().hex}'
         with db_connection() as conn:
             cursor = conn.cursor()
@@ -98,15 +107,18 @@ class MissingWeighingStatusIntegrationTests(unittest.TestCase):
         app = create_app()
         app.config['TESTING'] = True
         client = app.test_client()
+        user = {
+            'id': 654,
+            'username': 'store-user',
+            'acesso_gestor': False,
+            'acesso_producao': False,
+            'vendas_store_ids': [self.store_id],
+            'loja_id': self.store_id,
+        }
         with client.session_transaction() as session:
-            session['user'] = {
-                'id': 654,
-                'username': 'store-user',
-                'acesso_gestor': False,
-                'acesso_producao': False,
-                'vendas_store_ids': [self.store_id],
-                'loja_id': self.store_id,
-            }
+            session['user'] = user
+            session['token'] = 'test-session'
+            session['_test_authenticated_user'] = user
         return client
 
     def test_three_day_view_uses_consecutive_calendar_dates_across_month(self):
@@ -381,14 +393,17 @@ class MissingWeighingStatusIntegrationTests(unittest.TestCase):
         app = create_app()
         app.config['TESTING'] = True
         client = app.test_client()
+        user = {
+            'id': 321,
+            'username': 'production-only',
+            'acesso_producao': True,
+            'acesso_gestor': False,
+            'vendas_store_ids': [],
+        }
         with client.session_transaction() as session:
-            session['user'] = {
-                'id': 321,
-                'username': 'production-only',
-                'acesso_producao': True,
-                'acesso_gestor': False,
-                'vendas_store_ids': [],
-            }
+            session['user'] = user
+            session['token'] = 'test-session'
+            session['_test_authenticated_user'] = user
 
         response = client.post(
             '/producao/pesagens-loja?days=3',
@@ -483,14 +498,17 @@ class MissingWeighingStatusIntegrationTests(unittest.TestCase):
         app = create_app()
         app.config['TESTING'] = True
         client = app.test_client()
+        user = {
+            'id': 321,
+            'username': 'production-only',
+            'acesso_producao': True,
+            'acesso_gestor': False,
+            'vendas_store_ids': [],
+        }
         with client.session_transaction() as session:
-            session['user'] = {
-                'id': 321,
-                'username': 'production-only',
-                'acesso_producao': True,
-                'acesso_gestor': False,
-                'vendas_store_ids': [],
-            }
+            session['user'] = user
+            session['token'] = 'test-session'
+            session['_test_authenticated_user'] = user
         fake = {
             'dates': [],
             'date_labels': [],

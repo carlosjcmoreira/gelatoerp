@@ -16,6 +16,8 @@ import unittest
 from functools import lru_cache
 from unittest.mock import MagicMock, patch, call
 
+from flask import session
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -183,17 +185,32 @@ def _make_app():
 def _set_financeiro_session(client):
     """Set a session that passes the acesso_financeiro permission check."""
     with client.session_transaction() as sess:
-        # auth.py checks user.get('acesso_financeiro') directly — not a 'perms' list
-        sess['user'] = {'username': 'test_fin', 'acesso_financeiro': True}
+        user = {'username': 'test_fin', 'acesso_financeiro': True}
+        sess['user'] = user
+        sess['token'] = 'test-session'
+        sess['_test_authenticated_user'] = user
 
 
 def _set_compras_session(client):
     """Set a session that passes the acesso_compras permission check."""
     with client.session_transaction() as sess:
-        sess['user'] = {'username': 'test_cpr', 'acesso_compras': True}
+        user = {'username': 'test_cpr', 'acesso_compras': True}
+        sess['user'] = user
+        sess['token'] = 'test-session'
+        sess['_test_authenticated_user'] = user
 
 
-class TestFinanceiroGroupViewsExcludeGov(unittest.TestCase):
+class _AuthenticatedAppTestCase(unittest.TestCase):
+    def setUp(self):
+        self._session_user_patch = patch(
+            'db.auth.get_session_user',
+            side_effect=lambda _token: session.get('_test_authenticated_user'),
+        )
+        self._session_user_patch.start()
+        self.addCleanup(self._session_user_patch.stop)
+
+
+class TestFinanceiroGroupViewsExcludeGov(_AuthenticatedAppTestCase):
     """
     The Financeiro route's Por Fornecedor, Por Centro de Custo, and Por Categoria
     views must invoke their query helpers with exclude_gov=True so AT/SS tax entities
@@ -250,7 +267,7 @@ class TestFinanceiroGroupViewsExcludeGov(unittest.TestCase):
                 self.assertTrue(mock_summary.call_args.kwargs['exclude_gov'])
 
 
-class TestGroupedViewPagination(unittest.TestCase):
+class TestGroupedViewPagination(_AuthenticatedAppTestCase):
     def test_out_of_range_supplier_page_redirects_to_last_page(self):
         app = _make_app()
         with app.test_client() as client:
@@ -275,7 +292,7 @@ class TestGroupedViewPagination(unittest.TestCase):
 # 5. Compras document-list uses exclude_gov=True
 # ---------------------------------------------------------------------------
 
-class TestComprasDocumentListExcludesGov(unittest.TestCase):
+class TestComprasDocumentListExcludesGov(_AuthenticatedAppTestCase):
     """
     The Compras /compras/faturas view must call get_invoices and count_invoices
     with exclude_gov=True so AT/SS tax rows never appear in Compras-facing results.

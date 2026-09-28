@@ -2,6 +2,9 @@ import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from unittest.mock import patch
+
+from flask import session
 
 from db.connection import db_connection
 from db.pastelaria import (
@@ -36,6 +39,13 @@ class PesagemAuditRecoveryIntegrationTests(unittest.TestCase):
         run_migrations_pesagem_audit()
 
     def setUp(self):
+        self._session_user_patch = patch(
+            'db.auth.get_session_user',
+            side_effect=lambda _token: session.get('_test_authenticated_user'),
+        )
+        self._session_user_patch.start()
+        self.addCleanup(self._session_user_patch.stop)
+
         self._cleanup()
         with db_connection() as conn:
             cursor = conn.cursor()
@@ -67,7 +77,7 @@ class PesagemAuditRecoveryIntegrationTests(unittest.TestCase):
         app.config['TESTING'] = True
         client = app.test_client()
         with client.session_transaction() as session:
-            session['user'] = {
+            user = {
                 'id': 99 if gestor else 10,
                 'username': 'manager-user' if gestor else 'store-user',
                 'acesso_gestor': gestor,
@@ -75,6 +85,9 @@ class PesagemAuditRecoveryIntegrationTests(unittest.TestCase):
                 'vendas_store_ids': [] if gestor else [self.store_id],
                 'loja_id': self.store_id,
             }
+            session['user'] = user
+            session['token'] = 'test-session'
+            session['_test_authenticated_user'] = user
         return client
 
     @classmethod

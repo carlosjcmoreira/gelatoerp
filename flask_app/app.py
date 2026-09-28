@@ -10,6 +10,28 @@ from functools import wraps
 logger = logging.getLogger(__name__)
 STARTUP_SLOW_STEP_SECONDS = 0.05
 
+
+def _load_session_user():
+    """Load an authenticated user from the server-side session record."""
+    token = session.get('token')
+    if token:
+        from db.auth import get_session_user
+        fresh = get_session_user(token)
+        if fresh:
+            # Keep permission changes in sync with the database on each request.
+            session['user'] = fresh
+            g.user = fresh
+        else:
+            # Token expired or user deactivated — clear the stale session.
+            session.clear()
+            g.user = None
+    else:
+        # A signed cookie alone is not proof of an active account session.
+        # Remove legacy user data without discarding unrelated anonymous state.
+        session.pop('user', None)
+        g.user = None
+
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, run_migrations_wind_config, sync_produtos_vendas_config, authenticate_user, create_session
 from db.cashflow import run_migrations_cashflow
@@ -456,22 +478,7 @@ def create_app():
 
     @app.before_request
     def load_user():
-        token = session.get('token')
-        if token:
-            from db.auth import get_session_user
-            fresh = get_session_user(token)
-            if fresh:
-                # Refresh the session cookie so it stays in sync with the DB.
-                # This means permission changes made by admins take effect on
-                # the very next page load for the affected user.
-                session['user'] = fresh
-                g.user = fresh
-            else:
-                # Token expired or user deactivated — clear the stale session.
-                session.clear()
-                g.user = None
-        else:
-            g.user = session.get('user')
+        _load_session_user()
 
     @app.template_global()
     def badge_attrs(bg_class_val):

@@ -171,7 +171,9 @@ class TestComprasLoja(unittest.TestCase):
             },
         ]
 
-    def _render_store_section(self, client, section, weekly_status='rascunho'):
+    def _render_store_section(
+        self, client, section, weekly_status='rascunho', store_id=2
+    ):
         articles = self._active_articles()
         active_articles = [article for article in articles if article['ativo']]
         order_lines = []
@@ -188,11 +190,16 @@ class TestComprasLoja(unittest.TestCase):
             'id': 50, 'status': weekly_status, 'linhas': order_lines,
             'observacoes': None,
         }
-        count_draft = {'id': 70, 'status': 'rascunho', 'store_id': 2, 'linhas': []}
+        count_draft = {
+            'id': 70, 'status': 'rascunho', 'store_id': store_id, 'linhas': []
+        }
         with ExitStack() as stack:
             stack.enter_context(patch(
                 'flask_app.routes.vendas.get_store_by_id',
-                side_effect=lambda store_id: self._store(int(store_id)),
+                side_effect=lambda requested_id: self._store(
+                    int(requested_id),
+                    'Matosinhos' if int(requested_id) == 1 else 'Bolhão',
+                ),
             ))
             stack.enter_context(patch(
                 'flask_app.routes.vendas._build_tabs', return_value=[]
@@ -242,7 +249,7 @@ class TestComprasLoja(unittest.TestCase):
                 return_value=[],
             ))
             response = client.get(
-                f'/vendas/compras-loja?loja_id=2&secao={section}'
+                f'/vendas/compras-loja?loja_id={store_id}&secao={section}'
             )
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
         return response.get_data(as_text=True)
@@ -250,7 +257,7 @@ class TestComprasLoja(unittest.TestCase):
     def test_real_weekly_html_shows_all_active_article_classes(self):
         client = self._login({
             'acesso_vendas': True, 'acesso_gestor': False,
-            'vendas_store_ids': [2],
+            'vendas_store_ids': [1, 2],
         })
         html = self._render_store_section(client, 'semanal')
         self.assertIn('Encomenda para a semana seguinte', html)
@@ -260,6 +267,15 @@ class TestComprasLoja(unittest.TestCase):
         self.assertIn('quantidade_13', html)
         self.assertIn('Fornecedor por confirmar', html)
         self.assertNotIn('Artigo inativo', html)
+
+    def test_user_assigned_both_stores_can_open_each_store_page(self):
+        client = self._login({
+            'acesso_vendas': True, 'acesso_gestor': False,
+            'vendas_store_ids': [1, 2],
+        })
+
+        self._render_store_section(client, 'semanal', store_id=1)
+        self._render_store_section(client, 'semanal', store_id=2)
 
     def test_real_urgent_html_renders_form_instead_of_weekly_empty_state(self):
         client = self._login({
