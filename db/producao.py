@@ -526,6 +526,77 @@ def get_vendas_df(loja: str = None, data_inicio: date = None, data_fim: date = N
     with db_connection() as conn:
         return pd.read_sql_query(query, conn, params=params)
 
+
+def _gelado_kpi_products_cte() -> str:
+    """Return canonical product names and exact aliases eligible for gelato KPIs.
+
+    Alias chains are accepted only when every step has one distinct target and
+    the chain ends at a configured product selected for the gelato KPI. Cycles,
+    ambiguous links, and aliases ending at an ineligible product are excluded.
+    """
+    return """
+        WITH RECURSIVE alias_resolution (
+            source_product, target_product, visited_products
+        ) AS (
+            SELECT DISTINCT
+                alias.nome_antigo,
+                alias.nome_atual,
+                ARRAY[alias.nome_antigo, alias.nome_atual]::text[]
+            FROM produtos_vendas_aliases alias
+            WHERE NULLIF(alias.nome_antigo, '') IS NOT NULL
+              AND NULLIF(alias.nome_atual, '') IS NOT NULL
+              AND (
+                  SELECT COUNT(DISTINCT candidate.nome_atual)
+                  FROM produtos_vendas_aliases candidate
+                  WHERE candidate.nome_antigo = alias.nome_antigo
+              ) = 1
+
+            UNION ALL
+
+            SELECT
+                resolution.source_product,
+                next_alias.nome_atual,
+                resolution.visited_products || next_alias.nome_atual
+            FROM alias_resolution resolution
+            JOIN produtos_vendas_aliases next_alias
+              ON next_alias.nome_antigo = resolution.target_product
+            WHERE NOT next_alias.nome_atual = ANY(resolution.visited_products)
+              AND (
+                  SELECT COUNT(DISTINCT candidate.nome_atual)
+                  FROM produtos_vendas_aliases candidate
+                  WHERE candidate.nome_antigo = next_alias.nome_antigo
+              ) = 1
+        ),
+        eligible_gelado_products AS (
+            SELECT
+                config.produto AS source_product,
+                config.produto AS canonical_product
+            FROM produtos_vendas_config config
+            WHERE config.gelado_kpi IS TRUE
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM produtos_vendas_aliases alias
+                  WHERE alias.nome_antigo = config.produto
+              )
+
+            UNION
+
+            SELECT
+                resolution.source_product,
+                resolution.target_product AS canonical_product
+            FROM alias_resolution resolution
+            JOIN produtos_vendas_config canonical
+              ON canonical.produto = resolution.target_product
+             AND canonical.gelado_kpi IS TRUE
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM produtos_vendas_aliases next_alias
+                WHERE next_alias.nome_antigo = resolution.target_product
+            )
+        )
+    """
+
+
 def get_ajuste_producao_mes(ano: int, mes: int) -> float:
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -538,12 +609,21 @@ def get_vendas_filtradas_df(area: str, loja: str = None, data_inicio: date = Non
     if area not in valid_areas:
         return pd.DataFrame(columns=['data', 'loja', 'valor_euros'])
 
-    query = f"""
-        SELECT vd.data, vd.loja, SUM(vd.valor_euros) as valor_euros
-        FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-        WHERE pvc.{area} = TRUE
-    """
+    if area == 'gelado_kpi':
+        query = _gelado_kpi_products_cte() + """
+            SELECT vd.data, vd.loja, SUM(vd.valor_euros) as valor_euros
+            FROM vendas_detalhe vd
+            INNER JOIN eligible_gelado_products eligible
+              ON eligible.source_product = vd.produto
+            WHERE TRUE
+        """
+    else:
+        query = f"""
+            SELECT vd.data, vd.loja, SUM(vd.valor_euros) as valor_euros
+            FROM vendas_detalhe vd
+            INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
+            WHERE pvc.{area} = TRUE
+        """
     params = []
     if loja:
         query += " AND vd.loja = %s"
@@ -880,11 +960,12 @@ def calculate_kpi_monthly(year: int, month: int, loja: str = None):
 
     transf_bolhao = transf_totals.get('Bolhão', 0)
 
-    vendas_query = """
+    vendas_query = _gelado_kpi_products_cte() + """
         SELECT COALESCE(SUM(vd.valor_euros), 0)
         FROM vendas_detalhe vd
-        INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-        WHERE pvc.gelado_kpi = TRUE AND vd.data >= %s AND vd.data <= %s
+        INNER JOIN eligible_gelado_products eligible
+          ON eligible.source_product = vd.produto
+        WHERE vd.data >= %s AND vd.data <= %s
     """
     vendas_params = [first_day, last_day]
     if loja_db:
@@ -1032,11 +1113,12 @@ def calculate_kpi_annual(year: int, loja: str = None) -> dict:
         cursor.execute(quebras_query, quebras_params)
         quebras_by_month = {int(row[0]): float(row[1]) for row in cursor.fetchall()}
 
-        vendas_query = """
+        vendas_query = _gelado_kpi_products_cte() + """
             SELECT EXTRACT(MONTH FROM vd.data)::int as mes, COALESCE(SUM(vd.valor_euros), 0)
             FROM vendas_detalhe vd
-            INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-            WHERE pvc.gelado_kpi = TRUE AND EXTRACT(YEAR FROM vd.data) = %s
+            INNER JOIN eligible_gelado_products eligible
+              ON eligible.source_product = vd.produto
+            WHERE EXTRACT(YEAR FROM vd.data) = %s
         """
         vendas_params = [year]
         if loja_db:
@@ -1513,7 +1595,8 @@ def get_producao_by_source_by_date(loja: str = None) -> list:
 def get_vendas_produto_mensal(year: int, loja: str = None) -> dict:
     """Returns sales (€) by eligible product and month for a given year.
 
-    Only products with gelado_kpi = TRUE in produtos_vendas_config are included.
+    Products selected for gelado_kpi and their unambiguous explicit aliases are
+    included. Historical alias sales are grouped under the canonical product.
     Returns a dict with:
       - products: list of product names sorted by annual total desc
       - months: list of int month numbers 1-12
@@ -1524,20 +1607,23 @@ def get_vendas_produto_mensal(year: int, loja: str = None) -> dict:
     """
     with db_connection() as conn:
         cursor = conn.cursor()
-        query = """
-            SELECT vd.produto,
+        query = _gelado_kpi_products_cte() + """
+            SELECT eligible.canonical_product,
                    EXTRACT(MONTH FROM vd.data)::int AS mes,
                    COALESCE(SUM(vd.valor_euros), 0) AS total
             FROM vendas_detalhe vd
-            INNER JOIN produtos_vendas_config pvc ON vd.produto = pvc.produto
-            WHERE pvc.gelado_kpi = TRUE
-              AND EXTRACT(YEAR FROM vd.data)::int = %s
+            INNER JOIN eligible_gelado_products eligible
+              ON eligible.source_product = vd.produto
+            WHERE EXTRACT(YEAR FROM vd.data)::int = %s
         """
         params = [year]
         if loja:
             query += " AND vd.loja = %s"
             params.append(loja)
-        query += " GROUP BY vd.produto, mes ORDER BY vd.produto, mes"
+        query += (
+            " GROUP BY eligible.canonical_product, mes "
+            "ORDER BY eligible.canonical_product, mes"
+        )
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
