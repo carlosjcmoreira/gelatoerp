@@ -19,8 +19,10 @@ Covers:
 """
 
 import unittest
+import os
 from unittest.mock import patch, MagicMock
-from flask import Blueprint, Flask, url_for
+from flask import Blueprint, Flask, render_template, url_for
+from jinja2 import FileSystemLoader
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +292,103 @@ class TestComprasAccess(unittest.TestCase):
             suppliers,
         )
 
+    def test_catalogue_renders_origin_and_supplier_relationships_by_id(self):
+        self._set_session_user(_user(acesso_compras=True))
+        articles = [
+            {
+                'id': 101, 'fornecedor': 'Inocentro', 'produto': 'Produto externo',
+                'ativo': True, 'origem_id': 1, 'origem_tipo': 'fornecedor_externo',
+                'origem_supplier_id': 10, 'origem_nome': 'Inocentro',
+                'origem_original': 'Etiqueta original Inocentro',
+                'fornecedor_oficial_id': 10,
+                'fornecedor_oficial_nome': 'Inocentro Legal, Lda.',
+            },
+            {
+                'id': 102, 'fornecedor': 'Matosinhos', 'produto': 'Produto interno',
+                'ativo': True, 'origem_id': 2, 'origem_tipo': 'centro_interno',
+                'origem_supplier_id': None, 'origem_nome': 'Matosinhos',
+                'origem_original': 'Matosinhos',
+                'fornecedor_oficial_id': 20,
+                'fornecedor_oficial_nome': 'DEGAR SRL',
+            },
+            {
+                'id': 103, 'fornecedor': 'Categoria', 'produto': 'Sem fornecedor',
+                'ativo': True, 'origem_id': 3,
+                'origem_tipo': 'categoria_operacional',
+                'origem_supplier_id': None, 'origem_nome': 'Moedas',
+                'origem_original': 'Categoria',
+                'fornecedor_oficial_id': None,
+                'fornecedor_oficial_nome': None,
+            },
+            {
+                'id': 104, 'fornecedor': 'Texto com nome semelhante',
+                'produto': 'IDs diferentes',
+                'ativo': True, 'origem_id': 4,
+                'origem_tipo': 'fornecedor_externo',
+                'origem_supplier_id': 30, 'origem_nome': 'Fornecedor coincidente',
+                'origem_original': 'Fornecedor coincidente',
+                'fornecedor_oficial_id': 31,
+                'fornecedor_oficial_nome': 'Fornecedor coincidente',
+            },
+        ]
+        origins = [
+            {'id': 1, 'nome': 'Inocentro', 'tipo': 'fornecedor_externo'},
+            {'id': 2, 'nome': 'Matosinhos', 'tipo': 'centro_interno'},
+            {'id': 3, 'nome': 'Moedas', 'tipo': 'categoria_operacional'},
+            {
+                'id': 4, 'nome': 'Fornecedor coincidente',
+                'tipo': 'fornecedor_externo',
+            },
+        ]
+        suppliers = [
+            {'id': 10, 'name': 'Inocentro Legal, Lda.'},
+            {'id': 20, 'name': 'DEGAR SRL'},
+            {'id': 31, 'name': 'Fornecedor coincidente'},
+        ]
+        original_loader = self.app.jinja_loader
+        self.app.jinja_loader = FileSystemLoader(
+            os.path.abspath('flask_app/templates')
+        )
+        try:
+            with patch(
+                'flask_app.routes.compras.get_artigos_administrativos',
+                return_value=articles,
+            ), patch(
+                'flask_app.routes.compras.get_compras_origens',
+                return_value=origins,
+            ), patch(
+                'flask_app.routes.compras.get_suppliers',
+                return_value=suppliers,
+            ), patch(
+                'flask_app.routes.compras.render_template',
+                side_effect=render_template,
+            ):
+                response = self.client.get('/compras/artigos')
+        finally:
+            self.app.jinja_loader = original_loader
+
+        self.assertEqual(response.status_code, 200)
+        html = ' '.join(response.get_data(as_text=True).split())
+        self.assertEqual(html.count('Mesmo fornecedor da origem'), 1)
+        self.assertIn(
+            '<details class="small mt-1"> <summary>Ver nome legal</summary> '
+            '<div class="pt-1">Inocentro Legal, Lda.</div> </details>',
+            html,
+        )
+        self.assertIn('Fornecedor externo', html)
+        self.assertIn('Centro interno', html)
+        self.assertIn('Categoria operacional', html)
+        self.assertIn('DEGAR SRL', html)
+        self.assertIn('Fornecedor coincidente', html)
+        self.assertIn('Fornecedor por confirmar', html)
+        self.assertIn('Texto do ficheiro / editar etiqueta', html)
+        self.assertIn(
+            'Texto original preservado: Etiqueta original Inocentro',
+            html,
+        )
+        self.assertIn('name="fornecedor" value="Inocentro"', html)
+        self.assertIn('name="fornecedor" value="Matosinhos"', html)
+
     def test_catalogue_confirms_supplier_using_submitted_id(self):
         self._set_session_user(_user(acesso_compras=True))
         with patch(
@@ -346,6 +445,33 @@ class TestComprasAccess(unittest.TestCase):
         with self.client.session_transaction() as sess:
             flashes = sess.get('_flashes', [])
         self.assertIn(('info', 'Sem alterações.'), flashes)
+
+    def test_catalogue_edit_submits_the_editable_label(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.update_artigo_administrativo',
+            return_value={
+                'found': True,
+                'changed': True,
+                'origin_type': 'centro_interno',
+            },
+        ) as update_article:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'edit',
+                    'artigo_id': '18',
+                    'origem_id': '8',
+                    'fornecedor': 'Etiqueta corrigida',
+                    'produto': 'Produto',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            update_article.call_args.args[:3],
+            (18, 'Etiqueta corrigida', 'Produto'),
+        )
 
     def test_catalogue_edit_keeps_unresolved_status_in_feedback(self):
         self._set_session_user(_user(acesso_compras=True))

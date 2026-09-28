@@ -106,7 +106,7 @@
         <table class="table table-sm table-hover align-middle" style="font-size:0.82rem;">
             <thead>
                 <tr>
-                    <th>Origem / etiqueta</th>
+                    <th>Origem de abastecimento</th>
                     <th>Fornecedor oficial</th>
                     <th>Produto</th>
                     <th>Marca (opcional)</th>
@@ -129,21 +129,46 @@
                             </option>
                             {% endfor %}
                             </select>
-                            {% if a.origem_tipo == 'por_resolver' or not a.origem_id %}
-                            <div class="small mt-1">
-                                <span class="badge text-bg-warning">Por resolver</span>
-                                <span class="text-muted">
-                                    Etiqueta original: {{ a.origem_original or a.fornecedor }}
+                            {% set tipo_origem_label = {
+                                'fornecedor_externo': 'Fornecedor externo',
+                                'centro_interno': 'Centro interno',
+                                'categoria_operacional': 'Categoria operacional',
+                                'por_resolver': 'Por resolver'
+                            }.get(a.origem_tipo, 'Por resolver') %}
+                            <div class="mt-1">
+                                <span class="badge {% if tipo_origem_label == 'Por resolver' %}text-bg-warning{% else %}text-bg-light{% endif %}">
+                                    {{ tipo_origem_label }}
                                 </span>
                             </div>
-                            {% endif %}
-                            <input type="text" name="fornecedor" value="{{ a.fornecedor }}"
-                                   class="form-control form-control-sm mt-1"
-                                   aria-label="Etiqueta da origem para {{ a.produto }}" required>
+                            <details class="mt-1">
+                                <summary class="small">Texto do ficheiro / editar etiqueta</summary>
+                                <div class="pt-1">
+                                    <label for="etiqueta-artigo-{{ a.id }}" class="form-label small mb-1">
+                                        Etiqueta do artigo
+                                    </label>
+                                    <input id="etiqueta-artigo-{{ a.id }}" type="text"
+                                           name="fornecedor" value="{{ a.fornecedor }}"
+                                           class="form-control form-control-sm"
+                                           aria-label="Etiqueta do artigo {{ a.produto }}">
+                                    {% if a.origem_original and a.origem_original != a.fornecedor %}
+                                    <div class="small text-muted mt-1">
+                                        Texto original preservado: {{ a.origem_original }}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </details>
                         </form>
                     </td>
                     <td style="min-width:220px;">
-                        {% if a.fornecedor_oficial_nome %}
+                        {% if a.origem_tipo == 'fornecedor_externo'
+                              and a.origem_supplier_id is not none
+                              and a.origem_supplier_id == a.fornecedor_oficial_id %}
+                        <span class="badge text-bg-success">Mesmo fornecedor da origem</span>
+                        <details class="small mt-1">
+                            <summary>Ver nome legal</summary>
+                            <div class="pt-1">{{ a.fornecedor_oficial_nome or 'Nome legal indisponível' }}</div>
+                        </details>
+                        {% elif a.fornecedor_oficial_nome %}
                         <div class="fw-semibold">{{ a.fornecedor_oficial_nome }}</div>
                         {% else %}
                         <span class="badge text-bg-warning">Fornecedor por confirmar</span>
