@@ -1172,6 +1172,21 @@ def run_migrations_stock_producao_lojas():
         conn.commit()
 
 
+def _event_history_foreign_key_is_restrictive(cursor):
+    cursor.execute("""
+        SELECT pg_get_constraintdef(oid)
+          FROM pg_constraint
+         WHERE conrelid = to_regclass('event_history')
+           AND conname = 'event_history_event_id_fkey'
+    """)
+    row = cursor.fetchone()
+    return bool(
+        row
+        and " ".join(row[0].upper().split())
+        == "FOREIGN KEY (EVENT_ID) REFERENCES EVENTS(ID) ON DELETE RESTRICT"
+    )
+
+
 def run_migrations_eventos_v2_foundation():
     """Create the v2 events foundation without discarding historical CRM data.
 
@@ -1305,39 +1320,24 @@ def run_migrations_eventos_v2_foundation():
                 )
                 """
             )
-            cursor.execute(
-                "ALTER TABLE event_quote_versions ADD COLUMN IF NOT EXISTS quote_revision VARCHAR(128)"
-            )
-            cursor.execute(
-                "ALTER TABLE event_quote_versions ADD COLUMN IF NOT EXISTS proposal_snapshot JSONB"
-            )
+            cursor.execute("""
+                ALTER TABLE event_quote_versions
+                    ADD COLUMN IF NOT EXISTS quote_revision VARCHAR(128),
+                    ADD COLUMN IF NOT EXISTS proposal_snapshot JSONB
+            """)
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_event_occurrences_event_date "
                 "ON event_occurrences(event_date)"
             )
-            cursor.execute(
-                "ALTER TABLE event_occurrences ADD COLUMN IF NOT EXISTS access_instructions TEXT"
-            )
-            cursor.execute(
-                "ALTER TABLE event_occurrences "
-                "ADD COLUMN IF NOT EXISTS venue_contact_is_client BOOLEAN"
-            )
-            cursor.execute(
-                "ALTER TABLE event_occurrences "
-                "ADD COLUMN IF NOT EXISTS venue_contact_name VARCHAR(255)"
-            )
-            cursor.execute(
-                "ALTER TABLE event_occurrences "
-                "ADD COLUMN IF NOT EXISTS venue_contact_phone VARCHAR(32)"
-            )
-            cursor.execute(
-                "ALTER TABLE event_occurrences "
-                "ADD COLUMN IF NOT EXISTS venue_review_dismissed_at TIMESTAMP"
-            )
-            cursor.execute(
-                "ALTER TABLE event_occurrences "
-                "ADD COLUMN IF NOT EXISTS venue_review_dismissed_by VARCHAR(255)"
-            )
+            cursor.execute("""
+                ALTER TABLE event_occurrences
+                    ADD COLUMN IF NOT EXISTS access_instructions TEXT,
+                    ADD COLUMN IF NOT EXISTS venue_contact_is_client BOOLEAN,
+                    ADD COLUMN IF NOT EXISTS venue_contact_name VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS venue_contact_phone VARCHAR(32),
+                    ADD COLUMN IF NOT EXISTS venue_review_dismissed_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS venue_review_dismissed_by VARCHAR(255)
+            """)
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_event_resource_reservations_resource "
                 "ON event_resource_reservations(resource_id)"
@@ -1372,15 +1372,13 @@ def run_migrations_eventos_v2_foundation():
                 )
                 """
             )
-            cursor.execute(
-                """
+            cursor.execute("""
                 ALTER TABLE event_sheet_sync_runs
                     ADD COLUMN IF NOT EXISTS worker_id VARCHAR(120),
                     ADD COLUMN IF NOT EXISTS lease_token VARCHAR(80),
                     ADD COLUMN IF NOT EXISTS attempt INTEGER NOT NULL DEFAULT 0,
                     ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(120)
-                """
-            )
+            """)
             cursor.execute(
                 """
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_event_sheet_sync_active
@@ -1398,49 +1396,24 @@ def run_migrations_eventos_v2_foundation():
 
             # Keep the previous date/location fields for established screens, while
             # adding the financial and operational snapshots used by v2.
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMP"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_amount_eur NUMERIC(12,2)"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_received_at TIMESTAMP"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_validated_at TIMESTAMP"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_verified_by VARCHAR(255)"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_proof_reference TEXT"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS deposit_non_refundable "
-                "BOOLEAN NOT NULL DEFAULT TRUE"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS reserved_at TIMESTAMP"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS invoice_reference VARCHAR(255)"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS invoice_sent_at TIMESTAMP"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_amount_eur NUMERIC(12,2) DEFAULT 0"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_method VARCHAR(80)"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_reference TEXT"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS payment_received_by VARCHAR(255)"
-            )
+            cursor.execute("""
+                ALTER TABLE events
+                    ADD COLUMN IF NOT EXISTS status_changed_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS deposit_amount_eur NUMERIC(12,2),
+                    ADD COLUMN IF NOT EXISTS deposit_received_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS deposit_validated_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS deposit_verified_by VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS deposit_proof_reference TEXT,
+                    ADD COLUMN IF NOT EXISTS deposit_non_refundable
+                        BOOLEAN NOT NULL DEFAULT TRUE,
+                    ADD COLUMN IF NOT EXISTS reserved_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS invoice_reference VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS invoice_sent_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS payment_amount_eur NUMERIC(12,2) DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS payment_method VARCHAR(80),
+                    ADD COLUMN IF NOT EXISTS payment_reference TEXT,
+                    ADD COLUMN IF NOT EXISTS payment_received_by VARCHAR(255)
+            """)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS event_production_requirements (
                     id BIGSERIAL PRIMARY KEY,
@@ -1458,43 +1431,35 @@ def run_migrations_eventos_v2_foundation():
                 "CREATE INDEX IF NOT EXISTS idx_event_production_requirements_date "
                 "ON event_production_requirements(occurrence_id)"
             )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP"
-            )
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS archived_by VARCHAR(255)"
-            )
+            cursor.execute("""
+                ALTER TABLE events
+                    ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS archived_by VARCHAR(255)
+            """)
             # Existing databases created the first version with CASCADE.  Audit
             # records must survive an archive attempt, so make the relationship
             # restrictive too; this is safe to repeat on every startup.
-            cursor.execute(
-                "ALTER TABLE event_history DROP CONSTRAINT IF EXISTS event_history_event_id_fkey"
-            )
-            cursor.execute(
-                "ALTER TABLE event_history ADD CONSTRAINT event_history_event_id_fkey "
-                "FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE RESTRICT"
-            )
-            cursor.execute(
-                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS unit_price_gross NUMERIC(10,2)"
-            )
-            cursor.execute(
-                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS total_net NUMERIC(10,2)"
-            )
-            cursor.execute(
-                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS total_vat NUMERIC(10,2)"
-            )
-            cursor.execute(
-                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS total_gross NUMERIC(10,2)"
-            )
-            cursor.execute(
-                "ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS pricing_setting_key VARCHAR(100)"
-            )
-            cursor.execute(
-                "ALTER TABLE artigos_evento ADD COLUMN IF NOT EXISTS taxa_iva NUMERIC(5,4)"
-            )
-            cursor.execute(
-                "ALTER TABLE artigos_evento ADD COLUMN IF NOT EXISTS pricing_setting_key VARCHAR(100)"
-            )
+            if not _event_history_foreign_key_is_restrictive(cursor):
+                cursor.execute(
+                    "ALTER TABLE event_history DROP CONSTRAINT IF EXISTS event_history_event_id_fkey"
+                )
+                cursor.execute(
+                    "ALTER TABLE event_history ADD CONSTRAINT event_history_event_id_fkey "
+                    "FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE RESTRICT"
+                )
+            cursor.execute("""
+                ALTER TABLE quote_items
+                    ADD COLUMN IF NOT EXISTS unit_price_gross NUMERIC(10,2),
+                    ADD COLUMN IF NOT EXISTS total_net NUMERIC(10,2),
+                    ADD COLUMN IF NOT EXISTS total_vat NUMERIC(10,2),
+                    ADD COLUMN IF NOT EXISTS total_gross NUMERIC(10,2),
+                    ADD COLUMN IF NOT EXISTS pricing_setting_key VARCHAR(100)
+            """)
+            cursor.execute("""
+                ALTER TABLE artigos_evento
+                    ADD COLUMN IF NOT EXISTS taxa_iva NUMERIC(5,4),
+                    ADD COLUMN IF NOT EXISTS pricing_setting_key VARCHAR(100)
+            """)
 
             # The defaults are editable starting points, not accounting truth.
             # Historical quote lines with no explicit IVA remain untouched below.
@@ -1507,47 +1472,64 @@ def run_migrations_eventos_v2_foundation():
                 ('arca_fixa', 'Arca por ocorrência', 'money', 20.00, 0.23),
                 ('sinal_percentagem', 'Sinal de reserva', 'percentage', 15.00, None),
             ]
-            for key, label, setting_type, value_gross, taxa_iva in pricing_defaults:
-                cursor.execute(
-                    """
-                    INSERT INTO event_pricing_settings
-                        (key, label, setting_type, value_gross, taxa_iva, requires_tax_review)
-                    VALUES (%s, %s, %s, %s, %s, TRUE)
-                    ON CONFLICT (key) DO NOTHING
-                    """,
-                    (key, label, setting_type, value_gross, taxa_iva),
-                )
+            pricing_values_sql = ', '.join(
+                ['(%s, %s, %s, %s, %s, %s)'] * len(pricing_defaults)
+            )
+            cursor.execute(
+                f"""
+                INSERT INTO event_pricing_settings
+                    (key, label, setting_type, value_gross, taxa_iva, requires_tax_review)
+                VALUES {pricing_values_sql}
+                ON CONFLICT (key) DO NOTHING
+                """,
+                [
+                    value
+                    for row in pricing_defaults
+                    for value in (*row, True)
+                ],
+            )
 
-            for code, name in (
+            event_resources = [
                 ('carrinha', 'Carrinha de eventos'),
                 ('carrinho', 'Carrinho de gelado'),
                 ('arca', 'Arca de gelado'),
-            ):
-                cursor.execute(
-                    """
-                    INSERT INTO event_resources (code, name, resource_type)
-                    VALUES (%s, %s, 'equipment')
-                    ON CONFLICT (code) DO NOTHING
-                    """,
-                    (code, name),
-                )
+            ]
+            resource_values_sql = ', '.join(
+                ['(%s, %s, %s)'] * len(event_resources)
+            )
+            cursor.execute(
+                f"""
+                INSERT INTO event_resources (code, name, resource_type)
+                VALUES {resource_values_sql}
+                ON CONFLICT (code) DO NOTHING
+                """,
+                [
+                    value
+                    for code, name in event_resources
+                    for value in (code, name, 'equipment')
+                ],
+            )
 
             # The Pipeline is canonical, so every historical lead must have an
             # event row before the legacy lead screens redirect into it.
-            cursor.execute(
-                "ALTER TABLE events ADD COLUMN IF NOT EXISTS lead_id "
-                "INTEGER REFERENCES lead_requests(id) ON DELETE SET NULL"
-            )
-            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS google_sheet_row_id VARCHAR(100)")
-            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'manual'")
-            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20)")
-            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20)")
-            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)")
-            cursor.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS nif VARCHAR(9)")
-            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20)")
-            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20)")
-            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS company_name VARCHAR(255)")
-            cursor.execute("ALTER TABLE lead_requests ADD COLUMN IF NOT EXISTS nif VARCHAR(9)")
+            cursor.execute("""
+                ALTER TABLE events
+                    ADD COLUMN IF NOT EXISTS lead_id
+                        INTEGER REFERENCES lead_requests(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS google_sheet_row_id VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'manual',
+                    ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20),
+                    ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20),
+                    ADD COLUMN IF NOT EXISTS company_name VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS nif VARCHAR(9)
+            """)
+            cursor.execute("""
+                ALTER TABLE lead_requests
+                    ADD COLUMN IF NOT EXISTS event_end_time VARCHAR(20),
+                    ADD COLUMN IF NOT EXISTS customer_type VARCHAR(20),
+                    ADD COLUMN IF NOT EXISTS company_name VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS nif VARCHAR(9)
+            """)
             cursor.execute("""
                 UPDATE events e
                    SET lead_id = l.id
@@ -1696,25 +1678,19 @@ def run_migrations_eventos_v2_foundation():
                     UNIQUE(name_key, address_key)
                 )
             """)
-            cursor.execute(
-                "ALTER TABLE event_venues ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7)"
-            )
-            cursor.execute(
-                "ALTER TABLE event_venues ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7)"
-            )
-            cursor.execute(
-                "ALTER TABLE event_venues ADD COLUMN IF NOT EXISTS geocode_provider VARCHAR(80)"
-            )
-            cursor.execute(
-                "ALTER TABLE event_venues "
-                "ADD COLUMN IF NOT EXISTS geocode_failed BOOLEAN NOT NULL DEFAULT FALSE"
-            )
-            cursor.execute(
-                "ALTER TABLE event_clients ADD COLUMN IF NOT EXISTS email_key VARCHAR(255)"
-            )
-            cursor.execute(
-                "ALTER TABLE event_clients ADD COLUMN IF NOT EXISTS phone_key VARCHAR(32)"
-            )
+            cursor.execute("""
+                ALTER TABLE event_venues
+                    ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7),
+                    ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7),
+                    ADD COLUMN IF NOT EXISTS geocode_provider VARCHAR(80),
+                    ADD COLUMN IF NOT EXISTS geocode_failed
+                        BOOLEAN NOT NULL DEFAULT FALSE
+            """)
+            cursor.execute("""
+                ALTER TABLE event_clients
+                    ADD COLUMN IF NOT EXISTS email_key VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS phone_key VARCHAR(32)
+            """)
             cursor.execute("""
                 UPDATE event_clients
                 SET email_key=LOWER(BTRIM(email))
@@ -2782,31 +2758,6 @@ def run_migrations():
             ADD COLUMN IF NOT EXISTS origem VARCHAR(30) NOT NULL DEFAULT 'contagem'
         """)
         cursor.execute("""
-            WITH exact_candidates AS (
-                SELECT cs.id AS count_id, ot.id AS order_id,
-                       COUNT(*) OVER (PARTITION BY ot.id) AS counts_per_order,
-                       COUNT(*) OVER (PARTITION BY cs.id) AS orders_per_count
-                FROM contagem_stock cs
-                JOIN ordens_transferencia ot
-                  ON ot.status='confirmada'
-                 AND LOWER(ot.area_origem)=cs.tipo
-                 AND ot.loja_destino=cs.loja
-                 AND ot.produto=cs.produto
-                 AND ot.quantidade::integer=cs.quantidade
-                 AND ot.confirmado_em IS NOT NULL
-                 AND cs.data=ot.confirmado_em::date
-                 AND cs.created_at=ot.confirmado_em
-                WHERE cs.origem='contagem'
-                  AND cs.tipo IN ('pastelaria', 'confeitaria')
-            )
-            UPDATE contagem_stock cs
-            SET origem='transferencia'
-            FROM exact_candidates candidate
-            WHERE cs.id=candidate.count_id
-              AND candidate.counts_per_order=1
-              AND candidate.orders_per_count=1
-        """)
-        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_transferencias_pastelaria_intelligence
             ON ordens_transferencia
                 (confirmado_em, loja_destino, produto)
@@ -3363,6 +3314,42 @@ def run_migrations():
         conn.commit()
 
 
+def run_backfill_contagem_stock_transfer_origin():
+    """Classify exact transfer-generated counts after the app is ready to serve."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                WITH exact_candidates AS (
+                    SELECT cs.id AS count_id, ot.id AS order_id,
+                           COUNT(*) OVER (PARTITION BY ot.id) AS counts_per_order,
+                           COUNT(*) OVER (PARTITION BY cs.id) AS orders_per_count
+                    FROM contagem_stock cs
+                    JOIN ordens_transferencia ot
+                      ON ot.status='confirmada'
+                     AND LOWER(ot.area_origem)=cs.tipo
+                     AND ot.loja_destino=cs.loja
+                     AND ot.produto=cs.produto
+                     AND ot.quantidade::integer=cs.quantidade
+                     AND ot.confirmado_em IS NOT NULL
+                     AND cs.data=ot.confirmado_em::date
+                     AND cs.created_at=ot.confirmado_em
+                    WHERE cs.origem='contagem'
+                      AND cs.tipo IN ('pastelaria', 'confeitaria')
+                )
+                UPDATE contagem_stock cs
+                SET origem='transferencia'
+                FROM exact_candidates candidate
+                WHERE cs.id=candidate.count_id
+                  AND candidate.counts_per_order=1
+                  AND candidate.orders_per_count=1
+            """)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def run_faturas_migrations():
     """Idempotent migrations for the faturas module."""
     with db_connection() as conn:
@@ -3683,6 +3670,41 @@ def run_migrations_credito():
                     pass
 
 
+def _cost_categories_name_parent_index_is_current(cursor):
+    """Avoid dropping the correct unique index on every application startup."""
+    cursor.execute("""
+        SELECT i.indisunique,
+               i.indisvalid,
+               i.indisready,
+               am.amname,
+               pg_get_expr(i.indpred, i.indrelid),
+               i.indnkeyatts,
+               i.indnatts,
+               pg_get_indexdef(i.indexrelid, 1, TRUE),
+               pg_get_indexdef(i.indexrelid, 2, TRUE)
+          FROM pg_index i
+          JOIN pg_class index_relation ON index_relation.oid = i.indexrelid
+          JOIN pg_class table_relation ON table_relation.oid = i.indrelid
+          JOIN pg_am am ON am.oid = index_relation.relam
+         WHERE i.indrelid = to_regclass('cost_categories')
+           AND index_relation.relname = 'uq_cost_categories_name_parent'
+           AND index_relation.relnamespace = table_relation.relnamespace
+    """)
+    row = cursor.fetchone()
+    return bool(
+        row
+        and row[0] is True
+        and row[1] is True
+        and row[2] is True
+        and row[3] == "btree"
+        and row[4] is None
+        and row[5] == 2
+        and row[6] == 2
+        and row[7] == "name"
+        and row[8] == "COALESCE(parent_id::text, ''::text)"
+    )
+
+
 def run_migrations_centros_custo():
     """Idempotent migrations: cost_centers, cost_categories, colaboradores,
     colaborador_centro_custo tables + FK columns on invoices.
@@ -3732,11 +3754,12 @@ def run_migrations_centros_custo():
             # pg_dump shows COALESCE((parent_id)::text, ''::text) with no integer expressions,
             # so the platform generates valid SQL for both columns. ON CONFLICT clauses must
             # reference the same expression: COALESCE(parent_id::text, '').
-            cursor.execute('DROP INDEX IF EXISTS uq_cost_categories_name_parent')
-            cursor.execute('''
-                CREATE UNIQUE INDEX uq_cost_categories_name_parent
-                ON cost_categories (name, COALESCE(parent_id::text, ''))
-            ''')
+            if not _cost_categories_name_parent_index_is_current(cursor):
+                cursor.execute('DROP INDEX IF EXISTS uq_cost_categories_name_parent')
+                cursor.execute('''
+                    CREATE UNIQUE INDEX uq_cost_categories_name_parent
+                    ON cost_categories (name, COALESCE(parent_id::text, ''))
+                ''')
 
             # ── Colaboradores ──────────────────────────────────────────────────
             cursor.execute('''
@@ -3795,12 +3818,15 @@ def run_migrations_centros_custo():
                 ('FP', 'Faturas Partilhadas', 'Faturas com custo partilhado entre centros'),
             ]
             _valid_codes = [c[0] for c in CENTROS]
-            for code, name, desc in CENTROS:
-                cursor.execute('''
-                    INSERT INTO cost_centers (code, name, description)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (code) DO NOTHING
-                ''', (code, name, desc))
+            execute_values(
+                cursor,
+                '''
+                INSERT INTO cost_centers (code, name, description)
+                VALUES %s
+                ON CONFLICT (code) DO NOTHING
+                ''',
+                CENTROS,
+            )
             # Deactivate any cost center whose code is not in the canonical set
             cursor.execute(
                 'UPDATE cost_centers SET ativo=FALSE WHERE code != ALL(%s)',
@@ -3857,36 +3883,47 @@ def run_migrations_centros_custo():
                 (_valid_top_names,)
             )
 
+            execute_values(
+                cursor,
+                '''
+                INSERT INTO cost_categories (name, parent_id)
+                VALUES %s
+                ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
+                ''',
+                [(top_name, None) for top_name, _ in CATEGORIAS_TOP],
+            )
+            cursor.execute(
+                'SELECT name, id FROM cost_categories '
+                'WHERE parent_id IS NULL AND name = ANY(%s)',
+                (_valid_top_names,),
+            )
+            parent_ids = {name: parent_id for name, parent_id in cursor.fetchall()}
+
+            child_rows = []
             for top_name, sub_names in CATEGORIAS_TOP:
-                cursor.execute('''
-                    INSERT INTO cost_categories (name, parent_id)
-                    VALUES (%s, NULL)
-                    ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
-                ''', (top_name,))
-                # Always fetch id (insert may have been skipped due to conflict)
+                parent_id = parent_ids.get(top_name)
+                if parent_id is None:
+                    continue
+                # Deactivate subcategories under this parent not in the canonical child set.
                 cursor.execute(
-                    'SELECT id FROM cost_categories WHERE name = %s AND parent_id IS NULL',
-                    (top_name,)
+                    'UPDATE cost_categories SET ativo=FALSE '
+                    'WHERE parent_id=%s AND name != ALL(%s)',
+                    (parent_id, sub_names if sub_names else ['']),
                 )
-                row = cursor.fetchone()
-                if row:
-                    parent_id = row[0]
-                    # Deactivate subcategories under this parent not in the canonical child set
-                    cursor.execute(
-                        'UPDATE cost_categories SET ativo=FALSE WHERE parent_id=%s AND name != ALL(%s)',
-                        (parent_id, sub_names if sub_names else [''])
-                    )
-                    for sub in sub_names:
-                        cursor.execute('''
-                            INSERT INTO cost_categories (name, parent_id)
-                            VALUES (%s, %s)
-                            ON CONFLICT (name, COALESCE(parent_id::text, '')) DO NOTHING
-                        ''', (sub, parent_id))
-                        # Ensure canonical subcategories are active
-                        cursor.execute(
-                            'UPDATE cost_categories SET ativo=TRUE WHERE name=%s AND parent_id=%s',
-                            (sub, parent_id)
-                        )
+                child_rows.extend((sub, parent_id) for sub in sub_names)
+
+            if child_rows:
+                # Upsert and reactivate canonical children in one database round trip.
+                execute_values(
+                    cursor,
+                    '''
+                    INSERT INTO cost_categories (name, parent_id)
+                    VALUES %s
+                    ON CONFLICT (name, COALESCE(parent_id::text, ''))
+                    DO UPDATE SET ativo=TRUE
+                    ''',
+                    child_rows,
+                )
 
             conn.commit()
 

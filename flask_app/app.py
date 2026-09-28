@@ -109,6 +109,7 @@ from db.schema import (
     run_migrations_pastelaria_production_stock,
 )
 from db.schema import run_migrations_eventos_v2_foundation, run_migrations_eventos_customer_portal
+from db.schema import run_backfill_contagem_stock_transfer_origin
 
 
 def _start_sheets_sync_scheduler():
@@ -202,6 +203,13 @@ def run_deferred_startup_maintenance(app):
     """Run non-schema corrections after Gunicorn is ready to serve."""
     logger.info("Starting deferred startup maintenance")
     with app.app_context():
+        try:
+            run_backfill_contagem_stock_transfer_origin()
+        except Exception:
+            logger.exception(
+                "Transfer-generated stock-count backfill failed; will retry next startup"
+            )
+
         # Legacy corrections swallow/log their own failures, so they remain
         # retryable on every boot rather than being marked complete.
         run_data_fix_delete_auto_quebras()
