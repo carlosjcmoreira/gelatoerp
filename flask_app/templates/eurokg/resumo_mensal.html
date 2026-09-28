@@ -3,21 +3,70 @@
 
 {% block content %}
 <style>
-    :root { --gelato-ink:#24353b; --gelato-mint:#dcefe8; --gelato-teal:#176b63; --gelato-coral:#d97862; --gelato-sand:#f7f3eb; --gelato-line:#d9e4df; }
-    .eurokg-shell { color:var(--gelato-ink); background:linear-gradient(135deg,#fbfaf6 0%,#f5f8f3 100%); border:1px solid var(--gelato-line); border-radius:18px; }
-    .eyebrow { color:var(--gelato-teal); font-size:.7rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
+    .eurokg-shell {
+        --em-ink:var(--scoopy-text,#24353b);
+        --em-muted:#58676b;
+        --em-surface:var(--scoopy-bg-card,#fbfaf6);
+        --em-soft:var(--scoopy-bg-secondary,#f1f5f1);
+        --em-line:var(--scoopy-border,#d9e4df);
+        --em-accent:var(--scoopy-accent,#176b63);
+        --em-mint:#dcefe8;
+        --em-good-bg:#dcefe8;
+        --em-good-text:#14624f;
+        --em-warn-bg:#f8edca;
+        --em-warn-text:#765516;
+        --em-bad-bg:#f8ded8;
+        --em-bad-text:#873c34;
+        color:var(--em-ink);
+        background:var(--scoopy-bg,#f5f8f3);
+        border:1px solid var(--em-line);
+        border-radius:18px;
+    }
+    [data-bs-theme="dark"] .eurokg-shell {
+        --em-muted:#aab4bf;
+        --em-good-bg:#193b32;
+        --em-good-text:#9fe0c2;
+        --em-warn-bg:#392f19;
+        --em-warn-text:#f0cc72;
+        --em-bad-bg:#3c211f;
+        --em-bad-text:#ff9c91;
+    }
+    .eyebrow { color:var(--em-accent); font-size:.7rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
     .page-title { letter-spacing:-.035em; font-weight:800; }
-    .coaching-note { background:var(--gelato-mint); border:1px solid #c8e3d9; border-radius:12px; }
+    .coaching-note,.formula,.monthly-note,.monthly-diagnostics { background:var(--em-soft); border:1px solid var(--em-line); border-radius:12px; }
     .store-switcher .btn { border-radius:999px; }
-    .formula { background:#f1eadc; border:1px solid #eadcc4; border-radius:11px; }
-    .table thead th { color:#607176; font-size:.7rem; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; border-bottom-width:1px; }
-    .table tbody td { vertical-align:middle; white-space:nowrap; }
+    .eurokg-shell .text-muted { color:var(--em-muted)!important; }
+    .eurokg-shell .table {
+        --bs-table-color:var(--em-ink);
+        --bs-table-bg:var(--em-surface);
+        --bs-table-border-color:var(--em-line);
+        --bs-table-striped-bg:var(--em-soft);
+        --bs-table-striped-color:var(--em-ink);
+        color:var(--em-ink);
+        margin-bottom:0;
+    }
+    .eurokg-shell .table thead th { color:var(--em-muted); font-size:.7rem; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; border-bottom-width:1px; }
+    .eurokg-shell .table tbody td { color:var(--em-ink); vertical-align:middle; white-space:nowrap; }
+    .formula { background:var(--em-soft); }
     .status-pill { border-radius:999px; font-size:.7rem; font-weight:700; padding:.3rem .55rem; }
-    .status-reliable { color:#14624f; background:#dcefe8; }
-    .status-incomplete { color:#876322; background:#f8edca; }
-    .status-invalid { color:#994f45; background:#f8ded8; }
-    .section-rule { border-color:var(--gelato-line); opacity:1; }
-    @media (max-width:767.98px) { .eurokg-shell { border-radius:0; border-left:0; border-right:0; } .table { font-size:.78rem; } }
+    .status-reliable { color:var(--em-good-text); background:var(--em-good-bg); }
+    .status-incomplete { color:var(--em-warn-text); background:var(--em-warn-bg); }
+    .status-invalid { color:var(--em-bad-text); background:var(--em-bad-bg); }
+    .monthly-note { border-left:3px solid var(--em-accent); }
+    .monthly-diagnostics { min-width:14rem; white-space:normal; }
+    .monthly-diagnostics summary { cursor:pointer; color:var(--em-accent); font-weight:700; }
+    .monthly-diagnostics-content { max-height:20rem; overflow:auto; min-width:min(28rem,75vw); }
+    .monthly-diagnostics-content ul { padding-left:1.2rem; }
+    .monthly-diagnostics-content li { margin-bottom:.45rem; }
+    .coverage-hint { color:var(--em-muted); }
+    .table-scroll-hint { color:var(--em-muted); font-weight:600; }
+    .section-rule { border-color:var(--em-line); opacity:1; }
+    @media (max-width:767.98px) {
+        .eurokg-shell { border-radius:0; border-left:0; border-right:0; }
+        .eurokg-shell .table { font-size:.78rem; min-width:1180px; }
+        .table-responsive { border:1px solid var(--em-line); border-radius:8px; }
+        .monthly-diagnostics-content { min-width:min(18rem,70vw); }
+    }
 </style>
 <div class="container-fluid px-3 py-3">
     {% include "components/tabs.html" %}
@@ -29,8 +78,8 @@
             <p class="text-muted mb-0">Compare, mês a mês, a dose prevista pelas vendas com o consumo real. Consulte desvio, rendimento, receita/kg e fiabilidade; altere a loja e o ano para investigar tendências.</p>
         </div>
         <div class="coaching-note px-3 py-2 small align-self-start">
-            <strong class="d-block">Regra de leitura</strong>
-            <span class="text-muted">Incompleto não é falha de serviço.</span>
+            <strong class="d-block">Como ler o resumo</strong>
+            <span class="text-muted">“Incompleto” significa evidência em falta; não é, por si só, falha de serviço.</span>
         </div>
     </div>
 
@@ -53,9 +102,15 @@
     <div class="formula small py-2 px-3 mb-3">
         <strong>Fórmula:</strong> {{ formula }}
     </div>
+    <div class="monthly-note small p-3 mb-3">
+        <strong class="d-block">Indicadores diferentes</strong>
+        <span>Stock, entradas, quebras, consumo, vendas e “€/kg operacional” são a série operacional existente. As colunas teóricas e auditadas só são calculadas quando há evidência suficiente de doses históricas e intervalos físicos de stock.</span>
+        <span class="coverage-hint d-block mt-1">Cobertura = dias do período cobertos por intervalos físicos válidos. No Global Porto mostra o menor valor entre lojas e sabores relevantes; 0,0% não significa que não existam pesagens. “—” significa que o valor auditado não pode ser calculado, não zero.</span>
+    </div>
 
+    <p class="table-scroll-hint small d-md-none mb-2">Deslize horizontalmente para consultar todas as colunas e os detalhes.</p>
     <div class="table-responsive">
-        <table class="table table-sm table-striped">
+        <table class="table table-sm table-striped" tabindex="0" aria-label="Resumo mensal Euro/kg; deslize horizontalmente para consultar todas as colunas">
             <thead>
                 <tr>
                     <th>Mês</th>
@@ -65,8 +120,8 @@
                     <th>Quebras (kg)</th>
                     <th>Consumo (kg)</th>
                     <th>Vendas (€)</th>
-                    <th>€/kg</th>
-                    <th>Teórico (kg)</th><th>Real (kg)</th><th>Desvio</th><th>Yield</th><th>Receita/kg</th>
+                    <th>€/kg operacional</th>
+                    <th>Teórico (kg)</th><th>Real auditado (kg)</th><th>Desvio auditado</th><th>Rendimento</th><th>Receita/kg auditada</th>
                     <th>Fiabilidade</th>
                 </tr>
             </thead>
@@ -83,8 +138,47 @@
                     <td>{{ row.euro_kg }}</td>
                     <td>{{ row.get('theoretical_kg') if row.get('theoretical_kg') is not none else '—' }}</td><td>{{ row.get('real_kg') if row.get('real_kg') is not none else '—' }}</td><td>{{ (row.get('variance_kg')|string) + ' kg' if row.get('variance_kg') is not none else '—' }}</td><td>{{ (row.get('yield_pct')|string) + '%' if row.get('yield_pct') is not none else '—' }}</td><td>{{ row.get('revenue_per_kg') if row.get('revenue_per_kg') is not none else '—' }}</td>
                     {% if row.get('status') is not none %}
-                    <td><span class="status-pill status-{{ row.status }}">{{ row.status|capitalize }}</span>
+                    <td>
+                        <span class="status-pill status-{{ row.status }}">{% if row.status == 'reliable' %}Fiável{% elif row.status == 'incomplete' %}Incompleto{% else %}Inválido{% endif %}</span>
                         {% if row.get('coverage_pct') is not none %}<small class="text-muted ms-1">{{ row.coverage_pct }}%</small>{% endif %}
+                        {% if row.status != 'reliable' %}
+                        <details class="monthly-diagnostics mt-2">
+                            <summary>Ver motivos e dados</summary>
+                            <div class="monthly-diagnostics-content monthly-note small p-2 mt-2">
+                                {% if row.issue_guidance %}
+                                <ul class="mb-2">{% for item in row.issue_guidance %}<li><strong>{{ item.title }}.</strong> {{ item.action }}</li>{% endfor %}</ul>
+                                {% endif %}
+                                {% if row.unmapped_products %}
+                                <strong>Produtos sem dose:</strong><ul>{% for product in row.unmapped_products %}<li>{{ product }}</li>{% endfor %}</ul>
+                                {% endif %}
+                                {% if row.weighted_products %}
+                                <strong>Vendas ao peso sem kg:</strong><ul>{% for product in row.weighted_products %}<li>{{ product }}</li>{% endfor %}</ul>
+                                {% endif %}
+                                {% if row.coverage_gaps %}
+                                <strong>Lojas e sabores com cobertura incompleta:</strong>
+                                <ul>{% for gap in row.coverage_gaps %}
+                                    <li><strong>{{ gap.store }} · {{ gap.flavor or 'Sabor não identificado' }}</strong> — {{ gap.coverage_pct }}% · {{ gap.snapshot_count }} pesagens · {{ gap.valid_intervals }} intervalos válidos · {{ gap.excluded_intervals }} excluídos
+                                        {% if gap.issue_guidance %}<ul>{% for item in gap.issue_guidance %}<li>{{ item.title }}. {{ item.action }}</li>{% endfor %}</ul>{% endif %}
+                                    </li>
+                                {% endfor %}</ul>
+                                {% endif %}
+                                {% if row.interval_diagnostics %}
+                                <strong>Intervalos com problemas ou avisos:</strong>
+                                <ul>{% for interval in row.interval_diagnostics %}
+                                    <li><strong>{{ interval.store }} · {{ interval.flavor or 'Sabor não identificado' }}</strong> —
+                                        {% if interval.start_date %}{{ interval.start_date.strftime('%d/%m/%Y') }}{% else %}Data inicial desconhecida{% endif %}
+                                        a {% if interval.end_date %}{{ interval.end_date.strftime('%d/%m/%Y') }}{% else %}data final desconhecida{% endif %}
+                                        · {% if interval.usable %}utilizável com aviso{% else %}excluído{% endif %}
+                                        <ul>
+                                            {% for item in interval.issue_guidance %}<li>{{ item.title }}. {{ item.action }}</li>{% endfor %}
+                                            {% for item in interval.flag_guidance %}<li>{{ item.title }}. {{ item.action }}</li>{% endfor %}
+                                        </ul>
+                                    </li>
+                                {% endfor %}</ul>
+                                {% endif %}
+                            </div>
+                        </details>
+                        {% endif %}
                     </td>
                     {% else %}<td>—</td>{% endif %}
                 </tr>
@@ -104,7 +198,7 @@
         </table>
     </div>
     <hr class="section-rule my-4">
-    <p class="small text-muted mb-0"><strong>Leitura dos indicadores:</strong> Teórico resulta das vendas e doses históricas; Real resulta do stock e movimentos; Desvio é Real − Teórico; Yield é Teórico ÷ Real; Receita/kg é vendas ÷ Real. “—” significa que não existe evidência suficiente. Períodos incompletos ou inválidos devem ser corrigidos na origem antes de comparar lojas.</p>
+    <p class="small text-muted mb-0"><strong>Leitura dos indicadores auditados:</strong> Teórico resulta das vendas e doses históricas; Real resulta do stock e movimentos; Desvio é Real − Teórico; Rendimento é Teórico ÷ Real; Receita/kg auditada é vendas ÷ Real. Um período inválido indica uma inconsistência a investigar na origem; não deve ser corrigido alterando o estado apresentado.</p>
     </div>
 </div>
 {% endblock %}

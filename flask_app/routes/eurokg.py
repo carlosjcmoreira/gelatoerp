@@ -673,10 +673,10 @@ def resumo_mensal():
                 ),
                 date.today(),
             )
-            dose = get_doseamento_period(
+            dose = _prepare_dashboard_quality(get_doseamento_period(
                 period_start, period_end, loja_db,
                 [store['name'] for store in store_filters],
-            )
+            ))
             resumo_row.update({
                 'theoretical_kg': (
                     round(dose['theoretical_kg'], 2)
@@ -705,6 +705,13 @@ def resumo_mensal():
                 'status': dose['status'],
                 'coverage_pct': dose['coverage_pct'],
                 'issues': dose['issues'],
+                'issue_guidance': dose['issue_guidance'],
+                'unmapped_products': dose.get('unmapped_products', []),
+                'weighted_products': dose.get('weighted_products', []),
+                'coverage_gaps': dose.get('coverage_gaps', []),
+                'interval_diagnostics': dose.get(
+                    'interval_diagnostics', []
+                ),
             })
         resumo_rows.append(resumo_row)
 
