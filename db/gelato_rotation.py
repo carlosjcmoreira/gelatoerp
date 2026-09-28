@@ -209,6 +209,15 @@ def calculate_gelato_stock_rotation(
     grouped_production = defaultdict(lambda: defaultdict(Decimal))
     manual_production = defaultdict(list)
     for row in production_rows:
+        if (
+            row.get('tipo') == 'manual'
+            and row.get('store_id') is None
+            and _normalise(row.get('loja')) == 'b2b'
+        ):
+            # A manual B2B control row describes an external destination, not
+            # an unresolved physical store. It must not contaminate every
+            # store/flavor interval through unresolved-identity propagation.
+            continue
         store = resolve_store(row)
         flavor = resolve_flavor(row.get('sabor'))
         if not store:

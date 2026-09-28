@@ -39,6 +39,51 @@ def cell(result, store, flavor='Extra Noir'):
 
 
 class GelatoStockRotationTests(unittest.TestCase):
+    def test_unassigned_manual_b2b_production_does_not_contaminate_stores(self):
+        result = calculate(
+            stock_rows=[
+                {'data': date(2026, 9, 1), 'store_id': 2,
+                 'loja': 'Bolhão', 'sabor': 'Baunilha',
+                 'quantidade_kg': 5, 'tipo': 'fim'},
+                {'data': date(2026, 9, 2), 'store_id': 2,
+                 'loja': 'Bolhão', 'sabor': 'Baunilha',
+                 'quantidade_kg': 4, 'tipo': 'fim'},
+            ],
+            production_rows=[{
+                'data': date(2026, 9, 1), 'store_id': None,
+                'loja': ' B2B ', 'sabor': 'Baunilha',
+                'quantidade_kg': 10, 'tipo': 'manual',
+            }],
+        )
+
+        rotation = cell(result, 'Bolhão', 'Baunilha')
+        self.assertEqual(rotation['average_daily_kg'], 1)
+        self.assertEqual(rotation['valid_intervals'], 1)
+        self.assertNotIn('unresolved_production_identity', rotation['issues'])
+        self.assertNotIn('production_store', result['unresolved'])
+
+    def test_unknown_physical_production_identity_still_contaminates_interval(self):
+        result = calculate(
+            stock_rows=[
+                {'data': date(2026, 9, 1), 'store_id': 2,
+                 'loja': 'Bolhão', 'sabor': 'Baunilha',
+                 'quantidade_kg': 5, 'tipo': 'fim'},
+                {'data': date(2026, 9, 2), 'store_id': 2,
+                 'loja': 'Bolhão', 'sabor': 'Baunilha',
+                 'quantidade_kg': 4, 'tipo': 'fim'},
+            ],
+            production_rows=[{
+                'data': date(2026, 9, 2), 'store_id': None,
+                'loja': 'Loja desconhecida', 'sabor': 'Baunilha',
+                'quantidade_kg': 1, 'tipo': 'balança',
+            }],
+        )
+
+        rotation = cell(result, 'Bolhão', 'Baunilha')
+        self.assertIsNone(rotation['average_daily_kg'])
+        self.assertIn('unresolved_production_identity', rotation['issues'])
+        self.assertGreater(result['unresolved']['production_store'], 0)
+
     def test_completed_b2b_transfer_is_outbound_only(self):
         result = calculate(
             stock_rows=[

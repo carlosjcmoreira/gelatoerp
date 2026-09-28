@@ -4,22 +4,66 @@
 {% block head %}
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
-    :root { --gelato-ink:#24353b; --gelato-mint:#dcefe8; --gelato-teal:#176b63; --gelato-line:#d9e4df; }
-    .eurokg-shell { color:var(--gelato-ink); background:linear-gradient(135deg,#fbfaf6,#f5f8f3); border:1px solid var(--gelato-line); border-radius:18px; }
-    .eyebrow { color:var(--gelato-teal); font-size:.7rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
+    .eurokg-shell {
+        --ek-ink:var(--scoopy-text);
+        --ek-muted:#58676b;
+        --ek-surface:var(--scoopy-bg-card);
+        --ek-soft:var(--scoopy-bg-secondary);
+        --ek-line:var(--scoopy-border);
+        --ek-accent:var(--scoopy-accent);
+        --ek-good-bg:var(--scoopy-green-bg);
+        --ek-good-text:var(--scoopy-green-text);
+        --ek-warn-bg:#f8edca;
+        --ek-warn-text:#765516;
+        --ek-bad-bg:#f8ded8;
+        --ek-bad-text:#873c34;
+        color:var(--ek-ink);
+        background:var(--scoopy-bg);
+        border:1px solid var(--ek-line);
+        border-radius:18px;
+    }
+    [data-bs-theme="dark"] .eurokg-shell {
+        --ek-muted:#aab4bf;
+        --ek-warn-bg:#392f19;
+        --ek-warn-text:#f0cc72;
+        --ek-bad-bg:#3c211f;
+        --ek-bad-text:#ff9c91;
+    }
+    .eyebrow { color:var(--ek-accent); font-size:.7rem; font-weight:800; letter-spacing:.13em; text-transform:uppercase; }
     .page-title { letter-spacing:-.035em; font-weight:800; }
-    .coaching-note { background:var(--gelato-mint); border:1px solid #c8e3d9; border-radius:12px; }
-    .metric-card { background:#fffdf9; border:1px solid var(--gelato-line); border-radius:13px; min-height:112px; transition:transform .2s ease,box-shadow .2s ease; }
+    .coaching-note { background:var(--ek-soft); border:1px solid var(--ek-line); border-radius:12px; }
+    .metric-card { background:var(--ek-surface); border:1px solid var(--ek-line); border-radius:13px; min-height:112px; transition:transform .2s ease,box-shadow .2s ease; }
     .metric-card:hover { transform:translateY(-2px); box-shadow:0 7px 18px rgba(36,53,59,.08); }
-    .metric-label { color:#607176; font-size:.73rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
-    .metric-value { color:var(--gelato-ink); font-size:1.45rem; font-weight:800; letter-spacing:-.04em; }
-    .section-rule { border-color:var(--gelato-line); opacity:1; }
-    .table thead th { color:#607176; font-size:.7rem; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; border-bottom-width:1px; }
-    .table tbody td { vertical-align:middle; white-space:nowrap; }
+    .metric-label { color:var(--ek-muted); font-size:.73rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+    .metric-value { color:var(--ek-ink); font-size:1.45rem; font-weight:800; letter-spacing:-.04em; }
+    .section-rule { border-color:var(--ek-line); opacity:1; }
+    .eurokg-shell .text-muted { color:var(--ek-muted)!important; }
+    .eurokg-shell .table {
+        --bs-table-color:var(--ek-ink);
+        --bs-table-bg:var(--ek-surface);
+        --bs-table-border-color:var(--ek-line);
+        --bs-table-striped-bg:var(--ek-soft);
+        --bs-table-striped-color:var(--ek-ink);
+        color:var(--ek-ink);
+        margin-bottom:0;
+    }
+    .eurokg-shell .table thead th { color:var(--ek-muted); font-size:.7rem; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap; border-bottom-width:1px; }
+    .eurokg-shell .table tbody td { color:var(--ek-ink); vertical-align:middle; white-space:nowrap; }
     .status-pill { border-radius:999px; font-size:.7rem; font-weight:700; padding:.3rem .55rem; }
-    .status-reliable { color:#14624f; background:#dcefe8; } .status-incomplete { color:#876322; background:#f8edca; } .status-invalid { color:#994f45; background:#f8ded8; }
+    .status-reliable { color:var(--ek-good-text); background:var(--ek-good-bg); }
+    .status-incomplete { color:var(--ek-warn-text); background:var(--ek-warn-bg); }
+    .status-invalid { color:var(--ek-bad-text); background:var(--ek-bad-bg); }
     .store-switcher .btn { border-radius:999px; }
-    @media (max-width:767.98px) { .eurokg-shell { border-radius:0; border-left:0; border-right:0; } .metric-value { font-size:1.25rem; } .table { font-size:.78rem; } }
+    .quality-panel { background:var(--ek-soft); border:1px solid var(--ek-line); border-radius:12px; }
+    .interval-list { max-height:32rem; overflow:auto; padding-left:1.25rem; }
+    .table-scroll-hint { color:var(--ek-muted); font-weight:600; }
+    .kpi-legacy-note { background:var(--ek-soft); border-left:3px solid var(--ek-accent); border-radius:0 8px 8px 0; }
+    @media (max-width:767.98px) {
+        .eurokg-shell { border-radius:0; border-left:0; border-right:0; }
+        .metric-value { font-size:1.25rem; }
+        .eurokg-shell .table { font-size:.78rem; min-width:760px; }
+        .table-responsive { border:1px solid var(--ek-line); border-radius:8px; }
+    }
 </style>
 {% endblock %}
 
@@ -47,20 +91,93 @@
             <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3" title="Consumo teórico dividido pelo consumo real."><div class="metric-label mb-2">Rendimento</div><div class="metric-value">{% if doseamento.yield_pct is not none %}{{ "%.1f"|format(doseamento.yield_pct) }}%{% else %}—{% endif %}</div><small class="text-muted">Teórico ÷ real</small></div></div>
             <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3" title="Receita dos produtos de gelado dividida pelo consumo real."><div class="metric-label mb-2">Receita / kg</div><div class="metric-value">{% if doseamento.revenue_per_kg is not none %}{{ "%.2f"|format(doseamento.revenue_per_kg) }}€{% else %}—{% endif %}</div><small class="text-muted">Receita ÷ consumo real</small></div></div>
         </div>
-        <p class="small text-muted mb-4"><strong>Como interpretar “—”:</strong> o indicador não é calculado quando faltam vendas mapeadas, pesagens ou movimentos suficientes, ou quando os dados são inválidos. “Incompleto” indica falta de evidência; “inválido” indica uma inconsistência a corrigir; “fiável” permite comparar o período.</p>
+        <p class="small text-muted mb-4"><strong>Como interpretar “—”:</strong> significa que o valor não pode ser calculado com evidência suficiente; nunca representa zero. “Incompleto” indica evidência em falta, “inválido” indica uma inconsistência e só “fiável” permite comparar os indicadores.</p>
         <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
-            <span class="status-pill status-{{ doseamento.status }}">{{ doseamento.status|capitalize }}</span>
-            <span class="small text-muted">Cobertura física: {{ doseamento.coverage_pct }}% · Vendas mapeadas: {{ "%.1f"|format(doseamento.mapped_sales_pct) }}%</span>
-            {% if doseamento.issues %}<span class="small text-muted">Dados a corrigir: {{ doseamento.issues|join(', ') }}</span>{% endif %}
+            <span class="status-pill status-{{ doseamento.status }}">{% if doseamento.status == 'reliable' %}Fiável{% elif doseamento.status == 'incomplete' %}Incompleto{% else %}Inválido{% endif %}</span>
+            <span class="small text-muted">Cobertura de dias válidos: {{ doseamento.coverage_pct }}% · Vendas mapeadas: {{ "%.1f"|format(doseamento.mapped_sales_pct) }}%</span>
         </div>
+        <p class="small text-muted mb-3">A cobertura mede os dias cobertos por intervalos físicos válidos, não a percentagem de pesagens carregadas. No Global Porto, apresenta o menor valor entre as lojas e sabores relevantes.</p>
+        {% if doseamento.issue_guidance or doseamento.interval_diagnostics %}
+        <section class="quality-panel p-3 mb-4" aria-labelledby="quality-diagnostics-title">
+            <h2 id="quality-diagnostics-title" class="h6 fw-bold mb-2">O que falta confirmar</h2>
+            {% if doseamento.issue_guidance %}
+            <ul class="mb-2 ps-3">
+                {% for item in doseamento.issue_guidance %}
+                <li class="mb-2"><strong>{{ item.title }}.</strong> {{ item.action }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% if doseamento.unmapped_products %}
+            <details class="mb-2">
+                <summary class="fw-semibold">Ver produtos sem dose ({{ doseamento.unmapped_products|length }})</summary>
+                <ul class="mb-0 mt-2 ps-3">{% for product in doseamento.unmapped_products %}<li>{{ product }}</li>{% endfor %}</ul>
+            </details>
+            {% endif %}
+            {% if doseamento.coverage_gaps %}
+            <details class="mb-2">
+                <summary class="fw-semibold">Ver lojas e sabores com cobertura incompleta ({{ doseamento.coverage_gaps|length }})</summary>
+                <ul class="interval-list mt-2 mb-0">
+                    {% for gap in doseamento.coverage_gaps %}
+                    <li class="mb-3">
+                        <strong>{{ gap.store }} · {{ gap.flavor or 'Sabor não identificado' }}</strong>
+                        <span class="d-block small text-muted">
+                            {{ gap.coverage_pct }}% de cobertura · {{ gap.snapshot_count }} pesagens ·
+                            {{ gap.valid_intervals }} intervalos válidos · {{ gap.excluded_intervals }} excluídos
+                        </span>
+                        {% if gap.issue_guidance %}
+                        <ul class="small mt-1 mb-0 ps-3">{% for item in gap.issue_guidance %}<li><strong>{{ item.title }}.</strong> {{ item.action }}</li>{% endfor %}</ul>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+            {% if doseamento.weighted_products %}
+            <details class="mb-2">
+                <summary class="fw-semibold">Ver vendas ao peso sem kg ({{ doseamento.weighted_products|length }})</summary>
+                <ul class="mb-0 mt-2 ps-3">{% for product in doseamento.weighted_products %}<li>{{ product }}</li>{% endfor %}</ul>
+            </details>
+            {% endif %}
+            {% if doseamento.interval_diagnostics %}
+            <details>
+                <summary class="fw-semibold">Ver intervalos com problemas ou avisos ({{ doseamento.interval_diagnostics|length }})</summary>
+                <ul class="interval-list mt-2 mb-0">
+                    {% for interval in doseamento.interval_diagnostics %}
+                    <li class="mb-3">
+                        <strong>{{ interval.store }} · {{ interval.flavor or 'Sabor não identificado' }}</strong>
+                        <span class="d-block small text-muted">
+                            {% if interval.start_date %}{{ interval.start_date.strftime('%d/%m/%Y') }}{% else %}Data inicial desconhecida{% endif %}
+                            –
+                            {% if interval.end_date %}{{ interval.end_date.strftime('%d/%m/%Y') }}{% else %}data final desconhecida{% endif %}
+                            {% if interval.days is not none %}· {{ interval.days }} dias{% endif %}
+                            · {% if interval.usable %}intervalo utilizável com aviso{% else %}intervalo excluído{% endif %}
+                        </span>
+                        {% if interval.issue_guidance or interval.flag_guidance %}
+                        <ul class="small mt-1 mb-0 ps-3">
+                            {% for item in interval.issue_guidance %}<li><strong>{{ item.title }}.</strong> {{ item.action }}</li>{% endfor %}
+                            {% for item in interval.flag_guidance %}<li><strong>{{ item.title }}.</strong> {{ item.action }}</li>{% endfor %}
+                        </ul>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+        </section>
+        {% endif %}
         <hr class="section-rule my-4">
-        <div class="d-flex justify-content-between align-items-end mb-3"><div><div class="eyebrow">Ritmo diário</div><h2 class="h5 fw-bold mb-0">Euro/kg nos últimos 30 dias</h2></div><span class="small text-muted d-none d-md-inline">Receita realizada ÷ consumo real</span></div>
+        <div class="d-flex justify-content-between align-items-end mb-3"><div><div class="eyebrow">Ritmo diário operacional</div><h2 class="h5 fw-bold mb-0">Euro/kg diário nos últimos 30 dias</h2></div><span class="small text-muted d-none d-md-inline">Vendas realizadas ÷ consumo operacional</span></div>
+        <div class="kpi-legacy-note small p-3 mb-3">
+            Este gráfico e a tabela usam a série operacional diária existente. É distinta da comparação auditada por doses históricas e intervalos físicos de stock apresentada nos indicadores acima.
+            {% if doseamento.status != 'reliable' %}<strong class="d-block mt-1">O estado da comparação é {{ 'incompleto' if doseamento.status == 'incomplete' else 'inválido' }}; não interprete o KPI diário como validação dos dados deste período.</strong>{% endif %}
+        </div>
         {% if chart_json %}
         <div id="kpi-chart" style="width:100%; height:350px;"></div>
         <hr class="section-rule my-4">
-        <div class="d-flex justify-content-between align-items-end mb-3"><div><div class="eyebrow">Registo de operação</div><h2 class="h5 fw-bold mb-0">Detalhe diário</h2></div><span class="small text-muted d-none d-md-inline">Use cobertura e estado antes do KPI</span></div>
-        <div class="table-responsive"><table class="table table-sm table-striped">
-            <thead><tr><th>Data</th><th>Vendas (€)</th><th>Stock Início (kg)</th><th>{{ detail_entrada_label }}</th><th>Stock Fim (kg)</th><th>Quebras (kg)</th><th>Consumo (kg)</th><th>KPI (€/kg)</th>{% if daily_details and daily_details[0].get is defined and daily_details[0].get('theoretical_kg') is not none %}<th>Dose teórica</th><th>Desvio</th><th>Yield</th>{% endif %}{% if daily_details and daily_details[0].get is defined and daily_details[0].get('status') is not none %}<th>Estado</th>{% endif %}</tr></thead>
+        <div class="d-flex justify-content-between align-items-end mb-3"><div><div class="eyebrow">Série operacional</div><h2 class="h5 fw-bold mb-0">Detalhe diário</h2></div><span class="small text-muted d-none d-md-inline">Não equivale à comparação auditada acima</span></div>
+        <p class="table-scroll-hint small d-md-none mb-2">Deslize horizontalmente para consultar todas as colunas.</p>
+        <div class="table-responsive" tabindex="0" aria-label="Tabela diária; deslize horizontalmente para consultar todas as colunas"><table class="table table-sm table-striped">
+            <thead><tr><th>Data</th><th>Vendas (€)</th><th>Stock Início (kg)</th><th>{{ detail_entrada_label }}</th><th>Stock Fim (kg)</th><th>Quebras (kg)</th><th>Consumo (kg)</th><th>KPI operacional (€/kg)</th>{% if daily_details and daily_details[0].get is defined and daily_details[0].get('theoretical_kg') is not none %}<th>Dose teórica</th><th>Desvio</th><th>Yield</th>{% endif %}{% if daily_details and daily_details[0].get is defined and daily_details[0].get('status') is not none %}<th>Estado</th>{% endif %}</tr></thead>
             <tbody>{% for row in daily_details %}<tr><td>{{ row.data }}</td><td>{{ row.vendas }}</td><td>{{ row.stock_ini }}</td><td>{{ row.entrada }}</td><td>{{ row.stock_final }}</td><td>{{ row.quebras }}</td><td>{{ row.consumo }}</td><td>{{ row.kpi }}</td>{% if row.get is defined and row.get('theoretical_kg') is not none %}<td>{{ row.theoretical_kg }} kg</td><td>{{ row.variance_pct }}%</td><td>{{ row.yield_pct }}%</td>{% endif %}{% if row.get is defined and row.get('status') is not none %}<td><span class="status-pill status-{{ row.status }}">{{ row.status|capitalize }}</span>{% if row.get('coverage_pct') is not none %}<small class="text-muted ms-1">{{ row.coverage_pct }}%</small>{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody>
         </table></div>
         {% else %}<div class="alert alert-info">Sem dados para os últimos 30 dias. Adicione registos nas páginas de Produção, Vendas ou Gestor.</div>{% endif %}
@@ -70,7 +187,32 @@
 
 {% block scripts %}
 {% if chart_json %}<script>
-    var chartData = {{ chart_json|safe }};
-    Plotly.newPlot('kpi-chart', chartData.data, chartData.layout, {responsive:true, displayModeBar:false});
+    const chartData = {{ chart_json|safe }};
+    const chartNode = document.getElementById('kpi-chart');
+    function renderKpiChart() {
+        const shell = document.querySelector('.eurokg-shell');
+        const style = getComputedStyle(shell);
+        const ink = style.getPropertyValue('--ek-ink').trim();
+        const muted = style.getPropertyValue('--ek-muted').trim();
+        const accent = style.getPropertyValue('--ek-accent').trim();
+        const layout = {
+            ...chartData.layout,
+            font: {...chartData.layout.font, color:ink},
+            xaxis: {...chartData.layout.xaxis, color:muted, gridcolor:'rgba(128,128,128,.22)'},
+            yaxis: {...chartData.layout.yaxis, color:muted, gridcolor:'rgba(128,128,128,.22)'},
+            paper_bgcolor:'rgba(0,0,0,0)',
+            plot_bgcolor:'rgba(0,0,0,0)'
+        };
+        const data = chartData.data.map(trace => ({
+            ...trace,
+            line:{...trace.line, color:accent},
+            marker:{...trace.marker, color:accent}
+        }));
+        Plotly.react(chartNode, data, layout, {responsive:true, displayModeBar:false});
+    }
+    renderKpiChart();
+    new MutationObserver(renderKpiChart).observe(document.documentElement, {
+        attributes:true, attributeFilter:['data-bs-theme']
+    });
 </script>{% endif %}
 {% endblock %}

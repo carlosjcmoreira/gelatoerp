@@ -47,6 +47,173 @@ MENU_ITEMS = [
 MESES_PT_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
                   'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
+_DASHBOARD_ISSUE_GUIDANCE = {
+    'insufficient_coverage': (
+        'Cobertura física abaixo do período completo',
+        'A cobertura conta dias cobertos por intervalos físicos válidos; no Global Porto é o mínimo entre lojas e sabores relevantes.',
+    ),
+    'no_usable_intervals': (
+        'Sem intervalos físicos válidos',
+        'Registe pesagens comparáveis e confirme os movimentos entre elas.',
+    ),
+    'invalid_real_consumption': (
+        'Consumo real inválido',
+        'Reveja pesagens, produção, transferências, quebras e respetivas datas.',
+    ),
+    'unmapped_products': (
+        'Há produtos vendidos sem dose histórica associada',
+        'Associe uma dose válida à data da venda antes de comparar o consumo teórico.',
+    ),
+    'weight_products': (
+        'Há vendas ao peso sem quantidade em kg',
+        'Complete o peso vendido para esses produtos; não é estimado automaticamente.',
+    ),
+    'no_sales': (
+        'Sem vendas importadas no período',
+        'Confirme a importação das vendas e a loja selecionada.',
+    ),
+    'insufficient_snapshots': (
+        'Faltam pesagens comparáveis',
+        'Registe duas pesagens do mesmo sabor para formar um intervalo.',
+    ),
+    'no_intervals_in_period': (
+        'Sem intervalos completos neste período',
+        'Confirme as datas das pesagens e amplie o período se necessário.',
+    ),
+    'negative_stock_residual': (
+        'Os movimentos não conciliam com as pesagens',
+        'Reveja quantidades e datas de produção, transferências, quebras e stock.',
+    ),
+    'manual_only_production': (
+        'Há produção manual de controlo sem produção física importada',
+        'Importe a produção física correta. O registo manual não substitui a balança.',
+    ),
+    'duplicate_snapshot': (
+        'Existem pesagens duplicadas',
+        'Confirme qual registo representa a pesagem correta e corrija a duplicação.',
+    ),
+    'unassigned_transfer_origin': (
+        'Origem de transferência não identificada',
+        'Associe a transferência à loja de origem antes de validar o intervalo.',
+    ),
+    'unknown_transfer_destination': (
+        'Destino de transferência não identificado',
+        'Confirme o destino físico ou indique que se trata de um destino externo.',
+    ),
+    'unknown_transfer_status': (
+        'Estado de transferência não reconhecido',
+        'Corrija o estado para que o movimento físico seja interpretado corretamente.',
+    ),
+    'missing_transfer_confirmation_date': (
+        'Transferência confirmada sem data de confirmação',
+        'Registe a data em que a transferência foi efetivamente confirmada.',
+    ),
+    'ambiguous_transfer_overlap': (
+        'Há movimentos de transferência sobrepostos',
+        'Confirme a origem e evite contar o mesmo movimento em mais de uma fonte.',
+    ),
+    'invalid_snapshot_quantity': (
+        'Pesagem com quantidade inválida',
+        'Corrija a quantidade da pesagem.',
+    ),
+    'invalid_production_quantity': (
+        'Produção com quantidade inválida',
+        'Corrija a quantidade da produção física.',
+    ),
+    'invalid_transfer_quantity': (
+        'Transferência com quantidade inválida',
+        'Corrija a quantidade transferida.',
+    ),
+    'invalid_receipt_quantity': (
+        'Receção com quantidade inválida',
+        'Corrija a quantidade recebida.',
+    ),
+    'invalid_breakage_quantity': (
+        'Quebra com quantidade inválida',
+        'Corrija a quantidade da quebra.',
+    ),
+    'unresolved_snapshot_identity': (
+        'Loja ou sabor de uma pesagem não identificado',
+        'Associe a pesagem a uma loja e a um sabor reconhecidos.',
+    ),
+    'unresolved_production_identity': (
+        'Loja ou sabor de uma produção não identificado',
+        'Associe a produção a uma loja física e a um sabor reconhecidos.',
+    ),
+    'unresolved_transfer_identity': (
+        'Loja ou sabor de uma transferência não identificado',
+        'Confirme a loja física e o sabor associados à transferência.',
+    ),
+    'unresolved_receipt_identity': (
+        'Loja ou sabor de uma receção não identificado',
+        'Confirme a loja física e o sabor associados à receção.',
+    ),
+    'unresolved_breakage_identity': (
+        'Loja ou sabor de uma quebra não identificado',
+        'Confirme a loja física e o sabor associados à quebra.',
+    ),
+    'invalid_snapshot_order': (
+        'A ordem temporal das pesagens é inválida',
+        'Confirme as datas e horas das pesagens.',
+    ),
+}
+
+_DASHBOARD_FLAG_GUIDANCE = {
+    'long_interval': (
+        'Intervalo superior a 3 dias',
+        'A leitura é menos representativa; registe pesagens com maior frequência.',
+    ),
+    'inferred_transfer_origin': (
+        'Origem da transferência inferida',
+        'Confirme a loja de origem para tornar o movimento auditável.',
+    ),
+    'legacy_transfer_source': (
+        'Movimento recuperado do registo histórico',
+        'Confirme o movimento na fonte histórica, se necessário.',
+    ),
+    'receipt_transfer_source': (
+        'Saída recuperada do registo de receções',
+        'Confirme que a saída não está duplicada noutra fonte.',
+    ),
+}
+
+
+def _dashboard_guidance(issue, *, is_flag=False):
+    key = issue
+    if issue.startswith('rotation_flag:'):
+        key = issue.split(':', 1)[1]
+        is_flag = True
+    mapping = _DASHBOARD_FLAG_GUIDANCE if is_flag else _DASHBOARD_ISSUE_GUIDANCE
+    title, action = mapping.get(
+        key,
+        ('Outro problema de qualidade dos dados',
+         'Verifique os registos associados a este período.'),
+    )
+    return {'title': title, 'action': action}
+
+
+def _prepare_dashboard_quality(doseamento):
+    """Replace internal data-quality keys with readable dashboard guidance."""
+    doseamento['issue_guidance'] = [
+        _dashboard_guidance(issue)
+        for issue in doseamento.get('issues', [])
+    ]
+    for interval in doseamento.get('interval_diagnostics', []):
+        interval['issue_guidance'] = [
+            _dashboard_guidance(issue)
+            for issue in interval.get('issues', [])
+        ]
+        interval['flag_guidance'] = [
+            _dashboard_guidance(flag, is_flag=True)
+            for flag in interval.get('flags', [])
+        ]
+    for gap in doseamento.get('coverage_gaps', []):
+        gap['issue_guidance'] = [
+            _dashboard_guidance(issue)
+            for issue in gap.get('issues', [])
+        ]
+    return doseamento
+
 
 def _parse_product_dose_batch(form):
     """Parse a batch while allowing incomplete rows to remain unchanged."""
@@ -373,11 +540,11 @@ def dashboard():
     }
     month_name = meses_pt[today.month]
 
-    data_inicio_30 = today - timedelta(days=30)
+    data_inicio_30 = today - timedelta(days=29)
     intended_stores = [store['name'] for store in store_filters]
-    doseamento_30 = get_doseamento_period(
+    doseamento_30 = _prepare_dashboard_quality(get_doseamento_period(
         data_inicio_30, today, loja_db, intended_stores
-    )
+    ))
     kpi_df = calculate_kpi_by_day(loja_db, data_inicio_30, today)
 
     chart_json = None

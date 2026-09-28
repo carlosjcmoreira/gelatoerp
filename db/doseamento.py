@@ -1393,6 +1393,20 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
             i for i in intervals
             if i.get("store", i.get("loja")) == store
         ]
+        interval_diagnostics = [
+            {
+                "store": i.get("store", i.get("loja")),
+                "flavor": i.get("sabor"),
+                "start_date": i.get("start_date"),
+                "end_date": i.get("end_date"),
+                "days": i.get("days"),
+                "usable": i.get("usable", not i.get("issues")),
+                "issues": sorted(set(i.get("issues", []))),
+                "flags": sorted(set(i.get("flags", []))),
+            }
+            for i in store_intervals
+            if i.get("issues") or i.get("flags")
+        ]
         usable_intervals = [
             i for i in store_intervals
             if i.get("usable", not i.get("issues"))
@@ -1421,6 +1435,7 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         coverage = (Decimal(observed) * 100 / requested
                     if requested else Decimal("0"))
         relevant_cells = []
+        coverage_gaps = []
         for flavor_row in rotation.get("rows", []):
             cell = flavor_row.get("stores", {}).get(store)
             if cell and (
@@ -1430,6 +1445,16 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
                 cell.get("excluded_intervals", 0)
             ):
                 relevant_cells.append(cell)
+                if _decimal(cell.get("coverage_pct")) < 100:
+                    coverage_gaps.append({
+                        "store": store,
+                        "flavor": flavor_row.get("sabor"),
+                        "snapshot_count": cell.get("snapshot_count", 0),
+                        "valid_intervals": cell.get("valid_intervals", 0),
+                        "excluded_intervals": cell.get("excluded_intervals", 0),
+                        "coverage_pct": cell.get("coverage_pct", 0),
+                        "issues": sorted(set(cell.get("issues", []))),
+                    })
         if relevant_cells:
             coverage = min(
                 coverage,
@@ -1473,6 +1498,8 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
             "status": status, "coverage_pct": round(float(coverage), 1),
             "issues": sorted(issues), "unmapped_products": unmapped,
             "weighted_products": weighted,
+            "interval_diagnostics": interval_diagnostics,
+            "coverage_gaps": coverage_gaps,
             "mapped_sales_pct": float(mapped * 100 / sales) if sales > 0 else 0.0,
             "inventory": {key: float(inventory.get(key, 0))
                           for key in ("opening_kg", "production_kg", "inbound_kg",
@@ -1520,6 +1547,16 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
     aggregate["observed_real_kg"] = sum(
         _decimal(row.get("observed_real_kg")) for row in rows
     )
+    aggregate["interval_diagnostics"] = [
+        interval
+        for row in rows
+        for interval in row.get("interval_diagnostics", [])
+    ]
+    aggregate["coverage_gaps"] = [
+        gap
+        for row in rows
+        for gap in row.get("coverage_gaps", [])
+    ]
     if aggregate["status"] == "reliable":
         theoretical = sum(_decimal(row["theoretical_kg"]) for row in rows)
         real = sum(_decimal(row["real_kg"]) for row in rows)

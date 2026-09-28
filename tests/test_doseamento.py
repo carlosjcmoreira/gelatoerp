@@ -171,6 +171,7 @@ def test_one_snapshot_flavor_makes_store_incomplete():
         "stores": {"A": {
             "snapshot_count": 1, "valid_intervals": 0,
             "excluded_intervals": 0, "coverage_pct": 0,
+            "issues": ["insufficient_snapshots"],
         }},
     }]
     result = calculate_doseamento(
@@ -179,6 +180,15 @@ def test_one_snapshot_flavor_makes_store_incomplete():
     )
     assert result["status"] == "incomplete"
     assert result["real_kg"] is None
+    assert result["coverage_gaps"] == [{
+        "store": "A",
+        "flavor": "Fragola",
+        "snapshot_count": 1,
+        "valid_intervals": 0,
+        "excluded_intervals": 0,
+        "coverage_pct": 0,
+        "issues": ["insufficient_snapshots"],
+    }]
 
 
 def test_activity_without_snapshots_makes_store_incomplete():
@@ -255,6 +265,33 @@ def test_global_conserves_store_totals():
         row["theoretical_kg"] for row in result["stores"]
     ), 6)
     assert result["revenue"] == sum(row["revenue"] for row in result["stores"])
+
+
+def test_exposes_interval_diagnostics_for_store_and_aggregate():
+    evidence = rotation()
+    evidence["intervals"][0].update({
+        "sabor": "Baunilha",
+        "flags": ["long_interval"],
+    })
+    result = calculate_doseamento(
+        [sale("Copo")], [{"artigo": "Copo", "gramas": 100}],
+        evidence, date(2025, 1, 1), date(2025, 1, 1),
+        store_names=["A"],
+    )
+
+    expected = {
+        "store": "A",
+        "flavor": "Baunilha",
+        "start_date": date(2025, 1, 1),
+        "end_date": date(2025, 1, 2),
+        "days": 1,
+        "usable": True,
+        "issues": [],
+        "flags": ["long_interval"],
+    }
+    assert result["interval_diagnostics"] == [expected]
+    assert result["stores"][0]["interval_diagnostics"] == [expected]
+    assert result["status"] == "incomplete"
 
 
 def test_renamed_product_keeps_explicit_historical_rule():
