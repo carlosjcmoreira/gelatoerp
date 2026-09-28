@@ -18,7 +18,7 @@ class TestConfirmArticleSupplier(unittest.TestCase):
     def test_confirmation_uses_supplier_id_and_preserves_original_label(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None),
+            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None, None, None),
             (42, 'Fornecedor Legal, Lda.'),
             None,
             (91,),
@@ -49,7 +49,7 @@ class TestConfirmArticleSupplier(unittest.TestCase):
             call for call in calls
             if 'UPDATE artigos_administrativos' in call.args[0]
         )
-        self.assertEqual(article_update.args[1], (91, 18))
+        self.assertEqual(article_update.args[1], (91, 42, 18))
         audit_insert = next(
             call for call in calls
             if 'INSERT INTO artigos_administrativos_origem_audit' in call.args[0]
@@ -65,7 +65,7 @@ class TestConfirmArticleSupplier(unittest.TestCase):
     def test_unknown_supplier_is_rejected_without_writes(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None),
+            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None, None, None),
             None,
         ]
         conn = _connection(cursor)
@@ -86,7 +86,8 @@ class TestConfirmArticleSupplier(unittest.TestCase):
     def test_same_supplier_confirmation_is_idempotent(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (72, 'CAFÉ ILLY', 'CAFÉ ILLY', 'fornecedor_externo', 42),
+            (72, 'CAFÉ ILLY', 'CAFÉ ILLY', 'fornecedor_externo', 42, 42,
+             'Fornecedor Legal, Lda.'),
             (42, 'Fornecedor Legal, Lda.'),
             (72, True),
         ]
@@ -114,7 +115,7 @@ class TestConfirmArticleSupplier(unittest.TestCase):
     def test_inactive_supplier_origin_is_not_silently_reactivated(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None),
+            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None, None, None),
             (42, 'Fornecedor Legal, Lda.'),
             (91, False),
         ]
@@ -136,7 +137,7 @@ class TestConfirmArticleSupplier(unittest.TestCase):
     def test_supplier_confirmation_cannot_replace_another_confirmed_origin(self):
         cursor = MagicMock()
         cursor.fetchone.return_value = (
-            72, 'CAFÉ ILLY', 'CAFÉ ILLY', 'centro_interno', None,
+            72, 'CAFÉ ILLY', 'CAFÉ ILLY', 'centro_interno', None, None, None,
         )
         conn = _connection(cursor)
 
@@ -149,13 +150,140 @@ class TestConfirmArticleSupplier(unittest.TestCase):
         self.assertEqual(cursor.execute.call_count, 1)
 
 
+class TestOfficialArticleSupplier(unittest.TestCase):
+    def test_assigning_supplier_preserves_non_supplier_origin_and_audits(self):
+        for origin_type in ('centro_interno', 'categoria_operacional'):
+            with self.subTest(origin_type=origin_type):
+                cursor = MagicMock()
+                cursor.fetchone.side_effect = [
+                    (None, None, origin_type, None),
+                    ('Fornecedor Legal, Lda.',),
+                ]
+                conn = _connection(cursor)
+
+                with patch('db.artigos.db_connection', return_value=conn), \
+                        patch('db.artigos.invalidate_prefix') as invalidate:
+                    from db.artigos import set_artigo_fornecedor_oficial
+                    result = set_artigo_fornecedor_oficial(18, 42, actor='ana')
+
+                self.assertEqual(
+                    result,
+                    {
+                        'found': True,
+                        'changed': True,
+                        'supplier_name': 'Fornecedor Legal, Lda.',
+                    },
+                )
+                article_update = next(
+                    call for call in cursor.execute.call_args_list
+                    if 'UPDATE artigos_administrativos' in call.args[0]
+                )
+                self.assertEqual(article_update.args[1], (42, 18))
+                audit_insert = next(
+                    call for call in cursor.execute.call_args_list
+                    if 'INSERT INTO artigos_administrativos_fornecedor_audit'
+                    in call.args[0]
+                )
+                self.assertEqual(
+                    audit_insert.args[1],
+                    (18, None, None, 42, 'Fornecedor Legal, Lda.', 'ana',
+                     'edição do fornecedor oficial no catálogo'),
+                )
+                conn.commit.assert_called_once()
+                invalidate.assert_called_once_with('artigos_administrativos')
+
+    def test_repeating_same_supplier_is_a_noop_without_duplicate_audit(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (42, 'Fornecedor Legal, Lda.', 'centro_interno', None),
+            ('Fornecedor Legal, Lda.',),
+        ]
+        conn = _connection(cursor)
+
+        with patch('db.artigos.db_connection', return_value=conn), \
+                patch('db.artigos.invalidate_prefix') as invalidate:
+            from db.artigos import set_artigo_fornecedor_oficial
+            result = set_artigo_fornecedor_oficial(18, 42, actor='ana')
+
+        self.assertEqual(
+            result,
+            {
+                'found': True,
+                'changed': False,
+                'supplier_name': 'Fornecedor Legal, Lda.',
+            },
+        )
+        self.assertFalse(any(
+            'UPDATE artigos_administrativos' in sql
+            or 'INSERT INTO artigos_administrativos_fornecedor_audit' in sql
+            for sql in _sql_calls(cursor)
+        ))
+        conn.commit.assert_not_called()
+        invalidate.assert_not_called()
+
+    def test_removing_supplier_records_an_audited_change(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (
+            42, 'Fornecedor Legal, Lda.', 'categoria_operacional', None,
+        )
+        conn = _connection(cursor)
+
+        with patch('db.artigos.db_connection', return_value=conn), \
+                patch('db.artigos.invalidate_prefix') as invalidate:
+            from db.artigos import set_artigo_fornecedor_oficial
+            result = set_artigo_fornecedor_oficial(18, None, actor='ana')
+
+        self.assertEqual(
+            result,
+            {'found': True, 'changed': True, 'supplier_name': None},
+        )
+        article_update = next(
+            call for call in cursor.execute.call_args_list
+            if 'UPDATE artigos_administrativos' in call.args[0]
+        )
+        self.assertEqual(article_update.args[1], (None, 18))
+        audit_insert = next(
+            call for call in cursor.execute.call_args_list
+            if 'INSERT INTO artigos_administrativos_fornecedor_audit'
+            in call.args[0]
+        )
+        self.assertEqual(
+            audit_insert.args[1],
+            (18, 42, 'Fornecedor Legal, Lda.', None, None, 'ana',
+             'edição do fornecedor oficial no catálogo'),
+        )
+        conn.commit.assert_called_once()
+        invalidate.assert_called_once_with('artigos_administrativos')
+
+    def test_different_confirmed_external_origin_is_rejected(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (
+            42, 'Fornecedor Legal, Lda.', 'fornecedor_externo', 91,
+        )
+        conn = _connection(cursor)
+
+        with patch('db.artigos.db_connection', return_value=conn), \
+                patch('db.artigos.invalidate_prefix') as invalidate:
+            from db.artigos import set_artigo_fornecedor_oficial
+            with self.assertRaisesRegex(ValueError, 'corresponder à origem externa'):
+                set_artigo_fornecedor_oficial(18, 42, actor='ana')
+
+        self.assertFalse(any(
+            'UPDATE artigos_administrativos' in sql
+            or 'INSERT INTO artigos_administrativos_fornecedor_audit' in sql
+            for sql in _sql_calls(cursor)
+        ))
+        conn.commit.assert_not_called()
+        invalidate.assert_not_called()
+
+
 class TestArticleCatalogueNoopUpdates(unittest.TestCase):
     def test_unchanged_article_does_not_update_timestamps_or_audit(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
             ('CAFÉ ILLY', 'Café Clássico', None, None, 18,
-             'CAFÉ ILLY', 'por_resolver'),
-            (18, 'por_resolver'),
+             'CAFÉ ILLY', 'por_resolver', None, None, None),
+            (18, 'por_resolver', None),
         ]
         conn = _connection(cursor)
 
@@ -183,8 +311,8 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
             ('CAFÉ ILLY', 'Café Clássico', None, None, 18,
-             'CAFÉ ILLY', 'por_resolver'),
-            (18, 'por_resolver'),
+             'CAFÉ ILLY', 'por_resolver', None, None, None),
+            (18, 'por_resolver', None),
         ]
         conn = _connection(cursor)
 
@@ -204,6 +332,15 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
             'UPDATE artigos_administrativos' in sql
             for sql in _sql_calls(cursor)
         ))
+        article_update = next(
+            call for call in cursor.execute.call_args_list
+            if 'UPDATE artigos_administrativos' in call.args[0]
+        )
+        self.assertEqual(
+            article_update.args[1],
+            ('CAFÉ ILLY', 'Café Clássico Descafeinado', None, None, 18, None,
+             'CAFÉ ILLY', 18),
+        )
         self.assertFalse(any(
             'INSERT INTO artigos_administrativos_origem_audit' in sql
             for sql in _sql_calls(cursor)
@@ -215,8 +352,9 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
             ('CAFÉ ILLY', 'Café Clássico', None, None, 18,
-             'CAFÉ ILLY', 'por_resolver'),
-            (91, 'fornecedor_externo'),
+             'CAFÉ ILLY', 'por_resolver', None, None, None),
+            (91, 'fornecedor_externo', 42),
+            ('Fornecedor Legal, Lda.',),
         ]
         conn = _connection(cursor)
 
@@ -231,6 +369,15 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         self.assertEqual(
             result,
             {'found': True, 'changed': True, 'origin_type': 'fornecedor_externo'},
+        )
+        article_update = next(
+            call for call in cursor.execute.call_args_list
+            if 'UPDATE artigos_administrativos' in call.args[0]
+        )
+        self.assertEqual(
+            article_update.args[1],
+            ('CAFÉ ILLY', 'Café Clássico', None, None, 91, 42,
+             'CAFÉ ILLY', 18),
         )
         audit_insert = next(
             call for call in cursor.execute.call_args_list

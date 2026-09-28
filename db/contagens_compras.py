@@ -102,36 +102,46 @@ def _catalogue_rows(cursor, article_ids=None, active_only=True) -> dict[int, dic
         clauses.append("a.id = ANY(%s)")
         params.append(article_ids)
     if active_only:
-        clauses.extend(["a.ativo = TRUE", "o.ativo = TRUE"])
+        clauses.append("a.ativo = TRUE")
     cursor.execute(
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
                o.id AS catalog_origin_id, o.chave AS catalog_origin_key,
-               o.tipo AS catalog_origin_type, o.nome AS catalog_origin_name,
+               COALESCE(o.tipo, 'por_resolver') AS catalog_origin_type,
+               COALESCE(
+                   o.nome, NULLIF(BTRIM(a.origem_original), ''),
+                   NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
+               ) AS catalog_origin_name,
                o.supplier_id, s.name AS supplier_nome,
-               CASE WHEN o.chave = 'categoria:moedas' THEN hub.id ELSE o.id END
+               COALESCE(o.ativo, FALSE) AS origin_active,
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN hub.id ELSE o.id END
                    AS source_origin_id,
-               CASE WHEN o.chave = 'categoria:moedas'
-                    THEN 'centro_interno' ELSE o.tipo END AS source_origin_type,
-               CASE WHEN o.chave = 'categoria:moedas'
-                    THEN hub.nome ELSE o.nome END AS source_origin_name,
-               CASE WHEN o.chave = 'categoria:moedas'
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN 'centro_interno'
+                    ELSE COALESCE(o.tipo, 'por_resolver') END AS source_origin_type,
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN hub.nome
+                    ELSE COALESCE(
+                        o.nome, NULLIF(BTRIM(a.origem_original), ''),
+                        NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
+                    ) END AS source_origin_name,
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
                     THEN hub.store_id ELSE o.store_id END AS source_origin_store_id,
                CASE WHEN o.chave = 'categoria:moedas'
                     THEN NULL ELSE o.supplier_id END AS source_supplier_id,
                CASE WHEN o.chave = 'categoria:moedas'
-                    THEN NULL ELSE s.name END AS source_supplier_name
+                    THEN NULL ELSE s.name END AS source_supplier_name,
+               a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
         FROM artigos_administrativos a
-        JOIN compras_origens o ON o.id = a.origem_id
+        LEFT JOIN compras_origens o ON o.id = a.origem_id
         LEFT JOIN suppliers s ON s.id = o.supplier_id
+        LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
         LEFT JOIN compras_origens hub
           ON hub.chave = 'centro:matosinhos'
          AND hub.tipo = 'centro_interno'
          AND hub.ativo = TRUE
-        WHERE (
-            (o.tipo = 'fornecedor_externo' AND o.supplier_id IS NOT NULL)
-            OR (o.chave = 'categoria:moedas' AND hub.id IS NOT NULL)
-        )
+        WHERE TRUE
         """ + (" AND " + " AND ".join(clauses) if clauses else ""),
         params,
     )
@@ -191,6 +201,12 @@ def _snapshot(count: dict, lines: list[dict], version: int) -> dict:
                 "origem_store_id": line.get("origem_store_id_snapshot"),
                 "supplier_id": line.get("origem_supplier_id_snapshot"),
                 "supplier_nome": line.get("origem_supplier_nome_snapshot"),
+                "fornecedor_oficial_id": line.get(
+                    "fornecedor_oficial_id_snapshot"
+                ),
+                "fornecedor_oficial_nome": line.get(
+                    "fornecedor_oficial_nome_snapshot"
+                ),
                 "quantidade": line["quantidade"],
                 "observacoes": line.get("observacoes") or "",
             }
@@ -277,14 +293,18 @@ def save_count_draft(count_id: int, lines: list[dict], actor: str) -> dict:
                     (contagem_id, artigo_id, produto_snapshot, unidade_snapshot,
                      origem_id_snapshot, origem_tipo_snapshot, origem_nome_snapshot,
                      origem_store_id_snapshot, origem_supplier_id_snapshot,
-                     origem_supplier_nome_snapshot, quantidade, observacoes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     origem_supplier_nome_snapshot,
+                     fornecedor_oficial_id_snapshot,
+                     fornecedor_oficial_nome_snapshot, quantidade, observacoes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     count_id, article_id, item["produto"], item["unidade"] or "unidade",
                     item["source_origin_id"], item["source_origin_type"],
                     item["source_origin_name"], item["source_origin_store_id"],
                     item["source_supplier_id"], item["source_supplier_name"],
+                    item["fornecedor_oficial_id"],
+                    item["fornecedor_oficial_nome"],
                     values["quantidade"], values["observacoes"],
                 ),
             )
@@ -434,7 +454,9 @@ def list_submitted_counts(
             EXISTS (
                 SELECT 1
                 FROM jsonb_array_elements(v.snapshot->'linhas') AS line
-                WHERE line->>'supplier_id' = %s
+                WHERE COALESCE(
+                    line->>'fornecedor_oficial_id', line->>'supplier_id'
+                ) = %s
             )
             """
         )

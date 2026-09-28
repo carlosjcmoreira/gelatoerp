@@ -35,7 +35,12 @@
                         <div class="table-responsive border rounded">
                             <table class="table table-sm align-middle mb-0">
                                 <thead class="table-light">
-                                    <tr><th>Artigo</th><th>Origem</th><th style="width:170px">Quantidade</th><th>Unidade</th></tr>
+                                    <tr>
+                                        <th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th>
+                                        <th style="width:170px">Pedida</th><th>Unidade</th>
+                                        <th class="text-end">Enviada</th><th class="text-end">Recebida</th>
+                                        <th class="text-end">Pendente envio</th>
+                                    </tr>
                                 </thead>
                                 <tbody>
                                 {% for line in order.linhas %}
@@ -47,7 +52,13 @@
                                         <span class="badge text-bg-warning">Desativado no catálogo</span>
                                         {% endif %}
                                     </td>
-                                    <td class="text-muted small">{{ line.origem_nome_snapshot }}</td>
+                                    <td class="text-muted small">
+                                        {{ line.origem_nome_snapshot or 'Origem por validar' }}
+                                        {% if line.origem_tipo_snapshot == 'por_resolver' %}
+                                        <span class="badge text-bg-warning">Por validar</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="small">{{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
                                     <td>
                                         <input class="form-control form-control-sm" type="number"
                                                name="quantidade_{{ line.artigo_id }}"
@@ -55,9 +66,12 @@
                                                min="0.001" max="1000000" step="0.001">
                                     </td>
                                     <td>{{ line.unidade_snapshot }}</td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade_enviada or 0) }}</td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade_recebida or 0) }}</td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade_pendente_envio or 0) }}</td>
                                 </tr>
                                 {% else %}
-                                <tr><td colspan="4" class="text-muted text-center py-3">Sem linhas.</td></tr>
+                                <tr><td colspan="8" class="text-muted text-center py-3">Sem linhas.</td></tr>
                                 {% endfor %}
                                 </tbody>
                             </table>
@@ -86,6 +100,82 @@
                         </table>
                     </div>
                     {% endif %}
+                </div>
+            </section>
+            <section class="card shadow-sm border-0 mt-3">
+                <div class="card-header bg-transparent fw-semibold">Registar envio</div>
+                <div class="card-body">
+                    {% if order.status in ('submetida', 'em_preparacao') and order.linhas %}
+                    <form method="post">
+                        <input type="hidden" name="action" value="create_dispatch">
+                        <input type="hidden" name="request_key" value="{{ dispatch_request_key }}">
+                        <div class="table-responsive border rounded">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr><th>Artigo</th><th>Origem</th><th>Fornecedor oficial</th><th class="text-end">Pedida</th><th class="text-end">Já enviada</th><th class="text-end">Pendente</th><th style="width:160px">Enviar agora</th></tr>
+                                </thead>
+                                <tbody>
+                                {% for line in order.linhas %}
+                                <tr>
+                                    <td>{{ line.produto_snapshot }}</td>
+                                    <td class="small">{{ line.origem_nome_snapshot or 'Origem por validar' }}</td>
+                                    <td class="small">{{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade) }} {{ line.unidade_snapshot }}</td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade_enviada or 0) }}</td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade_pendente_envio or 0) }}</td>
+                                    <td>
+                                        {% if line.quantidade_pendente_envio > 0 %}
+                                        <input type="number" class="form-control form-control-sm"
+                                               name="envio_quantidade_{{ line.id }}" min="0.001"
+                                               max="{{ line.quantidade_pendente_envio }}" step="0.001"
+                                               inputmode="decimal">
+                                        {% else %}<span class="text-muted small">Completo</span>{% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <label class="form-label small fw-semibold mt-3" for="dispatch-note-weekly">Observações do envio</label>
+                        <textarea id="dispatch-note-weekly" name="observacoes" class="form-control form-control-sm mb-2" rows="2" maxlength="4000"></textarea>
+                        <button class="btn btn-primary btn-sm" type="submit">Registar envio parcial ou total</button>
+                    </form>
+                    {% else %}
+                    <div class="text-muted small">O envio só pode ser registado para pedidos submetidos ou em preparação.</div>
+                    {% endif %}
+                </div>
+            </section>
+            <section class="card shadow-sm border-0 mt-3">
+                <div class="card-header bg-transparent fw-semibold">Histórico de envios e receções</div>
+                <div class="card-body">
+                    {% for shipment in shipments %}
+                    <div class="border-bottom pb-2 mb-2">
+                        <div class="fw-semibold">
+                            Envio #{{ shipment.id }} · {{ shipment.created_by }}
+                            · {{ shipment.created_at.strftime('%d/%m/%Y %H:%M') if shipment.created_at else '' }}
+                        </div>
+                        {% for line in shipment.linhas %}
+                        <div class="small text-muted">
+                            {{ line.produto_snapshot }} — pedida na altura
+                            {{ '%.3f'|format(line.quantidade_pedida_snapshot or 0) }},
+                            enviado {{ '%.3f'|format(line.quantidade_enviada) }},
+                            recebido {{ '%.3f'|format(line.quantidade_recebida) }},
+                            pendente {{ '%.3f'|format(line.quantidade_pendente) }}
+                            {% if line.origem_nome_snapshot %} · Origem: {{ line.origem_nome_snapshot }}{% else %} · Origem por validar{% endif %}
+                            {% if line.fornecedor_oficial_nome_snapshot %} · {{ line.fornecedor_oficial_nome_snapshot }}{% else %} · Fornecedor por confirmar{% endif %}
+                        </div>
+                        {% endfor %}
+                        {% for receipt in shipment.rececoes %}
+                        <div class="small mt-1">
+                            Receção {{ receipt.status|replace('_', ' ')|title }} · {{ receipt.received_by }}
+                            · {{ receipt.received_at.strftime('%d/%m/%Y %H:%M') if receipt.received_at else '' }}
+                            {% if receipt.observacoes %} · {{ receipt.observacoes }}{% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-muted small">Ainda não há envios para este pedido.</div>
+                    {% endfor %}
                 </div>
             </section>
         </div>

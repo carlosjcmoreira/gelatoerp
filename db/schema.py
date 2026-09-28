@@ -17,6 +17,7 @@ _LOCK_COMPRAS_CATALOGO = 202712
 _LOCK_COMPRAS_ENCOMENDAS_SEMANAIS = 202713
 _LOCK_COMPRAS_PEDIDOS_URGENTES = 202714
 _LOCK_COMPRAS_CONTAGENS_ARTIGOS = 202715
+_LOCK_COMPRAS_PEDIDOS_ENVIOS = 202716
 
 
 def run_migrations_compras_origens():
@@ -77,7 +78,9 @@ def run_migrations_compras_origens():
                 ALTER TABLE artigos_administrativos
                     ADD COLUMN IF NOT EXISTS origem_id INTEGER
                         REFERENCES compras_origens(id) ON DELETE SET NULL,
-                    ADD COLUMN IF NOT EXISTS origem_original VARCHAR(255)
+                    ADD COLUMN IF NOT EXISTS origem_original VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_id INTEGER
+                        REFERENCES suppliers(id) ON DELETE SET NULL
                 """
             )
             cursor.execute(
@@ -101,6 +104,30 @@ def run_migrations_compras_origens():
                 """
                 CREATE INDEX IF NOT EXISTS idx_artigos_origem_audit_artigo
                     ON artigos_administrativos_origem_audit(artigo_id, created_at DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS artigos_administrativos_fornecedor_audit (
+                    id BIGSERIAL PRIMARY KEY,
+                    artigo_id INTEGER REFERENCES artigos_administrativos(id)
+                        ON DELETE SET NULL,
+                    fornecedor_anterior_id INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    fornecedor_anterior_nome VARCHAR(255),
+                    fornecedor_novo_id INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    fornecedor_novo_nome VARCHAR(255),
+                    actor VARCHAR(255) NOT NULL DEFAULT 'sistema',
+                    reason TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_artigos_fornecedor_audit_artigo
+                    ON artigos_administrativos_fornecedor_audit(artigo_id, created_at DESC)
                 """
             )
 
@@ -185,6 +212,20 @@ def run_migrations_compras_origens():
                     (label, origin['key']),
                 )
 
+            # Only an already-linked active external origin is authoritative
+            # enough to backfill the independent official-supplier relation.
+            cursor.execute(
+                """
+                UPDATE artigos_administrativos a
+                   SET fornecedor_oficial_id = o.supplier_id
+                  FROM compras_origens o
+                 WHERE a.origem_id = o.id
+                   AND o.tipo = 'fornecedor_externo'
+                   AND o.ativo = TRUE
+                   AND o.supplier_id IS NOT NULL
+                   AND a.fornecedor_oficial_id IS NULL
+                """
+            )
             conn.commit()
             logger.info(
                 "run_migrations_compras_origens: origins and legacy article links ready"
@@ -548,12 +589,32 @@ def run_migrations_compras_encomendas_semanais():
                     origem_supplier_id_snapshot INTEGER REFERENCES suppliers(id)
                         ON DELETE SET NULL,
                     origem_supplier_nome_snapshot VARCHAR(255),
+                    fornecedor_oficial_id_snapshot INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    fornecedor_oficial_nome_snapshot VARCHAR(255),
                     quantidade NUMERIC(12, 3) NOT NULL CHECK (quantidade > 0),
                     observacoes TEXT NOT NULL DEFAULT '',
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (encomenda_id, artigo_id)
                 )
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE compras_encomendas_semanais_linhas
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_id_snapshot INTEGER
+                        REFERENCES suppliers(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_nome_snapshot VARCHAR(255)
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE compras_encomendas_semanais_linhas
+                   SET fornecedor_oficial_id_snapshot = origem_supplier_id_snapshot,
+                       fornecedor_oficial_nome_snapshot = origem_supplier_nome_snapshot
+                 WHERE fornecedor_oficial_id_snapshot IS NULL
+                   AND origem_supplier_id_snapshot IS NOT NULL
                 """
             )
             cursor.execute(
@@ -695,11 +756,31 @@ def run_migrations_compras_pedidos_urgentes():
                     origem_supplier_id_snapshot INTEGER REFERENCES suppliers(id)
                         ON DELETE SET NULL,
                     origem_supplier_nome_snapshot VARCHAR(255),
+                    fornecedor_oficial_id_snapshot INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    fornecedor_oficial_nome_snapshot VARCHAR(255),
                     quantidade NUMERIC(12, 3) NOT NULL CHECK (quantidade > 0),
                     observacoes TEXT NOT NULL DEFAULT '',
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (pedido_id, artigo_id)
                 )
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE compras_pedidos_urgentes_linhas
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_id_snapshot INTEGER
+                        REFERENCES suppliers(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_nome_snapshot VARCHAR(255)
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE compras_pedidos_urgentes_linhas
+                   SET fornecedor_oficial_id_snapshot = origem_supplier_id_snapshot,
+                       fornecedor_oficial_nome_snapshot = origem_supplier_nome_snapshot
+                 WHERE fornecedor_oficial_id_snapshot IS NULL
+                   AND origem_supplier_id_snapshot IS NOT NULL
                 """
             )
             cursor.execute(
@@ -812,11 +893,31 @@ def run_migrations_compras_contagens_artigos():
                     origem_supplier_id_snapshot INTEGER REFERENCES suppliers(id)
                         ON DELETE SET NULL,
                     origem_supplier_nome_snapshot VARCHAR(255),
+                    fornecedor_oficial_id_snapshot INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    fornecedor_oficial_nome_snapshot VARCHAR(255),
                     quantidade NUMERIC(14, 3) NOT NULL CHECK (quantidade >= 0),
                     observacoes TEXT NOT NULL DEFAULT '',
                     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (contagem_id, artigo_id)
                 )
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE compras_contagens_artigos_linhas
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_id_snapshot INTEGER
+                        REFERENCES suppliers(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_nome_snapshot VARCHAR(255)
+                """
+            )
+            cursor.execute(
+                """
+                UPDATE compras_contagens_artigos_linhas
+                   SET fornecedor_oficial_id_snapshot = origem_supplier_id_snapshot,
+                       fornecedor_oficial_nome_snapshot = origem_supplier_nome_snapshot
+                 WHERE fornecedor_oficial_id_snapshot IS NULL
+                   AND origem_supplier_id_snapshot IS NOT NULL
                 """
             )
             cursor.execute(
@@ -875,6 +976,146 @@ def run_migrations_compras_contagens_artigos():
         except Exception as exc:
             logger.error(
                 "run_migrations_compras_contagens_artigos failed: %s", exc
+            )
+            conn.rollback()
+            raise
+
+
+def run_migrations_compras_pedidos_envios():
+    """Create an append-only dispatch and store-receipt ledger.
+
+    These records document purchasing fulfilment only. They are intentionally
+    separate from transfer orders and stock movements.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute(
+                "SELECT pg_try_advisory_xact_lock(%s)",
+                (_LOCK_COMPRAS_PEDIDOS_ENVIOS,),
+            )
+            if not cursor.fetchone()[0]:
+                logger.info(
+                    "run_migrations_compras_pedidos_envios: lock held, skipping"
+                )
+                return
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_pedidos_envios (
+                    id BIGSERIAL PRIMARY KEY,
+                    tipo_pedido VARCHAR(20) NOT NULL
+                        CHECK (tipo_pedido IN ('semanal', 'urgente')),
+                    pedido_id BIGINT NOT NULL,
+                    store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+                    versao_pedido INTEGER,
+                    request_key UUID NOT NULL UNIQUE,
+                    payload_hash CHAR(64) NOT NULL,
+                    observacoes TEXT NOT NULL DEFAULT '',
+                    created_by VARCHAR(100) NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_pedidos_envios_linhas (
+                    id BIGSERIAL PRIMARY KEY,
+                    envio_id BIGINT NOT NULL
+                        REFERENCES compras_pedidos_envios(id) ON DELETE CASCADE,
+                    pedido_linha_id BIGINT NOT NULL,
+                    artigo_id INTEGER REFERENCES artigos_administrativos(id)
+                        ON DELETE SET NULL,
+                    produto_snapshot VARCHAR(255) NOT NULL,
+                    unidade_snapshot VARCHAR(50) NOT NULL,
+                    origem_id_snapshot INTEGER REFERENCES compras_origens(id)
+                        ON DELETE SET NULL,
+                    origem_tipo_snapshot VARCHAR(30),
+                    origem_nome_snapshot VARCHAR(255),
+                    origem_supplier_id_snapshot INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    origem_supplier_nome_snapshot VARCHAR(255),
+                    fornecedor_oficial_id_snapshot INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    fornecedor_oficial_nome_snapshot VARCHAR(255),
+                    quantidade_pedida_snapshot NUMERIC(12, 3),
+                    quantidade_enviada NUMERIC(12, 3) NOT NULL
+                        CHECK (quantidade_enviada > 0),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (envio_id, artigo_id)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                ALTER TABLE compras_pedidos_envios_linhas
+                    ADD COLUMN IF NOT EXISTS origem_id_snapshot INTEGER
+                        REFERENCES compras_origens(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS origem_tipo_snapshot VARCHAR(30),
+                    ADD COLUMN IF NOT EXISTS origem_nome_snapshot VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS origem_supplier_id_snapshot INTEGER
+                        REFERENCES suppliers(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS origem_supplier_nome_snapshot VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_id_snapshot INTEGER
+                        REFERENCES suppliers(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS fornecedor_oficial_nome_snapshot VARCHAR(255),
+                    ADD COLUMN IF NOT EXISTS quantidade_pedida_snapshot NUMERIC(12, 3)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_pedidos_rececoes (
+                    id BIGSERIAL PRIMARY KEY,
+                    envio_id BIGINT NOT NULL
+                        REFERENCES compras_pedidos_envios(id) ON DELETE RESTRICT,
+                    store_id INTEGER NOT NULL REFERENCES stores(id) ON DELETE RESTRICT,
+                    request_key UUID NOT NULL UNIQUE,
+                    payload_hash CHAR(64) NOT NULL,
+                    status VARCHAR(20) NOT NULL
+                        CHECK (status IN ('parcial', 'confirmada', 'problema')),
+                    observacoes TEXT NOT NULL DEFAULT '',
+                    received_by VARCHAR(100) NOT NULL,
+                    received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS compras_pedidos_rececoes_linhas (
+                    id BIGSERIAL PRIMARY KEY,
+                    rececao_id BIGINT NOT NULL
+                        REFERENCES compras_pedidos_rececoes(id) ON DELETE CASCADE,
+                    envio_linha_id BIGINT NOT NULL
+                        REFERENCES compras_pedidos_envios_linhas(id) ON DELETE RESTRICT,
+                    quantidade_recebida NUMERIC(12, 3) NOT NULL
+                        CHECK (quantidade_recebida >= 0),
+                    discrepancia TEXT NOT NULL DEFAULT '',
+                    UNIQUE (rececao_id, envio_linha_id)
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_envios_order
+                    ON compras_pedidos_envios(tipo_pedido, pedido_id, store_id, created_at)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_envios_lines_article
+                    ON compras_pedidos_envios_linhas(artigo_id)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_compras_rececoes_shipment
+                    ON compras_pedidos_rececoes(envio_id, received_at, id)
+                """
+            )
+            conn.commit()
+            logger.info("run_migrations_compras_pedidos_envios: schema ready")
+        except Exception as exc:
+            logger.error(
+                "run_migrations_compras_pedidos_envios failed: %s", exc
             )
             conn.rollback()
             raise

@@ -180,39 +180,52 @@ def _get_user_loja():
 def _get_compras_loja_store():
     """Resolve the canonical store context for the Compras da Loja area.
 
-    Store users are pinned to their first assigned Vendas store.  Managers may
-    use the same explicit store selector as the rest of Vendas, but the
-    resolved store is always validated by its stable ID and capabilities.
+    An explicitly selected store is accepted only when the user is authorized
+    for it.  The resolved store is validated by its stable ID and capabilities.
     """
     user = session.get('user', {})
     is_gestor = bool(user.get('acesso_gestor'))
+    requested_values = [
+        value.strip()
+        for value in (
+            request.args.get('loja_id', ''),
+            request.form.get('loja_id', ''),
+            request.form.get('_loja_id', ''),
+        )
+        if str(value or '').strip()
+    ]
+    if len(set(requested_values)) > 1:
+        abort(403)
+    requested = requested_values[0] if requested_values else ''
 
     if is_gestor:
-        raw_store_id = (
-            request.args.get('loja_id')
-            or request.form.get('loja_id')
-            or request.form.get('_loja_id')
-            or ''
-        ).strip()
-        if raw_store_id:
+        if requested:
             try:
-                store = get_store_by_id(int(raw_store_id))
+                store = get_store_by_id(int(requested))
             except (TypeError, ValueError):
                 store = None
         else:
             loja_id, _ = _get_user_loja()
             store = get_store_by_id(loja_id) if loja_id else None
     else:
-        store_ids = user.get('vendas_store_ids') or []
-        store = get_store_by_id(store_ids[0]) if store_ids else None
-        requested = request.args.get('loja_id', '').strip()
+        assigned_store_ids = [
+            int(store_id) for store_id in (user.get('vendas_store_ids') or [])
+            if str(store_id).isdigit()
+        ]
+        store_ids = set(assigned_store_ids)
         if requested:
             try:
                 requested_id = int(requested)
             except (TypeError, ValueError):
                 abort(403)
-            if not store or requested_id != store['id']:
+            if requested_id not in store_ids:
                 abort(403)
+            store = get_store_by_id(requested_id)
+        else:
+            store = (
+                get_store_by_id(assigned_store_ids[0])
+                if assigned_store_ids else None
+            )
 
     if (
         not store
@@ -224,14 +237,12 @@ def _get_compras_loja_store():
 
 
 def _get_compras_loja_articles():
-    """Return only active supplier articles suitable for store requests."""
+    """Return every active catalogue article for store requests."""
     from db.artigos import get_artigos_administrativos
 
     return [
         artigo for artigo in get_artigos_administrativos(apenas_ativos=True)
         if artigo.get('ativo')
-        and artigo.get('origem_tipo') == 'fornecedor_externo'
-        and artigo.get('origem_supplier_id')
     ]
 
 
@@ -494,6 +505,11 @@ def compras_loja():
             'icon': '🔢',
             'empty': 'Ainda não existem contagens registadas para esta loja.',
         },
+        'rececao': {
+            'label': 'Receção de pedidos',
+            'icon': '📦',
+            'empty': 'Ainda não existem envios de Compras para esta loja.',
+        },
         'historico': {
             'label': 'Histórico',
             'icon': '📋',
@@ -553,11 +569,45 @@ def compras_loja():
     count_draft = None
     count_articles = []
     count_history = []
+    shipments = []
+    receipt_request_keys = {}
     if active_section == 'semanal':
         weekly_order = get_or_create_weekly_order(
             store['id'], planning_sunday, actor=username
         )
         weekly_articles = get_available_weekly_articles()
+        from db.compras_envios import list_shipments_for_order
+        weekly_shipments = list_shipments_for_order(
+            'semanal', weekly_order['id']
+        )
+        totals_by_article = {}
+        for shipment in weekly_shipments:
+            for shipped_line in shipment['linhas']:
+                key = (
+                    ('article', int(shipped_line['artigo_id']))
+                    if shipped_line.get('artigo_id') is not None
+                    else ('line', int(shipped_line['pedido_linha_id']))
+                )
+                totals = totals_by_article.setdefault(
+                    key, {'sent': 0.0, 'received': 0.0, 'pending': 0.0}
+                )
+                totals['sent'] += shipped_line['quantidade_enviada']
+                totals['received'] += shipped_line['quantidade_recebida']
+                totals['pending'] += shipped_line['quantidade_pendente']
+        for order_line in weekly_order.get('linhas', []):
+            key = (
+                ('article', int(order_line['artigo_id']))
+                if order_line.get('artigo_id') is not None
+                else ('line', int(order_line['id']))
+            )
+            totals = totals_by_article.get(
+                key, {'sent': 0.0, 'received': 0.0, 'pending': 0.0}
+            )
+            order_line['quantidade_enviada'] = totals['sent']
+            order_line['quantidade_recebida'] = totals['received']
+            order_line['quantidade_pendente'] = max(
+                0.0, float(order_line['quantidade']) - totals['sent']
+            )
     elif active_section == 'urgente':
         urgent_articles = get_available_urgent_articles()
         urgent_orders = list_urgent_orders(store_id=store['id'])
@@ -579,6 +629,13 @@ def compras_loja():
         )
         count_articles = get_available_count_articles()
         count_history = get_count_history(store['id'])
+    elif active_section == 'rececao':
+        from db.compras_envios import list_shipments_for_store
+        shipments = list_shipments_for_store(store['id'])
+        from uuid import uuid4
+        receipt_request_keys = {
+            shipment['id']: str(uuid4()) for shipment in shipments
+        }
 
     if request.method == 'POST' and active_section == 'semanal':
         action = request.form.get('action', 'guardar_rascunho').strip()
@@ -700,6 +757,42 @@ def compras_loja():
             data_contagem=count_date.isoformat(),
         ))
 
+    if request.method == 'POST' and active_section == 'rececao':
+        from db.compras_envios import create_receipt
+        receipt_lines = []
+        for key, value in request.form.items():
+            if not key.startswith('recebida_'):
+                continue
+            line_id = key.removeprefix('recebida_')
+            receipt_lines.append({
+                'envio_linha_id': line_id,
+                'quantidade_recebida': value,
+                'discrepancia': request.form.get(
+                    f'discrepancia_{line_id}', ''
+                ),
+            })
+        try:
+            receipt = create_receipt(
+                shipment_id=request.form.get('envio_id'),
+                store_id=store['id'],
+                lines=receipt_lines,
+                actor=username,
+                request_key=request.form.get('request_key', ''),
+                observations=request.form.get('observacoes', ''),
+            )
+            flash(
+                'Receção guardada.' if not receipt.get('duplicate')
+                else 'Esta receção já tinha sido registada.',
+                'success',
+            )
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), 'warning')
+        return redirect(url_for(
+            'vendas.compras_loja',
+            loja_id=store['id'],
+            secao='rececao',
+        ))
+
     return render_template(
         'vendas/compras_loja.html',
         active_tab='compras_loja',
@@ -722,6 +815,23 @@ def compras_loja():
         count_draft=count_draft,
         count_articles=count_articles,
         count_history=count_history,
+        shipments=shipments,
+        receipt_request_keys=receipt_request_keys,
+        available_store_options=(
+            [
+                candidate for candidate in (
+                    get_store_by_id(store_id)
+                    for store_id in (
+                        session.get('user', {}).get('vendas_store_ids') or []
+                    )
+                )
+                if candidate
+                and candidate.get('is_active', True) is not False
+                and candidate.get('supports_vendas', True) is not False
+            ]
+            if not session.get('user', {}).get('acesso_gestor')
+            else []
+        ),
         weekly_statuses={
             'rascunho': 'Rascunho',
             'submetida': 'Submetida',

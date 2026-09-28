@@ -18,13 +18,13 @@
         <div>
             <strong>Origem por resolver:</strong>
             A designação original foi preservada, mas ainda não foi associada a
-            uma origem confirmada. Estar Ativo não significa que o artigo esteja
-            disponível para encomendas semanais ou contagens.
+            uma origem confirmada. Os artigos ativos continuam disponíveis para
+            contagens e pedidos das lojas enquanto esta validação estiver pendente.
         </div>
         <div class="mt-1">
-            Para associar um fornecedor, use <strong>Confirmar fornecedor</strong>
-            na linha do artigo. Se não souber qual é o correto, deixe por resolver
-            e <a href="{{ url_for('faturas.fornecedores', origem='compras') }}">consulte os fornecedores</a>.
+            A origem operacional e o fornecedor oficial são campos distintos.
+            Use <strong>Confirmar fornecedor</strong> apenas para corrigir a origem;
+            associe o fornecedor oficial separadamente, sem alterar Matosinhos ou categorias.
         </div>
         <div class="mt-1">
             <strong>Campos:</strong> Origem pode ser fornecedor, centro interno ou
@@ -107,6 +107,7 @@
             <thead>
                 <tr>
                     <th>Origem / etiqueta</th>
+                    <th>Fornecedor oficial</th>
                     <th>Produto</th>
                     <th>Marca (opcional)</th>
                     <th>Un.</th>
@@ -141,6 +142,22 @@
                                    aria-label="Etiqueta da origem para {{ a.produto }}" required>
                         </form>
                     </td>
+                    <td style="min-width:220px;">
+                        {% if a.fornecedor_oficial_nome %}
+                        <div class="fw-semibold">{{ a.fornecedor_oficial_nome }}</div>
+                        {% else %}
+                        <span class="badge text-bg-warning">Fornecedor por confirmar</span>
+                        {% endif %}
+                        <div class="mt-1">
+                            <button type="button" class="btn btn-outline-primary btn-sm"
+                                    data-bs-toggle="modal" data-bs-target="#fornecedorOficialModal"
+                                    data-artigo-id="{{ a.id }}"
+                                    data-artigo-produto="{{ a.produto }}"
+                                    data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}">
+                                {{ 'Alterar fornecedor oficial' if a.fornecedor_oficial_id else 'Associar fornecedor oficial' }}
+                            </button>
+                        </div>
+                    </td>
                     <td style="min-width:240px;">
                         <input form="edit-artigo-{{ a.id }}" type="text" name="produto" value="{{ a.produto }}"
                                class="form-control form-control-sm" required>
@@ -170,7 +187,7 @@
                                 data-artigo-id="{{ a.id }}"
                                 data-artigo-produto="{{ a.produto }}"
                                 data-etiqueta-original="{{ a.origem_original or a.fornecedor }}">
-                            Confirmar fornecedor
+                            Confirmar origem externa
                         </button>
                         {% endif %}
                         <a href="{{ url_for('compras.artigo_detalhe', artigo_id=a.id) }}"
@@ -193,6 +210,49 @@
     {% else %}
     <div class="alert alert-info">Nenhum artigo corresponde à pesquisa.</div>
     {% endif %}
+
+    <div class="modal fade" id="fornecedorOficialModal" tabindex="-1"
+         aria-labelledby="fornecedorOficialTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="post" action="{{ url_for('compras.artigos') }}">
+                    <input type="hidden" name="action" value="set_official_supplier">
+                    <input type="hidden" name="artigo_id" id="fornecedorOficialArtigoId">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="fornecedorOficialTitulo">Fornecedor oficial</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                aria-label="Fechar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-2">Artigo: <strong id="fornecedorOficialProduto"></strong></p>
+                        <p class="small text-muted">
+                            Esta ligação identifica o fornecedor legal. Não altera a origem
+                            operacional nem os pedidos já registados.
+                        </p>
+                        <label for="fornecedorOficialSupplierId" class="form-label">
+                            Escolha um fornecedor existente
+                        </label>
+                        <select name="supplier_id" id="fornecedorOficialSupplierId"
+                                class="form-select" required>
+                            <option value="none">Fornecedor por confirmar</option>
+                            {% for supplier in suppliers %}
+                            <option value="{{ supplier.id }}">
+                                {{ supplier.common_name or supplier.name }}
+                                {% if supplier.common_name %} — {{ supplier.name }}{% endif %}
+                                {% if supplier.nif %} · NIF {{ supplier.nif }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar ligação</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <div class="modal fade" id="confirmarFornecedorModal" tabindex="-1"
          aria-labelledby="confirmarFornecedorTitulo" aria-hidden="true">
@@ -258,6 +318,24 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+    const officialModal = document.getElementById('fornecedorOficialModal');
+    if (officialModal) {
+        officialModal.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            if (!button) return;
+            document.getElementById('fornecedorOficialArtigoId').value =
+                button.getAttribute('data-artigo-id') || '';
+            document.getElementById('fornecedorOficialProduto').textContent =
+                button.getAttribute('data-artigo-produto') || '';
+            const supplierSelect =
+                document.getElementById('fornecedorOficialSupplierId');
+            if (supplierSelect) {
+                supplierSelect.value =
+                    button.getAttribute('data-fornecedor-id') || 'none';
+            }
+        });
+    }
+
     const modal = document.getElementById('confirmarFornecedorModal');
     if (!modal) return;
 

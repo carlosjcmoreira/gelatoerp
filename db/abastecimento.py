@@ -53,7 +53,7 @@ def _line_predicates(
         clauses.append(f"{alias}.origem_tipo_snapshot = %s")
         params.append(origin_type)
     if supplier_id is not None:
-        clauses.append(f"{alias}.origem_supplier_id_snapshot = %s")
+        clauses.append(f"{alias}.fornecedor_oficial_id_snapshot = %s")
         params.append(int(supplier_id))
     return clauses, params
 
@@ -168,7 +168,9 @@ def get_weekly_consolidation(
             SELECT l.artigo_id, l.produto_snapshot, l.unidade_snapshot,
                    l.origem_id_snapshot, l.origem_tipo_snapshot,
                    l.origem_nome_snapshot, l.origem_supplier_id_snapshot,
-                   l.origem_supplier_nome_snapshot,
+                    l.origem_supplier_nome_snapshot,
+                    l.fornecedor_oficial_id_snapshot,
+                    l.fornecedor_oficial_nome_snapshot,
                    SUM(l.quantidade) AS quantidade_total,
                    COUNT(DISTINCT o.store_id) AS lojas_count,
                    json_agg(json_build_object(
@@ -176,7 +178,9 @@ def get_weekly_consolidation(
                        'loja_nome', s.name,
                        'quantidade', l.quantidade,
                        'unidade', l.unidade_snapshot,
-                       'order_id', o.id
+                        'order_id', o.id,
+                        'fornecedor_oficial_id', l.fornecedor_oficial_id_snapshot,
+                        'fornecedor_oficial_nome', l.fornecedor_oficial_nome_snapshot
                    ) ORDER BY s.name) AS lojas
             FROM compras_encomendas_semanais_linhas l
             JOIN compras_encomendas_semanais o ON o.id = l.encomenda_id
@@ -185,8 +189,11 @@ def get_weekly_consolidation(
             GROUP BY l.artigo_id, l.produto_snapshot, l.unidade_snapshot,
                      l.origem_id_snapshot, l.origem_tipo_snapshot,
                      l.origem_nome_snapshot, l.origem_supplier_id_snapshot,
-                     l.origem_supplier_nome_snapshot
-            ORDER BY l.origem_nome_snapshot, l.produto_snapshot
+                      l.origem_supplier_nome_snapshot,
+                      l.fornecedor_oficial_id_snapshot,
+                      l.fornecedor_oficial_nome_snapshot
+             ORDER BY l.fornecedor_oficial_nome_snapshot NULLS LAST,
+                      l.origem_nome_snapshot, l.produto_snapshot
             """,
             params,
         )
@@ -255,6 +262,8 @@ def list_urgent_orders(
                        'origem_nome', l.origem_nome_snapshot,
                        'supplier_id', l.origem_supplier_id_snapshot,
                        'supplier_nome', l.origem_supplier_nome_snapshot,
+                        'fornecedor_oficial_id', l.fornecedor_oficial_id_snapshot,
+                        'fornecedor_oficial_nome', l.fornecedor_oficial_nome_snapshot,
                        'observacoes', l.observacoes
                    ) ORDER BY l.produto_snapshot)
                    FILTER (WHERE l.id IS NOT NULL) AS linhas

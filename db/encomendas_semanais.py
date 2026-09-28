@@ -139,6 +139,12 @@ def _snapshot(order: dict, lines: list[dict]) -> dict:
                 "origem_nome": line.get("origem_nome_snapshot"),
                 "supplier_id": line.get("origem_supplier_id_snapshot"),
                 "supplier_nome": line.get("supplier_nome_snapshot"),
+                "fornecedor_oficial_id": line.get(
+                    "fornecedor_oficial_id_snapshot"
+                ),
+                "fornecedor_oficial_nome": line.get(
+                    "fornecedor_oficial_nome_snapshot"
+                ),
                 "observacoes": line.get("observacoes") or "",
             }
             for line in lines
@@ -181,11 +187,31 @@ def _article_catalog_rows(cursor, article_ids: list[int]) -> dict[int, dict]:
     cursor.execute(
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
-               o.id AS origem_id, o.tipo AS origem_tipo, o.nome AS origem_nome,
-               o.supplier_id, s.name AS supplier_nome, o.ativo AS origem_ativa
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN hub.id ELSE o.id END AS origem_id,
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN 'centro_interno'
+                    ELSE COALESCE(o.tipo, 'por_resolver') END AS origem_tipo,
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN hub.nome
+                    ELSE COALESCE(
+                        o.nome, NULLIF(BTRIM(a.origem_original), ''),
+                        NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
+                    ) END AS origem_nome,
+               CASE WHEN o.chave = 'categoria:moedas' THEN NULL
+                    ELSE o.supplier_id END AS supplier_id,
+               CASE WHEN o.chave = 'categoria:moedas' THEN NULL
+                    ELSE origin_s.name END AS supplier_nome,
+               COALESCE(o.ativo, FALSE) AS origem_ativa,
+               a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
         FROM artigos_administrativos a
-        JOIN compras_origens o ON o.id = a.origem_id
-        LEFT JOIN suppliers s ON s.id = o.supplier_id
+        LEFT JOIN compras_origens o ON o.id = a.origem_id
+        LEFT JOIN suppliers origin_s ON origin_s.id = o.supplier_id
+        LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
+        LEFT JOIN compras_origens hub
+          ON hub.chave = 'centro:matosinhos'
+         AND hub.tipo = 'centro_interno'
+         AND hub.ativo = TRUE
         WHERE a.id = ANY(%s)
         """,
         (article_ids,),
@@ -194,22 +220,39 @@ def _article_catalog_rows(cursor, article_ids: list[int]) -> dict[int, dict]:
 
 
 def get_available_weekly_articles() -> list[dict]:
-    """Return active articles with a confirmed, active external supplier."""
+    """Return every active article; unresolved origins remain requestable."""
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             """
             SELECT a.id, a.produto, a.unidade, a.fornecedor,
-                   o.id AS origem_id, o.tipo AS origem_tipo, o.nome AS origem_nome,
-                   o.supplier_id, s.name AS supplier_nome
+                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                        THEN hub.id ELSE o.id END AS origem_id,
+                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                        THEN 'centro_interno'
+                        ELSE COALESCE(o.tipo, 'por_resolver') END AS origem_tipo,
+                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                        THEN hub.nome
+                        ELSE COALESCE(
+                            o.nome, NULLIF(BTRIM(a.origem_original), ''),
+                            NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
+                        ) END AS origem_nome,
+                   CASE WHEN o.chave = 'categoria:moedas' THEN NULL
+                        ELSE o.supplier_id END AS supplier_id,
+                   CASE WHEN o.chave = 'categoria:moedas' THEN NULL
+                        ELSE origin_s.name END AS supplier_nome,
+                   COALESCE(o.ativo, FALSE) AS origem_ativa,
+                   a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
             FROM artigos_administrativos a
-            JOIN compras_origens o ON o.id = a.origem_id
-            LEFT JOIN suppliers s ON s.id = o.supplier_id
+            LEFT JOIN compras_origens o ON o.id = a.origem_id
+            LEFT JOIN suppliers origin_s ON origin_s.id = o.supplier_id
+            LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
+            LEFT JOIN compras_origens hub
+              ON hub.chave = 'centro:matosinhos'
+             AND hub.tipo = 'centro_interno'
+             AND hub.ativo = TRUE
             WHERE a.ativo = TRUE
-              AND o.ativo = TRUE
-              AND o.tipo = 'fornecedor_externo'
-              AND o.supplier_id IS NOT NULL
-            ORDER BY o.nome, a.produto, a.id
+            ORDER BY origem_nome, a.produto, a.id
             """
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -239,10 +282,11 @@ def get_or_create_weekly_order(store_id: int, planning_sunday, actor: str | None
             (store_id, cycle["ciclo_domingo"]),
         )
         row = cursor.fetchone()
+        lines = _fetch_lines(cursor, row["id"]) if row else []
         conn.commit()
     if not row:
         raise ValueError("Não foi possível criar a encomenda semanal.")
-    return _row_to_order(dict(row), [])
+    return _row_to_order(dict(row), lines)
 
 
 def get_weekly_order(order_id: int, include_lines: bool = True) -> dict | None:
@@ -304,12 +348,7 @@ def save_weekly_draft(
         if len(catalogue) != len(requested):
             raise ValueError("Um dos artigos selecionados já não existe.")
         for article_id, article in catalogue.items():
-            if (
-                not article["ativo"]
-                or not article["origem_ativa"]
-                or article["origem_tipo"] != "fornecedor_externo"
-                or not article["supplier_id"]
-            ):
+            if not article["ativo"]:
                 raise ValueError(
                     f'O artigo "{article["produto"]}" deixou de estar disponível.'
                 )
@@ -326,8 +365,9 @@ def save_weekly_draft(
                     (encomenda_id, artigo_id, produto_snapshot, unidade_snapshot,
                      origem_id_snapshot, origem_tipo_snapshot, origem_nome_snapshot,
                      origem_supplier_id_snapshot, origem_supplier_nome_snapshot,
-                     quantidade, observacoes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     fornecedor_oficial_id_snapshot,
+                     fornecedor_oficial_nome_snapshot, quantidade, observacoes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     order_id,
@@ -339,6 +379,8 @@ def save_weekly_draft(
                     article["origem_nome"],
                     article["supplier_id"],
                     article["supplier_nome"],
+                    article["fornecedor_oficial_id"],
+                    article["fornecedor_oficial_nome"],
                     requested_line["quantidade"],
                     requested_line["observacoes"],
                 ),
@@ -514,28 +556,57 @@ def amend_weekly_order(
             # A previously submitted line may remain editable even if the
             # catalogue entry was later deactivated.  Its original snapshot
             # is reused below; new additions still require an active article.
-            if (
-                article_id not in old_by_article
-                and (
-                    not item["ativo"]
-                    or not item["origem_ativa"]
-                    or item["origem_tipo"] != "fornecedor_externo"
-                    or not item["supplier_id"]
-                )
-            ):
+            if article_id not in old_by_article and not item["ativo"]:
                 raise ValueError(f'O artigo "{item["produto"]}" deixou de estar disponível.')
+        for old_line in old_lines:
+            article_id = old_line.get("artigo_id")
+            if article_id is None:
+                cursor.execute(
+                    """
+                    SELECT COALESCE(SUM(sl.quantidade_enviada), 0)
+                    FROM compras_pedidos_envios e
+                    JOIN compras_pedidos_envios_linhas sl ON sl.envio_id = e.id
+                    WHERE e.tipo_pedido = 'semanal' AND e.pedido_id = %s
+                      AND sl.artigo_id IS NULL AND sl.pedido_linha_id = %s
+                    """,
+                    (order_id, old_line["id"]),
+                )
+                already_sent = Decimal(str(cursor.fetchone()[0] or "0"))
+                if already_sent > 0:
+                    raise ValueError(
+                        f'A alteração de "{old_line["produto_snapshot"]}" '
+                        'não é permitida porque o artigo já foi removido do catálogo '
+                        'e tem quantidades enviadas.'
+                    )
+                continue
+            article_id = int(article_id)
+            cursor.execute(
+                """
+                SELECT COALESCE(SUM(sl.quantidade_enviada), 0)
+                FROM compras_pedidos_envios e
+                JOIN compras_pedidos_envios_linhas sl ON sl.envio_id = e.id
+                WHERE e.tipo_pedido = 'semanal' AND e.pedido_id = %s
+                  AND sl.artigo_id = %s
+                """,
+                (order_id, article_id),
+            )
+            already_sent = Decimal(str(cursor.fetchone()[0] or "0"))
+            next_quantity = requested.get(article_id, {}).get("quantidade")
+            if already_sent > 0 and (
+                next_quantity is None or next_quantity < already_sent
+            ):
+                raise ValueError(
+                    f'A alteração não pode reduzir/remover '
+                    f'"{old_line["produto_snapshot"]}" abaixo da quantidade já enviada '
+                    f'({already_sent:.3f}).'
+                )
         cursor.execute("DELETE FROM compras_encomendas_semanais_linhas WHERE encomenda_id = %s", (order_id,))
         for article_id, requested_line in requested.items():
             current_item = catalogue[article_id]
             item = (
                 old_by_article.get(article_id)
                 if article_id in old_by_article
-                and (
-                    not current_item["ativo"]
-                    or not current_item["origem_ativa"]
-                    or current_item["origem_tipo"] != "fornecedor_externo"
-                    or not current_item["supplier_id"]
-                )
+                and not current_item["ativo"]
                 else current_item
             )
             cursor.execute(
@@ -544,8 +615,9 @@ def amend_weekly_order(
                     (encomenda_id, artigo_id, produto_snapshot, unidade_snapshot,
                      origem_id_snapshot, origem_tipo_snapshot, origem_nome_snapshot,
                      origem_supplier_id_snapshot, origem_supplier_nome_snapshot,
-                     quantidade, observacoes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     fornecedor_oficial_id_snapshot,
+                     fornecedor_oficial_nome_snapshot, quantidade, observacoes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     order_id,
@@ -557,6 +629,14 @@ def amend_weekly_order(
                     item.get("origem_nome_snapshot", item.get("origem_nome")),
                     item.get("origem_supplier_id_snapshot", item.get("supplier_id")),
                     item.get("origem_supplier_nome_snapshot", item.get("supplier_nome")),
+                    item.get(
+                        "fornecedor_oficial_id_snapshot",
+                        item.get("fornecedor_oficial_id"),
+                    ),
+                    item.get(
+                        "fornecedor_oficial_nome_snapshot",
+                        item.get("fornecedor_oficial_nome"),
+                    ),
                     requested_line["quantidade"], requested_line["observacoes"],
                 ),
             )
@@ -628,6 +708,8 @@ def get_weekly_consolidation(planning_sunday) -> list[dict]:
                    l.origem_id_snapshot, l.origem_tipo_snapshot,
                    l.origem_nome_snapshot, l.origem_supplier_id_snapshot,
                    l.origem_supplier_nome_snapshot,
+                   l.fornecedor_oficial_id_snapshot,
+                   l.fornecedor_oficial_nome_snapshot,
                    SUM(l.quantidade) AS quantidade_total,
                    COUNT(DISTINCT o.store_id) AS lojas_count,
                    json_agg(json_build_object(
@@ -645,8 +727,11 @@ def get_weekly_consolidation(planning_sunday) -> list[dict]:
             GROUP BY l.artigo_id, l.produto_snapshot, l.unidade_snapshot,
                      l.origem_id_snapshot, l.origem_tipo_snapshot,
                      l.origem_nome_snapshot, l.origem_supplier_id_snapshot,
-                     l.origem_supplier_nome_snapshot
-            ORDER BY l.origem_nome_snapshot, l.produto_snapshot
+                     l.origem_supplier_nome_snapshot,
+                     l.fornecedor_oficial_id_snapshot,
+                     l.fornecedor_oficial_nome_snapshot
+            ORDER BY l.fornecedor_oficial_nome_snapshot NULLS LAST,
+                     l.origem_nome_snapshot, l.produto_snapshot
             """,
             (cycle["ciclo_domingo"],),
         )

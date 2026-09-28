@@ -122,6 +122,7 @@
                                 <tr>
                                     <th>Artigo</th>
                                     <th>Origem</th>
+                                    <th>Fornecedor oficial</th>
                                     <th class="text-end">Total</th>
                                 </tr>
                             </thead>
@@ -133,10 +134,10 @@
                                         <div class="text-muted small">{{ item.lojas_count }} loja(s)</div>
                                     </td>
                                     <td class="text-muted small">
-                                        {{ item.origem_nome_snapshot }}
-                                        {% if item.origem_supplier_nome_snapshot %}
-                                        <br>{{ item.origem_supplier_nome_snapshot }}
-                                        {% endif %}
+                                        {{ item.origem_nome_snapshot or 'Origem por validar' }}
+                                    </td>
+                                    <td class="text-muted small">
+                                        {{ item.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}
                                     </td>
                                     <td class="text-end text-nowrap">
                                         {{ '%.3f'|format(item.quantidade_total) }}

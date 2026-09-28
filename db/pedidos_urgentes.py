@@ -156,6 +156,12 @@ def _snapshot(order: dict, lines: list[dict]) -> dict:
                 "origem_store_id": line.get("origem_store_id_snapshot"),
                 "supplier_id": line.get("origem_supplier_id_snapshot"),
                 "supplier_nome": line.get("origem_supplier_nome_snapshot"),
+                "fornecedor_oficial_id": line.get(
+                    "fornecedor_oficial_id_snapshot"
+                ),
+                "fornecedor_oficial_nome": line.get(
+                    "fornecedor_oficial_nome_snapshot"
+                ),
                 "observacoes": line.get("observacoes") or "",
             }
             for line in lines
@@ -199,32 +205,40 @@ def _article_catalog_rows(cursor, article_ids: list[int]) -> dict[int, dict]:
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
                o.id AS catalog_origin_id, o.chave AS catalog_origin_key,
-               o.tipo AS catalog_origin_type, o.nome AS catalog_origin_name,
+               COALESCE(o.tipo, 'por_resolver') AS catalog_origin_type,
+               COALESCE(
+                   o.nome, NULLIF(BTRIM(a.origem_original), ''),
+                   NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
+               ) AS catalog_origin_name,
                o.supplier_id, s.name AS supplier_nome, o.ativo AS origin_active,
-               CASE WHEN o.chave = 'categoria:moedas' THEN hub.id ELSE o.id END
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN hub.id ELSE o.id END
                    AS source_origin_id,
-               CASE WHEN o.chave = 'categoria:moedas'
-                    THEN 'centro_interno' ELSE o.tipo END AS source_origin_type,
-               CASE WHEN o.chave = 'categoria:moedas'
-                    THEN hub.nome ELSE o.nome END AS source_origin_name,
-               CASE WHEN o.chave = 'categoria:moedas'
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN 'centro_interno'
+                    ELSE COALESCE(o.tipo, 'por_resolver') END AS source_origin_type,
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                    THEN hub.nome
+                    ELSE COALESCE(
+                        o.nome, NULLIF(BTRIM(a.origem_original), ''),
+                        NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
+                    ) END AS source_origin_name,
+               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
                     THEN hub.store_id ELSE o.store_id END AS source_origin_store_id,
                CASE WHEN o.chave = 'categoria:moedas'
                     THEN NULL ELSE o.supplier_id END AS source_supplier_id,
                CASE WHEN o.chave = 'categoria:moedas'
-                    THEN NULL ELSE s.name END AS source_supplier_name
+                    THEN NULL ELSE s.name END AS source_supplier_name,
+               a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
         FROM artigos_administrativos a
-        JOIN compras_origens o ON o.id = a.origem_id
+        LEFT JOIN compras_origens o ON o.id = a.origem_id
         LEFT JOIN suppliers s ON s.id = o.supplier_id
+        LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
         LEFT JOIN compras_origens hub
           ON hub.chave = 'centro:matosinhos'
          AND hub.tipo = 'centro_interno'
          AND hub.ativo = TRUE
         WHERE a.id = ANY(%s)
-          AND (
-              (o.tipo = 'fornecedor_externo' AND o.supplier_id IS NOT NULL)
-              OR (o.chave = 'categoria:moedas' AND hub.id IS NOT NULL)
-          )
         """,
         (article_ids,),
     )
@@ -232,38 +246,42 @@ def _article_catalog_rows(cursor, article_ids: list[int]) -> dict[int, dict]:
 
 
 def get_available_urgent_articles() -> list[dict]:
-    """Active external articles plus the typed Moedas → Matosinhos route."""
+    """Return every active article, retaining origin and supplier separately."""
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         cursor.execute(
             """
             SELECT a.id, a.produto, a.unidade, a.ativo,
-                   CASE WHEN o.chave = 'categoria:moedas' THEN hub.id ELSE o.id END
+                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                        THEN hub.id ELSE o.id END
                        AS origem_id,
-                   CASE WHEN o.chave = 'categoria:moedas'
-                        THEN 'centro_interno' ELSE o.tipo END AS origem_tipo,
-                   CASE WHEN o.chave = 'categoria:moedas'
-                        THEN hub.nome ELSE o.nome END AS origem_nome,
-                   CASE WHEN o.chave = 'categoria:moedas'
+                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                        THEN 'centro_interno'
+                        ELSE COALESCE(o.tipo, 'por_resolver') END AS origem_tipo,
+                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
+                        THEN hub.nome
+                        ELSE COALESCE(
+                            o.nome, NULLIF(BTRIM(a.origem_original), ''),
+                            NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
+                        ) END AS origem_nome,
+                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
                         THEN hub.store_id ELSE o.store_id END AS origem_store_id,
                    CASE WHEN o.chave = 'categoria:moedas'
                         THEN NULL ELSE o.supplier_id END AS supplier_id,
                    CASE WHEN o.chave = 'categoria:moedas'
                         THEN NULL ELSE s.name END AS supplier_nome,
-                   o.chave AS origem_catalogo_chave
+                   o.chave AS origem_catalogo_chave,
+                   COALESCE(o.ativo, FALSE) AS origem_ativa,
+                   a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
             FROM artigos_administrativos a
-            JOIN compras_origens o ON o.id = a.origem_id
+            LEFT JOIN compras_origens o ON o.id = a.origem_id
             LEFT JOIN suppliers s ON s.id = o.supplier_id
+            LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
             LEFT JOIN compras_origens hub
               ON hub.chave = 'centro:matosinhos'
              AND hub.tipo = 'centro_interno'
              AND hub.ativo = TRUE
             WHERE a.ativo = TRUE
-              AND o.ativo = TRUE
-              AND (
-                  (o.tipo = 'fornecedor_externo' AND o.supplier_id IS NOT NULL)
-                  OR (o.chave = 'categoria:moedas' AND hub.id IS NOT NULL)
-              )
             ORDER BY CASE WHEN o.chave = 'categoria:moedas' THEN 0 ELSE 1 END,
                      origem_nome, a.produto, a.id
             """
@@ -290,7 +308,7 @@ def _normalise_lines(cursor, lines: list[dict]) -> tuple[dict[int, dict], dict[i
     if len(catalogue) != len(requested):
         raise ValueError("Um dos artigos selecionados não está disponível.")
     for item in catalogue.values():
-        if not item["ativo"] or not item["origin_active"]:
+        if not item["ativo"]:
             raise ValueError(f'O artigo "{item["produto"]}" deixou de estar disponível.')
     return requested, catalogue
 
@@ -407,8 +425,9 @@ def create_urgent_order(
                          origem_id_snapshot, origem_tipo_snapshot,
                          origem_nome_snapshot, origem_store_id_snapshot,
                          origem_supplier_id_snapshot, origem_supplier_nome_snapshot,
-                         quantidade, observacoes)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         fornecedor_oficial_id_snapshot,
+                         fornecedor_oficial_nome_snapshot, quantidade, observacoes)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         order_id,
@@ -421,6 +440,8 @@ def create_urgent_order(
                         item["source_origin_store_id"],
                         item["source_supplier_id"],
                         item["source_supplier_name"],
+                        item["fornecedor_oficial_id"],
+                        item["fornecedor_oficial_nome"],
                         values["quantidade"],
                         values["observacoes"],
                     ),

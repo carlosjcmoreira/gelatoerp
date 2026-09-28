@@ -76,6 +76,7 @@ from db.schema import (
     run_migrations_compras_encomendas_semanais,
     run_migrations_compras_pedidos_urgentes,
     run_migrations_compras_contagens_artigos,
+    run_migrations_compras_pedidos_envios,
 )
 from db.schema import run_migrations_doseamento_gelado
 from db.schema import (
@@ -342,6 +343,7 @@ def create_app():
          ('run_migrations_compras_encomendas_semanais', run_migrations_compras_encomendas_semanais),
         ('run_migrations_compras_pedidos_urgentes', run_migrations_compras_pedidos_urgentes),
         ('run_migrations_compras_contagens_artigos', run_migrations_compras_contagens_artigos),
+        ('run_migrations_compras_pedidos_envios', run_migrations_compras_pedidos_envios),
     )
     startup_slow_steps = []
     schema_started = time.monotonic()

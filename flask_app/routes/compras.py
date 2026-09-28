@@ -9,7 +9,7 @@ from database import (
     get_artigos_administrativos, add_artigo_administrativo,
     get_artigo_administrativo, get_artigo_comercial_history,
     update_artigo_administrativo, toggle_artigo_administrativo,
-    confirm_artigo_fornecedor,
+    confirm_artigo_fornecedor, set_artigo_fornecedor_oficial,
     delete_artigo_administrativo,
     get_compras_origens,
     criar_ordem_transferencia,
@@ -264,16 +264,18 @@ def operacao_abastecimento():
         count_snapshots = []
 
     origins = get_compras_origens(apenas_ativos=True)
-    supplier_options = []
-    seen_supplier_ids = set()
-    for origin in origins:
-        sid = origin.get('supplier_id')
-        if sid and sid not in seen_supplier_ids:
-            supplier_options.append({
-                'id': sid,
-                'name': origin.get('supplier_name') or origin.get('nome'),
-            })
-            seen_supplier_ids.add(sid)
+    supplier_options = [
+        {
+            'id': supplier['id'],
+            'name': (
+                f"{supplier['common_name']} — {supplier['name']}"
+                if supplier.get('common_name')
+                and supplier['common_name'] != supplier['name']
+                else supplier['name']
+            ),
+        }
+        for supplier in get_suppliers()
+    ]
     supplier_options.sort(key=lambda item: item['name'] or '')
 
     planned_volume = sum(item['quantidade_total'] or 0 for item in weekly_consolidation)
@@ -1288,6 +1290,34 @@ def artigos():
                 except ValueError as exc:
                     flash(str(exc), 'danger')
 
+        elif action == 'set_official_supplier':
+            article_raw = request.form.get('artigo_id', '').strip()
+            supplier_raw = request.form.get('supplier_id', '').strip()
+            if not article_raw.isdigit():
+                flash('Selecione um artigo válido.', 'warning')
+            else:
+                try:
+                    supplier_id = (
+                        None if supplier_raw in ('', 'none')
+                        else int(supplier_raw)
+                    )
+                    result = set_artigo_fornecedor_oficial(
+                        int(article_raw),
+                        supplier_id,
+                        actor=_get_username(),
+                    )
+                    if result is None:
+                        flash('Artigo não encontrado.', 'warning')
+                    elif result['changed']:
+                        flash(
+                            'Fornecedor oficial atualizado sem alterar a origem.',
+                            'success',
+                        )
+                    else:
+                        flash('O fornecedor oficial já estava atualizado.', 'info')
+                except (TypeError, ValueError) as exc:
+                    flash(str(exc), 'danger')
+
         elif action == 'toggle':
             try:
                 artigo_id = int(request.form.get('artigo_id', 0))
@@ -1315,7 +1345,10 @@ def artigos():
             a for a in artigos_list
             if search in ' '.join(
                 str(a.get(key) or '') for key in
-                ('fornecedor', 'produto', 'marca', 'origem_nome')
+                (
+                    'fornecedor', 'produto', 'marca', 'origem_nome',
+                    'fornecedor_oficial_nome',
+                )
             ).casefold()
         ]
     fornecedores = sorted(set(a['fornecedor'] for a in artigos_list))
@@ -1814,7 +1847,7 @@ def pedidos_urgentes():
     )
 
 
-@compras_bp.route('/pedidos-urgentes/<int:order_id>')
+@compras_bp.route('/pedidos-urgentes/<int:order_id>', methods=['GET', 'POST'])
 @any_perm_required('acesso_administrativo', 'acesso_compras')
 def pedido_urgente_detalhe(order_id):
     from db.pedidos_urgentes import (
@@ -1822,13 +1855,79 @@ def pedido_urgente_detalhe(order_id):
         get_urgent_order,
         get_urgent_order_audit,
     )
+    from db.compras_envios import (
+        create_dispatch,
+        list_shipments_for_order,
+    )
 
     order = get_urgent_order(order_id)
     if not order:
         return '<p class="text-danger p-3">Pedido urgente não encontrado.</p>', 404
+    if request.method == 'POST':
+        dispatch_lines = []
+        for key, value in request.form.items():
+            if not key.startswith('envio_quantidade_') or not value.strip():
+                continue
+            dispatch_lines.append({
+                'pedido_linha_id': key.removeprefix('envio_quantidade_'),
+                'quantidade': value,
+            })
+        try:
+            result = create_dispatch(
+                'urgente',
+                order_id,
+                dispatch_lines,
+                session.get('user', {}).get('username', 'sistema'),
+                request.form.get('request_key', ''),
+                request.form.get('observacoes', ''),
+            )
+            flash(
+                'Envio registado.' if not result.get('duplicate')
+                else 'Este envio já tinha sido registado.',
+                'success',
+            )
+        except (TypeError, ValueError) as exc:
+            flash(str(exc), 'warning')
+        return redirect(url_for(
+            'compras.pedido_urgente_detalhe', order_id=order_id
+        ))
+
+    shipments = list_shipments_for_order('urgente', order_id)
+    sent_totals = {}
+    received_totals = {}
+    for shipment in shipments:
+        for shipped_line in shipment['linhas']:
+            key = (
+                ('article', int(shipped_line['artigo_id']))
+                if shipped_line.get('artigo_id') is not None
+                else ('line', int(shipped_line['pedido_linha_id']))
+            )
+            sent_totals[key] = sent_totals.get(key, 0.0) + shipped_line[
+                'quantidade_enviada'
+            ]
+            received_totals[key] = received_totals.get(key, 0.0) + shipped_line[
+                'quantidade_recebida'
+            ]
+    for line in order.get('linhas', []):
+        key = (
+            ('article', int(line['artigo_id']))
+            if line.get('artigo_id') is not None
+            else ('line', int(line['id']))
+        )
+        sent = sent_totals.get(key, 0.0)
+        received = received_totals.get(key, 0.0)
+        line['quantidade_enviada'] = sent
+        line['quantidade_recebida'] = received
+        line['quantidade_pendente_envio'] = max(
+            0.0, float(line['quantidade']) - sent
+        )
+        line['quantidade_pendente_recepcao'] = max(0.0, sent - received)
+    from uuid import uuid4
     return render_template(
         'compras/pedido_urgente_detalhe.html',
         order=order,
+        shipments=shipments,
+        dispatch_request_key=str(uuid4()),
         audit=get_urgent_order_audit(order_id),
         urgent_reason_labels=URGENT_REASON_LABELS,
         urgent_statuses={
@@ -1899,6 +1998,10 @@ def encomenda_semanal_detalhe(order_id):
         get_weekly_order,
         get_weekly_order_audit,
     )
+    from db.compras_envios import (
+        create_dispatch,
+        list_shipments_for_order,
+    )
 
     order = get_weekly_order(order_id)
     if not order:
@@ -1906,6 +2009,35 @@ def encomenda_semanal_detalhe(order_id):
     cycle = order['ciclo_domingo']
 
     if request.method == 'POST':
+        if request.form.get('action') == 'create_dispatch':
+            dispatch_lines = []
+            for key, value in request.form.items():
+                if not key.startswith('envio_quantidade_') or not value.strip():
+                    continue
+                dispatch_lines.append({
+                    'pedido_linha_id': key.removeprefix('envio_quantidade_'),
+                    'quantidade': value,
+                })
+            try:
+                result = create_dispatch(
+                    'semanal',
+                    order_id,
+                    dispatch_lines,
+                    session.get('user', {}).get('username', 'sistema'),
+                    request.form.get('request_key', ''),
+                    request.form.get('observacoes', ''),
+                )
+                flash(
+                    'Envio registado.' if not result.get('duplicate')
+                    else 'Este envio já tinha sido registado.',
+                    'success',
+                )
+            except (TypeError, ValueError) as exc:
+                flash(str(exc), 'warning')
+            return redirect(url_for(
+                'compras.encomenda_semanal_detalhe',
+                order_id=order_id,
+            ))
         if order['status'] not in ('submetida', 'em_preparacao'):
             flash('Esta encomenda já não aceita alterações.', 'warning')
             return redirect(url_for('compras.encomenda_semanal_detalhe', order_id=order_id))
@@ -1935,10 +2067,43 @@ def encomenda_semanal_detalhe(order_id):
             order_id=order_id,
         ))
 
+    shipments = list_shipments_for_order('semanal', order_id)
+    sent_totals = {}
+    received_totals = {}
+    for shipment in shipments:
+        for shipped_line in shipment['linhas']:
+            key = (
+                ('article', int(shipped_line['artigo_id']))
+                if shipped_line.get('artigo_id') is not None
+                else ('line', int(shipped_line['pedido_linha_id']))
+            )
+            sent_totals[key] = sent_totals.get(key, 0.0) + shipped_line[
+                'quantidade_enviada'
+            ]
+            received_totals[key] = received_totals.get(key, 0.0) + shipped_line[
+                'quantidade_recebida'
+            ]
+    for line in order.get('linhas', []):
+        key = (
+            ('article', int(line['artigo_id']))
+            if line.get('artigo_id') is not None
+            else ('line', int(line['id']))
+        )
+        sent = sent_totals.get(key, 0.0)
+        received = received_totals.get(key, 0.0)
+        line['quantidade_enviada'] = sent
+        line['quantidade_recebida'] = received
+        line['quantidade_pendente_envio'] = max(
+            0.0, float(line['quantidade']) - sent
+        )
+        line['quantidade_pendente_recepcao'] = max(0.0, sent - received)
+    from uuid import uuid4
     return render_template(
         'compras/encomenda_semanal_detalhe.html',
         order=order,
         articles=get_available_weekly_articles(),
+        shipments=shipments,
+        dispatch_request_key=str(uuid4()),
         audit=get_weekly_order_audit(order_id),
         weekly_statuses={
             'rascunho': 'Rascunho',

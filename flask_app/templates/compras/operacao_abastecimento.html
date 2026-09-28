@@ -185,12 +185,13 @@
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light"><tr><th>Artigo</th><th>Origem operacional</th><th>Lojas</th><th class="text-end">Total</th></tr></thead>
+                        <thead class="table-light"><tr><th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th><th>Lojas</th><th class="text-end">Total</th></tr></thead>
                         <tbody>
                         {% for item in weekly_consolidation %}
                         <tr>
                             <td><div class="fw-semibold">{{ item.produto_snapshot }}</div><div class="text-muted small">ID {{ item.artigo_id }}</div></td>
-                            <td>{{ origin_badge(item.origem_tipo_snapshot, item.origem_nome_snapshot, item.origem_supplier_nome_snapshot) }}</td>
+                            <td>{{ origin_badge(item.origem_tipo_snapshot, item.origem_nome_snapshot) }}</td>
+                            <td class="small">{{ item.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
                             <td class="small">
                                 {% for store in item.lojas %}
                                 <div>{{ store.loja_nome }}: {{ '%.3f'|format(store.quantidade) }} {{ store.unidade }}</div>
@@ -199,7 +200,7 @@
                             <td class="text-end text-nowrap">{{ '%.3f'|format(item.quantidade_total) }} {{ item.unidade_snapshot }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="4" class="text-center text-muted py-4">A consolidação aparece depois das primeiras submissões.</td></tr>
+                        <tr><td colspan="5" class="text-center text-muted py-4">A consolidação aparece depois das primeiras submissões.</td></tr>
                         {% endfor %}
                         </tbody>
                     </table>

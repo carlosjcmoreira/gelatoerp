@@ -243,11 +243,11 @@ class TestComprasAccess(unittest.TestCase):
             html,
         )
         self.assertIn(
-            'Estar Ativo não significa que o artigo esteja disponível para encomendas semanais ou contagens.',
+            'Os artigos ativos continuam disponíveis para contagens e pedidos das lojas enquanto esta validação estiver pendente.',
             html,
         )
         self.assertIn(
-            'use <strong>Confirmar fornecedor</strong> na linha do artigo.',
+            'Use <strong>Confirmar fornecedor</strong> apenas para corrigir a origem;',
             html,
         )
         self.assertIn(
@@ -407,6 +407,42 @@ class TestComprasAccess(unittest.TestCase):
         self._set_session_user(_user(acesso_compras=True))
         resp = self.client.get('/compras/operacao-abastecimento')
         self.assertEqual(resp.status_code, 200)
+
+    def test_operational_supplier_filter_lists_canonical_suppliers_for_internal_origins(self):
+        from flask_app.routes import compras as compras_routes
+
+        self._set_session_user(_user(acesso_compras=True))
+        compras_routes.render_template.reset_mock()
+        suppliers = [{
+            'id': 42,
+            'name': 'Fornecedor Legal, Lda.',
+            'common_name': 'Fornecedor Bolhão',
+        }]
+        origins = [{
+            'id': 7,
+            'nome': 'Matosinhos',
+            'tipo': 'centro_interno',
+            'supplier_id': None,
+            'supplier_name': None,
+        }]
+        with patch(
+            'flask_app.routes.compras.get_suppliers',
+            return_value=suppliers,
+        ), patch(
+            'flask_app.routes.compras.get_compras_origens',
+            return_value=origins,
+        ):
+            response = self.client.get(
+                '/compras/operacao-abastecimento?fornecedor_id=42'
+            )
+
+        self.assertEqual(response.status_code, 200)
+        kwargs = compras_routes.render_template.call_args.kwargs
+        self.assertEqual(
+            kwargs['supplier_options'],
+            [{'id': 42, 'name': 'Fornecedor Bolhão — Fornecedor Legal, Lda.'}],
+        )
+        self.assertEqual(kwargs['supplier_id'], 42)
 
     # ------------------------------------------------------------------
     # User without any relevant perm must be redirected (3xx)

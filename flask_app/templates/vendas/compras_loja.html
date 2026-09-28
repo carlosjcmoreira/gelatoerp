@@ -15,6 +15,23 @@
         {% endif %}
     </div>
 
+    {% if available_store_options|length > 1 %}
+    <form method="get" action="{{ url_for('vendas.compras_loja') }}" class="mb-3">
+        <input type="hidden" name="secao" value="{{ active_section }}">
+        <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}">
+        <input type="hidden" name="data_contagem" value="{{ count_date.isoformat() }}">
+        <label for="compras-loja-selector" class="form-label small fw-semibold">Loja autorizada</label>
+        <select id="compras-loja-selector" name="loja_id" class="form-select form-select-sm"
+                style="max-width:320px" onchange="this.form.submit()">
+            {% for option in available_store_options %}
+            <option value="{{ option.id }}" {% if option.id == loja_id %}selected{% endif %}>
+                {{ option.name }}
+            </option>
+            {% endfor %}
+        </select>
+    </form>
+    {% endif %}
+
     <nav class="nav nav-pills flex-nowrap overflow-auto gap-2 mb-3"
          aria-label="Secções de Compras da Loja">
         {% for section_id, section in sections.items() %}
@@ -56,7 +73,8 @@
                         <thead class="table-light">
                             <tr>
                                 <th>Artigo</th>
-                                <th>Origem</th>
+                                <th>Origem operacional</th>
+                                <th>Fornecedor oficial</th>
                                 <th style="min-width: 145px;">Quantidade</th>
                                 <th>Unidade</th>
                             </tr>
@@ -73,11 +91,18 @@
                             <tr>
                                 <td>
                                     <div class="fw-semibold">{{ artigo.produto }}</div>
-                                    {% if artigo.supplier_nome %}
-                                    <div class="text-muted small">{{ artigo.supplier_nome }}</div>
+                                </td>
+                                <td class="text-muted small">
+                                    {{ artigo.origem_nome or 'Origem por validar' }}
+                                    {% if artigo.origem_tipo == 'por_resolver' or not artigo.origem_id %}
+                                    <span class="badge text-bg-warning">Por validar</span>
+                                    {% elif artigo.origem_ativa is false %}
+                                    <span class="badge text-bg-warning">Origem inativa</span>
                                     {% endif %}
                                 </td>
-                                <td class="text-muted small">{{ artigo.origem_nome }}</td>
+                                <td class="small">
+                                    {{ artigo.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}
+                                </td>
                                 <td>
                                     <input class="form-control form-control-sm" type="number"
                                            name="quantidade_{{ artigo.id }}" value="{{ saved.quantity }}"
@@ -90,8 +115,8 @@
                                 <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="4" class="text-muted text-center py-3">
-                                Não existem artigos ativos de fornecedores externos confirmados.
+                                <tr><td colspan="5" class="text-muted text-center py-3">
+                                Não existem artigos ativos no catálogo.
                             </td></tr>
                         {% endfor %}
                         </tbody>
@@ -113,6 +138,43 @@
                     A submissão fica disponível no domingo de planeamento e cria uma versão auditável.
                 </div>
             </form>
+            {% else %}
+            <div class="alert alert-light border small">
+                Esta encomenda já foi submetida. As linhas abaixo são o conteúdo enviado para Compras.
+            </div>
+            {% if weekly_order.linhas %}
+            <div class="table-responsive border rounded">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr><th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th><th class="text-end">Quantidade</th><th>Unidade</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for line in weekly_order.linhas %}
+                    <tr>
+                        <td>
+                            {{ line.produto_snapshot }}
+                            {% if line.artigo_ativo_atual is defined and line.artigo_ativo_atual is false %}
+                            <span class="badge text-bg-warning ms-1">Desativado no catálogo</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted small">
+                            {{ line.origem_nome_snapshot or 'Origem por validar' }}
+                            {% if line.origem_tipo_snapshot == 'por_resolver' %}
+                            <span class="badge text-bg-warning">Por validar</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">{{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
+                        <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
+                        <td>{{ line.unidade_snapshot }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted">A encomenda submetida não contém linhas.</p>
+            {% endif %}
+            {% endif %}
             {% elif active_section == 'urgente' %}
             <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
                 <div>
@@ -166,21 +228,25 @@
                 <div class="table-responsive border rounded mb-3">
                     <table class="table table-sm align-middle mb-0">
                         <thead class="table-light">
-                            <tr><th>Artigo</th><th>Origem operacional</th><th style="min-width:145px">Quantidade</th><th>Unidade</th></tr>
+                            <tr><th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th><th style="min-width:145px">Quantidade</th><th>Unidade</th></tr>
                         </thead>
                         <tbody>
                         {% for artigo in urgent_articles %}
                             <tr>
                                 <td>
                                     <div class="fw-semibold">{{ artigo.produto }}</div>
-                                    {% if artigo.supplier_nome %}<div class="text-muted small">{{ artigo.supplier_nome }}</div>{% endif %}
                                 </td>
                                 <td class="small">
-                                    {{ artigo.origem_nome }}
+                                    {{ artigo.origem_nome or 'Origem por validar' }}
                                     {% if artigo.origem_tipo == 'centro_interno' %}
                                     <span class="badge text-bg-info ms-1">Centro interno</span>
+                                    {% elif artigo.origem_tipo == 'por_resolver' or not artigo.origem_id %}
+                                    <span class="badge text-bg-warning ms-1">Por validar</span>
+                                    {% elif artigo.origem_ativa is false %}
+                                    <span class="badge text-bg-warning ms-1">Origem inativa</span>
                                     {% endif %}
                                 </td>
+                                <td class="small">{{ artigo.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}</td>
                                 <td>
                                     <input class="form-control form-control-sm" type="number"
                                            name="quantidade_{{ artigo.id }}" min="0.001" max="1000000"
@@ -192,8 +258,8 @@
                                 <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="4" class="text-muted text-center py-3">
-                                Não existem artigos elegíveis para pedidos urgentes.
+                            <tr><td colspan="5" class="text-muted text-center py-3">
+                                Não existem artigos ativos no catálogo.
                             </td></tr>
                         {% endfor %}
                         </tbody>
@@ -248,7 +314,7 @@
                 <div class="table-responsive border rounded mb-3">
                     <table class="table table-sm align-middle mb-0">
                         <thead class="table-light">
-                            <tr><th>Artigo</th><th>Origem</th><th style="min-width:145px">Quantidade contada</th><th>Unidade</th></tr>
+                            <tr><th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th><th style="min-width:145px">Quantidade contada</th><th>Unidade</th></tr>
                         </thead>
                         <tbody>
                         {% for artigo in count_articles %}
@@ -262,16 +328,18 @@
                             <tr>
                                 <td>
                                     <div class="fw-semibold">{{ artigo.produto }}</div>
-                                    {% if artigo.source_supplier_name %}
-                                    <div class="text-muted small">{{ artigo.source_supplier_name }}</div>
-                                    {% endif %}
                                 </td>
                                 <td class="small">
-                                    {{ artigo.source_origin_name }}
+                                    {{ artigo.source_origin_name or 'Origem por validar' }}
                                     {% if artigo.source_origin_type == 'centro_interno' %}
                                     <span class="badge text-bg-info ms-1">Centro interno</span>
+                                    {% elif artigo.source_origin_type == 'por_resolver' or not artigo.source_origin_id %}
+                                    <span class="badge text-bg-warning ms-1">Por validar</span>
+                                    {% elif artigo.origin_active is false %}
+                                    <span class="badge text-bg-warning ms-1">Origem inativa</span>
                                     {% endif %}
                                 </td>
+                                <td class="small">{{ artigo.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}</td>
                                 <td>
                                     <input class="form-control form-control-sm" type="number"
                                            name="quantidade_{{ artigo.id }}" value="{{ saved.quantity }}"
@@ -283,8 +351,8 @@
                                 <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
                             </tr>
                         {% else %}
-                            <tr><td colspan="4" class="text-muted text-center py-3">
-                                Não existem artigos ativos aplicáveis para novas contagens.
+                            <tr><td colspan="5" class="text-muted text-center py-3">
+                                Não existem artigos ativos no catálogo.
                             </td></tr>
                         {% endfor %}
                         </tbody>
@@ -329,35 +397,131 @@
                 <div class="text-muted small">Ainda não existem snapshots submetidos para esta loja.</div>
                 {% endif %}
             </div>
-            {% else %}
-            <div class="alert alert-light border small">
-                Esta encomenda já foi submetida. As linhas abaixo são o conteúdo enviado para Compras.
+            {% elif active_section == 'rececao' %}
+            <div class="d-flex flex-wrap justify-content-between gap-2 mb-3">
+                <div>
+                    <h6 class="mb-1">Receções de envios de Compras</h6>
+                    <div class="text-muted small">
+                        Registe o que chegou, incluindo receções parciais e diferenças.
+                        Esta confirmação não cria transferências nem movimenta stock.
+                    </div>
+                </div>
             </div>
-            {% if weekly_order.linhas %}
-            <div class="table-responsive border rounded">
-                <table class="table table-sm align-middle mb-0">
-                    <thead class="table-light"><tr><th>Artigo</th><th>Origem</th><th class="text-end">Quantidade</th><th>Unidade</th></tr></thead>
-                    <tbody>
-                    {% for line in weekly_order.linhas %}
-                    <tr>
-                        <td>
-                            {{ line.produto_snapshot }}
-                            {% if line.artigo_ativo_atual is defined and line.artigo_ativo_atual is false %}
-                            <span class="badge text-bg-warning ms-1">Desativado no catálogo</span>
-                            {% endif %}
-                        </td>
-                        <td class="text-muted small">{{ line.origem_nome_snapshot }}</td>
-                        <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
-                        <td>{{ line.unidade_snapshot }}</td>
-                    </tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+            {% for shipment in shipments %}
+            <section class="card border mb-3">
+                <div class="card-header bg-light d-flex flex-wrap justify-content-between gap-2">
+                    <div>
+                        <div class="fw-semibold">
+                            Envio #{{ shipment.id }} ·
+                            {% if shipment.tipo_pedido == 'semanal' %}Encomenda semanal{% else %}Pedido urgente{% endif %}
+                            #{{ shipment.pedido_id }}
+                        </div>
+                        <div class="small text-muted">
+                            {{ shipment.created_by }} ·
+                            {{ shipment.created_at.strftime('%d/%m/%Y %H:%M') if shipment.created_at else '' }}
+                            {% if shipment.versao_pedido %} · versão {{ shipment.versao_pedido }}{% endif %}
+                        </div>
+                    </div>
+                    <div class="small text-end">
+                        <div>Enviado: <strong>{{ '%.3f'|format(shipment.quantidade_enviada_total) }}</strong></div>
+                        <div>Recebido: <strong>{{ '%.3f'|format(shipment.quantidade_recebida_total) }}</strong></div>
+                        <div>Pendente: <strong>{{ '%.3f'|format(shipment.quantidade_pendente_total) }}</strong></div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if shipment.observacoes %}
+                    <p class="small text-muted mb-2">{{ shipment.observacoes }}</p>
+                    {% endif %}
+                    {% if shipment.quantidade_pendente_total > 0 %}
+                    <form method="post" action="{{ url_for('vendas.compras_loja', loja_id=loja_id, secao='rececao') }}">
+                        <input type="hidden" name="loja_id" value="{{ loja_id }}">
+                        <input type="hidden" name="envio_id" value="{{ shipment.id }}">
+                        <input type="hidden" name="request_key" value="{{ receipt_request_keys[shipment.id] }}">
+                        <div class="table-responsive border rounded">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Artigo</th>
+                                        <th>Origem</th>
+                                        <th>Fornecedor oficial</th>
+                                        <th class="text-end">Pedida</th>
+                                        <th class="text-end">Enviado</th>
+                                        <th class="text-end">Já recebido</th>
+                                        <th class="text-end">Pendente</th>
+                                        <th style="min-width:145px">Recebido agora</th>
+                                        <th>Diferença/problema</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for line in shipment.linhas %}
+                                <tr>
+                                    <td>{{ line.produto_snapshot }} <span class="text-muted small">{{ line.unidade_snapshot }}</span></td>
+                                    <td class="small">{{ line.origem_nome_snapshot or 'Origem por validar' }}</td>
+                                    <td class="small">{{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
+                                    <td class="text-end">
+                                        {% if line.quantidade_pedida_snapshot is not none %}
+                                        {{ '%.3f'|format(line.quantidade_pedida_snapshot) }}
+                                        {% else %}<span class="text-muted">—</span>{% endif %}
+                                    </td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade_enviada) }}</td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade_recebida) }}</td>
+                                    <td class="text-end">{{ '%.3f'|format(line.quantidade_pendente) }}</td>
+                                    <td>
+                                        <input type="number" class="form-control form-control-sm"
+                                               name="recebida_{{ line.id }}" value="0"
+                                               min="0" max="{{ line.quantidade_pendente }}"
+                                               step="0.001" inputmode="decimal">
+                                    </td>
+                                    <td>
+                                        <input type="text" class="form-control form-control-sm"
+                                               name="discrepancia_{{ line.id }}" maxlength="1000"
+                                               placeholder="Opcional">
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <label class="form-label small fw-semibold mt-3" for="receipt-note-{{ shipment.id }}">
+                            Observações da receção (opcional)
+                        </label>
+                        <textarea id="receipt-note-{{ shipment.id }}" name="observacoes"
+                                  class="form-control form-control-sm mb-2" rows="2"
+                                  maxlength="4000"></textarea>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            Guardar receção
+                        </button>
+                    </form>
+                    {% else %}
+                    <div class="alert alert-success small mb-0">Este envio está totalmente recebido.</div>
+                    {% endif %}
+                    {% if shipment.rececoes %}
+                    <div class="border-top mt-3 pt-2">
+                        <div class="small fw-semibold mb-1">Histórico de receções</div>
+                        {% for receipt in shipment.rececoes %}
+                        <div class="small border-bottom py-2">
+                            <div class="fw-semibold">
+                                {{ receipt.status|replace('_', ' ')|title }}
+                                · {{ receipt.received_by }}
+                                · {{ receipt.received_at.strftime('%d/%m/%Y %H:%M') if receipt.received_at else '' }}
+                            </div>
+                            {% if receipt.observacoes %}<div class="text-muted">{{ receipt.observacoes }}</div>{% endif %}
+                            {% for receipt_line in receipt.linhas %}
+                            <div class="text-muted">
+                                {{ receipt_line.produto_snapshot }}:
+                                {{ '%.3f'|format(receipt_line.quantidade_recebida) }}
+                                {% if receipt_line.discrepancia %} · {{ receipt_line.discrepancia }}{% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
             {% else %}
-            <p class="text-muted">A encomenda submetida não contém linhas.</p>
-            {% endif %}
-            {% endif %}
+            <div class="alert alert-light border">{{ current.empty }}</div>
+            {% endfor %}
             {% else %}
             <div class="text-center py-4">
                 <div class="fs-1 mb-2">{{ current.icon }}</div>
@@ -371,7 +535,7 @@
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
                     <div>
                         <div class="fw-semibold">Artigos disponíveis para novos pedidos</div>
-                        <div class="text-muted small">Só são apresentados artigos ativos de fornecedores externos confirmados.</div>
+                        <div class="text-muted small">São apresentados todos os artigos ativos, mesmo com origem ou fornecedor por confirmar.</div>
                     </div>
                 </div>
                 {% if artigos_disponiveis %}
