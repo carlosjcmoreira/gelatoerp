@@ -190,7 +190,7 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         self.assertIn("@media (max-width:767.98px)", html)
 
     def test_store_view_passes_only_the_selected_store_to_month_calculation(self):
-        self.store_context.return_value = (
+        self.mocks[0].return_value = (
             "Bolhão",
             "Bolhão",
             [{"name": "Bolhão"}],
