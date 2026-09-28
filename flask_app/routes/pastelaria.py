@@ -784,24 +784,26 @@ def transferir():
         for _, produto, qty_str in sorted(form_pairs, key=lambda x: x[0]):
             produto = (produto or '').strip()
             qty_str = (qty_str or '').strip()
-            if not produto and not qty_str:
+            if not qty_str:
+                # Blank quantity is the same as zero in the stock table.
                 continue
-            if not produto or not qty_str:
-                invalid_lines = True
-                break
+            if not produto:
+                continue
             try:
                 qty = int(qty_str)
             except (TypeError, ValueError):
                 invalid_lines = True
                 break
-            if qty <= 0:
+            if qty < 0:
                 invalid_lines = True
                 break
+            if qty == 0:
+                continue
             requested.append({'identity_key': produto, 'quantidade': qty})
         if invalid_lines:
             flash(
                 'Cada linha preenchida tem de incluir um artigo e uma '
-                'quantidade inteira superior a zero.',
+                'quantidade inteira não negativa.',
                 'error',
             )
             return redirect(url_for(
@@ -809,7 +811,11 @@ def transferir():
                 data_prevista=data_prevista.isoformat(),
             ))
         if not requested:
-            flash('Indique pelo menos um artigo e uma quantidade.', 'info')
+            flash(
+                'Indique uma quantidade superior a zero para pelo menos '
+                'um artigo.',
+                'info',
+            )
             return redirect(url_for(
                 'pastelaria.transferir',
                 data_prevista=data_prevista.isoformat(),
