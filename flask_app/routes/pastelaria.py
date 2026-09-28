@@ -428,12 +428,17 @@ def contagem_stock():
         values = []
         try:
             for product in grid['products']:
-                raw_quantity = request.form.get(f"count_{product['id']}", '')
-                if raw_quantity is None or not raw_quantity.strip().isdigit():
+                field = f"count_{product['id']}"
+                if field not in request.form:
                     raise ValueError(
                         'Preencha todas as contagens com números inteiros não negativos.'
                     )
-                values.append((product['id'], int(raw_quantity)))
+                raw_quantity = request.form[field].strip()
+                if raw_quantity and not raw_quantity.isdigit():
+                    raise ValueError(
+                        'Preencha todas as contagens com números inteiros não negativos.'
+                    )
+                values.append((product['id'], int(raw_quantity) if raw_quantity else 0))
             saved = save_pastelaria_store_counts(
                 count_date,
                 selected_store_id,

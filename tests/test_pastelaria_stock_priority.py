@@ -980,6 +980,87 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             allow_non_sunday=True,
         )
 
+    def test_daily_count_blanks_are_zero_but_missing_or_invalid_cells_do_not_save(self):
+        from flask_app.routes.pastelaria import pastelaria_bp
+
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(pastelaria_bp, url_prefix='/pastelaria')
+        client = app.test_client()
+        store = {'id': 2, 'name': 'Matosinhos'}
+        grid = {
+            'store': store,
+            'products': [
+                {'id': 10, 'nome': 'Palito', 'count': None},
+                {'id': 11, 'nome': 'Bolo', 'count': None},
+            ],
+            'completed': 0, 'total': 2, 'complete': False,
+            'snapshot_token': self.TOKEN_81,
+        }
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'pastelaria',
+                'acesso_pastelaria': True,
+            }
+
+        base = {
+            'loja_id': '2',
+            'data_contagem': '2026-09-09',
+            'snapshot_token': self.TOKEN_81,
+        }
+        with (
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_stock_minimums',
+                return_value={'stores': [store], 'products': []},
+            ),
+            patch(
+                'flask_app.routes.pastelaria.get_pastelaria_store_count_grid',
+                return_value=grid,
+            ),
+            patch(
+                'flask_app.routes.pastelaria.save_pastelaria_store_counts',
+                return_value=2,
+            ) as save_counts,
+            patch('flask_app.routes.pastelaria._tabs_with_urls', return_value=[]),
+        ):
+            page = client.get(
+                '/pastelaria/contagem-stock?loja_id=2&data_contagem=2026-09-09'
+            )
+            self.assertEqual(page.status_code, 200)
+            self.assertIn('Campos vazios são guardados como zero', page.get_data(as_text=True))
+            self.assertNotRegex(
+                page.get_data(as_text=True),
+                r'name="count_10"[^>]*\brequired\b',
+            )
+
+            for blank in ('', '   '):
+                with self.subTest(blank=repr(blank)):
+                    response = client.post(
+                        '/pastelaria/contagem-stock',
+                        data={**base, 'count_10': blank, 'count_11': ' 4 '},
+                    )
+                    self.assertEqual(response.status_code, 302)
+                    save_counts.assert_called_with(
+                        date(2026, 9, 9), 2, [(10, 0), (11, 4)],
+                        self.TOKEN_81, allow_non_sunday=True,
+                    )
+            self.assertEqual(save_counts.call_count, 2)
+            save_counts.reset_mock()
+
+            for fields in (
+                {'count_10': '4'},  # an omitted cell is not a blank cell
+                {'count_10': '4', 'count_11': '-1'},
+                {'count_10': '4', 'count_11': '1.5'},
+                {'count_10': '4', 'count_11': 'abc'},
+            ):
+                with self.subTest(fields=fields):
+                    response = client.post(
+                        '/pastelaria/contagem-stock', data={**base, **fields},
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    self.assertIn('números inteiros não negativos', response.get_data(as_text=True))
+            save_counts.assert_not_called()
+
     def test_pastelaria_count_rejects_forged_store_and_missing_permission(self):
         from flask_app.routes.pastelaria import pastelaria_bp
 

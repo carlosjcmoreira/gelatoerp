@@ -105,13 +105,18 @@ class TestComprasSemanaisRoute(unittest.TestCase):
         )
 
     def test_non_sunday_manager_cycle_is_redirected_without_querying_data(self):
+        from db import encomendas_semanais
+
         with self.app.test_client() as client:
             with client.session_transaction() as current:
                 current["user"] = {"acesso_gestor": True}
             with patch(
                 "flask_app.routes.compras.render_template",
                 return_value="ok",
-            ) as render:
+            ) as render, patch.object(
+                encomendas_semanais, "next_planning_sunday",
+                return_value=date(2026, 9, 27),
+            ):
                 response = client.get("/compras/encomendas-semanais?ciclo=2026-09-28")
 
         self.assertEqual(response.status_code, 302)
