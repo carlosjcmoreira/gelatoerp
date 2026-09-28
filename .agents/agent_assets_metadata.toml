@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "JNrvQ4rj1zQ9QWHsRpf4u"
+uri = "file://exports/bolhao-vendas-2026-02-02-para-gestor.xlsx"
+type = "table"
+title = "Vendas originais de Bolhão — 02/02/2026"
+description = "Seleção fiel das 26 linhas da loja 3 no export original, preparada para o Gestor. Não importar antes de esclarecer a atribuição trocada entre lojas na produção."
+logical_id = "e42999fc-4b7e-4772-8599-bcc7dd86bc04"
+content_hash = "sha256:7455ef50b1125a31a3d0af71e33083c3ca667bcaa87929578363c9e25b10f3cb"
+size = 6185
+mtime_ms = 1790615005616
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:93e1c805-9bb1-46a0-853e-48fde7f7f7ad/e42999fc-4b7e-4772-8599-bcc7dd86bc04/3aa176f2-6277-4908-b464-af5324d79ae5"
+storage_version_token = "1790615105780650"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
