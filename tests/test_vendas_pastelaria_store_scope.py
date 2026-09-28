@@ -157,6 +157,7 @@ class PastelariaSundayCountStoreScopeTests(unittest.TestCase):
                 store_id,
                 [(70, 0)],
                 self.SNAPSHOT_TOKEN,
+                submitted_by='test-user',
             )
             redirect_query = parse_qs(urlparse(response.location).query)
             self.assertEqual(redirect_query['loja_id'], [str(store_id)])
@@ -254,6 +255,7 @@ class PastelariaSundayCountStoreScopeTests(unittest.TestCase):
             store_id,
             [(70, 0)],
             self.SNAPSHOT_TOKEN,
+            submitted_by='test-user',
         )
 
     def test_missing_store_id_keeps_first_assigned_store_as_default(self):

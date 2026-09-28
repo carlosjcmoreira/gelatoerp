@@ -32,6 +32,7 @@ from db.plano import (
 from db.pastelaria import (
     get_pastelaria_sunday_count_grid,
     get_pastelaria_store_count_grid,
+    get_pastelaria_count_submission_history,
     save_pastelaria_sunday_counts,
     save_pastelaria_store_counts,
     get_open_pesagem_draft,
@@ -792,6 +793,7 @@ def contagem_pastelaria():
             abort(405)
         values = []
         try:
+            submitted_by = session.get('user', {}).get('username', '')
             for product in grid['products']:
                 field_name = f"count_{product['id']}"
                 if field_name not in request.form:
@@ -822,10 +824,12 @@ def contagem_pastelaria():
                     [(product_id, loja_id, quantity) for product_id, quantity in values],
                     request.form.get('snapshot_token'),
                     store_id=loja_id,
+                    submitted_by=submitted_by,
                 )
             else:
                 saved = save_pastelaria_store_counts(
-                    count_date, loja_id, values, request.form.get('snapshot_token')
+                    count_date, loja_id, values, request.form.get('snapshot_token'),
+                    submitted_by=submitted_by,
                 )
             flash(f'Contagem de domingo guardada: {saved} valores.', 'success')
             return redirect(url_for(
@@ -847,6 +851,11 @@ def contagem_pastelaria():
                 if 'counts' in product:
                     product['counts'][loja_id] = quantity
 
+    is_gestor = bool(session.get('user', {}).get('acesso_gestor'))
+    count_history = (
+        get_pastelaria_count_submission_history(count_date, loja_id)
+        if is_gestor and not date_error else []
+    )
     return render_template(
         'vendas/contagem_pastelaria.html',
         active_tab='contagem_pastelaria',
@@ -859,7 +868,8 @@ def contagem_pastelaria():
         grid=grid,
         selected_date=count_date,
         error=error,
-        is_gestor=bool(session.get('user', {}).get('acesso_gestor')),
+        is_gestor=is_gestor,
+        count_history=count_history,
         vendas_stores=get_vendas_module_stores(),
     )
 

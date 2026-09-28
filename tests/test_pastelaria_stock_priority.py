@@ -200,7 +200,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         cursor = _Cursor([
             [{'id': 1, 'name': 'Bolhão'}, {'id': 2, 'name': 'Matosinhos'}],
             [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
-            [{'loja': 'Bolhão', 'produto': 'Palito', 'quantidade': 3,
+            [{'store_id': 1, 'loja': 'Bolhão', 'produto': 'Palito', 'quantidade': 3,
               'produto_pastelaria_id': 10}],
             [{'snapshot_token': self.TOKEN_81}],
         ])
@@ -244,6 +244,47 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             query for query, _ in second_cursor.queries
         )
         self.assertNotIn('UPDATE contagem_stock cs', rerun_statements)
+
+    def test_count_submission_migration_adds_stable_audit_metadata(self):
+        cursor = _Cursor([[(True,)]])
+        connection = _Connection(cursor)
+        with patch('db.schema.db_connection', return_value=connection):
+            schema.run_migrations_pastelaria_count_submission()
+
+        statements = '\n'.join(query for query, _ in cursor.queries)
+        self.assertTrue(connection.committed)
+        self.assertIn('ADD COLUMN IF NOT EXISTS store_id INTEGER', statements)
+        self.assertIn('ADD COLUMN IF NOT EXISTS submission_id UUID', statements)
+        self.assertIn('ADD COLUMN IF NOT EXISTS submitted_by VARCHAR(100)', statements)
+        self.assertIn('ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ', statements)
+        self.assertIn('ON DELETE RESTRICT', statements)
+        self.assertIn('HAVING COUNT(*) = 1', statements)
+        self.assertIn("count_row.loja=store.name", statements)
+
+    def test_submission_history_is_scoped_by_stable_store_and_count_date(self):
+        submission = {
+            'submission_id': 'b0fbc0a4-517f-4c28-a6ee-c5a0215e8b11',
+            'data': date(2026, 9, 6),
+            'store_id': 2,
+            'store_name': 'Matosinhos',
+            'submitted_by': 'test-user',
+            'submitted_at': None,
+            'product_count': 3,
+        }
+        cursor = _Cursor([[submission]])
+        with patch(
+            'db.pastelaria.db_connection',
+            return_value=_Connection(cursor),
+        ):
+            history = pastelaria.get_pastelaria_count_submission_history(
+                date(2026, 9, 6), 2,
+            )
+
+        self.assertEqual(history, [submission])
+        query, params = cursor.queries[0]
+        self.assertIn('submission_id IS NOT NULL', query)
+        self.assertIn('store_id=%s AND data=%s', query)
+        self.assertEqual(params, (2, date(2026, 9, 6)))
 
     def test_store_grid_is_scoped_to_requested_store(self):
         cursor = _Cursor([
@@ -327,7 +368,8 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             return_value=connection,
         ):
             saved = pastelaria.save_pastelaria_store_counts(
-                date(2026, 9, 6), 2, [(10, 7)], self.TOKEN_81
+                date(2026, 9, 6), 2, [(10, 7)], self.TOKEN_81,
+                submitted_by='test-user',
             )
         self.assertEqual(saved, 1)
         self.assertTrue(connection.committed)
@@ -356,15 +398,18 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             saved = pastelaria.save_pastelaria_store_counts(
                 count_date, 2, [(10, 7)], self.TOKEN_81,
                 allow_non_sunday=True,
+                submitted_by='test-user',
             )
 
         self.assertEqual(saved, 1)
         self.assertTrue(connection.committed)
         self.assertEqual(
-            bulk.call_args.args[2],
-            [(count_date, 'Matosinhos', 'Palito', 7, 'pastelaria',
-              'contagem', 10)],
+            bulk.call_args.args[2][0][:8],
+            (count_date, 'Matosinhos', 'Palito', 7, 'pastelaria',
+             'contagem', 10, 2),
         )
+        self.assertTrue(bulk.call_args.args[2][0][8])
+        self.assertEqual(bulk.call_args.args[2][0][9], 'test-user')
         statements = '\n'.join(query for query, _ in cursor.queries)
         self.assertIn("origem='contagem'", statements)
         self.assertIn('pg_advisory_xact_lock', statements)
@@ -380,13 +425,16 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         with patch('db.pastelaria.db_connection', return_value=connection):
             pastelaria.save_pastelaria_sunday_counts(
                 date(2026, 9, 6), [(10, 1, 3), (10, 2, 0)],
-                self.TOKEN_81,
+                self.TOKEN_81, submitted_by='test-user',
             )
         self.assertTrue(connection.committed)
         bulk.assert_called_once()
         statements = '\n'.join(query for query, _ in cursor.queries)
         self.assertIn('pg_advisory_xact_lock', statements)
         self.assertNotIn('DELETE FROM contagem_stock', statements)
+        rows = bulk.call_args.args[2]
+        self.assertEqual(rows[0][8], rows[1][8])
+        self.assertEqual([row[9] for row in rows], ['test-user', 'test-user'])
 
     def test_partial_sunday_grid_is_rejected_without_writes(self):
         cursor = _Cursor([
@@ -398,7 +446,8 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         with patch('db.pastelaria.db_connection', return_value=connection):
             with self.assertRaisesRegex(ValueError, 'todas as contagens'):
                 pastelaria.save_pastelaria_sunday_counts(
-                    date(2026, 9, 6), [(10, 1, 3)], self.TOKEN_81
+                    date(2026, 9, 6), [(10, 1, 3)], self.TOKEN_81,
+                    submitted_by='test-user',
                 )
         self.assertFalse(connection.committed)
 
@@ -411,7 +460,8 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, 'outro utilizador'):
                 pastelaria.save_pastelaria_sunday_counts(
-                    date(2026, 9, 6), [(10, 1, 3)], self.TOKEN_81
+                    date(2026, 9, 6), [(10, 1, 3)], self.TOKEN_81,
+                    submitted_by='test-user',
                 )
         bulk.assert_not_called()
         self.assertFalse(connection.committed)
@@ -728,7 +778,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         cursor = _Cursor([
             [{'id': 2, 'name': 'Matosinhos'}],
             [{'id': 10, 'tipologia': 'Palito', 'sabor': '', 'cobertura': ''}],
-            [{'loja': 'Matosinhos', 'produto': 'Palito', 'quantidade': 4,
+            [{'store_id': 2, 'loja': 'Matosinhos', 'produto': 'Palito', 'quantidade': 4,
               'produto_pastelaria_id': 10}],
             [{'snapshot_token': self.TOKEN_81}],
         ])
@@ -758,6 +808,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
                 date(2026, 9, 6),
                 [(10, 1, 3), (10, 2, 4)],
                 self.TOKEN_81,
+                submitted_by='test-user',
             )
         token_params = cursor.queries[1][1]
         stores_params = cursor.queries[2][1]
@@ -879,7 +930,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             patch(
                 'flask_app.routes.vendas.save_pastelaria_sunday_counts',
                 side_effect=ValueError('alterada por outro utilizador'),
-            ),
+            ) as save_sunday,
             patch('flask_app.routes.vendas._build_tabs', return_value=[]),
             patch('flask_app.routes.vendas.render_template', side_effect=capture),
         ):
@@ -889,7 +940,66 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             })
         self.assertEqual(response.get_data(as_text=True), '7')
         self.assertIn('alterada por outro utilizador', rendered['error'])
+        self.assertEqual(save_sunday.call_args.kwargs['store_id'], 1)
+        self.assertEqual(save_sunday.call_args.kwargs['submitted_by'], 'bolhao')
         self.assertEqual(client.post('/pastelaria/stock-balcao').status_code, 405)
+
+    def test_manager_count_page_loads_submission_history_for_selected_store(self):
+        from datetime import datetime, timezone
+        from flask_app.routes.vendas import vendas_bp
+
+        app = Flask(__name__, template_folder='../flask_app/templates')
+        app.secret_key = 'test'
+        app.register_blueprint(vendas_bp, url_prefix='/vendas')
+        client = app.test_client()
+        with client.session_transaction() as session:
+            session['user'] = {
+                'username': 'manager',
+                'acesso_gestor': True,
+            }
+        store = {'id': 1, 'name': 'Bolhão', 'store_type': 'loja'}
+        grid = {
+            'products': [], 'stores': [store], 'completed': 0,
+            'total': 0, 'complete': False, 'snapshot_token': self.TOKEN_81,
+        }
+        history = [{
+            'submission_id': 'b0fbc0a4-517f-4c28-a6ee-c5a0215e8b11',
+            'data': date(2026, 9, 6),
+            'store_id': 1,
+            'store_name': 'Bolhão',
+            'submitted_by': 'bolhao',
+            'submitted_at': datetime(2026, 9, 6, 12, 30, tzinfo=timezone.utc),
+            'product_count': 3,
+        }]
+        rendered = {}
+
+        def capture(_name, **context):
+            rendered.update(context)
+            return 'history'
+
+        with (
+            patch('flask_app.routes.vendas.get_store_by_id', return_value=store),
+            patch(
+                'flask_app.routes.vendas.get_pastelaria_sunday_count_grid',
+                return_value=grid,
+            ),
+            patch(
+                'flask_app.routes.vendas.get_pastelaria_count_submission_history',
+                return_value=history,
+            ) as get_history,
+            patch('flask_app.routes.vendas._build_tabs', return_value=[]),
+            patch('flask_app.routes.vendas.get_vendas_module_stores',
+                  return_value=[store]),
+            patch('flask_app.routes.vendas.render_template', side_effect=capture),
+        ):
+            response = client.get(
+                '/vendas/contagem-pastelaria?loja_id=1&data=2026-09-06'
+            )
+
+        self.assertEqual(response.get_data(as_text=True), 'history')
+        get_history.assert_called_once_with(date(2026, 9, 6), 1)
+        self.assertTrue(rendered['is_gestor'])
+        self.assertEqual(rendered['count_history'], history)
 
     def test_pastelaria_count_page_allows_authorized_cross_store_weekday_count(self):
         from flask_app.routes.pastelaria import pastelaria_bp
@@ -974,6 +1084,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         save_counts.assert_called_once_with(
             date(2026, 9, 9), 2, [(10, 4)], self.TOKEN_81,
             allow_non_sunday=True,
+            submitted_by='pastelaria',
         )
 
     def test_daily_count_blanks_are_zero_but_missing_or_invalid_cells_do_not_save(self):
@@ -1039,6 +1150,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
                     save_counts.assert_called_with(
                         date(2026, 9, 9), 2, [(10, 0), (11, 4)],
                         self.TOKEN_81, allow_non_sunday=True,
+                        submitted_by='pastelaria',
                     )
             self.assertEqual(save_counts.call_count, 2)
             save_counts.reset_mock()
@@ -1690,6 +1802,10 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     origem VARCHAR(30) NOT NULL DEFAULT 'contagem',
                     produto_pastelaria_id INTEGER
                         REFERENCES produtos_pastelaria(id) ON DELETE SET NULL,
+                    store_id INTEGER REFERENCES stores(id) ON DELETE RESTRICT,
+                    submission_id UUID,
+                    submitted_by VARCHAR(100),
+                    submitted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
                     ordem_transferencia_id INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
@@ -1838,6 +1954,7 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                 1,
                 [(grid['products'][0]['id'], 6)],
                 grid['snapshot_token'],
+                submitted_by='test-user',
             )
 
         with self.isolated_connection() as connection:
@@ -2210,6 +2327,7 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                         1,
                         [(1, 3)],
                         bolhao_grid['snapshot_token'],
+                        submitted_by='test-user',
                     ),
                     executor.submit(
                         pastelaria.save_pastelaria_store_counts,
@@ -2217,6 +2335,7 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                         2,
                         [(1, 7)],
                         matosinhos_grid['snapshot_token'],
+                        submitted_by='test-user',
                     ),
                 ]
                 self.assertEqual(
@@ -2256,6 +2375,7 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     self.COUNT_DATE,
                     [(1, 1, 99), (1, 2, 99)],
                     full_grid['snapshot_token'],
+                    submitted_by='test-user',
                 )
 
         self.assertEqual(
@@ -2281,6 +2401,7 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                 saved = pastelaria.save_pastelaria_store_counts(
                     weekday_date, 1, [(1, 7)], grid['snapshot_token'],
                     allow_non_sunday=True,
+                    submitted_by='test-user',
                 )
             self.assertEqual(saved, 1)
 

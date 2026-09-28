@@ -445,6 +445,7 @@ def contagem_stock():
                 values,
                 request.form.get('snapshot_token'),
                 allow_non_sunday=True,
+                submitted_by=session.get('user', {}).get('username', ''),
             )
             store_name = grid['store']['name']
             flash(

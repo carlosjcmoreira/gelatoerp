@@ -8177,6 +8177,7 @@ def run_migrations_cost_centers_store_id():
 _LOCK_PASTELARIA_PLANO = 202716
 _LOCK_PASTELARIA_PRODUCT_STATE_AUDIT = 202717
 _LOCK_PASTELARIA_COUNT_PRODUCT_ID = 202718
+_LOCK_PASTELARIA_COUNT_SUBMISSION = 202719
 
 
 def run_migrations_pastelaria_plano():
@@ -8640,6 +8641,82 @@ def run_migrations_pastelaria_count_product_id():
         """)
         conn.commit()
         logger.info("run_migrations_pastelaria_count_product_id: schema ready")
+
+
+def run_migrations_pastelaria_count_submission():
+    """Persist submitter, timestamp, and stable store identity for each count."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)",
+            (_LOCK_PASTELARIA_COUNT_SUBMISSION,),
+        )
+        if not cursor.fetchone()[0]:
+            logger.info(
+                "run_migrations_pastelaria_count_submission: lock held, skipping"
+            )
+            return
+
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ADD COLUMN IF NOT EXISTS store_id INTEGER
+        """)
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ADD COLUMN IF NOT EXISTS submission_id UUID
+        """)
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ADD COLUMN IF NOT EXISTS submitted_by VARCHAR(100)
+        """)
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ
+        """)
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ALTER COLUMN submitted_at SET DEFAULT CURRENT_TIMESTAMP
+        """)
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='contagem_stock_store_id_fkey'
+                ) THEN
+                    ALTER TABLE contagem_stock
+                    ADD CONSTRAINT contagem_stock_store_id_fkey
+                    FOREIGN KEY (store_id) REFERENCES stores(id)
+                    ON DELETE RESTRICT;
+                END IF;
+            END $$;
+        """)
+        # Only backfill exact names that identify one store unambiguously.
+        # Renamed and ambiguous legacy rows remain unlinked rather than being
+        # attributed to a possibly unrelated store.
+        cursor.execute("""
+            WITH unique_store_names AS (
+                SELECT MIN(id) AS id, name
+                FROM stores
+                GROUP BY name
+                HAVING COUNT(*) = 1
+            )
+            UPDATE contagem_stock AS count_row
+            SET store_id = store.id
+            FROM unique_store_names AS store
+            WHERE count_row.tipo='pastelaria'
+              AND count_row.origem='contagem'
+              AND count_row.store_id IS NULL
+              AND count_row.loja=store.name
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_contagem_stock_pastelaria_submission
+            ON contagem_stock (store_id, data DESC, submitted_at DESC)
+            WHERE tipo='pastelaria' AND origem='contagem'
+              AND submission_id IS NOT NULL
+        """)
+        conn.commit()
+        logger.info("run_migrations_pastelaria_count_submission: schema ready")
 
 
 def run_migrations_pastelaria_product_state_audit():

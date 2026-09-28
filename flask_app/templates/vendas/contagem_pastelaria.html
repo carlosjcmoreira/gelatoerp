@@ -81,6 +81,44 @@
             </form>
         </div>
     </div>
+    {% if is_gestor %}
+    <div class="card mt-3">
+        <div class="card-header fw-semibold">
+            Histórico de submissões — {{ count_date.strftime('%d/%m/%Y') }}
+        </div>
+        <div class="card-body p-0">
+            {% if count_history %}
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Data e hora</th>
+                            <th>Utilizador</th>
+                            <th>Loja selecionada</th>
+                            <th class="text-end">Produtos</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for submission in count_history %}
+                        <tr>
+                            <td>{{ submission.submitted_at.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+                            <td>{{ submission.submitted_by }}</td>
+                            <td>{{ submission.store_name }} <span class="text-muted">(#{{ submission.store_id }})</span></td>
+                            <td class="text-end">{{ submission.product_count }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-muted small p-3 mb-0">
+                Não há submissões com autor registado para esta loja e data.
+                Contagens antigas podem não incluir estes dados.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
 </div>
 <script>
 (() => {

@@ -1,5 +1,6 @@
 import psycopg2
 import hashlib
+from uuid import uuid4
 from psycopg2.extras import Json, RealDictCursor, DictCursor, execute_values
 from datetime import datetime, date, timedelta
 import logging
@@ -183,39 +184,61 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
         """)
         products = cursor.fetchall()
         cursor.execute("""
-            SELECT DISTINCT ON (cs.loja, COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto))
-                   cs.loja, cs.produto, cs.quantidade, cs.produto_pastelaria_id
+            SELECT DISTINCT ON (
+                       COALESCE(cs.store_id, legacy_store.id),
+                       COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
+                   )
+                   COALESCE(cs.store_id, legacy_store.id) AS store_id,
+                   cs.produto, cs.quantidade, cs.produto_pastelaria_id
             FROM contagem_stock cs
+            LEFT JOIN LATERAL (
+                SELECT MIN(id) AS id
+                FROM stores
+                WHERE name=cs.loja
+                HAVING COUNT(*)=1
+            ) AS legacy_store ON cs.store_id IS NULL
             WHERE tipo='pastelaria' AND origem='contagem' AND data=%s
-            ORDER BY cs.loja, COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto), cs.id DESC
+            ORDER BY COALESCE(cs.store_id, legacy_store.id),
+                     COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto),
+                     cs.id DESC
         """, (count_date,))
         counts = {
-            (row['loja'], row.get('produto_pastelaria_id') or row['produto']): int(row['quantidade'])
+            (row['store_id'],
+             row.get('produto_pastelaria_id') or row['produto']): int(row['quantidade'])
             for row in cursor.fetchall()
         }
         token_filter = """
-            AND loja=(SELECT name FROM stores
-                      WHERE id=%s AND supports_vendas=TRUE AND is_active=TRUE)
+            AND (
+                cs.store_id=%s
+                OR (cs.store_id IS NULL AND legacy_store.id=%s)
+            )
         """ if store_id is not None else ""
         cursor.execute(f"""
             SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, product_key), ''))
                    AS snapshot_token
             FROM (
                 SELECT DISTINCT ON (
-                           loja,
-                           COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                           COALESCE(cs.store_id, legacy_store.id),
+                           COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
                        )
-                       id, loja,
-                       COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                       cs.id, cs.loja,
+                       COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
                            AS product_key
-                FROM contagem_stock
-                WHERE tipo='pastelaria' AND origem='contagem' AND data=%s
+                FROM contagem_stock cs
+                LEFT JOIN LATERAL (
+                    SELECT MIN(id) AS id
+                    FROM stores
+                    WHERE name=cs.loja
+                    HAVING COUNT(*)=1
+                ) AS legacy_store ON cs.store_id IS NULL
+                WHERE cs.tipo='pastelaria' AND cs.origem='contagem' AND cs.data=%s
                 {token_filter}
-                ORDER BY loja,
-                         COALESCE(produto_pastelaria_id::text, 'text:' || produto),
-                         id DESC
+                ORDER BY COALESCE(cs.store_id, legacy_store.id),
+                         COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto),
+                         cs.id DESC
             ) latest
-        """, (count_date, store_id) if store_id is not None else (count_date,))
+        """, (count_date, store_id, store_id)
+        if store_id is not None else (count_date,))
         snapshot_token = cursor.fetchone()['snapshot_token']
     rows = []
     completed = 0
@@ -224,7 +247,7 @@ def get_pastelaria_sunday_count_grid(count_date, store_id=None):
         label = _pastelaria_product_label(product)
         values = {}
         for store in stores:
-            quantity = counts.get((store['name'], product['id']))
+            quantity = counts.get((store['id'], product['id']))
             values[store['id']] = quantity
             completed += quantity is not None
             completed_by_store[store['id']] += quantity is not None
@@ -278,10 +301,20 @@ def get_pastelaria_store_count_grid(
             SELECT DISTINCT ON (COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto))
                    cs.produto, cs.quantidade, cs.produto_pastelaria_id
             FROM contagem_stock cs
-            WHERE tipo='pastelaria' AND origem='contagem'
-              AND data=%s AND loja=%s
+            LEFT JOIN LATERAL (
+                SELECT MIN(id) AS id
+                FROM stores
+                WHERE name=cs.loja
+                HAVING COUNT(*)=1
+            ) AS legacy_store ON cs.store_id IS NULL
+            WHERE cs.tipo='pastelaria' AND cs.origem='contagem'
+              AND cs.data=%s
+              AND (
+                  cs.store_id=%s
+                  OR (cs.store_id IS NULL AND legacy_store.id=%s)
+              )
             ORDER BY COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto), cs.id DESC
-        """, (count_date, store['name']))
+        """, (count_date, store_id, store_id))
         counts = {
             row.get('produto_pastelaria_id') or row['produto']: int(row['quantidade'])
             for row in cursor.fetchall()
@@ -291,18 +324,28 @@ def get_pastelaria_store_count_grid(
                    AS snapshot_token
             FROM (
                 SELECT DISTINCT ON (
-                           COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                           COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
                        )
-                       id,
-                       COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                       cs.id,
+                       COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
                            AS product_key
-                FROM contagem_stock
-                WHERE tipo='pastelaria' AND origem='contagem'
-                  AND data=%s AND loja=%s
-                ORDER BY COALESCE(produto_pastelaria_id::text, 'text:' || produto),
-                         id DESC
+                FROM contagem_stock cs
+                LEFT JOIN LATERAL (
+                    SELECT MIN(id) AS id
+                    FROM stores
+                    WHERE name=cs.loja
+                    HAVING COUNT(*)=1
+                ) AS legacy_store ON cs.store_id IS NULL
+                WHERE cs.tipo='pastelaria' AND cs.origem='contagem'
+                  AND cs.data=%s
+                  AND (
+                      cs.store_id=%s
+                      OR (cs.store_id IS NULL AND legacy_store.id=%s)
+                  )
+                ORDER BY COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto),
+                         cs.id DESC
             ) latest
-        """, (count_date, store['name']))
+        """, (count_date, store_id, store_id))
         snapshot_token = cursor.fetchone()['snapshot_token']
 
     rows = []
@@ -327,6 +370,7 @@ def get_pastelaria_store_count_grid(
 
 def save_pastelaria_store_counts(
     count_date, store_id, values, snapshot_token, allow_non_sunday=False,
+    submitted_by=None,
 ):
     """Append one store's complete physical count snapshot."""
     if count_date.weekday() != 6 and not allow_non_sunday:
@@ -335,6 +379,7 @@ def save_pastelaria_store_counts(
         store_id = int(store_id)
     except (TypeError, ValueError):
         raise ValueError('Loja inválida.') from None
+    submitted_by = _validated_count_submitter(submitted_by)
     normalized = {}
     snapshot_token = str(snapshot_token or '')
     if len(snapshot_token) != 32 or any(
@@ -370,18 +415,28 @@ def save_pastelaria_store_counts(
                    AS snapshot_token
             FROM (
                 SELECT DISTINCT ON (
-                           COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                           COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
                        )
-                       id,
-                       COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                       cs.id,
+                       COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
                            AS product_key
-                FROM contagem_stock
-                WHERE tipo='pastelaria' AND origem='contagem'
-                  AND data=%s AND loja=%s
-                ORDER BY COALESCE(produto_pastelaria_id::text, 'text:' || produto),
-                         id DESC
+                 FROM contagem_stock cs
+                 LEFT JOIN LATERAL (
+                     SELECT MIN(id) AS id
+                     FROM stores
+                     WHERE name=cs.loja
+                     HAVING COUNT(*)=1
+                 ) AS legacy_store ON cs.store_id IS NULL
+                 WHERE cs.tipo='pastelaria' AND cs.origem='contagem'
+                   AND cs.data=%s
+                   AND (
+                       cs.store_id=%s
+                       OR (cs.store_id IS NULL AND legacy_store.id=%s)
+                   )
+                ORDER BY COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto),
+                          cs.id DESC
             ) latest
-        """, (count_date, store['name']))
+        """, (count_date, store_id, store_id))
         current_token = cursor.fetchone()['snapshot_token']
         if current_token != snapshot_token:
             raise ValueError(
@@ -403,17 +458,19 @@ def save_pastelaria_store_counts(
             product['id']: _pastelaria_product_label(product)
             for product in products
         }
+        submission_id = uuid4()
         rows = [
             (
                 count_date, store['name'], product_names[product_id],
-                quantity, 'pastelaria', 'contagem', product_id,
+                quantity, 'pastelaria', 'contagem', product_id, store_id,
+                str(submission_id), submitted_by,
             )
             for product_id, quantity in normalized.items()
         ]
         execute_values(cursor, """
             INSERT INTO contagem_stock
                 (data, loja, produto, quantidade, tipo, origem,
-                 produto_pastelaria_id)
+                 produto_pastelaria_id, store_id, submission_id, submitted_by)
             VALUES %s
         """, rows)
         conn.commit()
@@ -421,7 +478,7 @@ def save_pastelaria_store_counts(
 
 
 def save_pastelaria_sunday_counts(
-    count_date, values, snapshot_token, store_id=None
+    count_date, values, snapshot_token, store_id=None, submitted_by=None
 ):
     """Append one complete Sunday count snapshot in a single transaction."""
     if count_date.weekday() != 6:
@@ -432,6 +489,7 @@ def save_pastelaria_sunday_counts(
         character not in '0123456789abcdef' for character in snapshot_token
     ):
         raise ValueError('A versão da grelha é inválida.') from None
+    submitted_by = _validated_count_submitter(submitted_by)
     for product_id, value_store_id, quantity in values:
         if (
             isinstance(quantity, bool) or not isinstance(quantity, int)
@@ -450,28 +508,37 @@ def save_pastelaria_sunday_counts(
             (f'pastelaria-count:{count_date.isoformat()}',),
         )
         token_filter = """
-            AND loja=(SELECT name FROM stores
-                      WHERE id=%s AND supports_vendas=TRUE AND is_active=TRUE)
+            AND (
+                cs.store_id=%s
+                OR (cs.store_id IS NULL AND legacy_store.id=%s)
+            )
         """ if store_id is not None else ""
         cursor.execute(f"""
             SELECT MD5(COALESCE(STRING_AGG(id::text, ',' ORDER BY loja, product_key), ''))
                    AS snapshot_token
             FROM (
                 SELECT DISTINCT ON (
-                           loja,
-                           COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                           COALESCE(cs.store_id, legacy_store.id),
+                           COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
                        )
-                       id, loja,
-                       COALESCE(produto_pastelaria_id::text, 'text:' || produto)
+                       cs.id, cs.loja,
+                       COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto)
                            AS product_key
-                FROM contagem_stock
-                WHERE tipo='pastelaria' AND origem='contagem' AND data=%s
+                 FROM contagem_stock cs
+                 LEFT JOIN LATERAL (
+                     SELECT MIN(id) AS id
+                     FROM stores
+                     WHERE name=cs.loja
+                     HAVING COUNT(*)=1
+                 ) AS legacy_store ON cs.store_id IS NULL
+                 WHERE cs.tipo='pastelaria' AND cs.origem='contagem' AND cs.data=%s
                 {token_filter}
-                ORDER BY loja,
-                         COALESCE(produto_pastelaria_id::text, 'text:' || produto),
-                         id DESC
+                 ORDER BY COALESCE(cs.store_id, legacy_store.id),
+                         COALESCE(cs.produto_pastelaria_id::text, 'text:' || cs.produto),
+                         cs.id DESC
             ) latest
-        """, (count_date, store_id) if store_id is not None else (count_date,))
+        """, (count_date, store_id, store_id)
+        if store_id is not None else (count_date,))
         current_token = cursor.fetchone()['snapshot_token']
         if current_token != snapshot_token:
             raise ValueError(
@@ -504,20 +571,53 @@ def save_pastelaria_sunday_counts(
             product['id']: _pastelaria_product_label(product)
             for product in products
         }
+        submission_id = uuid4()
         rows = [
             (
                 count_date, store_names[store_id], product_names[product_id],
-                quantity, 'pastelaria', 'contagem', product_id,
+                quantity, 'pastelaria', 'contagem', product_id, store_id,
+                str(submission_id), submitted_by,
             )
             for (product_id, store_id), quantity in normalized.items()
         ]
         execute_values(cursor, """
             INSERT INTO contagem_stock
                 (data, loja, produto, quantidade, tipo, origem,
-                 produto_pastelaria_id)
+                 produto_pastelaria_id, store_id, submission_id, submitted_by)
             VALUES %s
         """, rows)
         conn.commit()
+
+
+def _validated_count_submitter(submitted_by):
+    if not isinstance(submitted_by, str) or not submitted_by.strip():
+        raise ValueError('Não foi possível identificar quem submeteu a contagem.')
+    submitted_by = submitted_by.strip()
+    if len(submitted_by) > 100:
+        raise ValueError('O nome do utilizador é demasiado longo.')
+    return submitted_by
+
+
+def get_pastelaria_count_submission_history(count_date, store_id):
+    """Return submission-level metadata for one store and count date."""
+    try:
+        store_id = int(store_id)
+    except (TypeError, ValueError):
+        raise ValueError('Loja inválida.') from None
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute("""
+            SELECT submission_id, data, store_id, loja AS store_name,
+                   submitted_by, MIN(submitted_at) AS submitted_at,
+                   COUNT(*) AS product_count
+            FROM contagem_stock
+            WHERE tipo='pastelaria' AND origem='contagem'
+              AND submission_id IS NOT NULL
+              AND store_id=%s AND data=%s
+            GROUP BY submission_id, data, store_id, loja, submitted_by
+            ORDER BY MIN(submitted_at) DESC, submission_id DESC
+        """, (store_id, count_date))
+        return cursor.fetchall()
 
 
 def get_contagem_stock_df(tipo: str, data_inicio: date = None, data_fim: date = None) -> pd.DataFrame:

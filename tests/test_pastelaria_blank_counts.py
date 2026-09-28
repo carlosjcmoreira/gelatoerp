@@ -105,6 +105,7 @@ class PastelariaBlankSundayCountTests(unittest.TestCase):
             1,
             [(10, 0), (11, 0)],
             self.SNAPSHOT_TOKEN,
+            submitted_by='bolhao',
         )
 
     def test_blanks_mix_with_zero_and_positive_quantities(self):
@@ -126,6 +127,7 @@ class PastelariaBlankSundayCountTests(unittest.TestCase):
             1,
             [(10, 0), (11, 0), (12, 5), (13, 0)],
             self.SNAPSHOT_TOKEN,
+            submitted_by='bolhao',
         )
 
     def test_omitted_field_is_rejected_without_partial_save(self):
@@ -224,6 +226,7 @@ class PastelariaBlankSundayCountTests(unittest.TestCase):
             1,
             [(10, 0), (11, 4)],
             self.SNAPSHOT_TOKEN,
+            submitted_by='bolhao',
         )
 
     def test_count_form_explains_blank_as_zero_and_does_not_require_values(self):
