@@ -801,7 +801,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         generate.assert_not_called()
 
-    def test_store_user_cannot_switch_pastelaria_count_to_another_store(self):
+    def test_store_user_cannot_open_unassigned_pastelaria_count_store(self):
         from flask_app.routes.vendas import vendas_bp
         app = Flask(__name__, template_folder='../flask_app/templates')
         app.secret_key = 'test'
@@ -818,10 +818,6 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             2: {'id': 2, 'name': 'Matosinhos', 'store_type': 'loja',
                 'requires_eod_weighing': True},
         }
-        grid = {
-            'products': [], 'stores': [store_rows[1]], 'completed': 0,
-            'total': 0, 'complete': False, 'snapshot_token': self.TOKEN_81,
-        }
         with (
             patch(
                 'flask_app.routes.vendas.get_store_by_id',
@@ -829,21 +825,21 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             ),
             patch(
                 'flask_app.routes.vendas.get_pastelaria_sunday_count_grid',
-                return_value=grid,
+                return_value={},
             ) as get_grid,
             patch(
-                'flask_app.routes.vendas._build_tabs', return_value=[]
-            ),
+                'flask_app.routes.vendas.save_pastelaria_store_counts',
+            ) as save_counts,
             patch(
-                'flask_app.routes.vendas.render_template',
-                side_effect=lambda _name, **context: context['loja_nome'],
+                'flask_app.routes.vendas._build_tabs', return_value=[]
             ),
         ):
             response = client.get(
                 '/vendas/contagem-pastelaria?loja_id=2&data=2026-09-06'
             )
-        self.assertEqual(response.get_data(as_text=True), 'Bolhão')
-        get_grid.assert_called_once_with(date(2026, 9, 6), 1)
+        self.assertEqual(response.status_code, 403)
+        get_grid.assert_not_called()
+        save_counts.assert_not_called()
 
     def test_count_conflict_keeps_store_values_and_stock_view_is_read_only(self):
         from flask_app.routes.vendas import vendas_bp
@@ -888,7 +884,7 @@ class PastelariaStockPriorityTests(unittest.TestCase):
             patch('flask_app.routes.vendas.render_template', side_effect=capture),
         ):
             response = client.post('/vendas/contagem-pastelaria', data={
-                '_loja_id': '2', 'data': '2026-09-06',
+                '_loja_id': '1', 'data': '2026-09-06',
                 'snapshot_token': self.TOKEN_81, 'count_10': '7',
             })
         self.assertEqual(response.get_data(as_text=True), '7')

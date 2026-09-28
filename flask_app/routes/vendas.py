@@ -347,38 +347,65 @@ def _user_owns_stock_record(record):
     return _user_owns_loja(record.get('loja', ''))
 
 
-def _get_count_store():
-    """Resolve the store allowed for the pastry count screen.
+def _count_store_request_id():
+    """Return the single explicit store ID supplied for a pastry count.
 
-    Store users are deliberately pinned to their first assigned store. Only
-    Gestor can use the normal store selector, so a forged loja_id cannot
-    expose another store's counts.
+    The page URL and POST body both carry the selected store. Reject malformed
+    or conflicting values rather than silently resolving a different store.
     """
+    supplied_ids = []
+    for source in (request.args, request.form):
+        for key in ('loja_id', '_loja_id'):
+            if key not in source:
+                continue
+            for raw_value in source.getlist(key):
+                raw_value = str(raw_value or '').strip()
+                if not raw_value:
+                    abort(403)
+                try:
+                    supplied_ids.append(int(raw_value))
+                except (TypeError, ValueError):
+                    abort(403)
+
+    if len(set(supplied_ids)) > 1:
+        abort(403)
+    return supplied_ids[0] if supplied_ids else None
+
+
+def _get_count_store():
+    """Resolve and validate the selected store for the pastry count screen."""
     user = session.get('user', {})
-    if user.get('acesso_gestor'):
-        loja_id = None
-        override = request.args.get('loja_id') or request.form.get('loja_id') or request.form.get('_loja_id')
-        if override:
-            try:
-                loja_id = int(override)
-            except (TypeError, ValueError):
-                loja_id = None
-        if loja_id:
-            selected = get_store_by_id(loja_id)
-            loja_nome = selected['name'] if selected else None
+    requested_store_id = _count_store_request_id()
+    is_gestor = bool(user.get('acesso_gestor'))
+
+    if is_gestor:
+        if requested_store_id is None:
+            loja_id, _loja_nome = _get_user_loja()
         else:
-            loja_id, loja_nome = _get_user_loja()
+            loja_id = requested_store_id
     else:
-        store_ids = user.get('vendas_store_ids') or []
-        store = get_store_by_id(store_ids[0]) if store_ids else None
-        loja_id = store['id'] if store else None
-        loja_nome = store['name'] if store else None
-    store = get_store_by_id(loja_id) if loja_id else None
+        store_ids = []
+        for raw_store_id in user.get('vendas_store_ids') or []:
+            try:
+                store_ids.append(int(raw_store_id))
+            except (TypeError, ValueError):
+                continue
+
+        if requested_store_id is not None:
+            if requested_store_id not in set(store_ids):
+                abort(403)
+            loja_id = requested_store_id
+        else:
+            loja_id = store_ids[0] if store_ids else None
+
+    store = get_store_by_id(loja_id) if loja_id is not None else None
     if (
         not store
         or store.get('is_active', True) is False
         or store.get('supports_vendas', True) is False
     ):
+        if requested_store_id is not None:
+            abort(403)
         return None, None, None
     return store['id'], store['name'], store
 
