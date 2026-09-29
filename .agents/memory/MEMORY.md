@@ -35,3 +35,4 @@
 - [Weekly store orders](compras-weekly-orders.md) — weekly purchase planning is a separate audited document, never a stock-transfer movement.
 - [Urgent store requests](compras-urgent-orders.md) — urgent exceptions stay separate from weekly planning and deduplicate by request content.
 - [Purchase count snapshots](compras-count-snapshots.md) — physical catalogue counts are immutable evidence, never live stock or automatic order quantities.
+- [Confeitaria audited stock boundary](confeitaria-stock-ledger.md) — keep legacy totals separate until production and transfer writes are reconciled and switched together.

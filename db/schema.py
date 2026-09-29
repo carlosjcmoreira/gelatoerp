@@ -8457,6 +8457,7 @@ _LOCK_PASTELARIA_PRODUCT_STATE_AUDIT = 202717
 _LOCK_PASTELARIA_COUNT_PRODUCT_ID = 202718
 _LOCK_PASTELARIA_COUNT_SUBMISSION = 202719
 _LOCK_CONFEITARIA_COUNT_PRODUCT_ID = 202721
+_LOCK_CONFEITARIA_STOCK_LEDGER = 202722
 
 
 def run_migrations_pastelaria_plano():
@@ -9051,6 +9052,82 @@ def run_migrations_confeitaria_count_product_id():
         conn.commit()
         logger.info(
             "run_migrations_confeitaria_count_product_id: schema ready"
+        )
+
+
+def run_migrations_confeitaria_stock_ledger():
+    """Create the separate immutable Confeitaria stock movement ledger."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)",
+            (_LOCK_CONFEITARIA_STOCK_LEDGER,),
+        )
+        if not cursor.fetchone()[0]:
+            logger.info(
+                "run_migrations_confeitaria_stock_ledger: lock held, skipping"
+            )
+            return
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS confeitaria_stock_movements (
+                id BIGSERIAL PRIMARY KEY,
+                produto_confeitaria_id INTEGER NOT NULL
+                    REFERENCES produtos_confeitaria(id) ON DELETE RESTRICT,
+                produto VARCHAR(255) NOT NULL,
+                tipo VARCHAR(24) NOT NULL CHECK (
+                    tipo IN ('saldo_inicial', 'correcao')
+                ),
+                quantidade INTEGER NOT NULL,
+                data DATE NOT NULL,
+                responsavel VARCHAR(100) NOT NULL
+                    CHECK (BTRIM(responsavel) <> ''),
+                motivo TEXT NOT NULL CHECK (BTRIM(motivo) <> ''),
+                idempotency_key UUID NOT NULL UNIQUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CHECK (
+                    (tipo = 'saldo_inicial' AND quantidade >= 0)
+                    OR (tipo = 'correcao' AND quantidade <> 0)
+                )
+            )
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_confeitaria_stock_opening_product
+            ON confeitaria_stock_movements(produto_confeitaria_id)
+            WHERE tipo = 'saldo_inicial'
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_confeitaria_stock_product_history
+            ON confeitaria_stock_movements
+                (produto_confeitaria_id, data DESC, id DESC)
+        """)
+        cursor.execute("""
+            CREATE OR REPLACE FUNCTION
+                confeitaria_stock_movement_is_immutable()
+            RETURNS TRIGGER
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                RAISE EXCEPTION
+                    'Confeitaria stock movements are immutable';
+                RETURN NULL;
+            END
+            $$
+        """)
+        cursor.execute("""
+            DROP TRIGGER IF EXISTS trg_confeitaria_stock_movement_immutable
+            ON confeitaria_stock_movements
+        """)
+        cursor.execute("""
+            CREATE TRIGGER trg_confeitaria_stock_movement_immutable
+            BEFORE UPDATE OR DELETE ON confeitaria_stock_movements
+            FOR EACH ROW
+            EXECUTE FUNCTION confeitaria_stock_movement_is_immutable()
+        """)
+        conn.commit()
+        logger.info(
+            "run_migrations_confeitaria_stock_ledger: schema ready"
         )
 
 

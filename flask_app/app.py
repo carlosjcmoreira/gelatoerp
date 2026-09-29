@@ -106,6 +106,7 @@ from db.schema import (
     run_migrations_pastelaria_count_product_id,
     run_migrations_pastelaria_count_submission,
     run_migrations_confeitaria_count_product_id,
+    run_migrations_confeitaria_stock_ledger,
     run_migrations_pastelaria_product_state_audit,
     run_migrations_pastelaria_production_stock,
 )
@@ -319,6 +320,7 @@ def create_app():
         ('run_migrations_pastelaria_count_product_id', run_migrations_pastelaria_count_product_id),
         ('run_migrations_pastelaria_count_submission', run_migrations_pastelaria_count_submission),
         ('run_migrations_confeitaria_count_product_id', run_migrations_confeitaria_count_product_id),
+        ('run_migrations_confeitaria_stock_ledger', run_migrations_confeitaria_stock_ledger),
         ('run_migrations_pastelaria_product_state_audit', run_migrations_pastelaria_product_state_audit),
         ('run_migrations_colaboradores_smart', run_migrations_colaboradores_smart),
         ('run_migrations_transferencias_motivo', run_migrations_transferencias_motivo),
