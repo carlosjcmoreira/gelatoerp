@@ -11,6 +11,9 @@ MOVEMENT_LABELS = {
     'saldo_inicial': 'Saldo inicial',
     'correcao': 'Acerto',
     'producao': 'Produção real',
+    'reconciliacao_corte': 'Reconfirmação para transferências',
+    'transferencia_saida': 'Transferência para loja',
+    'transferencia_anulacao': 'Anulação de transferência',
 }
 
 _MAX_QUANTITY = 2_147_483_647
@@ -112,7 +115,10 @@ def _stock_state(cursor, product_id):
     return int(row[0] or 0), bool(row[1])
 
 
-def _format_balance(product_id, product_name, active, balance, opening_set):
+def _format_balance(
+    product_id, product_name, active, balance, opening_set,
+    cutover_confirmed=False,
+):
     return {
         'produto_confeitaria_id': product_id,
         'produto_id': product_id,
@@ -120,18 +126,34 @@ def _format_balance(product_id, product_name, active, balance, opening_set):
         'ativo': bool(active),
         'saldo': int(balance),
         'saldo_inicial_confirmado': bool(opening_set),
-        'transferivel': bool(active and opening_set and balance > 0),
+        'transferencias_reconciliadas': bool(cutover_confirmed),
+        'transferivel': bool(
+            active and opening_set and cutover_confirmed and balance > 0
+        ),
     }
+
+
+def _cutover_confirmed(cursor, product_id):
+    cursor.execute("""
+        SELECT EXISTS (
+            SELECT 1
+            FROM confeitaria_stock_movements
+            WHERE produto_confeitaria_id = %s
+              AND tipo = 'reconciliacao_corte'
+        )
+    """, (product_id,))
+    return bool(cursor.fetchone()[0])
 
 
 def _movement_result(
     *, movement_id, product_id, product_name, active, tipo, quantity,
     movement_date, actor, reason, balance, opening_set, idempotency_key,
-    replayed,
+    replayed, cutover_confirmed=False,
 ):
     return {
         **_format_balance(
-            product_id, product_name, active, balance, opening_set
+            product_id, product_name, active, balance, opening_set,
+            cutover_confirmed,
         ),
         'movement_id': movement_id,
         'tipo': tipo,
@@ -201,6 +223,7 @@ def register_confeitaria_stock_movement(
                     'O produto de Confeitaria já não existe no catálogo.'
                 )
             balance, opening_set = _stock_state(cursor, product_id)
+            cutover_confirmed = _cutover_confirmed(cursor, product_id)
             conn.commit()
             return _movement_result(
                 movement_id=existing[0],
@@ -216,6 +239,7 @@ def register_confeitaria_stock_movement(
                 opening_set=opening_set,
                 idempotency_key=request_key,
                 replayed=True,
+                cutover_confirmed=cutover_confirmed,
             )
 
         cursor.execute("""
@@ -262,6 +286,7 @@ def register_confeitaria_stock_movement(
             actor, reason, request_key,
         ))
         movement_id = cursor.fetchone()[0]
+        cutover_confirmed = _cutover_confirmed(cursor, product_id)
         conn.commit()
 
     new_balance = balance + quantity
@@ -279,6 +304,7 @@ def register_confeitaria_stock_movement(
         opening_set=True,
         idempotency_key=request_key,
         replayed=False,
+        cutover_confirmed=cutover_confirmed,
     )
 
 
@@ -495,7 +521,10 @@ def get_confeitaria_stock_balance(produto_confeitaria_id):
         cursor.execute("""
             SELECT p.id, p.nome, p.ativo,
                    COALESCE(SUM(m.quantidade), 0),
-                   COALESCE(BOOL_OR(m.tipo = 'saldo_inicial'), FALSE)
+                   COALESCE(BOOL_OR(m.tipo = 'saldo_inicial'), FALSE),
+                   COALESCE(
+                       BOOL_OR(m.tipo = 'reconciliacao_corte'), FALSE
+                   )
             FROM produtos_confeitaria p
             LEFT JOIN confeitaria_stock_movements m
               ON m.produto_confeitaria_id = p.id
@@ -507,7 +536,9 @@ def get_confeitaria_stock_balance(produto_confeitaria_id):
         raise ConfeitariaStockError(
             'O produto de Confeitaria já não existe no catálogo.'
         )
-    return _format_balance(row[0], row[1], row[2], row[3], row[4])
+    return _format_balance(
+        row[0], row[1], row[2], row[3], row[4], row[5]
+    )
 
 
 def get_confeitaria_stock_options():
@@ -517,7 +548,10 @@ def get_confeitaria_stock_options():
         cursor.execute("""
             SELECT p.id, p.nome, p.ativo,
                    COALESCE(SUM(m.quantidade), 0),
-                   COALESCE(BOOL_OR(m.tipo = 'saldo_inicial'), FALSE)
+                   COALESCE(BOOL_OR(m.tipo = 'saldo_inicial'), FALSE),
+                   COALESCE(
+                       BOOL_OR(m.tipo = 'reconciliacao_corte'), FALSE
+                   )
             FROM produtos_confeitaria p
             LEFT JOIN confeitaria_stock_movements m
               ON m.produto_confeitaria_id = p.id
@@ -527,7 +561,7 @@ def get_confeitaria_stock_options():
         rows = cursor.fetchall()
     return [
         _format_balance(
-            row[0], row[1], row[2], row[3], row[4]
+            row[0], row[1], row[2], row[3], row[4], row[5]
         )
         for row in rows
     ]

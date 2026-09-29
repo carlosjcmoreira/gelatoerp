@@ -11,6 +11,10 @@ from db.confeitaria_stock import (
     record_confeitaria_production_batch,
     register_confeitaria_stock_movement,
 )
+from db.confeitaria_transfers import (
+    criar_ordens_transferencia_confeitaria,
+    reconciliar_confeitaria_stock_corte,
+)
 from database import (
     get_produtos_confeitaria,
     get_ultimo_stock_balcao,
@@ -19,13 +23,10 @@ from database import (
     upsert_plano_area, marcar_produto_no_plano, remover_produto_do_plano,
     get_plano_do_dia_area, get_plano_produto,
     get_stock_producao_area_all,
-    get_stock_producao_area, reduzir_stock_producao_area,
-    criar_ordem_transferencia,
     get_all_produtos_confeitaria, add_produto_confeitaria,
     set_produto_confeitaria_ativo,
     add_quebra_area, get_quebras_df_area, delete_quebra_area,
     get_active_venda_stores,
-    get_or_create_pending_batch,
 )
 from datetime import date, timedelta
 
@@ -332,105 +333,254 @@ def produzir():
                            n_done=n_done)
 
 
+def _parse_confeitaria_transfer_lines(form):
+    import re
+
+    lines = []
+    seen_ids = set()
+    for key in form.keys():
+        match = re.fullmatch(r'qty_(\d+)', key)
+        if not match:
+            continue
+        values = form.getlist(key)
+        if len(values) != 1:
+            raise ValueError('Quantidade de produto duplicada.')
+        raw_id = match.group(1)
+        product_id = int(raw_id)
+        if product_id <= 0 or raw_id != str(product_id):
+            raise ValueError('Produto inválido.')
+        raw_quantity = (values[0] or '').strip()
+        if not raw_quantity:
+            continue
+        if not re.fullmatch(r'\d+', raw_quantity):
+            raise ValueError('Quantidade inválida.')
+        quantity = int(raw_quantity)
+        if quantity == 0:
+            continue
+        if product_id in seen_ids:
+            raise ValueError('Produto repetido.')
+        seen_ids.add(product_id)
+        lines.append({
+            'produto_confeitaria_id': product_id,
+            'quantidade': quantity,
+        })
+    return lines
+
+
+def _parse_confeitaria_reconciliation_lines(form):
+    import re
+
+    lines = []
+    seen_ids = set()
+    for key in form.keys():
+        match = re.fullmatch(r'saldo_confirmado_(\d+)', key)
+        if not match:
+            continue
+        values = form.getlist(key)
+        if len(values) != 1:
+            raise ValueError('Saldo de produto duplicado.')
+        raw_id = match.group(1)
+        product_id = int(raw_id)
+        if product_id <= 0 or raw_id != str(product_id):
+            raise ValueError('Produto inválido.')
+        raw_quantity = (values[0] or '').strip()
+        if not raw_quantity:
+            continue
+        if not re.fullmatch(r'\d+', raw_quantity):
+            raise ValueError('Saldo físico inválido.')
+        if product_id in seen_ids:
+            raise ValueError('Produto repetido.')
+        seen_ids.add(product_id)
+        raw_expected = (
+            form.get(f'saldo_esperado_{product_id}', '').strip()
+        )
+        if not re.fullmatch(r'-?\d+', raw_expected):
+            raise ValueError('O saldo auditado da página expirou.')
+        lines.append({
+            'produto_confeitaria_id': product_id,
+            'saldo_confirmado': int(raw_quantity),
+            'saldo_esperado': int(raw_expected),
+        })
+    return lines
+
+
 @confeitaria_bp.route('/transferir', methods=['GET', 'POST'])
 @perm_required('acesso_confeitaria')
 def transferir():
     today = date.today()
 
     if request.method == 'POST':
-        ordens_count = 0
         username = session.get('user', {}).get('username', '')
-        data_prevista_str = request.form.get('data_prevista', '')
-        data_prevista = None
-        if data_prevista_str:
-            try:
-                from datetime import datetime
-                data_prevista = datetime.strptime(data_prevista_str, '%Y-%m-%d').date()
-            except ValueError:
-                pass
-        loja_destino = request.form.get('loja_destino', '')
-        active_store_names = {s['name'] for s in get_active_venda_stores()}
-        if loja_destino not in active_store_names:
-            flash('Loja de destino inválida.', 'error')
-            return redirect(url_for('confeitaria.transferir'))
-        import re as _re
-        form_pairs = []
-        for key in request.form:
-            m = _re.match(r'^produto_(\d+)$', key)
-            if m:
-                n = int(m.group(1))
-                form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
-        produtos_ativos = set(get_produtos_confeitaria())
-        transfer_lines = []
-        for _, produto, qty_str in sorted(form_pairs, key=lambda x: x[0]):
-            try:
-                qty = int(qty_str) if qty_str else 0
-            except ValueError:
-                qty = 0
-            if qty <= 0 or not produto:
-                continue
-            if produto not in produtos_ativos:
-                flash(f'O produto "{produto}" não está ativo.', 'warning')
+        action = request.form.get('action', '')
+
+        if action == 'reconciliar_saldos':
+            if request.form.get('confirmo_transferencias_legadas') != '1':
+                flash(
+                    'Confirme que as contagens atuais consideram as '
+                    'transferências legadas posteriores ao saldo inicial.',
+                    'error',
+                )
                 return redirect(url_for('confeitaria.transferir'))
-            transfer_lines.append((produto, qty))
+            try:
+                reconciliation_lines = (
+                    _parse_confeitaria_reconciliation_lines(request.form)
+                )
+                results = reconciliar_confeitaria_stock_corte(
+                    lines=reconciliation_lines,
+                    data=today,
+                    responsavel=username,
+                    confirmacao_explicita=True,
+                )
+            except (ValueError, ConfeitariaStockError) as exc:
+                flash(str(exc), 'error')
+                return redirect(url_for('confeitaria.transferir'))
+
+            confirmed_count = sum(
+                1 for result in results if not result['replayed']
+            )
+            if confirmed_count:
+                flash(
+                    f'{confirmed_count} saldo(s) físico(s) reconfirmado(s) '
+                    'para transferência.',
+                    'success',
+                )
+            else:
+                flash(
+                    'Os saldos indicados já estavam reconfirmados; não foi '
+                    'criado nenhum movimento duplicado.',
+                    'info',
+                )
+            return redirect(url_for('confeitaria.transferir'))
+
+        if action != 'criar_transferencias':
+            flash('Pedido de transferência inválido.', 'error')
+            return redirect(url_for('confeitaria.transferir'))
+
+        request_key = request.form.get('request_key', '').strip()
+        if not request_key:
+            flash(
+                'O formulário expirou. Atualize a página antes de guardar.',
+                'error',
+            )
+            return redirect(url_for('confeitaria.transferir'))
+
+        data_prevista_str = request.form.get('data_prevista', '').strip()
+        try:
+            import re
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', data_prevista_str):
+                raise ValueError
+            data_prevista = date.fromisoformat(data_prevista_str)
+        except ValueError:
+            flash('Indique uma data prevista de entrega válida.', 'error')
+            return redirect(url_for('confeitaria.transferir'))
+
+        loja_destino = request.form.get('loja_destino', '').strip()
+        active_store_names = {
+            store['name'] for store in get_active_venda_stores()
+        }
+        if loja_destino not in active_store_names:
+            flash('Loja de destino inválida ou inativa.', 'error')
+            return redirect(url_for(
+                'confeitaria.transferir',
+                data_prevista=data_prevista.isoformat(),
+            ))
+
+        try:
+            transfer_lines = _parse_confeitaria_transfer_lines(request.form)
+        except (TypeError, ValueError):
+            flash(
+                'Cada quantidade preenchida tem de ser um número inteiro '
+                'não negativo, sem repetir produtos.',
+                'error',
+            )
+            return redirect(url_for(
+                'confeitaria.transferir',
+                data_prevista=data_prevista.isoformat(),
+            ))
 
         if not transfer_lines:
-            flash('Nenhuma transferência registada. Verifique as quantidades.', 'info')
-            return redirect(url_for('confeitaria.transferir'))
+            flash(
+                'Nenhuma transferência criada. Indique uma quantidade '
+                'superior a zero para pelo menos um produto.',
+                'info',
+            )
+            return redirect(url_for(
+                'confeitaria.transferir',
+                data_prevista=data_prevista.isoformat(),
+            ))
 
-        batch_id = get_or_create_pending_batch(today, 'Confeitaria', loja_destino)
-        for produto, qty in transfer_lines:
-            stock_disponivel = get_stock_producao_area('confeitaria', today, produto)
-            if qty > stock_disponivel:
-                qty = stock_disponivel
-            if qty > 0:
-                reduced = reduzir_stock_producao_area('confeitaria', today, produto, qty)
-                if reduced:
-                    criar_ordem_transferencia(today, 'Confeitaria', produto, qty, 'und', loja_destino, criado_por=username, data_prevista=data_prevista, batch_id=batch_id)
-                    ordens_count += 1
-        if ordens_count > 0:
-            flash(f'{ordens_count} ordem(ns) de transferência criada(s)!', 'success')
+        try:
+            result = criar_ordens_transferencia_confeitaria(
+                data=today,
+                loja_destino=loja_destino,
+                lines=transfer_lines,
+                criado_por=username,
+                data_prevista=data_prevista,
+                request_key=request_key,
+            )
+        except ConfeitariaStockError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for(
+                'confeitaria.transferir',
+                data_prevista=data_prevista.isoformat(),
+            ))
+
+        order_count = len(result['order_ids'])
+        if result['replayed']:
+            flash(
+                f'Esta submissão já tinha sido processada '
+                f'({order_count} ordem(ns)); o stock não foi debitado '
+                'novamente.',
+                'info',
+            )
         else:
-            flash('Nenhuma transferência registada. Verifique as quantidades.', 'info')
-        return redirect(url_for('confeitaria.transferir'))
+            flash(
+                f'{order_count} ordem(ns) de transferência criada(s) '
+                'no mesmo lote.',
+                'success',
+            )
+        return redirect(url_for(
+            'confeitaria.transferir',
+            data_prevista=data_prevista.isoformat(),
+        ))
 
-    stock_prod = get_stock_producao_area_all('confeitaria', today)
+    data_prevista = today
+    requested_date = request.args.get('data_prevista', '').strip()
+    if requested_date:
+        try:
+            data_prevista = date.fromisoformat(requested_date)
+        except ValueError:
+            pass
+
     lojas_venda = get_active_venda_stores()
+    active_options = [
+        item for item in get_confeitaria_stock_options() if item['ativo']
+    ]
+    reconciliation_products = [
+        item for item in active_options
+        if item['saldo_inicial_confirmado']
+        and not item['transferencias_reconciliadas']
+    ]
+    products_without_opening = [
+        item for item in active_options
+        if not item['saldo_inicial_confirmado']
+    ]
+    transfer_products = [
+        item for item in active_options if item['transferivel']
+    ]
 
-    stock_balcao = get_ultimo_stock_balcao('confeitaria')
-    balcao_map = {}
-    for s in stock_balcao:
-        key = s['produto']
-        if key not in balcao_map:
-            balcao_map[key] = {}
-        balcao_map[key][s['loja']] = {'quantidade': s['quantidade'], 'data': s['data']}
-
-    cards = []
-    produtos_ativos = set(get_produtos_confeitaria())
-    for sp in stock_prod:
-        produto = sp['produto']
-        if produto not in produtos_ativos:
-            continue
-        balcao_info = balcao_map.get(produto, {})
-        balcao_mat = balcao_info.get('Matosinhos', {})
-        balcao_bol = balcao_info.get('Bolhão', {})
-        data_mat = balcao_mat.get('data')
-        data_bol = balcao_bol.get('data')
-        cards.append({
-            'produto': produto,
-            'stock_producao': sp['quantidade'],
-            'balcao_matosinhos': balcao_mat.get('quantidade', 0),
-            'balcao_bolhao': balcao_bol.get('quantidade', 0),
-            'data_balcao_matosinhos': data_mat.strftime('%d/%m') if data_mat and hasattr(data_mat, 'strftime') else '-',
-            'data_balcao_bolhao': data_bol.strftime('%d/%m') if data_bol and hasattr(data_bol, 'strftime') else '-',
-        })
-
-    return render_template('confeitaria/transferir.html',
-                           active_tab='transferir',
-                           tabs=_tabs_with_urls(),
-                           cards=cards,
-                           lojas_venda=lojas_venda,
-                           today=today.isoformat())
+    return render_template(
+        'confeitaria/transferir.html',
+        active_tab='transferir',
+        tabs=_tabs_with_urls(),
+        transfer_products=transfer_products,
+        reconciliation_products=reconciliation_products,
+        products_without_opening=products_without_opening,
+        lojas_venda=lojas_venda,
+        today=today.isoformat(),
+        data_prevista=data_prevista.isoformat(),
+        request_key=str(uuid4()),
+    )
 
 
 @confeitaria_bp.route('/produtos', methods=['GET', 'POST'])

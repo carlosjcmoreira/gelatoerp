@@ -8459,6 +8459,7 @@ _LOCK_PASTELARIA_COUNT_SUBMISSION = 202719
 _LOCK_CONFEITARIA_COUNT_PRODUCT_ID = 202721
 _LOCK_CONFEITARIA_STOCK_LEDGER = 202722
 _LOCK_CONFEITARIA_STOCK_PRODUCTION = 202723
+_LOCK_CONFEITARIA_STOCK_TRANSFERS = 202724
 
 
 def run_migrations_pastelaria_plano():
@@ -9196,6 +9197,213 @@ def run_migrations_confeitaria_stock_production():
         conn.commit()
         logger.info(
             "run_migrations_confeitaria_stock_production: schema ready"
+        )
+
+
+def run_migrations_confeitaria_stock_transfers():
+    """Add Confeitaria's one-time cutover and atomic transfer audit support."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)",
+            (_LOCK_CONFEITARIA_STOCK_TRANSFERS,),
+        )
+        if not cursor.fetchone()[0]:
+            logger.info(
+                "run_migrations_confeitaria_stock_transfers: "
+                "lock held, skipping"
+            )
+            return
+
+        cursor.execute("""
+            ALTER TABLE confeitaria_stock_movements
+            ADD COLUMN IF NOT EXISTS ordem_transferencia_id INTEGER
+        """)
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conrelid =
+                        'confeitaria_stock_movements'::regclass
+                      AND conname =
+                        'fk_confeitaria_stock_movement_transfer_order'
+                ) THEN
+                    ALTER TABLE confeitaria_stock_movements
+                    ADD CONSTRAINT
+                        fk_confeitaria_stock_movement_transfer_order
+                    FOREIGN KEY (ordem_transferencia_id)
+                    REFERENCES ordens_transferencia(id)
+                    ON DELETE RESTRICT;
+                END IF;
+            END
+            $$
+        """)
+        cursor.execute("""
+            ALTER TABLE ordens_transferencia
+            ADD COLUMN IF NOT EXISTS produto_confeitaria_id INTEGER
+        """)
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM pg_constraint
+                    WHERE conrelid =
+                        'ordens_transferencia'::regclass
+                      AND conname =
+                        'fk_ordens_transferencia_produto_confeitaria'
+                ) THEN
+                    ALTER TABLE ordens_transferencia
+                    ADD CONSTRAINT
+                        fk_ordens_transferencia_produto_confeitaria
+                    FOREIGN KEY (produto_confeitaria_id)
+                    REFERENCES produtos_confeitaria(id)
+                    ON DELETE RESTRICT;
+                END IF;
+            END
+            $$
+        """)
+        cursor.execute("""
+            ALTER TABLE confeitaria_stock_movements
+            DROP CONSTRAINT IF EXISTS
+                ck_confeitaria_stock_movement_type_quantity
+        """)
+        cursor.execute("""
+            ALTER TABLE confeitaria_stock_movements
+            ADD CONSTRAINT
+                ck_confeitaria_stock_movement_type_quantity
+            CHECK (
+                (tipo = 'saldo_inicial' AND quantidade >= 0)
+                OR (tipo = 'correcao' AND quantidade <> 0)
+                OR (tipo = 'producao' AND quantidade <> 0)
+                OR (tipo = 'reconciliacao_corte')
+                OR (tipo = 'transferencia_saida' AND quantidade < 0)
+                OR (tipo = 'transferencia_anulacao' AND quantidade > 0)
+            )
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_confeitaria_stock_cutover_product
+            ON confeitaria_stock_movements(produto_confeitaria_id)
+            WHERE tipo = 'reconciliacao_corte'
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_confeitaria_stock_transfer_debit
+            ON confeitaria_stock_movements(ordem_transferencia_id)
+            WHERE tipo = 'transferencia_saida'
+              AND ordem_transferencia_id IS NOT NULL
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS
+                uq_confeitaria_stock_transfer_reversal
+            ON confeitaria_stock_movements(ordem_transferencia_id)
+            WHERE tipo = 'transferencia_anulacao'
+              AND ordem_transferencia_id IS NOT NULL
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS
+                confeitaria_stock_transfer_requests (
+                    request_key UUID PRIMARY KEY,
+                    payload_hash CHAR(64) NOT NULL,
+                    batch_id VARCHAR(100) NOT NULL UNIQUE,
+                    criado_por VARCHAR(100) NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+        """)
+        cursor.execute("""
+            ALTER TABLE transferencias_eventos
+            DROP CONSTRAINT IF EXISTS transferencias_eventos_event_type_check
+        """)
+        cursor.execute("""
+            ALTER TABLE transferencias_eventos
+            ADD CONSTRAINT transferencias_eventos_event_type_check
+            CHECK (event_type IN (
+                'criado', 'confirmado', 'rejeitado', 'executado',
+                'aceite', 'problema_reportado', 'anulado'
+            ))
+        """)
+        cursor.execute("""
+            CREATE OR REPLACE FUNCTION
+                confeitaria_repor_stock_em_anulacao_transferencia()
+            RETURNS TRIGGER
+            LANGUAGE plpgsql
+            AS $$
+            DECLARE
+                actor_name TEXT;
+                cancellation_reason TEXT;
+            BEGIN
+                IF LOWER(BTRIM(NEW.status)) IN (
+                    'rejeitada', 'anulada', 'anulado',
+                    'cancelada', 'cancelado', 'cancelled'
+                )
+                   AND NEW.status IS DISTINCT FROM OLD.status
+                   AND NEW.area_origem = 'Confeitaria' THEN
+                    actor_name := COALESCE(
+                        NULLIF(BTRIM(NEW.confirmado_por), ''),
+                        NULLIF(BTRIM(NEW.criado_por), ''),
+                        'sistema'
+                    );
+                    cancellation_reason := COALESCE(
+                        NULLIF(BTRIM(NEW.motivo_rejeicao), ''),
+                        'Anulação da ordem de transferência ' || NEW.id
+                    );
+
+                    WITH inserted_reversals AS (
+                        INSERT INTO confeitaria_stock_movements (
+                            produto_confeitaria_id, produto, tipo,
+                            quantidade, data, responsavel, motivo,
+                            idempotency_key, ordem_transferencia_id
+                        )
+                        SELECT movement.produto_confeitaria_id,
+                               movement.produto,
+                               'transferencia_anulacao',
+                               -movement.quantidade,
+                               (NOW() AT TIME ZONE 'Europe/Lisbon')::date,
+                               actor_name,
+                               cancellation_reason,
+                               md5(
+                                   'confeitaria-transfer-reversal:'
+                                   || NEW.id::text
+                               )::uuid,
+                               NEW.id
+                        FROM confeitaria_stock_movements AS movement
+                        WHERE movement.ordem_transferencia_id = NEW.id
+                          AND movement.tipo = 'transferencia_saida'
+                        ON CONFLICT (ordem_transferencia_id)
+                            WHERE tipo = 'transferencia_anulacao'
+                              AND ordem_transferencia_id IS NOT NULL
+                            DO NOTHING
+                        RETURNING ordem_transferencia_id
+                    )
+                    INSERT INTO transferencias_eventos (
+                        ordem_id, event_type, utilizador, motivo
+                    )
+                    SELECT NEW.id, 'anulado', actor_name,
+                           cancellation_reason
+                    WHERE EXISTS (SELECT 1 FROM inserted_reversals);
+                END IF;
+                RETURN NEW;
+            END
+            $$
+        """)
+        cursor.execute("""
+            DROP TRIGGER IF EXISTS
+                trg_confeitaria_repor_stock_anulacao
+            ON ordens_transferencia
+        """)
+        cursor.execute("""
+            CREATE TRIGGER trg_confeitaria_repor_stock_anulacao
+            AFTER UPDATE OF status ON ordens_transferencia
+            FOR EACH ROW
+            EXECUTE FUNCTION
+                confeitaria_repor_stock_em_anulacao_transferencia()
+        """)
+        conn.commit()
+        logger.info(
+            "run_migrations_confeitaria_stock_transfers: schema ready"
         )
 
 

@@ -5,6 +5,7 @@ import pandas as pd
 from flask import Flask
 
 from db import pastelaria
+from db.confeitaria_stock import ConfeitariaStockError
 from flask_app.routes.confeitaria import confeitaria_bp
 
 
@@ -243,29 +244,37 @@ class ConfeitariaProductCatalogueTests(unittest.TestCase):
             responses[0].get_data(as_text=True),
         )
 
-    def test_inactive_product_is_rejected_before_creating_a_transfer_batch(self):
+    def test_inactive_product_rejection_comes_from_audited_transfer_service(self):
         with (
             patch(
                 'flask_app.routes.confeitaria.get_active_venda_stores',
                 return_value=[{'name': 'Matosinhos'}],
             ),
             patch(
-                'flask_app.routes.confeitaria.get_produtos_confeitaria',
-                return_value=['Cookie Ativo'],
-            ),
-            patch(
-                'flask_app.routes.confeitaria.get_or_create_pending_batch',
+                'flask_app.routes.confeitaria.criar_ordens_transferencia_confeitaria',
+                side_effect=ConfeitariaStockError(
+                    'O produto Cookie Arquivado está inativo.'
+                ),
             ) as create_batch,
         ):
             response = self.client.post('/confeitaria/transferir', data={
+                'action': 'criar_transferencias',
+                'request_key': 'f8b970aa-9500-4111-943d-fc1e81ec2fcf',
                 'loja_destino': 'Matosinhos',
-                'produto_0': 'Cookie Arquivado',
-                'qty_0': '1',
+                'data_prevista': '2026-10-03',
+                'qty_999': '1',
             })
 
         self.assertEqual(response.status_code, 302)
-        create_batch.assert_not_called()
-        self.assertIn('não está ativo', ' '.join(self._take_flashes()))
+        create_batch.assert_called_once()
+        self.assertEqual(
+            create_batch.call_args.kwargs['lines'],
+            [{
+                'produto_confeitaria_id': 999,
+                'quantidade': 1,
+            }],
+        )
+        self.assertIn('inativo', ' '.join(self._take_flashes()))
 
     def test_inactive_product_is_not_offered_for_new_breakage(self):
         with (

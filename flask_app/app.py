@@ -108,6 +108,7 @@ from db.schema import (
     run_migrations_confeitaria_count_product_id,
     run_migrations_confeitaria_stock_ledger,
     run_migrations_confeitaria_stock_production,
+    run_migrations_confeitaria_stock_transfers,
     run_migrations_pastelaria_product_state_audit,
     run_migrations_pastelaria_production_stock,
 )
@@ -334,6 +335,7 @@ def create_app():
         ('run_migrations_transferencias_eventos', run_migrations_transferencias_eventos),
         ('run_migrations_pastelaria_production_stock', run_migrations_pastelaria_production_stock),
         ('run_migrations_batch_id', run_migrations_batch_id),
+        ('run_migrations_confeitaria_stock_transfers', run_migrations_confeitaria_stock_transfers),
         ('run_migrations_stock_producao_lojas', run_migrations_stock_producao_lojas),
         ('run_migrations_tarefas', run_migrations_tarefas),
         ('run_migrations_tarefas_v2', run_migrations_tarefas_v2),

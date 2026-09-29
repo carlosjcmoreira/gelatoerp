@@ -334,7 +334,8 @@ class ConfeitariaStockLedgerPostgresTests(unittest.TestCase):
         self.assertEqual(balance['produto'], 'Produto teste renomeado')
         self.assertEqual(balance['saldo'], 8)
         self.assertTrue(balance['saldo_inicial_confirmado'])
-        self.assertTrue(balance['transferivel'])
+        self.assertFalse(balance['transferivel'])
+        self.assertFalse(balance['transferencias_reconciliadas'])
         self.assertEqual(len(history), 2)
         self.assertEqual(
             {row['tipo'] for row in history},

@@ -868,7 +868,8 @@ def _insert_transfer_receipt(
             )
             VALUES (
                 %s, %s, %s, %s, %s, 'transferencia',
-                CASE WHEN %s = 'Pastelaria' THEN %s ELSE NULL END, %s
+                CASE WHEN %s = 'Pastelaria' THEN %s::INTEGER
+                     ELSE NULL::INTEGER END, %s
             )
             ON CONFLICT (ordem_transferencia_id)
                 WHERE ordem_transferencia_id IS NOT NULL DO NOTHING
