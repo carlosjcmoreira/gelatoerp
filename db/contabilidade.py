@@ -281,6 +281,71 @@ def get_cont_invoice_cost_center_names(invoice_id: int) -> list[str]:
     return sorted(names_by_key.values(), key=lambda name: (name.casefold(), name))
 
 
+def get_cont_invoice_zip_metadata(invoice_ids: list[int]) -> list[dict]:
+    """Fetch eligible invoice names, file sizes, and centers without loading file data."""
+    if not invoice_ids:
+        return []
+
+    sql = """
+        SELECT
+            i.id,
+            i.pdf_filename,
+            octet_length(i.pdf_data),
+            COALESCE(
+                (
+                    SELECT ARRAY_AGG(DISTINCT cc_multi.name::text
+                                     ORDER BY cc_multi.name::text)
+                    FROM invoice_centros_custo icc
+                    JOIN cost_centers cc_multi
+                      ON cc_multi.id = icc.centro_custo_id
+                    WHERE icc.invoice_id = i.id
+                ),
+                CASE
+                    WHEN cc_legacy.name IS NULL THEN ARRAY[]::text[]
+                    ELSE ARRAY[cc_legacy.name::text]
+                END
+            ) AS cost_center_names
+        FROM invoices i
+        LEFT JOIN cost_centers cc_legacy
+          ON cc_legacy.id = i.centro_custo_id
+        WHERE i.id = ANY(%s)
+          AND i.status NOT IN ('draft', 'cancelled')
+    """
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, (invoice_ids,))
+        rows = cur.fetchall()
+
+    return [
+        {
+            'id': row[0],
+            'pdf_filename': row[1],
+            'pdf_size': row[2],
+            'cost_center_names': row[3] or [],
+        }
+        for row in rows
+    ]
+
+
+def get_cont_invoice_zip_data(invoice_ids: list[int]) -> list[dict]:
+    """Fetch document bytes after ZIP metadata has passed size and scope checks."""
+    if not invoice_ids:
+        return []
+
+    sql = """
+        SELECT i.id, i.pdf_data
+        FROM invoices i
+        WHERE i.id = ANY(%s)
+          AND i.status NOT IN ('draft', 'cancelled')
+    """
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, (invoice_ids,))
+        rows = cur.fetchall()
+
+    return [{'id': row[0], 'pdf_data': row[1]} for row in rows]
+
+
 def get_cont_summary() -> dict:
     """Return summary stats for the dashboard cards."""
     today = date.today()

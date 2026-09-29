@@ -10,8 +10,10 @@ import math
 import os
 import re
 import unicodedata
+import zipfile
 from datetime import date as _date, datetime
 from io import BytesIO
+from urllib.parse import quote
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for,
@@ -68,6 +70,8 @@ def _parse_centro_custo_filter(raw: str):
 
 
 PAGE_SIZE = 50
+MAX_CONTABILIDADE_ZIP_DOCUMENTS = PAGE_SIZE
+MAX_CONTABILIDADE_ZIP_BYTES = 50 * 1024 * 1024
 
 
 def _safe_center_filename_part(value: str) -> str:
@@ -117,6 +121,59 @@ def _safe_invoice_download_name(filename, mimetype: str, cost_center_names=()) -
     if suffix:
         stem = f'{stem}_{suffix}'
     return f'{stem}{extension}'
+
+
+def _safe_zip_folder_name(raw_name) -> str:
+    """Normalize a user-supplied ZIP/folder name to a safe single path component."""
+    if not isinstance(raw_name, str):
+        raise ValueError('Indique um nome para o ZIP.')
+    name = unicodedata.normalize('NFC', raw_name).strip()
+    if name.casefold().endswith('.zip'):
+        name = name[:-4].strip()
+    if not name or len(name) > 80:
+        raise ValueError('O nome do ZIP deve ter entre 1 e 80 caracteres.')
+
+    safe = ''.join(
+        char if char.isalnum() or char in ' _-' else '_'
+        for char in name
+    )
+    safe = re.sub(r' +', ' ', safe)
+    safe = re.sub(r'_+', '_', safe).strip(' _-.')
+    if not safe or len(safe) > 80:
+        raise ValueError('Indique um nome válido para o ZIP.')
+    return safe
+
+
+def _unique_zip_entry_filename(filename: str, invoice_id: int, used_names: set) -> str:
+    """Disambiguate duplicate basenames without allowing path components."""
+    stem, extension = os.path.splitext(filename)
+    candidate = filename
+    if candidate.casefold() in used_names:
+        candidate = f'{stem}_{invoice_id}{extension}'
+        suffix = 2
+        while candidate.casefold() in used_names:
+            candidate = f'{stem}_{invoice_id}_{suffix}{extension}'
+            suffix += 1
+    used_names.add(candidate.casefold())
+    return candidate
+
+
+def _detect_invoice_mime(data, filename):
+    if isinstance(data, memoryview):
+        data = bytes(data)
+    if data.startswith(b'%PDF'):
+        return 'application/pdf'
+    if len(data) >= 2 and data[:2] == b'\xff\xd8':
+        return 'image/jpeg'
+    if len(data) >= 8 and data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    ext = (filename or '').lower().rsplit('.', 1)[-1]
+    return {
+        'pdf': 'application/pdf',
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+    }.get(ext, 'application/octet-stream')
 
 
 # ── Main listing ──────────────────────────────────────────────────────────────
@@ -257,6 +314,212 @@ def atualizar_estado():
     })
 
 
+# ── Selected invoice ZIP download ─────────────────────────────────────────────
+
+@contabilidade_bp.route('/faturas/zip', methods=['POST'])
+@perm_required('acesso_contabilidade')
+def download_selected_zip():
+    from db.contabilidade import (
+        get_cont_invoice_zip_data,
+        get_cont_invoice_zip_metadata,
+    )
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'ok': False, 'error': 'Pedido de ZIP inválido.'}), 400
+
+    raw_ids = data.get('invoice_ids')
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return jsonify({
+            'ok': False,
+            'error': 'Selecione pelo menos uma fatura.',
+        }), 400
+    if len(raw_ids) > MAX_CONTABILIDADE_ZIP_DOCUMENTS:
+        return jsonify({
+            'ok': False,
+            'error': (
+                f'O ZIP pode conter no máximo '
+                f'{MAX_CONTABILIDADE_ZIP_DOCUMENTS} faturas.'
+            ),
+        }), 413
+
+    invoice_ids = []
+    seen_ids = set()
+    for raw_id in raw_ids:
+        if isinstance(raw_id, bool):
+            return jsonify({
+                'ok': False,
+                'error': 'A seleção contém IDs de fatura inválidos.',
+            }), 400
+        if isinstance(raw_id, int):
+            invoice_id = raw_id
+        elif isinstance(raw_id, str) and raw_id.isascii() and raw_id.isdecimal():
+            try:
+                invoice_id = int(raw_id)
+            except ValueError:
+                return jsonify({
+                    'ok': False,
+                    'error': 'A seleção contém IDs de fatura inválidos.',
+                }), 400
+        else:
+            return jsonify({
+                'ok': False,
+                'error': 'A seleção contém IDs de fatura inválidos.',
+            }), 400
+        if invoice_id <= 0 or invoice_id > (2**63 - 1) or invoice_id in seen_ids:
+            return jsonify({
+                'ok': False,
+                'error': 'A seleção contém IDs inválidos ou repetidos.',
+            }), 400
+        invoice_ids.append(invoice_id)
+        seen_ids.add(invoice_id)
+
+    try:
+        zip_folder_name = _safe_zip_folder_name(data.get('zip_name'))
+    except ValueError as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+
+    try:
+        metadata_records = get_cont_invoice_zip_metadata(invoice_ids)
+    except Exception:
+        logger.exception('Falha ao validar documentos para ZIP da Contabilidade.')
+        return jsonify({
+            'ok': False,
+            'error': 'Não foi possível verificar as faturas selecionadas.',
+        }), 500
+
+    metadata_by_id = {int(record['id']): record for record in metadata_records}
+    if set(metadata_by_id) != set(invoice_ids):
+        return jsonify({
+            'ok': False,
+            'error': (
+                'Uma ou mais faturas são inválidas ou não pertencem '
+                'à lista da Contabilidade.'
+            ),
+        }), 400
+
+    total_metadata_bytes = 0
+    for invoice_id in invoice_ids:
+        file_size = metadata_by_id[invoice_id].get('pdf_size')
+        if not file_size or file_size <= 0:
+            return jsonify({
+                'ok': False,
+                'error': (
+                    'Uma ou mais faturas selecionadas não têm documento; '
+                    'não foi criado ZIP.'
+                ),
+            }), 422
+        total_metadata_bytes += file_size
+        if total_metadata_bytes > MAX_CONTABILIDADE_ZIP_BYTES:
+            return jsonify({
+                'ok': False,
+                'error': 'O tamanho total dos documentos excede o limite do ZIP (50 MB).',
+            }), 413
+
+    try:
+        data_records = get_cont_invoice_zip_data(invoice_ids)
+    except Exception:
+        logger.exception('Falha ao carregar documentos para ZIP da Contabilidade.')
+        return jsonify({
+            'ok': False,
+            'error': 'Não foi possível carregar as faturas selecionadas.',
+        }), 500
+
+    data_by_id = {int(record['id']): record for record in data_records}
+    if set(data_by_id) != set(invoice_ids):
+        return jsonify({
+            'ok': False,
+            'error': (
+                'Uma ou mais faturas deixaram de pertencer à lista da Contabilidade; '
+                'não foi criado ZIP.'
+            ),
+        }), 400
+
+    files = []
+    total_source_bytes = 0
+    for invoice_id in invoice_ids:
+        record = metadata_by_id[invoice_id]
+        raw_data = data_by_id[invoice_id].get('pdf_data')
+        if not raw_data:
+            return jsonify({
+                'ok': False,
+                'error': (
+                    'Uma ou mais faturas selecionadas não têm documento; '
+                    'não foi criado ZIP.'
+                ),
+            }), 422
+        if isinstance(raw_data, memoryview):
+            file_data = raw_data.tobytes()
+        elif isinstance(raw_data, (bytes, bytearray)):
+            file_data = bytes(raw_data)
+        else:
+            logger.error('Documento com tipo inválido ao preparar ZIP da Contabilidade.')
+            return jsonify({
+                'ok': False,
+                'error': 'Não foi possível ler um dos documentos selecionados.',
+            }), 500
+        if not file_data:
+            return jsonify({
+                'ok': False,
+                'error': (
+                    'Uma ou mais faturas selecionadas não têm documento; '
+                    'não foi criado ZIP.'
+                ),
+            }), 422
+        total_source_bytes += len(file_data)
+        if total_source_bytes > MAX_CONTABILIDADE_ZIP_BYTES:
+            return jsonify({
+                'ok': False,
+                'error': 'O tamanho total dos documentos excede o limite do ZIP (50 MB).',
+            }), 413
+        files.append((invoice_id, record, file_data))
+
+    files.sort(key=lambda item: item[0])
+    archive_buffer = BytesIO()
+    used_names = set()
+    try:
+        with zipfile.ZipFile(
+            archive_buffer, mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=6
+        ) as archive:
+            for invoice_id, record, file_data in files:
+                mimetype = _detect_invoice_mime(file_data, record.get('pdf_filename'))
+                filename = _safe_invoice_download_name(
+                    record.get('pdf_filename'),
+                    mimetype,
+                    record.get('cost_center_names') or (),
+                )
+                filename = _unique_zip_entry_filename(filename, invoice_id, used_names)
+                archive.writestr(
+                    f'{zip_folder_name}/{filename}',
+                    file_data,
+                )
+    except Exception:
+        logger.exception('Falha ao criar ZIP de faturas da Contabilidade.')
+        return jsonify({
+            'ok': False,
+            'error': 'Não foi possível criar o ZIP das faturas selecionadas.',
+        }), 500
+
+    if archive_buffer.tell() > MAX_CONTABILIDADE_ZIP_BYTES:
+        return jsonify({
+            'ok': False,
+            'error': 'O tamanho do ZIP excede o limite de 50 MB.',
+        }), 413
+
+    archive_buffer.seek(0)
+    download_name = f'{zip_folder_name}.zip'
+    response = send_file(
+        archive_buffer,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=download_name,
+        max_age=0,
+    )
+    response.headers['X-Download-Filename'] = quote(download_name, safe='')
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 # ── PDF download (reuse compras pattern) ─────────────────────────────────────
 
 @contabilidade_bp.route('/fatura/<int:invoice_id>/pdf')
@@ -264,25 +527,12 @@ def atualizar_estado():
 def download_pdf(invoice_id: int):
     from db.faturas import get_invoice_pdf
 
-    def _detect_mime(data, filename):
-        if isinstance(data, memoryview):
-            data = bytes(data)
-        if data.startswith(b'%PDF'):
-            return 'application/pdf'
-        if len(data) >= 2 and data[:2] == b'\xff\xd8':
-            return 'image/jpeg'
-        if len(data) >= 8 and data[:8] == b'\x89PNG\r\n\x1a\n':
-            return 'image/png'
-        ext = (filename or '').lower().rsplit('.', 1)[-1]
-        return {'pdf': 'application/pdf', 'jpg': 'image/jpeg',
-                'jpeg': 'image/jpeg', 'png': 'image/png'}.get(ext, 'application/octet-stream')
-
     pdf_data, pdf_filename = get_invoice_pdf(invoice_id)
     if not pdf_data:
         return 'Ficheiro não disponível', 404
 
     as_attachment = request.args.get('dl') == '1'
-    mimetype = _detect_mime(pdf_data, pdf_filename)
+    mimetype = _detect_invoice_mime(pdf_data, pdf_filename)
     cost_center_names = []
     if as_attachment:
         from db.contabilidade import get_cont_invoice_cost_center_names

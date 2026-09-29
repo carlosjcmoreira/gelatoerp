@@ -129,6 +129,9 @@
             {% endfor %}
         </select>
         <button type="button" class="btn btn-sm btn-primary" onclick="submitBulk()">Aplicar</button>
+        <button type="button" class="btn btn-sm btn-outline-success"
+                id="bulk-download-zip-btn" data-bs-toggle="modal"
+                data-bs-target="#contab-zip-modal">Descarregar ZIP</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearSelection()">Limpar</button>
     </div>
 
@@ -386,6 +389,39 @@
     </div>
 </div>
 
+<div class="modal fade" id="contab-zip-modal" tabindex="-1"
+     aria-labelledby="contab-zip-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <form id="contab-zip-form" onsubmit="downloadSelectedZip(event)">
+                <div class="modal-header py-2">
+                    <h6 class="modal-title" id="contab-zip-modal-title">Descarregar faturas em ZIP</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                            aria-label="Fechar"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="contab-zip-name" class="form-label small fw-semibold">
+                        Nome da pasta e do ficheiro ZIP
+                    </label>
+                    <input type="text" id="contab-zip-name" class="form-control"
+                           value="Faturas" maxlength="80" required autocomplete="off">
+                    <div class="form-text">
+                        Será descarregado um ficheiro &lt;nome&gt;.zip com uma pasta com o mesmo nome.
+                    </div>
+                    <div id="contab-zip-error" class="alert alert-danger small mt-3 mb-0 d-none"
+                         role="alert"></div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-success btn-sm"
+                            id="contab-zip-submit">Descarregar ZIP</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
 /* ── Read-only invoice activity panel ────────────────────────────── */
 var contInvoicePanelRequest = 0;
@@ -521,6 +557,84 @@ function submitBulk() {
         }
     })
     .catch(function() { alert('Erro de comunicação.'); });
+}
+
+function downloadSelectedZip(event) {
+    event.preventDefault();
+    var ids = getSelectedIds();
+    var nameInput = document.getElementById('contab-zip-name');
+    var errorBox = document.getElementById('contab-zip-error');
+    var submitButton = document.getElementById('contab-zip-submit');
+    var defaultButtonText = 'Descarregar ZIP';
+
+    errorBox.classList.add('d-none');
+    errorBox.textContent = '';
+    if (!ids.length) {
+        errorBox.textContent = 'Selecione pelo menos uma fatura.';
+        errorBox.classList.remove('d-none');
+        return false;
+    }
+    if (!nameInput.value.trim()) {
+        errorBox.textContent = 'Indique um nome para o ZIP.';
+        errorBox.classList.remove('d-none');
+        nameInput.focus();
+        return false;
+    }
+
+    submitButton.disabled = true;
+    submitButton.textContent = 'A preparar ZIP…';
+    fetch('{{ url_for("contabilidade.download_selected_zip") }}', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/zip, application/json'
+        },
+        body: JSON.stringify({ invoice_ids: ids, zip_name: nameInput.value }),
+    })
+    .then(async function(response) {
+        var contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+        if (!response.ok) {
+            var errorData = await response.json().catch(function() { return {}; });
+            throw new Error(errorData.error || 'Não foi possível criar o ZIP.');
+        }
+        if (response.redirected || !contentType.includes('application/zip')) {
+            throw new Error('A sessão pode ter terminado. Atualize a página e tente novamente.');
+        }
+        return response.blob().then(function(blob) {
+            return { blob: blob, response: response };
+        });
+    })
+    .then(function(result) {
+        var downloadName = nameInput.value.trim() + '.zip';
+        var encodedName = result.response.headers.get('X-Download-Filename');
+        if (encodedName) {
+            try { downloadName = decodeURIComponent(encodedName); } catch (_error) {}
+        }
+        var url = window.URL.createObjectURL(result.blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = downloadName;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(function() { window.URL.revokeObjectURL(url); }, 1000);
+
+        var modalElement = document.getElementById('contab-zip-modal');
+        if (window.bootstrap && bootstrap.Modal) {
+            bootstrap.Modal.getOrCreateInstance(modalElement).hide();
+        }
+    })
+    .catch(function(error) {
+        errorBox.textContent = error.message || 'Não foi possível criar o ZIP.';
+        errorBox.classList.remove('d-none');
+    })
+    .finally(function() {
+        submitButton.disabled = false;
+        submitButton.textContent = defaultButtonText;
+    });
+    return false;
 }
 
 /* ── Individual status change ──────────────────────────────────── */

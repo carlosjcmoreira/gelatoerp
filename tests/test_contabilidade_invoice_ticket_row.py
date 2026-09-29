@@ -73,6 +73,8 @@ class TestInvoiceRowTicketCreation(unittest.TestCase):
         self.assertIn(b'data-invoice-id="31"', response.data)
         self.assertIn(b'data-invoice-label="FT-31', response.data)
         self.assertIn(b'data-invoice-id="32"', response.data)
+        self.assertIn(b'id="bulk-download-zip-btn"', response.data)
+        self.assertIn(b'id="contab-zip-modal"', response.data)
         self.assertIn(b'id="contab-ticket-invoice-id"', response.data)
         self.assertIn(b'name="invoice_id_required" value="1"', response.data)
         self.assertIn(b'/contabilidade/?q=farinha&amp;centro_custo_id=17&amp;page=2', response.data)
