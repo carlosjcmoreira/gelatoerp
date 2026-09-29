@@ -161,6 +161,16 @@ def load_dose_sales_with_rules(data_inicio=None, data_fim=None, loja=None):
         ):
             continue
         eligible_sales.append(sale)
+        # Keep the stable manager-facing identity alongside the historical
+        # sales label. Alias sales focus the canonical configured product when
+        # it is selected; otherwise they retain their selected source identity.
+        sale["dose_product_id"] = (
+            resolved_config["id"]
+            if resolved_config and resolved_config["id"] in eligible_ids
+            else source_config["id"]
+            if source_config and source_config["id"] in eligible_ids
+            else None
+        )
         if len(candidates) != 1:
             sale["regra_dose_id"] = None
             continue
@@ -405,10 +415,12 @@ def _explicit_rule(sale, history):
     return candidate
 
 
-def _record_unmapped_sale(bucket, key, product, quantity, revenue):
+def _record_unmapped_sale(
+    bucket, key, product, quantity, revenue, product_id=None
+):
     """Accumulate sale impact for a product that cannot add theoretical kg."""
     details = bucket[key]
-    item = details.setdefault(product, {
+    item = details.setdefault((product_id, product), {
         "quantity": Decimal("0"),
         "revenue": Decimal("0"),
         "sales_count": 0,
@@ -1350,7 +1362,8 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         if row is None:
             bucket["unmapped"].append(product)
             _record_unmapped_sale(
-                bucket, "unmapped_details", product, quantity, revenue
+                bucket, "unmapped_details", product, quantity, revenue,
+                sale.get("dose_product_id"),
             )
             continue
         tipo = str(row.get("tipo_dose", "fixa")).casefold()
@@ -1360,7 +1373,8 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
             if weight is None:
                 bucket["weighted_products"].append(product)
                 _record_unmapped_sale(
-                    bucket, "weighted_details", product, quantity, revenue
+                    bucket, "weighted_details", product, quantity, revenue,
+                    sale.get("dose_product_id"),
                 )
                 continue
             bucket["weighted_rows"] += 1
@@ -1401,17 +1415,24 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         unmapped = sorted(set(bucket["unmapped"]))
         weighted = sorted(set(bucket["weighted_products"]))
         def serialize_details(details):
-            return [
-                {
+            serialized = []
+            for (product_id, product), values in sorted(
+                details.items(),
+                key=lambda item: (
+                    str(item[0][1]).casefold(),
+                    item[0][0] if item[0][0] is not None else -1,
+                ),
+            ):
+                detail = {
                     "product": product,
                     "quantity": float(values["quantity"]),
                     "revenue": float(values["revenue"]),
                     "sales_count": values["sales_count"],
                 }
-                for product, values in sorted(
-                    details.items(), key=lambda item: item[0].casefold()
-                )
-            ]
+                if product_id is not None:
+                    detail["product_id"] = product_id
+                serialized.append(detail)
+            return serialized
 
         theoretical_value = (
             theoretical

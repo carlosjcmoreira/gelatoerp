@@ -150,7 +150,13 @@
                             <summary>{{ row.missing_products|length }} produto(s) sem kg{% if row.missing_sales_eur %} · {{ "%.2f"|format(row.missing_sales_eur) }} €{% endif %}</summary>
                             <ul class="small mt-1 mb-1 ps-3">
                                 {% for item in row.missing_products %}
-                                <li>{% if item.store %}{{ item.store }} · {% endif %}<strong>{{ item.product }}</strong> — {{ item.reason }}{% if item.revenue is not none %} · {{ "%.2f"|format(item.revenue) }} €{% endif %}</li>
+                                <li>{% if item.store %}{{ item.store }} · {% endif %}<strong>{{ item.product }}</strong> — {{ item.reason }}{% if item.revenue is not none %} · {{ "%.2f"|format(item.revenue) }} €{% endif %}
+                                {% if is_gestor and item.reason == 'Sem dose histórica' and item.product_id %}
+                                <a class="ms-1" href="{{ url_for('eurokg.consumo_teorico', loja=item.store or loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim, produto_id=item.product_id) }}">Configurar esta dose</a>
+                                {% elif item.reason == 'Sem kg vendido' %}
+                                <a class="ms-1" href="{{ url_for('eurokg.consumo_teorico', loja=item.store or loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim) }}">Ver vendas ao peso</a>
+                                {% endif %}
+                                </li>
                                 {% endfor %}
                             </ul>
                             <a class="small" href="{{ url_for('eurokg.consumo_teorico', loja=loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim) }}">Ver doses e vendas ao peso</a>

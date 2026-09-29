@@ -268,6 +268,7 @@ def _missing_product_details(doseamento):
                 missing.append({
                     'store': store_name,
                     'product': detail.get('product', ''),
+                    'product_id': detail.get('product_id'),
                     'reason': reason,
                     'quantity': _finite_float(detail.get('quantity')),
                     'revenue': _finite_float(detail.get('revenue')),
@@ -931,6 +932,29 @@ def consumo_teorico():
         if is_gestor else []
     )
 
+    focus_product_id = None
+    requested_product_id = request.args.get('produto_id')
+    if requested_product_id is not None:
+        if not is_gestor:
+            abort(403)
+        try:
+            parsed_product_id = int(requested_product_id)
+            if parsed_product_id <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            flash('O artigo indicado para configuração não é válido.', 'warning')
+        else:
+            if any(
+                product.get('id') == parsed_product_id
+                for product in dose_products
+            ):
+                focus_product_id = parsed_product_id
+            else:
+                flash(
+                    'O artigo do aviso já não está selecionado no Euro/kg.',
+                    'warning',
+                )
+
     tabs = _build_tabs(loja_filter, is_gestor, 'consumo')
 
     return render_template('eurokg/consumo_teorico.html',
@@ -944,6 +968,7 @@ def consumo_teorico():
         dose_coverage=dose_coverage, dose_import_audits=dose_import_audits,
         dose_import_preview=dose_import_preview,
         dose_products=dose_products,
+        focus_product_id=focus_product_id,
         vendas_peso_sem_peso=vendas_peso_sem_peso,
         dose_alias_alerts=dose_alias_alerts)
 
@@ -1031,7 +1056,12 @@ def configurar_produto_dose():
             )
     except (TypeError, ValueError) as exc:
         flash(str(exc) or 'Indique um valor de gramas válido.', 'error')
-    return redirect(url_for('eurokg.consumo_teorico', loja=loja_filter))
+    redirect_args = {'loja': loja_filter}
+    for key in ('data_inicio', 'data_fim', 'produto_id'):
+        value = request.form.get(key)
+        if value:
+            redirect_args[key] = value
+    return redirect(url_for('eurokg.consumo_teorico', **redirect_args))
 
 
 @eurokg_bp.route('/consumo/doses-historicas/preview', methods=['POST'])

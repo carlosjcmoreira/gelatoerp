@@ -133,6 +133,15 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
                         "quantity": 4,
                         "revenue": 72,
                         "sales_count": 4,
+                        "product_id": 301,
+                    }],
+                    weighted_products=["Gelado ao peso"],
+                    weighted_product_details=[{
+                        "product": "Gelado ao peso",
+                        "quantity": 2,
+                        "revenue": 18,
+                        "sales_count": 2,
+                        "product_id": 302,
                     }],
                     coverage_gaps=[{
                         "store": "Bolhão",
@@ -191,6 +200,12 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         self.assertIn("Cone de Baunilha", html)
         self.assertIn("Bolhão ·", html)
         self.assertIn("72.00 €", html)
+        self.assertIn("Configurar esta dose", html)
+        self.assertIn("produto_id=301", html)
+        self.assertIn("data_inicio=2026-02-01", html)
+        self.assertIn("data_fim=2026-02-28", html)
+        self.assertIn("Ver vendas ao peso", html)
+        self.assertNotIn("produto_id=302", html)
         self.assertNotIn("20/03/2026", html)
         self.assertNotIn("23/03/2026", html)
         self.assertIn("Auditoria física incompleta ou inválida", html)

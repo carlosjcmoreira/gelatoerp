@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from db.doseamento import (
     calculate_doseamento,
+    load_dose_sales_with_rules,
     get_vendas_ao_peso_sem_peso_calculavel,
     resolve_product_alias,
 )
@@ -62,16 +63,103 @@ def test_history_date_and_unmapped():
     assert result["theoretical_kg"] is None
 
 
-def test_weight_is_explicitly_incomplete():
+def test_unmapped_detail_keeps_stable_dose_product_id():
+    missing_sale = sale("Cone histórico", rule_id=None)
+    missing_sale["dose_product_id"] = 27
+
     result = calculate_doseamento(
-        [sale("Gelado weight")],
+        [missing_sale],
+        [],
+        rotation(),
+        date(2025, 1, 1), date(2025, 1, 1), "A",
+    )
+
+    assert result["unmapped_product_details"] == [{
+        "product": "Cone histórico",
+        "quantity": 10.0,
+        "revenue": 20.0,
+        "sales_count": 1,
+        "product_id": 27,
+    }]
+
+
+def test_unmapped_same_label_keeps_distinct_product_ids_separate():
+    first_sale = sale("Cone", rule_id=None)
+    first_sale["dose_product_id"] = 27
+    second_sale = sale("Cone", rule_id=None)
+    second_sale["dose_product_id"] = 29
+
+    result = calculate_doseamento(
+        [first_sale, second_sale],
+        [],
+        rotation(),
+        date(2025, 1, 1), date(2025, 1, 1), "A",
+    )
+
+    self_details = result["unmapped_product_details"]
+    assert [item["product_id"] for item in self_details] == [27, 29]
+    assert [item["quantity"] for item in self_details] == [10.0, 10.0]
+
+
+def test_alias_warning_targets_the_canonical_selected_product_id():
+    class Cursor:
+        def __init__(self, results):
+            self.results = iter(results)
+
+        def execute(self, _query, _params=None):
+            self.rows = next(self.results)
+
+        def fetchall(self):
+            return self.rows
+
+    cursor = Cursor([
+        [{
+            "data": date(2025, 1, 1),
+            "loja": "A",
+            "produto": "Cone antigo",
+            "quantidade": 1,
+            "valor_euros": 10,
+            "peso_vendido_kg": None,
+            "produto_vendas_config_id": 7,
+        }],
+        [{"nome_antigo": "Cone antigo", "nome_atual": "Cone"}],
+        [
+            {"id": 7, "produto": "Cone antigo", "gelado_kpi": True},
+            {"id": 8, "produto": "Cone", "gelado_kpi": True},
+        ],
+        [],
+        [],
+    ])
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def cursor(self, **_kwargs):
+            return cursor
+
+    with patch("db.doseamento.db_connection", return_value=Connection()):
+        sales, history = load_dose_sales_with_rules()
+
+    assert not history
+    assert sales[0]["dose_product_id"] == 8
+
+
+def test_weight_is_explicitly_incomplete():
+    weighted_sale = sale("Gelado weight")
+    weighted_sale["dose_product_id"] = 28
+    result = calculate_doseamento(
+        [weighted_sale],
         [{"id": 1, "artigo": "Gelado", "gramas": 100, "tipo_dose": "weight"}],
         rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
     )
     assert result["weighted_products"] == ["Gelado weight"]
     assert result["weighted_product_details"] == [{
         "product": "Gelado weight", "quantity": 10.0,
-        "revenue": 20.0, "sales_count": 1,
+        "revenue": 20.0, "sales_count": 1, "product_id": 28,
     }]
     assert "weight_products" in result["issues"]
 

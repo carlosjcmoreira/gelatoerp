@@ -29,11 +29,11 @@
 
     {% if is_gestor %}
     <div class="d-flex gap-2 mb-3">
-        <a href="{{ url_for('eurokg.consumo_teorico', loja='Global Porto', data_inicio=data_inicio, data_fim=data_fim) }}"
+        <a href="{{ url_for('eurokg.consumo_teorico', loja='Global Porto', data_inicio=data_inicio, data_fim=data_fim, produto_id=focus_product_id) }}"
            class="btn btn-sm {% if loja_filter == 'Global Porto' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
             🌍 Global Porto
         </a>
-        {% for store in store_filters %}<a href="{{ url_for('eurokg.consumo_teorico', loja=store.name, data_inicio=data_inicio, data_fim=data_fim) }}"
+        {% for store in store_filters %}<a href="{{ url_for('eurokg.consumo_teorico', loja=store.name, data_inicio=data_inicio, data_fim=data_fim, produto_id=focus_product_id) }}"
            class="btn btn-sm {% if loja_filter == store.name %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ store.name }}</a>{% endfor %}
     </div>
     {% endif %}
@@ -41,6 +41,7 @@
     <form method="get" class="row g-2 align-items-end mb-3">
         {% if is_gestor %}
         <input type="hidden" name="loja" value="{{ loja_filter }}">
+        {% if focus_product_id %}<input type="hidden" name="produto_id" value="{{ focus_product_id }}">{% endif %}
         {% endif %}
         <div class="col-auto">
             <label for="consumo-data-inicio" class="form-label small mb-1">De</label>
@@ -257,6 +258,9 @@
             {% if dose_products %}
             <form method="POST" action="{{ url_for('eurokg.configurar_produto_dose') }}">
                 <input type="hidden" name="loja_filter" value="{{ loja_filter }}">
+                <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+                <input type="hidden" name="data_fim" value="{{ data_fim }}">
+                {% if focus_product_id %}<input type="hidden" name="produto_id" value="{{ focus_product_id }}">{% endif %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-3">
                         <thead>
@@ -269,13 +273,15 @@
                         </thead>
                         <tbody>
                         {% for product in dose_products %}
-                            <tr>
+                            <tr id="dose-product-{{ product.id }}"
+                                {% if focus_product_id == product.id %}class="table-warning" tabindex="-1" data-dose-focus-target{% endif %}>
                                 <td>
                                     <input type="hidden" name="product_id" value="{{ product.id }}">
                                     <div>
                                         <strong class="small">{{ product.canonical_product.produto if product.canonical_product else product.produto }}</strong>
                                         <span class="text-muted small">ID {{ product.canonical_product.id if product.canonical_product else product.id }}</span>
                                     </div>
+                                    {% if focus_product_id == product.id %}<span class="badge text-bg-warning">Artigo do aviso</span>{% endif %}
                                     <span class="badge {{ 'text-bg-warning' if product.dose_config_pendente else 'text-bg-success' }}">{{ 'Faltam gramas' if product.dose_config_pendente else 'Configurado' }}</span>
                                     {% if product.valid_from %}<div class="text-muted small">Valor atual desde {{ product.valid_from.strftime('%d/%m/%Y') }}</div>{% elif product.first_sale %}<div class="text-muted small">Primeira venda em {{ product.first_sale.strftime('%d/%m/%Y') }}</div>{% endif %}
                                     <details class="mt-1" data-dose-family>
@@ -416,6 +422,12 @@
     if (filter) {
         filter.addEventListener('change', applyIncompleteFilter);
         applyIncompleteFilter();
+    }
+
+    var doseFocusTarget = document.querySelector('[data-dose-focus-target]');
+    if (doseFocusTarget) {
+        doseFocusTarget.scrollIntoView({behavior: 'smooth', block: 'center'});
+        doseFocusTarget.focus({preventScroll: true});
     }
 })();
 </script>

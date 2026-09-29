@@ -14,3 +14,9 @@ Exact alias families share the canonical product's earliest sale only when the c
 **Why:** Alias labels can predate the canonical configuration ID; using only the canonical ID's first sale leaves valid historical sales with an artificial unknown-dose gap. Conservative identity checks prevent that repair from crossing an ambiguous rename or another product's rule.
 
 **How to apply:** Resolve aliases by exact name and stable configured-product IDs. Use the family earliest sale for first-dose creation and an idempotent versioned migration for existing canonical first rules; leave ambiguous families for explicit review.
+
+Warning-driven configuration links must use the eligible configured-product ID resolved for each sale. Alias sales target the canonical selected product when available; missing-weight warnings do not link into dose editing.
+
+**Why:** Product labels can be historical aliases, while sales configured for weight may already have a valid dose and need a different correction. Label-based navigation can focus the wrong row or encourage an unnecessary dose change.
+
+**How to apply:** Carry the resolved stable ID through warning aggregation and only show a focused configuration action to managers. Keep period and store context in the link; use a general diagnostic link when no eligible dose ID exists or only sale weight is missing.

@@ -1,4 +1,5 @@
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -16,7 +17,11 @@ from flask_app.routes.eurokg import (
 
 
 def _make_eurokg_test_app():
-    app = Flask(__name__)
+    root = Path(__file__).resolve().parents[1]
+    app = Flask(
+        __name__,
+        template_folder=str(root / "flask_app" / "templates"),
+    )
     app.secret_key = "test-secret-key"
     app.config["TESTING"] = True
 
@@ -41,6 +46,114 @@ def _make_eurokg_test_app():
 class ConsumoTeoricoViewTests(unittest.TestCase):
     def setUp(self):
         self.app = _make_eurokg_test_app()
+
+    def _patch_consumo_page(self):
+        patches = [
+            patch(
+                "flask_app.routes.eurokg._store_context",
+                return_value=("Bolhão", "Bolhão", [{"name": "Bolhão"}]),
+            ),
+            patch(
+                "flask_app.routes.eurokg._build_tabs",
+                return_value=[],
+            ),
+            patch(
+                "flask_app.routes.eurokg.get_consumo_gelado_mensal",
+                return_value=pd.DataFrame(),
+            ),
+            patch(
+                "flask_app.routes.eurokg._build_consumo_teorico_view",
+                return_value=([], [], [], []),
+            ),
+            patch(
+                "flask_app.routes.eurokg._consumo_incomplete_totals",
+                return_value=[],
+            ),
+            patch(
+                "flask_app.routes.eurokg.get_historical_dose_coverage",
+                return_value=([], []),
+            ),
+            patch(
+                "flask_app.routes.eurokg.get_historical_dose_preview",
+                return_value=None,
+            ),
+            patch(
+                "flask_app.routes.eurokg.get_dose_product_configuration_queue",
+                return_value=([{
+                    "id": 42,
+                    "produto": "Cone de Baunilha",
+                    "canonical_product": {
+                        "id": 42,
+                        "produto": "Cone de Baunilha",
+                    },
+                    "aliases": [],
+                    "dose_config_pendente": True,
+                    "tipo_dose": "fixa",
+                    "gramas": None,
+                    "valid_from": None,
+                    "first_sale": None,
+                    "dose_history_exists": False,
+                }], []),
+            ),
+            patch(
+                "flask_app.routes.eurokg.get_vendas_ao_peso_sem_peso_calculavel",
+                return_value=[],
+            ),
+            patch(
+                "flask_app.routes.eurokg.get_dose_alias_coverage_alerts",
+                return_value=[],
+            ),
+        ]
+        return patches
+
+    def test_warning_focus_opens_the_stable_product_and_keeps_store_and_period(self):
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "test-manager",
+                    "acesso_gestor": True,
+                    "acesso_eurokg": True,
+                }
+
+            with ExitStack() as stack:
+                for patcher in self._patch_consumo_page():
+                    stack.enter_context(patcher)
+                response = client.get(
+                    "/eurokg/consumo?loja=Bolh%C3%A3o"
+                    "&data_inicio=2026-08-01&data_fim=2026-08-31"
+                    "&produto_id=42"
+                )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('id="dose-product-42"', html)
+        self.assertIn('data-dose-focus-target', html)
+        self.assertIn("Artigo do aviso", html)
+        self.assertIn('name="loja" value="Bolhão"', html)
+        self.assertIn('value="2026-08-01"', html)
+        self.assertIn('value="2026-08-31"', html)
+        self.assertIn('name="produto_id" value="42"', html)
+        self.assertIn('name="data_inicio" value="2026-08-01"', html)
+        self.assertIn('name="data_fim" value="2026-08-31"', html)
+        self.assertIn("scrollIntoView", html)
+
+    def test_non_manager_cannot_open_a_manager_product_focus(self):
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "store-user",
+                    "acesso_gestor": False,
+                    "acesso_eurokg": True,
+                }
+
+            with ExitStack() as stack:
+                for patcher in self._patch_consumo_page():
+                    stack.enter_context(patcher)
+                response = client.get(
+                    "/eurokg/consumo?loja=Bolh%C3%A3o&produto_id=42"
+                )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_batch_parser_keeps_valid_rows_and_weight_rows(self):
         form = MultiDict([
@@ -137,6 +250,38 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         )
         conn.commit.assert_called_once_with()
         conn.rollback.assert_not_called()
+
+    def test_saving_focused_dose_preserves_warning_period_and_product(self):
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "testuser",
+                    "acesso_gestor": True,
+                }
+
+            with patch("flask_app.routes.eurokg.db_connection") as db_connection:
+                conn = MagicMock(name="focused-dose-connection")
+                db_connection.return_value.__enter__.return_value = conn
+                with patch("flask_app.routes.eurokg.set_product_dose"):
+                    response = client.post(
+                        "/eurokg/consumo/configurar-produto",
+                        data=MultiDict([
+                            ("loja_filter", "Bolhão"),
+                            ("data_inicio", "2026-08-01"),
+                            ("data_fim", "2026-08-31"),
+                            ("produto_id", "42"),
+                            ("product_id", "42"),
+                            ("tipo_dose", "fixa"),
+                            ("gramas", "100"),
+                        ]),
+                    )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.location,
+            "/eurokg/consumo?loja=Bolh%C3%A3o&data_inicio=2026-08-01"
+            "&data_fim=2026-08-31&produto_id=42",
+        )
 
     def test_unexpected_batch_failure_rolls_back_all_rows(self):
         with self.app.test_client() as client:

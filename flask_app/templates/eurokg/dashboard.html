@@ -102,7 +102,14 @@
                 <summary class="fw-semibold">Ver artigos e lojas</summary>
                 <ul class="small mb-1 mt-1 ps-3">
                     {% for item in estimate.missing_products %}
-                    <li>{% if item.store %}{{ item.store }} · {% endif %}<strong>{{ item.product }}</strong> — {{ item.reason }}{% if item.revenue is not none %} · {{ "%.2f"|format(item.revenue) }} €{% endif %}</li>
+                    <li>
+                        {% if item.store %}{{ item.store }} · {% endif %}<strong>{{ item.product }}</strong> — {{ item.reason }}{% if item.revenue is not none %} · {{ "%.2f"|format(item.revenue) }} €{% endif %}
+                        {% if is_gestor and item.reason == 'Sem dose histórica' and item.product_id %}
+                        <a class="ms-1" href="{{ url_for('eurokg.consumo_teorico', loja=item.store or loja_filter, data_inicio=estimate.data_inicio, data_fim=estimate.data_fim, produto_id=item.product_id) }}">Configurar esta dose</a>
+                        {% elif item.reason == 'Sem kg vendido' %}
+                        <a class="ms-1" href="{{ url_for('eurokg.consumo_teorico', loja=item.store or loja_filter, data_inicio=estimate.data_inicio, data_fim=estimate.data_fim) }}">Ver vendas ao peso</a>
+                        {% endif %}
+                    </li>
                     {% endfor %}
                 </ul>
             </details>

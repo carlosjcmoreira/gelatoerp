@@ -132,6 +132,14 @@ class EurokgDashboardQualityTests(unittest.TestCase):
                 'quantity': 4,
                 'revenue': 72.0,
                 'sales_count': 4,
+                'product_id': 101,
+            }],
+            'weighted_product_details': [{
+                'product': 'Gelado ao peso',
+                'quantity': 2,
+                'revenue': 18.0,
+                'sales_count': 2,
+                'product_id': 202,
             }],
         })
         get_doseamento.return_value = payload
@@ -145,9 +153,49 @@ class EurokgDashboardQualityTests(unittest.TestCase):
         self.assertIn('Cone de Baunilha', html)
         self.assertIn('72.00 €', html)
         self.assertIn('Ver doses e vendas ao peso', html)
+        self.assertIn('Configurar esta dose', html)
+        self.assertIn('produto_id=101', html)
+        self.assertIn('loja=Bolh%C3%A3o', html)
+        self.assertIn('Ver vendas ao peso', html)
+        self.assertNotIn('produto_id=202', html)
         self.assertIn('data_inicio=2026-08-30', html)
         self.assertIn('data_fim=2026-09-28', html)
         self.assertNotIn('unmapped_products', html)
+
+    def test_non_manager_sees_no_manager_only_product_configuration_link(self):
+        payload = doseamento_payload(
+            'incomplete', ['unmapped_products']
+        )
+        payload.update({
+            'unmapped_products': ['Cone de Baunilha'],
+            'unmapped_product_details': [{
+                'product': 'Cone de Baunilha',
+                'quantity': 4,
+                'revenue': 72.0,
+                'product_id': 101,
+            }],
+        })
+        self.mocks[-1].return_value = payload
+
+        with self.client.session_transaction() as session:
+            session['user'] = {
+                'id': 11,
+                'username': 'store-user',
+                'acesso_gestor': False,
+                'acesso_eurokg': True,
+                'vendas_store_ids': [1],
+            }
+
+        with patch.object(
+            eurokg, '_store_context',
+            return_value=('Bolhão', 'Bolhão', [{'name': 'Bolhão'}]),
+        ):
+            response = self.client.get('/eurokg/dashboard')
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertNotIn('produto_id=101', html)
+        self.assertNotIn('Configurar esta dose', html)
 
     def test_global_estimate_sums_known_store_subtotals_and_keeps_local_gaps(self):
         estimate = eurokg._prepare_operational_estimate({
