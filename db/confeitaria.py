@@ -233,3 +233,59 @@ def get_confeitaria_count_submission_history(count_date, store_id):
             ORDER BY MIN(submitted_at) DESC, submission_id DESC
         """, (store_id, count_date))
         return cursor.fetchall()
+
+
+def get_confeitaria_stock_count_overview(active_store_ids):
+    """Read latest store counts and full history without matching by labels."""
+    if not isinstance(active_store_ids, (list, tuple, set)):
+        raise ValueError('Lista de lojas inválida.')
+    store_ids = sorted({
+        _validate_store_id(store_id) for store_id in active_store_ids
+    })
+
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        latest_counts = []
+        if store_ids:
+            cursor.execute("""
+                SELECT DISTINCT ON (
+                           cs.produto_confeitaria_id, cs.store_id
+                       )
+                       cs.id, cs.data, cs.store_id,
+                       cs.produto_confeitaria_id, cs.quantidade
+                FROM contagem_stock cs
+                JOIN stores s
+                  ON s.id=cs.store_id
+                 AND s.supports_vendas=TRUE
+                 AND s.is_active=TRUE
+                WHERE cs.tipo='confeitaria'
+                  AND cs.origem='contagem'
+                  AND cs.store_id=ANY(%s)
+                  AND cs.produto_confeitaria_id IS NOT NULL
+                ORDER BY cs.produto_confeitaria_id, cs.store_id,
+                         cs.data DESC, cs.id DESC
+            """, (store_ids,))
+            latest_counts = cursor.fetchall()
+
+        cursor.execute("""
+            SELECT cs.id, cs.data, cs.loja AS loja_registada,
+                   cs.store_id, s.name AS loja_atual,
+                   s.is_active AS loja_ativa,
+                   cs.origem AS origem,
+                   cs.produto AS produto_registado,
+                   cs.produto_confeitaria_id,
+                   p.nome AS produto_atual, p.ativo AS produto_ativo,
+                   cs.quantidade
+            FROM contagem_stock cs
+            LEFT JOIN stores s ON s.id=cs.store_id
+            LEFT JOIN produtos_confeitaria p
+              ON p.id=cs.produto_confeitaria_id
+            WHERE cs.tipo='confeitaria'
+            ORDER BY cs.data DESC, cs.id DESC
+        """)
+        history = cursor.fetchall()
+
+    return {
+        'latest_counts': latest_counts,
+        'history': history,
+    }

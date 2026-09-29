@@ -5,89 +5,233 @@
 <div class="container-fluid px-3 py-3">
     {% include "components/tabs.html" %}
     <h5 class="mb-1">📦 Visão de Stock</h5>
-    <p class="text-muted small mb-3">Stock registado por produto e loja</p>
+    <p class="text-muted small mb-3">
+        Saldo de produção auditado e última contagem física por loja.
+    </p>
 
     {% if msg %}
     <div class="alert alert-{{ msg_type }} alert-dismissible fade show" role="alert">
         {{ msg }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="alert"
+                aria-label="Fechar"></button>
     </div>
     {% endif %}
 
-    <div class="alert alert-info mb-3">
-        As novas contagens físicas são registadas em Vendas, na opção
-        <strong>Contagem Confeitaria</strong>. Este ecrã mantém o resumo e o histórico.
-        Registos antigos continuam com os nomes originais e sem associação automática.
+    <div class="alert alert-info small">
+        <strong>Os valores têm âmbitos diferentes.</strong>
+        O saldo auditado é da produção. Cada loja mostra a sua contagem física
+        mais recente e a respetiva data; as contagens não são somadas, porque
+        podem referir-se a dias diferentes.
     </div>
 
-    <hr>
-    <h6 class="mb-2">Stock por Produto e Local</h6>
-
-    {% if stock_matrix %}
-    <div class="table-responsive mb-3">
+    <h6 class="mb-2">Saldo auditado e última contagem física</h6>
+    {% if stock_rows %}
+    <div class="table-responsive d-none d-lg-block mb-3">
         <table class="table table-sm table-striped align-middle">
             <thead>
                 <tr>
                     <th>Produto</th>
-                    <th class="text-center">Bolhão</th>
-                    <th class="text-center">Matosinhos</th>
-                    <th class="text-center">Total</th>
+                    <th class="text-center">Saldo de produção auditado</th>
+                    {% for store in stores %}
+                    <th class="text-center">
+                        {{ store.name }}<br>
+                        <small class="text-muted">Loja ID {{ store.id }}</small>
+                    </th>
+                    {% endfor %}
                 </tr>
             </thead>
             <tbody>
-                {% for row in stock_matrix %}
+                {% for row in stock_rows %}
                 <tr>
-                    <td>{{ row.produto }}</td>
-                    <td class="text-center">
-                        <span class="fw-bold">{{ row['Bolhão'] }}</span>
-                        {% if row.data_bolhao %}
-                        <br><small class="text-muted">{{ row.data_bolhao.strftime('%d/%m') }}</small>
+                    <td>
+                        <span class="fw-semibold">{{ row.produto }}</span>
+                        <small class="text-muted">ID {{ row.id }}</small>
+                        {% if not row.ativo %}
+                        <span class="badge bg-secondary">Inativo</span>
                         {% endif %}
                     </td>
+                    <td class="text-center fw-semibold">
+                        {{ row.saldo_auditado }} unid.
+                    </td>
+                    {% for count in row.contagens_loja %}
                     <td class="text-center">
-                        <span class="fw-bold">{{ row['Matosinhos'] }}</span>
-                        {% if row.data_matosinhos %}
-                        <br><small class="text-muted">{{ row.data_matosinhos.strftime('%d/%m') }}</small>
+                        {% if count %}
+                        <span class="fw-semibold">{{ count.quantidade }} unid.</span>
+                        <br>
+                        <small class="text-muted">
+                            {{ count.data.strftime('%d/%m/%Y') }}
+                        </small>
+                        {% else %}
+                        <span class="text-muted">Sem contagem</span>
                         {% endif %}
                     </td>
-                    <td class="text-center fw-bold">{{ row['Bolhão'] + row['Matosinhos'] }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="d-lg-none mb-3">
+        {% for row in stock_rows %}
+        <article class="card mb-2">
+            <div class="card-header py-2">
+                <div class="d-flex justify-content-between gap-2">
+                    <div>
+                        <span class="fw-semibold">{{ row.produto }}</span>
+                        <small class="text-muted">ID {{ row.id }}</small>
+                        {% if not row.ativo %}
+                        <span class="badge bg-secondary">Inativo</span>
+                        {% endif %}
+                    </div>
+                    <div class="text-end">
+                        <small class="text-muted d-block">Saldo auditado</small>
+                        <strong>{{ row.saldo_auditado }} unid.</strong>
+                    </div>
+                </div>
+            </div>
+            {% if stores %}
+            <div class="card-body py-2">
+                {% for store in stores %}
+                {% set count = row.contagens_loja[loop.index0] %}
+                <div class="d-flex justify-content-between align-items-center gap-2
+                            {% if not loop.last %}border-bottom pb-2 mb-2{% endif %}">
+                    <span>
+                        {{ store.name }}
+                        <small class="text-muted">ID {{ store.id }}</small>
+                    </span>
+                    {% if count %}
+                    <span class="text-end">
+                        <strong>{{ count.quantidade }} unid.</strong><br>
+                        <small class="text-muted">
+                            {{ count.data.strftime('%d/%m/%Y') }}
+                        </small>
+                    </span>
+                    {% else %}
+                    <span class="text-muted">Sem contagem</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="card-body py-2 text-muted small">
+                Não existem lojas Vendas ativas.
+            </div>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="alert alert-info small">Sem produtos no catálogo.</div>
+    {% endif %}
+
+    {% if not stores %}
+    <div class="alert alert-warning small">
+        Não existem lojas Vendas ativas para apresentar contagens físicas.
+    </div>
+    {% endif %}
+
+    <hr>
+    <h6 class="mb-1">Histórico anterior de registos de Confeitaria</h6>
+    <p class="text-muted small">
+        Os registos anteriores mantêm a sua origem, identidade e rótulos guardados.
+        Registos sem IDs não são associados a produtos ou lojas pelo nome.
+    </p>
+    {% if count_history %}
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Loja</th>
+                    <th>Produto</th>
+                    <th class="text-end">Quantidade</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in count_history %}
+                <tr>
+                    <td>{{ row.data.strftime('%d/%m/%Y') }}</td>
+                    <td>
+                        {{ row.loja_label }}
+                        {% if row.store_id is not none %}
+                        <small class="text-muted">ID {{ row.store_id }}</small>
+                        {% if row.loja_ativa is sameas false %}
+                        <span class="badge bg-secondary">Loja inativa</span>
+                        {% endif %}
+                        {% if row.loja_snapshot %}
+                        <small class="d-block text-muted">
+                            Rótulo registado: {{ row.loja_snapshot }}
+                        </small>
+                        {% endif %}
+                        {% else %}
+                        <span class="badge bg-warning text-dark">
+                            Registo antigo sem ID de loja
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ row.produto_label }}
+                        {% if row.produto_confeitaria_id is not none %}
+                        <small class="text-muted">
+                            ID {{ row.produto_confeitaria_id }}
+                        </small>
+                        {% if row.produto_atual and not row.produto_ativo %}
+                        <span class="badge bg-secondary">Produto inativo</span>
+                        {% endif %}
+                        {% if row.produto_snapshot %}
+                        <small class="d-block text-muted">
+                            Rótulo registado: {{ row.produto_snapshot }}
+                        </small>
+                        {% endif %}
+                        {% else %}
+                        <span class="badge bg-warning text-dark">
+                            Registo antigo sem ID de produto
+                        </span>
+                        {% endif %}
+                        {% if row.origem and row.origem != 'contagem' %}
+                        <span class="badge bg-info text-dark">
+                            Origem: {{ row.origem }}
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">{{ row.quantidade }} unid.</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
     {% else %}
-    <div class="alert alert-info mb-3">Sem stock registado.</div>
+    <div class="text-muted small mb-3">Sem contagens físicas no histórico.</div>
     {% endif %}
 
-    {% if contagens %}
     <hr>
-    <h6>Histórico de Contagens</h6>
+    <h6 class="mb-1">Saldo de produção antigo (legado)</h6>
+    <p class="text-muted small">
+        Referência separada; estes saldos não entram no saldo auditado e não são
+        associados ao catálogo atual pelo nome.
+    </p>
+    {% if legacy_stock %}
     <div class="table-responsive">
         <table class="table table-sm table-striped">
             <thead>
                 <tr>
-                    <th>ID</th>
-                    <th>Data</th>
-                    <th>Loja</th>
-                    <th>Produto</th>
-                    <th>Qtd</th>
+                    <th>Rótulo antigo</th>
+                    <th class="text-end">Quantidade registada</th>
                 </tr>
             </thead>
             <tbody>
-                {% for row in contagens %}
+                {% for row in legacy_stock %}
                 <tr>
-                    <td>{{ row.id }}</td>
-                    <td>{{ row.data }}</td>
-                    <td>{{ row.loja }}</td>
                     <td>{{ row.produto }}</td>
-                    <td>{{ row.quantidade }}</td>
+                    <td class="text-end">{{ row.quantidade }} unid.</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-
+    {% else %}
+    <div class="text-muted small">Sem saldos legados registados.</div>
     {% endif %}
 </div>
 {% endblock %}

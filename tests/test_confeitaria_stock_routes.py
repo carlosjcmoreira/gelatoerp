@@ -416,6 +416,160 @@ class ConfeitariaStockRouteTests(unittest.TestCase):
         get_plan.assert_not_called()
         record.assert_not_called()
 
+    def test_stock_overview_uses_dynamic_store_ids_and_keeps_dates_separate(self):
+        stores = [
+            {
+                'id': 11,
+                'name': 'Matosinhos',
+                'store_type': 'producao',
+                'requires_eod_weighing': True,
+            },
+            {
+                'id': 24,
+                'name': 'Loja Nova',
+                'store_type': 'loja',
+                'requires_eod_weighing': True,
+            },
+        ]
+        products = [
+            {
+                'produto_confeitaria_id': 7,
+                'produto': 'Cookie Ativo',
+                'ativo': True,
+                'saldo': 14,
+            },
+            {
+                'produto_confeitaria_id': 8,
+                'produto': 'Cookie Arquivado',
+                'ativo': False,
+                'saldo': 3,
+            },
+        ]
+        count_data = {
+            'latest_counts': [
+                {
+                    'id': 101,
+                    'produto_confeitaria_id': 7,
+                    'store_id': 11,
+                    'data': date(2026, 9, 22),
+                    'quantidade': 4,
+                },
+                {
+                    'id': 102,
+                    'produto_confeitaria_id': 7,
+                    'store_id': 24,
+                    'data': date(2026, 9, 28),
+                    'quantidade': 3,
+                },
+                {
+                    'id': 103,
+                    'produto_confeitaria_id': 8,
+                    'store_id': 24,
+                    'data': date(2026, 9, 28),
+                    'quantidade': 2,
+                },
+            ],
+            'history': [
+                {
+                    'id': 90,
+                    'data': date(2026, 9, 8),
+                    'loja_registada': 'Loja Nova',
+                    'store_id': 24,
+                    'loja_atual': 'Loja Nova',
+                    'loja_ativa': True,
+                    'produto_registado': 'Cookie antigo',
+                    'produto_confeitaria_id': 8,
+                    'produto_atual': 'Cookie Arquivado',
+                    'produto_ativo': False,
+                    'quantidade': 2,
+                },
+                {
+                    'id': 89,
+                    'data': date(2026, 8, 9),
+                    'loja_registada': 'Matosinhos',
+                    'store_id': None,
+                    'loja_atual': None,
+                    'loja_ativa': None,
+                    'produto_registado': 'Cookie Ativo',
+                    'produto_confeitaria_id': None,
+                    'produto_atual': None,
+                    'produto_ativo': None,
+                    'quantidade': 9,
+                },
+                {
+                    'id': 88,
+                    'data': date(2026, 9, 3),
+                    'loja_registada': 'Matosinhos',
+                    'store_id': 11,
+                    'loja_atual': 'Matosinhos',
+                    'loja_ativa': True,
+                    'origem': 'importacao',
+                    'produto_registado': 'Cookie Ativo',
+                    'produto_confeitaria_id': 7,
+                    'produto_atual': 'Cookie Ativo',
+                    'produto_ativo': True,
+                    'quantidade': 1,
+                },
+            ],
+        }
+        legacy_stock = [{'produto': 'Cookie Ativo', 'quantidade': 12}]
+
+        with (
+            patch(
+                'flask_app.routes.confeitaria._tabs_with_urls',
+                return_value=[],
+            ),
+            patch(
+                'flask_app.routes.confeitaria.get_vendas_module_stores',
+                return_value=stores,
+            ),
+            patch(
+                'flask_app.routes.confeitaria.get_confeitaria_stock_count_overview',
+                return_value=count_data,
+            ) as get_counts,
+            patch(
+                'flask_app.routes.confeitaria.get_confeitaria_stock_options',
+                return_value=products,
+            ),
+            patch(
+                'flask_app.routes.confeitaria.get_stock_producao_area_all',
+                return_value=legacy_stock,
+            ),
+            patch(
+                'flask_app.routes.confeitaria.register_confeitaria_stock_movement'
+            ) as register_movement,
+        ):
+            response = self.client.get('/confeitaria/stock-balcao')
+
+        page = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Saldo de produção auditado', page)
+        self.assertIn('Loja Nova', page)
+        self.assertIn('Matosinhos', page)
+        self.assertNotIn('Bolhão', page)
+        self.assertIn('22/09/2026', page)
+        self.assertIn('28/09/2026', page)
+        self.assertIn('as contagens não são somadas', page)
+        self.assertIn('Produto inativo', page)
+        self.assertIn('Registo antigo sem ID de produto', page)
+        self.assertIn('Origem: importacao', page)
+        self.assertIn('Saldo de produção antigo (legado)', page)
+        self.assertIn('d-none d-lg-block', page)
+        self.assertIn('d-lg-none', page)
+        get_counts.assert_called_once_with([11, 24])
+        register_movement.assert_not_called()
+
+    def test_stock_overview_still_requires_confeitaria_permission(self):
+        self._set_user(acesso_confeitaria=False)
+        with patch(
+            'flask_app.routes.confeitaria.get_confeitaria_stock_count_overview'
+        ) as get_counts:
+            response = self.client.get('/confeitaria/stock-balcao')
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/test-home'))
+        get_counts.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

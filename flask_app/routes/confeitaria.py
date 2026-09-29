@@ -11,14 +11,14 @@ from db.confeitaria_stock import (
     record_confeitaria_production_batch,
     register_confeitaria_stock_movement,
 )
+from db.confeitaria import get_confeitaria_stock_count_overview
+from db.auth import get_vendas_module_stores
 from db.confeitaria_transfers import (
     criar_ordens_transferencia_confeitaria,
     reconciliar_confeitaria_stock_corte,
 )
 from database import (
     get_produtos_confeitaria,
-    get_ultimo_stock_balcao,
-    get_contagem_stock_df,
     get_produtos_by_area,
     upsert_plano_area, marcar_produto_no_plano, remover_produto_do_plano,
     get_plano_do_dia_area, get_plano_produto,
@@ -84,35 +84,79 @@ def stock_balcao():
         )
         msg_type = 'warning'
 
-    stock_resumo = get_ultimo_stock_balcao('confeitaria')
+    stores = get_vendas_module_stores()
+    count_data = get_confeitaria_stock_count_overview(
+        [store['id'] for store in stores]
+    )
+    latest_counts = {
+        (
+            int(row['produto_confeitaria_id']),
+            int(row['store_id']),
+        ): row
+        for row in count_data['latest_counts']
+    }
 
-    stock_matrix = {}
-    for s in stock_resumo:
-        prod = s['produto']
-        if prod not in stock_matrix:
-            stock_matrix[prod] = {'produto': prod, 'Bolhão': 0, 'Matosinhos': 0, 'data_bolhao': None, 'data_matosinhos': None}
-        stock_matrix[prod][s['loja']] = s['quantidade']
-        stock_matrix[prod][f"data_{s['loja'].lower()}"] = s['data']
-    stock_matrix_list = sorted(stock_matrix.values(), key=lambda x: x['produto'])
+    stock_rows = []
+    for product in get_confeitaria_stock_options():
+        product_id = int(product['produto_confeitaria_id'])
+        stock_rows.append({
+            'id': product_id,
+            'produto': product['produto'],
+            'ativo': product['ativo'],
+            'saldo_auditado': product['saldo'],
+            'contagens_loja': [
+                latest_counts.get((product_id, int(store['id'])))
+                for store in stores
+            ],
+        })
 
-    contagens = get_contagem_stock_df('confeitaria')
-    contagens_list = []
-    if not contagens.empty:
-        for _, row in contagens.iterrows():
-            contagens_list.append({
-                'id': row['id'],
-                'data': row['data'].strftime('%Y-%m-%d') if hasattr(row['data'], 'strftime') else str(row['data']),
-                'loja': row['loja'],
-                'produto': row['produto'],
-                'quantidade': int(row['quantidade']),
-            })
+    count_history = []
+    for row in count_data['history']:
+        history_row = dict(row)
+        product_id = history_row['produto_confeitaria_id']
+        history_row['produto_com_id'] = product_id is not None
+        history_row['produto_label'] = (
+            history_row['produto_atual'] or history_row['produto_registado']
+            if product_id is not None
+            else history_row['produto_registado']
+        )
+        history_row['produto_snapshot'] = (
+            history_row['produto_registado']
+            if (
+                product_id is not None
+                and history_row['produto_atual']
+                and history_row['produto_atual']
+                != history_row['produto_registado']
+            )
+            else None
+        )
+        history_row['loja_com_id'] = history_row['store_id'] is not None
+        history_row['loja_label'] = (
+            history_row['loja_atual'] or history_row['loja_registada']
+            if history_row['store_id'] is not None
+            else history_row['loja_registada']
+        )
+        history_row['loja_snapshot'] = (
+            history_row['loja_registada']
+            if (
+                history_row['store_id'] is not None
+                and history_row['loja_atual']
+                and history_row['loja_atual']
+                != history_row['loja_registada']
+            )
+            else None
+        )
+        count_history.append(history_row)
+
+    legacy_stock = get_stock_producao_area_all('confeitaria')
 
     return render_template('confeitaria/stock_balcao.html',
                            active_tab='stock_balcao',
                            tabs=_tabs_with_urls(),
-                           stock_resumo=stock_resumo,
-                           stock_matrix=stock_matrix_list,
-                           contagens=contagens_list,
+                           stores=stores,
+                           stock_rows=stock_rows,
+                           count_history=count_history,
+                           legacy_stock=legacy_stock,
                            msg=msg,
                            msg_type=msg_type)
 

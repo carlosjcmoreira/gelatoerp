@@ -395,6 +395,144 @@ class ConfeitariaCountConcurrencyPostgresTests(unittest.TestCase):
                 )
             cls.admin_connection.close()
 
+    def test_stock_overview_uses_stable_ids_and_does_not_change_counts(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO stores (name, is_active)
+                    VALUES ('Loja Ativa Adicional', TRUE)
+                    RETURNING id
+                """)
+                active_store_id = cursor.fetchone()[0]
+                cursor.execute("""
+                    INSERT INTO stores (name, is_active)
+                    VALUES ('Loja Inativa', FALSE)
+                    RETURNING id
+                """)
+                inactive_store_id = cursor.fetchone()[0]
+                cursor.execute("""
+                    INSERT INTO produtos_confeitaria (nome, ativo)
+                    VALUES ('Produto Arquivado', FALSE)
+                    RETURNING id
+                """)
+                inactive_product_id = cursor.fetchone()[0]
+
+                rows = [
+                    (
+                        date(2026, 9, 20), 'Confeitaria Teste',
+                        'Produto Teste', 8, self.product_id, self.store_id,
+                    ),
+                    (
+                        date(2026, 9, 22), 'Confeitaria Teste',
+                        'Produto Teste', 5, self.product_id, self.store_id,
+                    ),
+                    (
+                        date(2026, 9, 21), 'Loja Ativa Adicional',
+                        'Produto Teste', 4, self.product_id, active_store_id,
+                    ),
+                    (
+                        date(2026, 9, 23), 'Loja Ativa Adicional',
+                        'Produto Arquivado', 2, inactive_product_id,
+                        active_store_id,
+                    ),
+                    (
+                        date(2026, 9, 24), 'Loja Inativa',
+                        'Produto Teste', 3, self.product_id,
+                        inactive_store_id,
+                    ),
+                    (
+                        date(2026, 9, 25), 'Confeitaria Teste',
+                        'Produto Teste', 99, None, None,
+                    ),
+                ]
+                cursor.executemany("""
+                    INSERT INTO contagem_stock (
+                        data, loja, produto, quantidade, tipo, origem,
+                        produto_confeitaria_id, store_id
+                    )
+                    VALUES (%s, %s, %s, %s, 'confeitaria', 'contagem', %s, %s)
+                """, rows)
+                cursor.execute("""
+                    INSERT INTO contagem_stock (
+                        data, loja, produto, quantidade, tipo, origem,
+                        produto_confeitaria_id, store_id
+                    )
+                    VALUES (
+                        %s, 'Confeitaria Teste', 'Produto Teste', 101,
+                        'confeitaria', 'importacao', %s, %s
+                    )
+                """, (
+                    date(2026, 9, 26), self.product_id, self.store_id,
+                ))
+                cursor.execute("SELECT COUNT(*) FROM contagem_stock")
+                count_before = cursor.fetchone()[0]
+            connection.commit()
+
+        with patch(
+            'db.confeitaria.db_connection',
+            self.isolated_connection,
+        ):
+            overview = confeitaria_counts.get_confeitaria_stock_count_overview(
+                [self.store_id, active_store_id, inactive_store_id]
+            )
+
+        latest = {
+            (
+                row['produto_confeitaria_id'],
+                row['store_id'],
+            ): row
+            for row in overview['latest_counts']
+        }
+        self.assertEqual(len(latest), 3)
+        self.assertEqual(
+            latest[(self.product_id, self.store_id)]['quantidade'], 5
+        )
+        self.assertEqual(
+            latest[(self.product_id, self.store_id)]['data'],
+            date(2026, 9, 22),
+        )
+        self.assertEqual(
+            latest[(self.product_id, active_store_id)]['quantidade'], 4
+        )
+        self.assertEqual(
+            latest[(inactive_product_id, active_store_id)]['quantidade'], 2
+        )
+        self.assertNotIn(
+            (self.product_id, inactive_store_id),
+            latest,
+        )
+
+        legacy = next(
+            row for row in overview['history']
+            if row['produto_confeitaria_id'] is None
+        )
+        self.assertEqual(legacy['produto_registado'], 'Produto Teste')
+        self.assertIsNone(legacy['produto_atual'])
+        inactive_product = next(
+            row for row in overview['history']
+            if row['produto_confeitaria_id'] == inactive_product_id
+        )
+        self.assertFalse(inactive_product['produto_ativo'])
+        imported = next(
+            row for row in overview['history']
+            if row['origem'] == 'importacao'
+        )
+        self.assertEqual(imported['quantidade'], 101)
+        self.assertEqual(
+            latest[(self.product_id, self.store_id)]['quantidade'], 5
+        )
+        inactive_store_history = next(
+            row for row in overview['history']
+            if row['store_id'] == inactive_store_id
+        )
+        self.assertFalse(inactive_store_history['loja_ativa'])
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM contagem_stock")
+                count_after = cursor.fetchone()[0]
+        self.assertEqual(count_before, count_after)
+
     def test_simultaneous_replay_saves_only_one_snapshot(self):
         with patch(
             'db.confeitaria.db_connection',

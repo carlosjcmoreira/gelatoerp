@@ -209,12 +209,20 @@ class ConfeitariaProductCatalogueTests(unittest.TestCase):
                 'db.pastelaria.delete_contagem_stock',
             ) as delete_count,
             patch(
-                'flask_app.routes.confeitaria.get_ultimo_stock_balcao',
+                'flask_app.routes.confeitaria.get_vendas_module_stores',
                 return_value=[],
             ),
             patch(
-                'flask_app.routes.confeitaria.get_contagem_stock_df',
-                return_value=pd.DataFrame(),
+                'flask_app.routes.confeitaria.get_confeitaria_stock_count_overview',
+                return_value={'latest_counts': [], 'history': []},
+            ),
+            patch(
+                'flask_app.routes.confeitaria.get_confeitaria_stock_options',
+                return_value=[],
+            ),
+            patch(
+                'flask_app.routes.confeitaria.get_stock_producao_area_all',
+                return_value=[],
             ),
         ):
             responses = [
