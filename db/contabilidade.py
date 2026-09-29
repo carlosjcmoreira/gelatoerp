@@ -245,6 +245,42 @@ def count_cont_invoices(
         return cur.fetchone()[0] or 0
 
 
+def get_cont_invoice_cost_center_names(invoice_id: int) -> list[str]:
+    """Return unique cost-center names linked through legacy or multi-allocation data."""
+    sql = """
+        SELECT name
+        FROM (
+            SELECT cc.name AS name
+            FROM invoice_centros_custo icc
+            JOIN cost_centers cc ON cc.id = icc.centro_custo_id
+            WHERE icc.invoice_id = %s
+
+            UNION ALL
+
+            SELECT cc.name AS name
+            FROM invoices i
+            JOIN cost_centers cc ON cc.id = i.centro_custo_id
+            WHERE i.id = %s
+              AND NOT EXISTS (
+                  SELECT 1 FROM invoice_centros_custo icc
+                  WHERE icc.invoice_id = i.id
+              )
+        ) AS invoice_cost_centers
+        WHERE name IS NOT NULL
+    """
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql, (invoice_id, invoice_id))
+        rows = cur.fetchall()
+
+    names_by_key = {}
+    for row in rows:
+        name = ' '.join(str(row[0] or '').split())
+        if name:
+            names_by_key.setdefault(name.casefold(), name)
+    return sorted(names_by_key.values(), key=lambda name: (name.casefold(), name))
+
+
 def get_cont_summary() -> dict:
     """Return summary stats for the dashboard cards."""
     today = date.today()

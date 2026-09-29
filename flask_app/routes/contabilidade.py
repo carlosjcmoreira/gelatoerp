@@ -7,6 +7,9 @@ Provides a unified view of all invoices for the accounting team, with:
 """
 import logging
 import math
+import os
+import re
+import unicodedata
 from datetime import date as _date, datetime
 from io import BytesIO
 
@@ -65,6 +68,56 @@ def _parse_centro_custo_filter(raw: str):
 
 
 PAGE_SIZE = 50
+
+
+def _safe_center_filename_part(value: str) -> str:
+    """Keep readable Unicode while removing path and header-sensitive characters."""
+    normalized = unicodedata.normalize('NFC', str(value or '')).strip()
+    safe = ''.join(
+        char if char.isalnum() or char in '-_' else '_'
+        for char in normalized
+    )
+    return re.sub(r'_+', '_', safe).strip('_-')
+
+
+def _safe_invoice_download_name(filename, mimetype: str, cost_center_names=()) -> str:
+    """Build a safe download name without changing the stored invoice filename."""
+    original = str(filename or '')
+    basename = original.replace('\\', '/').rsplit('/', 1)[-1]
+    safe_chars = []
+    for char in basename:
+        if unicodedata.category(char).startswith('C') or char in '<>:"|?*;':
+            safe_chars.append('_')
+        else:
+            safe_chars.append(char)
+    basename = ''.join(safe_chars).strip().rstrip(' .')
+    stem, extension = os.path.splitext(basename)
+    stem = stem.strip().rstrip(' .') or 'fatura'
+
+    if not re.fullmatch(r'\.[A-Za-z0-9]{1,10}', extension):
+        extension = ''
+
+    expected_extensions = {
+        'application/pdf': ('.pdf', {'.pdf'}),
+        'image/jpeg': ('.jpg', {'.jpg', '.jpeg'}),
+        'image/png': ('.png', {'.png'}),
+    }
+    expected = expected_extensions.get(mimetype)
+    if expected and extension.lower() not in expected[1]:
+        extension = expected[0]
+    elif not extension and not original:
+        extension = expected[0] if expected else '.bin'
+
+    suffixes = {}
+    for name in cost_center_names or ():
+        safe_name = _safe_center_filename_part(name)
+        if safe_name:
+            suffixes.setdefault(safe_name.casefold(), safe_name)
+    suffix = '_'.join(sorted(suffixes.values(), key=lambda value: (value.casefold(), value)))
+    if suffix:
+        stem = f'{stem}_{suffix}'
+    return f'{stem}{extension}'
+
 
 # ── Main listing ──────────────────────────────────────────────────────────────
 
@@ -228,17 +281,21 @@ def download_pdf(invoice_id: int):
     if not pdf_data:
         return 'Ficheiro não disponível', 404
 
-    filename = pdf_filename or 'fatura.pdf'
-    mimetype = _detect_mime(pdf_data, filename)
     as_attachment = request.args.get('dl') == '1'
+    mimetype = _detect_mime(pdf_data, pdf_filename)
+    cost_center_names = []
+    if as_attachment:
+        from db.contabilidade import get_cont_invoice_cost_center_names
+        cost_center_names = get_cont_invoice_cost_center_names(invoice_id)
+    filename = _safe_invoice_download_name(
+        pdf_filename, mimetype, cost_center_names if as_attachment else ()
+    )
     response = send_file(
         BytesIO(bytes(pdf_data) if isinstance(pdf_data, memoryview) else pdf_data),
         mimetype=mimetype,
         as_attachment=as_attachment,
         download_name=filename,
     )
-    if not as_attachment:
-        response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
     return response
 
 
