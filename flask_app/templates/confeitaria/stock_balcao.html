@@ -146,6 +146,8 @@
                     <th>Loja</th>
                     <th>Produto</th>
                     <th class="text-end">Quantidade</th>
+                    <th>Registado por</th>
+                    <th>Registado em</th>
                 </tr>
             </thead>
             <tbody>
@@ -196,6 +198,14 @@
                         {% endif %}
                     </td>
                     <td class="text-end">{{ row.quantidade }} unid.</td>
+                    <td>{{ row.submitted_by or 'Não disponível' }}</td>
+                    <td>
+                        {% if row.submitted_at %}
+                        {{ row.submitted_at.strftime('%d/%m/%Y %H:%M:%S') }}
+                        {% else %}
+                        Não disponível
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

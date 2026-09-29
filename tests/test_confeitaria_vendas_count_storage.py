@@ -453,6 +453,26 @@ class ConfeitariaCountConcurrencyPostgresTests(unittest.TestCase):
                     VALUES (%s, %s, %s, %s, 'confeitaria', 'contagem', %s, %s)
                 """, rows)
                 cursor.execute("""
+                    UPDATE contagem_stock SET submitted_at=NULL
+                    WHERE tipo='confeitaria' AND data=%s
+                      AND produto_confeitaria_id IS NULL
+                """, (date(2026, 9, 25),))
+                cursor.execute("""
+                    INSERT INTO contagem_stock (
+                        data, loja, produto, quantidade, tipo, origem,
+                        produto_confeitaria_id, store_id,
+                        submission_id, submitted_by, submitted_at
+                    )
+                    VALUES (
+                        %s, 'Confeitaria Teste', 'Produto Teste', 2,
+                        'confeitaria', 'contagem', %s, %s,
+                        %s, 'operador-teste', %s
+                    )
+                """, (
+                    date(2026, 9, 19), self.product_id, self.store_id,
+                    str(uuid.uuid4()), '2026-09-19 17:30:00+00',
+                ))
+                cursor.execute("""
                     INSERT INTO contagem_stock (
                         data, loja, produto, quantidade, tipo, origem,
                         produto_confeitaria_id, store_id
@@ -508,6 +528,15 @@ class ConfeitariaCountConcurrencyPostgresTests(unittest.TestCase):
         )
         self.assertEqual(legacy['produto_registado'], 'Produto Teste')
         self.assertIsNone(legacy['produto_atual'])
+        self.assertIsNone(legacy['submitted_by'])
+        self.assertIsNone(legacy['submitted_at'])
+        audited = next(
+            row for row in overview['history']
+            if row['submitted_by'] == 'operador-teste'
+        )
+        self.assertEqual(audited['produto_confeitaria_id'], self.product_id)
+        self.assertEqual(audited['store_id'], self.store_id)
+        self.assertEqual(audited['submitted_at'].hour, 17)
         inactive_product = next(
             row for row in overview['history']
             if row['produto_confeitaria_id'] == inactive_product_id

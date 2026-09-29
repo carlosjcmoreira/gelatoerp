@@ -275,7 +275,7 @@ def get_confeitaria_stock_count_overview(active_store_ids):
                    cs.produto AS produto_registado,
                    cs.produto_confeitaria_id,
                    p.nome AS produto_atual, p.ativo AS produto_ativo,
-                   cs.quantidade
+                   cs.quantidade, cs.submitted_by, cs.submitted_at
             FROM contagem_stock cs
             LEFT JOIN stores s ON s.id=cs.store_id
             LEFT JOIN produtos_confeitaria p

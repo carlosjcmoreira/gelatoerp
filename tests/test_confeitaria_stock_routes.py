@@ -482,6 +482,8 @@ class ConfeitariaStockRouteTests(unittest.TestCase):
                     'produto_atual': 'Cookie Arquivado',
                     'produto_ativo': False,
                     'quantidade': 2,
+                    'submitted_by': 'operador-confeitaria',
+                    'submitted_at': datetime(2026, 9, 8, 18, 42, 9),
                 },
                 {
                     'id': 89,
@@ -495,6 +497,8 @@ class ConfeitariaStockRouteTests(unittest.TestCase):
                     'produto_atual': None,
                     'produto_ativo': None,
                     'quantidade': 9,
+                    'submitted_by': None,
+                    'submitted_at': None,
                 },
                 {
                     'id': 88,
@@ -553,6 +557,11 @@ class ConfeitariaStockRouteTests(unittest.TestCase):
         self.assertIn('Produto inativo', page)
         self.assertIn('Registo antigo sem ID de produto', page)
         self.assertIn('Origem: importacao', page)
+        self.assertIn('Registado por', page)
+        self.assertIn('Registado em', page)
+        self.assertIn('operador-confeitaria', page)
+        self.assertIn('08/09/2026 18:42:09', page)
+        self.assertGreaterEqual(page.count('Não disponível'), 2)
         self.assertIn('Saldo de produção antigo (legado)', page)
         self.assertIn('d-none d-lg-block', page)
         self.assertIn('d-lg-none', page)
