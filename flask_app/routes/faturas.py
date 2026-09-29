@@ -2926,10 +2926,14 @@ def _handle_excel_import(file, ext='xlsx'):
             if not supplier_name:
                 supplier_name = _cell_str(_get(row, 'supplier_name_alt'))
             supplier_nif_raw = _cell_str(_get(row, 'supplier_nif'))
-            supplier_nif = ''.join(c for c in supplier_nif_raw if c.isdigit())
 
             if not supplier_name:
                 continue
+
+            # Reject an incomplete or ambiguous supplier identity before any
+            # supplier upsert can occur. This also preserves foreign prefixes
+            # and qualifies valid bare Portuguese NIFs as PT-prefixed values.
+            supplier_nif = qualify_supplier_nif(supplier_nif_raw, required=True)
 
             # Amount: determine document_type before taking abs value
             # Detect nota_credito: invoice_number contains "NC" OR raw amount is positive
@@ -3015,7 +3019,7 @@ def _handle_excel_import(file, ext='xlsx'):
                 'notes': notes,
                 'document_type': document_type,
             }
-            create_invoice(inv_data)
+            create_invoice(inv_data, validate_supplier_nif=True)
             imported += 1
         except Exception as e:
             errors.append(f'Linha {idx}: {e}')
@@ -3024,7 +3028,14 @@ def _handle_excel_import(file, ext='xlsx'):
         wb_closeable.close()
 
     if errors:
-        flash(f'{imported} faturas importadas. Erros: {"; ".join(errors[:5])}', 'warning')
+        shown_errors = errors[:5]
+        remaining_errors = len(errors) - len(shown_errors)
+        more = f' (mais {remaining_errors} erro(s) não apresentados)' if remaining_errors else ''
+        flash(
+            f'{imported} faturas importadas; {len(errors)} linha(s) com erro: '
+            f'{"; ".join(shown_errors)}{more}',
+            'warning',
+        )
     else:
         flash(f'{imported} faturas importadas com sucesso!', 'success')
     return redirect(url_for('faturas.index'))
