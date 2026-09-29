@@ -51,6 +51,8 @@ def _build_cont_where(
     date_from=None,
     date_to=None,
     search: str = None,
+    centro_custo_id: int = None,
+    sem_cc: bool = False,
 ):
     """Build WHERE clause for contabilidade invoice queries."""
     clauses = ["i.status NOT IN ('draft', 'cancelled')"]
@@ -79,6 +81,25 @@ def _build_cont_where(
         clauses.append("i.issue_date <= %s")
         params.append(date_to)
 
+    if sem_cc:
+        clauses.append("""(
+            i.centro_custo_id IS NULL
+            AND NOT EXISTS (
+                SELECT 1 FROM invoice_centros_custo icc
+                WHERE icc.invoice_id = i.id
+            )
+        )""")
+    elif centro_custo_id:
+        clauses.append("""(
+            i.centro_custo_id = %s
+            OR EXISTS (
+                SELECT 1 FROM invoice_centros_custo icc
+                WHERE icc.invoice_id = i.id
+                  AND icc.centro_custo_id = %s
+            )
+        )""")
+        params.extend([centro_custo_id, centro_custo_id])
+
     if search:
         clauses.append(
             f"(i.invoice_number ILIKE %s OR {_SUPPLIER_DISPLAY_SQL} ILIKE %s OR i.notes ILIKE %s)"
@@ -97,6 +118,8 @@ def get_cont_invoices(
     date_from=None,
     date_to=None,
     search: str = None,
+    centro_custo_id: int = None,
+    sem_cc: bool = False,
     order_by: str = 'issue_date',
     order_dir: str = 'desc',
     limit: int = 50,
@@ -116,6 +139,8 @@ def get_cont_invoices(
         date_from=date_from,
         date_to=date_to,
         search=search,
+        centro_custo_id=centro_custo_id,
+        sem_cc=sem_cc,
     )
 
     order_sql = _SUPPLIER_DISPLAY_SQL if order_by == 'supplier_name' else f'i.{order_by}'
@@ -139,9 +164,20 @@ def get_cont_invoices(
             i.notes,
             (i.pdf_data IS NOT NULL) AS has_pdf,
             s.name AS supplier_legal_name,
-            COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name
+            COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name) AS supplier_display_name,
+            COALESCE(
+                (
+                    SELECT STRING_AGG(cc2.name, ', ' ORDER BY cc2.code)
+                    FROM invoice_centros_custo icc2
+                    JOIN cost_centers cc2
+                      ON cc2.id = icc2.centro_custo_id
+                    WHERE icc2.invoice_id = i.id
+                ),
+                cc.name
+            ) AS centro_custo_name
         FROM invoices i
         LEFT JOIN suppliers s ON s.id = i.supplier_id
+        LEFT JOIN cost_centers cc ON cc.id = i.centro_custo_id
         {where}
         ORDER BY {order_sql} {order_dir} NULLS LAST
         LIMIT %s OFFSET %s
@@ -175,6 +211,7 @@ def get_cont_invoices(
             'has_pdf':              bool(row[16]),
             'supplier_legal_name':  row[17] or row[2],
             'supplier_display_name': row[18] or row[2],
+            'centro_custo_name':     row[19],
             'accounting_status_label': ACCOUNTING_STATUS_LABELS.get(row[11], row[11]),
             'accounting_status_badge': ACCOUNTING_STATUS_BADGE.get(row[11], 'bg-secondary'),
         })
@@ -188,6 +225,8 @@ def count_cont_invoices(
     date_from=None,
     date_to=None,
     search: str = None,
+    centro_custo_id: int = None,
+    sem_cc: bool = False,
 ) -> int:
     where, params = _build_cont_where(
         supplier_name=supplier_name,
@@ -196,6 +235,8 @@ def count_cont_invoices(
         date_from=date_from,
         date_to=date_to,
         search=search,
+        centro_custo_id=centro_custo_id,
+        sem_cc=sem_cc,
     )
     sql = f"SELECT COUNT(*) FROM invoices i {where}"
     with db_connection() as conn:

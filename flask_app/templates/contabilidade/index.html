@@ -90,6 +90,17 @@
                 <option value="{{ dt }}" {% if document_type == dt %}selected{% endif %}>{{ lbl }}</option>
                 {% endfor %}
             </select>
+            <select name="centro_custo_id" class="form-select form-select-sm" style="width:auto;min-width:170px">
+                <option value="">Todos os centros de custo</option>
+                {% for cc in cost_centers %}
+                <option value="{{ cc.id }}" {% if centro_custo_filter == cc.id|string %}selected{% endif %}>
+                    {{ cc.code }} — {{ cc.name }}
+                </option>
+                {% endfor %}
+                <option value="__none__" {% if centro_custo_filter == '__none__' %}selected{% endif %}>
+                    Sem centro de custo
+                </option>
+            </select>
             <input type="date" name="date_from" class="form-control form-control-sm" style="width:auto" value="{{ date_from_raw }}" title="Data emissão de">
             <span class="text-muted small">–</span>
             <input type="date" name="date_to" class="form-control form-control-sm" style="width:auto" value="{{ date_to_raw }}" title="Data emissão até">
@@ -132,12 +143,13 @@
                     </th>
                     {% macro sort_a(col, label) %}
                     {% set nd = 'asc' if (order_by != col or order_dir == 'desc') else 'desc' %}
-                    <a href="?order_by={{ col }}&order_dir={{ nd }}&page=1{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}"
+                    <a href="{{ url_for('contabilidade.index', order_by=col, order_dir=nd, page=1, supplier_name=supplier_name or None, document_type=document_type or None, accounting_status=accounting_status or None, date_from=date_from_raw or None, date_to=date_to_raw or None, q=search or None, centro_custo_id=centro_custo_filter or None) }}"
                        class="text-decoration-none text-reset">{{ label }}{% if order_by == col %} {{ '▲' if order_dir == 'asc' else '▼' }}{% else %} <span class="text-muted opacity-50">⇅</span>{% endif %}</a>
                     {% endmacro %}
                     <th>{{ sort_a('issue_date', 'Data') }}</th>
                     <th>{{ sort_a('supplier_name', 'Fornecedor') }}</th>
                     <th class="d-none d-md-table-cell">NIF</th>
+                    <th class="d-none d-lg-table-cell">Centro de custo</th>
                     <th class="d-none d-sm-table-cell">Nº Doc.</th>
                     <th class="d-none d-md-table-cell">Tipo</th>
                     <th class="text-end">{{ sort_a('amount_eur', 'Valor') }}</th>
@@ -161,6 +173,7 @@
                     <span title="{% if inv.supplier_legal_name %}Nome legal: {{ inv.supplier_legal_name }}{% endif %}">{{ inv.supplier_display_name or inv.supplier_name or '—' }}</span>
                 </td>
                 <td class="text-muted small d-none d-md-table-cell">{{ inv.supplier_nif or '—' }}</td>
+                <td class="small d-none d-lg-table-cell">{{ inv.centro_custo_name or 'Sem centro de custo' }}</td>
                 <td class="text-muted small d-none d-sm-table-cell">{{ inv.invoice_number or '—' }}</td>
                 <td class="d-none d-md-table-cell">
                     {% set _dt = inv.document_type or 'fatura' %}
@@ -243,36 +256,39 @@
 
     {# ── Pagination ─────────────────────────────────────────────────── #}
     {% if total_pages > 1 %}
+    {% macro page_url(target_page) -%}
+        {{- url_for('contabilidade.index', page=target_page, order_by=order_by, order_dir=order_dir, supplier_name=supplier_name or None, document_type=document_type or None, accounting_status=accounting_status or None, date_from=date_from_raw or None, date_to=date_to_raw or None, q=search or None, centro_custo_id=centro_custo_filter or None) -}}
+    {%- endmacro %}
     <nav class="mt-2">
         <ul class="pagination pagination-sm justify-content-center mb-1">
             <li class="page-item {% if page == 1 %}disabled{% endif %}">
-                <a class="page-link" href="?page={{ [1,page-1]|max }}&order_by={{ order_by }}&order_dir={{ order_dir }}{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}">‹</a>
+                <a class="page-link" href="{{ page_url([1,page-1]|max) }}">‹</a>
             </li>
             {% if total_pages <= 10 %}
                 {% for p in range(1, total_pages + 1) %}
                 <li class="page-item {% if p == page %}active{% endif %}">
-                    <a class="page-link" href="?page={{ p }}&order_by={{ order_by }}&order_dir={{ order_dir }}{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}">{{ p }}</a>
+                    <a class="page-link" href="{{ page_url(p) }}">{{ p }}</a>
                 </li>
                 {% endfor %}
             {% else %}
                 {% set win_start = [1, page - 2]|max %}
                 {% set win_end = [total_pages, page + 2]|min %}
                 {% if win_start > 1 %}
-                <li class="page-item"><a class="page-link" href="?page=1">1</a></li>
+                <li class="page-item"><a class="page-link" href="{{ page_url(1) }}">1</a></li>
                 {% if win_start > 2 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
                 {% endif %}
                 {% for p in range(win_start, win_end + 1) %}
                 <li class="page-item {% if p == page %}active{% endif %}">
-                    <a class="page-link" href="?page={{ p }}&order_by={{ order_by }}&order_dir={{ order_dir }}{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}">{{ p }}</a>
+                    <a class="page-link" href="{{ page_url(p) }}">{{ p }}</a>
                 </li>
                 {% endfor %}
                 {% if win_end < total_pages %}
                 {% if win_end < total_pages - 1 %}<li class="page-item disabled"><span class="page-link">…</span></li>{% endif %}
-                <li class="page-item"><a class="page-link" href="?page={{ total_pages }}">{{ total_pages }}</a></li>
+                <li class="page-item"><a class="page-link" href="{{ page_url(total_pages) }}">{{ total_pages }}</a></li>
                 {% endif %}
             {% endif %}
             <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-                <a class="page-link" href="?page={{ [total_pages,page+1]|min }}&order_by={{ order_by }}&order_dir={{ order_dir }}{% if supplier_name %}&supplier_name={{ supplier_name }}{% endif %}{% if document_type %}&document_type={{ document_type }}{% endif %}{% if accounting_status %}&accounting_status={{ accounting_status }}{% endif %}{% if date_from_raw %}&date_from={{ date_from_raw }}{% endif %}{% if date_to_raw %}&date_to={{ date_to_raw }}{% endif %}{% if search %}&q={{ search }}{% endif %}">›</a>
+                <a class="page-link" href="{{ page_url([total_pages,page+1]|min) }}">›</a>
             </li>
         </ul>
     </nav>

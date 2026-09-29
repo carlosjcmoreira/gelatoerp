@@ -36,6 +36,19 @@ def _parse_date(raw: str):
     return None
 
 
+def _parse_centro_custo_filter(raw: str):
+    raw = (raw or '').strip()
+    if raw == '__none__':
+        return None, True, raw
+    try:
+        centro_custo_id = int(raw)
+    except (TypeError, ValueError):
+        return None, False, ''
+    if centro_custo_id <= 0:
+        return None, False, ''
+    return centro_custo_id, False, str(centro_custo_id)
+
+
 PAGE_SIZE = 50
 
 # ── Main listing ──────────────────────────────────────────────────────────────
@@ -48,6 +61,7 @@ def index():
         ACCOUNTING_STATUS_LABELS,
     )
     from db.faturas import get_stores_list, get_distinct_supplier_names, DOCUMENT_TYPE_LABELS
+    from db.centros_custo import get_cost_centers
 
     today = _date.today()
 
@@ -63,6 +77,9 @@ def index():
     date_from_raw = request.args.get('date_from', '')
     date_to_raw = request.args.get('date_to', '')
     search = request.args.get('q', '').strip()
+    centro_custo_id, sem_cc, centro_custo_filter = _parse_centro_custo_filter(
+        request.args.get('centro_custo_id', '')
+    )
     order_by = request.args.get('order_by', 'issue_date')
     order_dir = request.args.get('order_dir', 'desc')
 
@@ -78,6 +95,8 @@ def index():
         date_from=date_from,
         date_to=date_to,
         search=search or None,
+        centro_custo_id=centro_custo_id,
+        sem_cc=sem_cc,
     )
 
     total_count = count_cont_invoices(**filter_kwargs)
@@ -105,7 +124,7 @@ def index():
 
     has_filters = bool(
         supplier_name or document_type or accounting_status
-        or date_from_raw or date_to_raw or search
+        or date_from_raw or date_to_raw or search or centro_custo_filter
     )
 
     return render_template(
@@ -114,7 +133,9 @@ def index():
         summary=summary,
         stores=stores,
         all_supplier_names=all_supplier_names,
+        cost_centers=get_cost_centers(ativo_only=False),
         supplier_name=supplier_name,
+        centro_custo_filter=centro_custo_filter,
         document_type=document_type,
         accounting_status=accounting_status,
         date_from_raw=date_from_raw,
@@ -224,6 +245,9 @@ def export_xlsx():
     date_from = _parse_date(request.args.get('date_from', ''))
     date_to = _parse_date(request.args.get('date_to', ''))
     search = request.args.get('q', '').strip()
+    centro_custo_id, sem_cc, _centro_custo_filter = (
+        _parse_centro_custo_filter(request.args.get('centro_custo_id', ''))
+    )
 
     rows = get_cont_invoices(
         supplier_name=supplier_name or None,
@@ -232,6 +256,8 @@ def export_xlsx():
         date_from=date_from,
         date_to=date_to,
         search=search or None,
+        centro_custo_id=centro_custo_id,
+        sem_cc=sem_cc,
         limit=10000,
         offset=0,
         order_by='issue_date',
@@ -249,7 +275,8 @@ def export_xlsx():
     ws.title = 'Contabilidade'
 
     headers = [
-        'Data Emissão', 'Fornecedor', 'NIF', 'Nº Documento', 'Tipo',
+        'Data Emissão', 'Fornecedor', 'NIF', 'Centro de Custo',
+        'Nº Documento', 'Tipo',
         'Valor (€)', 'IVA (€)', 'Estado Pagamento',
         'Estado Contabilístico', 'Notas Contabilidade',
         'Data Contabilização', 'Contabilizado por',
@@ -274,15 +301,16 @@ def export_xlsx():
         ws.cell(r_idx, 1, inv['issue_date'].strftime('%d/%m/%Y') if inv['issue_date'] else '')
         ws.cell(r_idx, 2, inv.get('supplier_display_name') or inv['supplier_name'] or '')
         ws.cell(r_idx, 3, inv['supplier_nif'] or '')
-        ws.cell(r_idx, 4, inv['invoice_number'] or '')
-        ws.cell(r_idx, 5, DOCUMENT_TYPE_LABELS.get(inv['document_type'] or 'fatura', inv['document_type'] or ''))
-        ws.cell(r_idx, 6, float(inv['amount_eur']) if inv['amount_eur'] is not None else '')
-        ws.cell(r_idx, 7, float(inv['vat_amount_eur']) if inv['vat_amount_eur'] is not None else '')
-        ws.cell(r_idx, 8, STATUS_LABELS.get(inv['status'], inv['status'] or ''))
-        ws.cell(r_idx, 9, ACCOUNTING_STATUS_LABELS.get(inv['accounting_status'], inv['accounting_status'] or ''))
-        ws.cell(r_idx, 10, inv['accounting_notes'] or '')
-        ws.cell(r_idx, 11, inv['accounting_updated_at'].strftime('%d/%m/%Y %H:%M') if inv['accounting_updated_at'] else '')
-        ws.cell(r_idx, 12, inv['accounting_updated_by'] or '')
+        ws.cell(r_idx, 4, inv.get('centro_custo_name') or 'Sem centro de custo')
+        ws.cell(r_idx, 5, inv['invoice_number'] or '')
+        ws.cell(r_idx, 6, DOCUMENT_TYPE_LABELS.get(inv['document_type'] or 'fatura', inv['document_type'] or ''))
+        ws.cell(r_idx, 7, float(inv['amount_eur']) if inv['amount_eur'] is not None else '')
+        ws.cell(r_idx, 8, float(inv['vat_amount_eur']) if inv['vat_amount_eur'] is not None else '')
+        ws.cell(r_idx, 9, STATUS_LABELS.get(inv['status'], inv['status'] or ''))
+        ws.cell(r_idx, 10, ACCOUNTING_STATUS_LABELS.get(inv['accounting_status'], inv['accounting_status'] or ''))
+        ws.cell(r_idx, 11, inv['accounting_notes'] or '')
+        ws.cell(r_idx, 12, inv['accounting_updated_at'].strftime('%d/%m/%Y %H:%M') if inv['accounting_updated_at'] else '')
+        ws.cell(r_idx, 13, inv['accounting_updated_by'] or '')
 
     # Auto column width
     for col in ws.columns:
