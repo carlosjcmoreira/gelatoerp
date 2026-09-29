@@ -857,6 +857,19 @@ def resumo_mensal():
             })
         resumo_rows.append(resumo_row)
 
+    audit_note_groups = []
+    audit_note_group_by_text = {}
+    for row in resumo_rows:
+        audit_note = row.get('audit_note')
+        if not audit_note:
+            continue
+        group = audit_note_group_by_text.get(audit_note)
+        if group is None:
+            group = {'note': audit_note, 'months': []}
+            audit_note_group_by_text[audit_note] = group
+            audit_note_groups.append(group)
+        group['months'].append(row['mes'])
+
     total_euro_kg = (
         total_vendas / total_consumo if total_consumo > 0 else None
     )
@@ -867,7 +880,7 @@ def resumo_mensal():
         active_tab='resumo', tabs=tabs,
         is_gestor=is_gestor, loja_filter=loja_filter,
         current_year=current_year, entrada_label=entrada_label,
-        resumo_rows=resumo_rows,
+        resumo_rows=resumo_rows, audit_note_groups=audit_note_groups,
         total_entrada=round(total_entrada, 2),
         total_quebras=round(total_quebras, 2),
         total_consumo=round(total_consumo, 2),

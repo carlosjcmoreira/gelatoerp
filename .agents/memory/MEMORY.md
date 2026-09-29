@@ -25,6 +25,7 @@
 - [Pastelaria access boundary](pastelaria-access-boundary.md) — module access intentionally grants every Pastelaria function; do not add role-only gates inside it.
 - [Partial batch configuration](partial-batch-configuration.md) — blank or invalid rows must not discard valid operator-entered rows in bulk forms.
 - [Clean database validation](clean-database-validation.md) — isolated PostgreSQL runs must bootstrap through the app and separate live-data assertions from empty-schema checks.
+- [Playwright browser](playwright-browser.md) — when Playwright has no cached Chromium, try Replit's managed browser executable before downloading one.
 - [Lost weighing incident](lost-weighing-incident.md) — the September 2026 Bolhão loss was a never-submitted browser draft, not committed stock disappearing.
 - [Daily weighing state](daily-weighing-state.md) — EOD status uses stable store identity and Lisbon closed days; justified days are audited exceptions that reject later stock writes.
 - [Weighing audit and recovery](weighing-audit-recovery.md) — weighing changes are append-only audited; deletion is reversible deactivation, and operational reads use active rows only.

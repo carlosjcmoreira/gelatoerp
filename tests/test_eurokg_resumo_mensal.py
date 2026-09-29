@@ -194,6 +194,11 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
                         "flags": [],
                     }],
                 )
+            if start.month == 4:
+                return doseamento_payload(
+                    "invalid",
+                    ["negative_stock_residual"],
+                )
             return doseamento_payload("reliable")
 
         period.side_effect = monthly_payload
@@ -236,6 +241,14 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         self.assertNotIn("20/03/2026", text)
         self.assertNotIn("23/03/2026", text)
         self.assertIn("Auditoria física incompleta ou inválida", text)
+        shared_note = "Auditoria física incompleta ou inválida; ver Pesagens."
+        self.assertEqual(html.count(shared_note), 1)
+        note_groups = re.findall(
+            r'<li class="audit-note-group">(.*?)</li>', html, re.DOTALL
+        )
+        self.assertEqual(len(note_groups), 1)
+        self.assertIn("Março, Abril", visible_text(note_groups[0]))
+        self.assertIn("Abrir Pesagens", visible_text(note_groups[0]))
         self.assertNotIn("negative_stock_residual", text)
         self.assertIn("€/kg operacional", text)
         self.assertIn("Teórico conhecido (kg)", text)
@@ -248,12 +261,13 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
 
         table_head = re.search(r"<thead>(.*?)</thead>", html, re.DOTALL).group(1)
         self.assertIn(
-            "Mês Consumo e dose Receita Dados Consumo operacional (kg) "
+            "Mês Consumo e dose Receita Consumo operacional (kg) "
             "Teórico conhecido (kg) Desvio (kg) Rendimento (%) Vendas (€) "
             "€/kg operacional",
             visible_text(table_head),
         )
-        self.assertEqual(html.count('<col class="'), 8)
+        self.assertNotIn(">Dados</th>", table_head)
+        self.assertEqual(html.count('<col class="'), 7)
         self.assertIn('colspan="4"', table_head)
         self.assertIn('colspan="2"', table_head)
 
@@ -262,17 +276,31 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         ).group(0)
         self.assertEqual(
             len(re.findall(r"<(?:th|td)(?:\s[^>]*)?>", january)),
-            8,
+            7,
         )
         self.assertNotRegex(january, r"<details[^>]*\bopen\b")
-        self.assertIn("Ver movimento (kg)", january)
-        self.assertIn("Ver detalhes", january)
+        self.assertNotIn("<details", january)
+        january_detail = re.search(
+            r'<details[^>]*data-month-details="Janeiro"[^>]*>(.*?)</details>',
+            html,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(january_detail)
+        self.assertNotRegex(january_detail.group(0), r"<details[^>]*\bopen\b")
+        self.assertNotIn("<ul", january_detail.group(1))
         for movement_label in (
             "Stock inicial (kg)", "Produção (kg)", "Stock final (kg)",
             "Quebras (kg)",
         ):
-            self.assertIn(movement_label, january)
+            self.assertIn(movement_label, january_detail.group(1))
 
+        table_end = html.index("</table>")
+        self.assertGreater(html.index("Dados e avisos"), table_end)
+        for moved_explanation in (
+            "Como ler o resumo", "Como ler:", "Como interpretar",
+        ):
+            self.assertGreater(html.index(moved_explanation), table_end)
+        self.assertGreater(html.index("produto_id=301"), table_end)
         self.assertIn("Total anual — produção (kg):", text)
         self.assertIn("Total anual — quebras (kg):", text)
         footer = visible_text(

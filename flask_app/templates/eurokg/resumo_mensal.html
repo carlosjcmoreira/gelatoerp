@@ -47,16 +47,15 @@
         margin-bottom:0;
     }
     .eurokg-shell .table thead th { color:var(--em-muted); border-bottom-width:1px; }
-    .monthly-summary { width:100%; min-width:1040px; table-layout:fixed; }
+    .monthly-summary { width:100%; min-width:960px; table-layout:fixed; }
     .monthly-summary th,.monthly-summary td { white-space:normal; vertical-align:middle; }
     .monthly-summary .month-column { width:9%; }
-    .monthly-summary .consumption-column { width:15%; }
-    .monthly-summary .theoretical-column { width:14%; }
-    .monthly-summary .variance-column { width:10%; }
-    .monthly-summary .yield-column { width:9%; }
-    .monthly-summary .sales-column { width:11%; }
-    .monthly-summary .rate-column { width:13%; }
-    .monthly-summary .quality-column { width:20%; }
+    .monthly-summary .consumption-column { width:16%; }
+    .monthly-summary .theoretical-column { width:16%; }
+    .monthly-summary .variance-column { width:12%; }
+    .monthly-summary .yield-column { width:10%; }
+    .monthly-summary .sales-column { width:12%; }
+    .monthly-summary .rate-column { width:25%; }
     .monthly-summary .group-heading { font-size:.68rem; letter-spacing:.07em; text-transform:uppercase; }
     .monthly-summary .metric-heading { font-size:.76rem; line-height:1.25; }
     .monthly-summary .unit-label { color:var(--em-muted); font-size:.7rem; font-weight:600; }
@@ -75,6 +74,11 @@
     .status-incomplete { color:var(--em-warn-text); background:var(--em-warn-bg); }
     .status-invalid { color:var(--em-bad-text); background:var(--em-bad-bg); }
     .monthly-note { border-left:3px solid var(--em-accent); }
+    .audit-note-groups { display:grid; gap:.6rem; }
+    .audit-note-group { background:var(--em-surface); border:1px solid var(--em-line); border-radius:10px; padding:.75rem; }
+    .monthly-detail-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(17rem,1fr)); gap:.75rem; }
+    .monthly-month-detail { min-width:0; background:var(--em-surface); border:1px solid var(--em-line); border-radius:10px; padding:.75rem; }
+    .monthly-month-detail > summary { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
     .monthly-disclosure { white-space:normal; }
     .monthly-disclosure summary { cursor:pointer; color:var(--em-accent); font-size:.78rem; font-weight:700; text-decoration:underline; text-underline-offset:2px; }
     .monthly-disclosure summary:focus-visible { outline:2px solid var(--em-accent); outline-offset:2px; border-radius:2px; }
@@ -89,7 +93,7 @@
     .section-rule { border-color:var(--em-line); opacity:1; }
     @media (max-width:767.98px) {
         .eurokg-shell { border-radius:0; border-left:0; border-right:0; }
-        .monthly-summary { font-size:.8rem; min-width:1040px; }
+        .monthly-summary { font-size:.8rem; min-width:960px; }
         .monthly-summary-wrap { border-radius:8px; }
         .monthly-disclosure-content { min-width:min(18rem,70vw); }
     }
@@ -97,15 +101,11 @@
 <div class="container-fluid px-3 py-3">
     {% include "components/tabs.html" %}
     <div class="eurokg-shell p-3 p-md-4">
-    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">
+    <div class="mb-4">
         <div>
             <div class="eyebrow mb-1">Resumo mensal · dose e fiabilidade</div>
             <h1 class="page-title h3 mb-1">O mês em perspectiva</h1>
             <p class="text-muted mb-0">Compare, mês a mês, a dose prevista pelas vendas com o consumo real. Consulte desvio, rendimento, receita/kg e fiabilidade; altere a loja e o ano para investigar tendências.</p>
-        </div>
-        <div class="coaching-note px-3 py-2 small align-self-start">
-            <strong class="d-block">Como ler o resumo</strong>
-            <span class="text-muted">“Incompleto” significa evidência em falta; não é, por si só, falha de serviço.</span>
         </div>
     </div>
 
@@ -125,13 +125,6 @@
     <div class="eyebrow">Histórico anual</div>
     <h2 class="h5 fw-bold mb-1">Resumo mensal {{ current_year }}</h2>
     <p class="text-muted small mb-3">Consumo operacional e estimativa dos kg previstos pelas vendas.</p>
-    <div class="formula small py-2 px-3 mb-3">
-        <strong>Como ler:</strong> o consumo operacional segue a série histórica. Abra «Ver movimento (kg)» para comparar stock inicial, {{ entrada_label|lower }}, stock final e quebras; €/kg operacional = vendas ÷ consumo operacional. O teórico conhecido soma as vendas com dose/kg disponível; desvio = consumo operacional − teórico; rendimento = teórico ÷ consumo operacional.
-    </div>
-    <div class="monthly-note small p-3 mb-3">
-        <strong class="d-block">Como interpretar</strong>
-        <span>Uma estimativa parcial soma os produtos calculáveis e exclui os que ainda precisam de dose ou kg vendido. Os valores operacionais mantêm a série antiga; “—” indica que não há dados válidos para calcular o indicador.</span>
-    </div>
 
     <div class="annual-movement-totals d-flex flex-wrap gap-3 px-3 py-2 mb-2 small">
         <span><strong>Total anual — {{ entrada_label|lower }}:</strong> {{ total_entrada }}</span>
@@ -148,14 +141,12 @@
                 <col class="yield-column">
                 <col class="sales-column">
                 <col class="rate-column">
-                <col class="quality-column">
             </colgroup>
             <thead>
                 <tr class="group-heading">
                     <th class="month-column" scope="col" rowspan="2">Mês</th>
                     <th scope="colgroup" colspan="4">Consumo e dose</th>
                     <th class="group-divider" scope="colgroup" colspan="2">Receita</th>
-                    <th class="group-divider" scope="col" rowspan="2">Dados</th>
                 </tr>
                 <tr>
                     <th class="metric-heading" scope="col">Consumo operacional <span class="unit-label">(kg)</span></th>
@@ -176,48 +167,6 @@
                     <td class="numeric-cell">{{ "%.1f%%"|format(row.yield_pct) if row.get('yield_pct') is not none else '—' }}</td>
                     <td class="numeric-cell group-divider">{{ row.vendas }}</td>
                     <td class="numeric-cell">{{ "%.2f"|format(row.euro_kg) if row.euro_kg is not none else '—' }}</td>
-                    <td>
-                        <div class="d-flex flex-column gap-1">
-                            {% if row.get('status') is not none %}
-                            <span class="status-pill align-self-start {% if row.status == 'Parcial' %}status-incomplete{% elif row.status == 'Calculado' %}status-reliable{% else %}status-invalid{% endif %}">{{ row.status }}</span>
-                            {% else %}<span class="text-muted">—</span>{% endif %}
-                            <details class="monthly-disclosure">
-                                <summary>Ver movimento (kg)</summary>
-                                <div class="monthly-disclosure-content small mt-2">
-                                    <dl class="movement-list mb-0">
-                                        <dt>Stock inicial (kg)</dt><dd>{{ row.stock_ini }}</dd>
-                                        <dt>{{ entrada_label }}</dt><dd>{{ row.entrada }}</dd>
-                                        <dt>Stock final (kg)</dt><dd>{{ row.stock_final }}</dd>
-                                        <dt>Quebras (kg)</dt><dd>{{ row.quebras }}</dd>
-                                    </dl>
-                                </div>
-                            </details>
-                            {% if row.get('status') is not none %}
-                            <details class="monthly-disclosure">
-                                <summary>Ver detalhes</summary>
-                                <div class="monthly-disclosure-content monthly-diagnostics-content small mt-2">
-                                    <p class="mb-1"><strong>Auditoria física:</strong> {{ row.audit_status_label }}</p>
-                                    {% if row.audit_note %}<p class="mb-2">{{ row.audit_note }} <a href="{{ url_for('eurokg.pesagens') }}">Ver pesagens</a></p>{% endif %}
-                                    {% if row.missing_products %}
-                                    <p class="fw-bold mb-1">Produtos sem kg{% if row.missing_sales_eur %} · {{ "%.2f"|format(row.missing_sales_eur) }} €{% endif %}</p>
-                                    <ul class="mb-1">
-                                        {% for item in row.missing_products %}
-                                        <li>{% if item.store %}{{ item.store }} · {% endif %}<strong>{{ item.product }}</strong> — {{ item.reason }}{% if item.revenue is not none %} · {{ "%.2f"|format(item.revenue) }} €{% endif %}
-                                        {% if is_gestor and item.reason == 'Sem dose histórica' and item.product_id %}
-                                        <a class="ms-1" href="{{ url_for('eurokg.consumo_teorico', loja=item.store or loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim, produto_id=item.product_id) }}">Configurar esta dose</a>
-                                        {% elif item.reason == 'Sem kg vendido' %}
-                                        <a class="ms-1" href="{{ url_for('eurokg.consumo_teorico', loja=item.store or loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim) }}">Ver vendas ao peso</a>
-                                        {% endif %}
-                                        </li>
-                                        {% endfor %}
-                                    </ul>
-                                    <a href="{{ url_for('eurokg.consumo_teorico', loja=loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim) }}">Ver doses e vendas ao peso</a>
-                                    {% endif %}
-                                </div>
-                            </details>
-                            {% endif %}
-                        </div>
-                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -230,13 +179,81 @@
                     <td class="numeric-cell">—</td>
                     <td class="numeric-cell group-divider">{{ total_vendas }}</td>
                     <td class="numeric-cell">{{ "%.2f"|format(total_euro_kg) if total_euro_kg is not none else '—' }}</td>
-                    <td></td>
                 </tr>
             </tfoot>
         </table>
     </div>
-    <hr class="section-rule my-4">
-    <p class="small text-muted mb-0">A auditoria física de pesagens continua disponível na página Pesagens. Uma auditoria incompleta ou inválida não apaga a estimativa; apenas avisa que o consumo físico ainda precisa de confirmação.</p>
+    <section class="monthly-diagnostics p-3 mt-4" aria-labelledby="monthly-data-heading">
+        <h3 id="monthly-data-heading" class="h6 fw-bold mb-3">Dados e avisos</h3>
+        <div class="mb-4">
+            <h4 class="small fw-bold">Avisos de auditoria</h4>
+            {% if audit_note_groups %}
+            <ul class="audit-note-groups list-unstyled mb-0">
+                {% for group in audit_note_groups %}
+                <li class="audit-note-group">
+                    <p class="mb-1">{{ group.note }}</p>
+                    <p class="small text-muted mb-1"><strong>Meses:</strong> {{ group.months|join(', ') }}</p>
+                    <a href="{{ url_for('eurokg.pesagens') }}">Abrir Pesagens</a>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="small text-muted mb-0">Não há avisos de auditoria nos meses calculados.</p>
+            {% endif %}
+        </div>
+        <div>
+            <h4 class="small fw-bold">Detalhes por mês</h4>
+            <div class="monthly-detail-list">
+                {% for row in resumo_rows %}
+                <details class="monthly-month-detail monthly-disclosure" data-month-details="{{ row.mes }}">
+                    <summary>
+                        <strong>{{ row.mes }}</strong>
+                        {% if row.get('status') is not none %}
+                        <span class="status-pill {% if row.status == 'Parcial' %}status-incomplete{% elif row.status == 'Calculado' %}status-reliable{% else %}status-invalid{% endif %}">{{ row.status }}</span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </summary>
+                    <div class="monthly-disclosure-content monthly-diagnostics-content small mt-3">
+                        {% if row.get('audit_status_label') %}
+                        <p class="mb-2"><strong>Auditoria física:</strong> {{ row.audit_status_label }}</p>
+                        {% endif %}
+                        <dl class="movement-list mb-3">
+                            <dt>Stock inicial (kg)</dt><dd>{{ row.stock_ini }}</dd>
+                            <dt>{{ entrada_label }}</dt><dd>{{ row.entrada }}</dd>
+                            <dt>Stock final (kg)</dt><dd>{{ row.stock_final }}</dd>
+                            <dt>Quebras (kg)</dt><dd>{{ row.quebras }}</dd>
+                        </dl>
+                        {% if row.get('missing_products') %}
+                        <p class="fw-bold mb-1">Produtos sem kg{% if row.missing_sales_eur %} · {{ "%.2f"|format(row.missing_sales_eur) }} €{% endif %}</p>
+                        <ul class="mb-1">
+                            {% for item in row.missing_products %}
+                            <li>{% if item.store %}{{ item.store }} · {% endif %}<strong>{{ item.product }}</strong> — {{ item.reason }}{% if item.revenue is not none %} · {{ "%.2f"|format(item.revenue) }} €{% endif %}
+                            {% if is_gestor and item.reason == 'Sem dose histórica' and item.product_id %}
+                            <a class="ms-1" href="{{ url_for('eurokg.consumo_teorico', loja=item.store or loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim, produto_id=item.product_id) }}">Configurar esta dose</a>
+                            {% elif item.reason == 'Sem kg vendido' %}
+                            <a class="ms-1" href="{{ url_for('eurokg.consumo_teorico', loja=item.store or loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim) }}">Ver vendas ao peso</a>
+                            {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        <a href="{{ url_for('eurokg.consumo_teorico', loja=loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim) }}">Ver doses e vendas ao peso</a>
+                        {% endif %}
+                    </div>
+                </details>
+                {% endfor %}
+            </div>
+        </div>
+    </section>
+    <div class="coaching-note small px-3 py-2 mt-4">
+        <strong class="d-block">Como ler o resumo</strong>
+        <span class="text-muted">“Incompleto” significa evidência em falta; não é, por si só, falha de serviço.</span>
+    </div>
+    <div class="formula small py-2 px-3 mt-3">
+        <strong>Como ler:</strong> o consumo operacional segue a série histórica. Abra os detalhes do mês para comparar stock inicial, {{ entrada_label|lower }}, stock final e quebras; €/kg operacional = vendas ÷ consumo operacional. O teórico conhecido soma as vendas com dose/kg disponível; desvio = consumo operacional − teórico; rendimento = teórico ÷ consumo operacional.
+    </div>
+    <div class="monthly-note small p-3 mt-3">
+        <strong class="d-block">Como interpretar</strong>
+        <span>Uma estimativa parcial soma os produtos calculáveis e exclui os que ainda precisam de dose ou kg vendido. Os valores operacionais mantêm a série antiga; “—” indica que não há dados válidos para calcular o indicador. A auditoria física é apresentada à parte: um aviso não apaga a estimativa, apenas indica que o consumo físico ainda precisa de confirmação.</span>
+    </div>
     </div>
 </div>
 {% endblock %}
