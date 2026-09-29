@@ -78,7 +78,8 @@
                     <label class="form-label fw-semibold">NIF do Fornecedor</label>
                     <input type="text" name="supplier_nif" class="form-control"
                            value="{{ inv.supplier_nif or '' }}"
-                           placeholder="Ex: 123456789" maxlength="20">
+                           placeholder="PT506454223 ou ESB12345678" maxlength="20">
+                    <div class="form-text">Obrigatório para faturas e notas de crédito/débito. NIFs portugueses têm de ser válidos; para outros países, confirma o indicativo visível.</div>
                 </div>
 
                 {# ── Supplier suggestion panel ────────────────────────────── #}

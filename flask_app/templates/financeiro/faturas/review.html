@@ -142,7 +142,8 @@
                             <input type="text" id="rev-supplier-nif-vis" class="form-control form-control-sm
                                 {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}border-warning{% endif %}"
                                 value="{{ ocr.supplier_nif or '' }}"
-                                pattern="[0-9]*" inputmode="numeric">
+                                placeholder="PT506454223 ou ESB12345678">
+                            <div class="form-text">NIF português: PT e nove dígitos válidos. Para fornecedores estrangeiros, confirma o indicativo do país.</div>
                             {% if ocr.confidence.get('supplier_nif', 1) < 0.7 %}
                             <div class="form-text text-warning">Confiança baixa – verifica</div>
                             {% endif %}

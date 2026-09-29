@@ -57,6 +57,7 @@ from db.faturas import (get_duplicate_supplier_suggestions, ignore_supplier_pair
                           get_duplicate_invoice_ids,
                           get_invoice_group_summaries,
                           GROUPED_INVOICE_PAGE_SIZE)
+from db.faturas import is_valid_supplier_nif, qualify_supplier_nif
 from flask_app.utils.finance import (
     parse_date as _parse_date,
     parse_float as _parse_float,
@@ -1184,31 +1185,49 @@ def registar():
                 request.form,
             )
 
+        if document_type in _INVOICE_DOC_TYPES:
+            selected_supplier = get_supplier_by_id(supplier_id)
+            if not selected_supplier:
+                return _render_with_errors(
+                    {'supplier': 'O fornecedor selecionado já não existe. Escolhe-o novamente.'},
+                    request.form,
+                )
+            if not supplier_nif:
+                supplier_nif = selected_supplier.get('nif')
+            try:
+                supplier_nif = qualify_supplier_nif(supplier_nif, required=True)
+            except ValueError as exc:
+                return _render_with_errors({'supplier_nif': str(exc)}, request.form)
+
         current_user = session.get('user', {}).get('username', 'sistema')
-        invoice_id = create_invoice({
-            'supplier_id': supplier_id,
-            'supplier_name': supplier_name,
-            'supplier_nif': supplier_nif,
-            'invoice_number': invoice_number,
-            'amount_eur': amount_eur,
-            'vat_amount_eur': vat_amount_eur,
-            'issue_date': issue_date,
-            'due_date': due_date,
-            'category': None,
-            'onedrive_subfolder': onedrive_subfolder,
-            'onedrive_path': None,
-            'onedrive_web_url': None,
-            'pdf_filename': pdf_filename,
-            'pdf_data': pdf_data,
-            'status': 'pending_review',
-            'ocr_confidence': None,
-            'ocr_raw': None,
-            'created_by': current_user,
-            'notes': notes,
-            'document_type': document_type,
-            'centro_custo_id': centro_custo_id,
-            'categoria_custo_id': categoria_custo_id,
-        })
+        try:
+            invoice_id = create_invoice({
+                'supplier_id': supplier_id,
+                'supplier_name': supplier_name,
+                'supplier_nif': supplier_nif,
+                'invoice_number': invoice_number,
+                'amount_eur': amount_eur,
+                'vat_amount_eur': vat_amount_eur,
+                'issue_date': issue_date,
+                'due_date': due_date,
+                'category': None,
+                'onedrive_subfolder': onedrive_subfolder,
+                'onedrive_path': None,
+                'onedrive_web_url': None,
+                'pdf_filename': pdf_filename,
+                'pdf_data': pdf_data,
+                'status': 'pending_review',
+                'ocr_confidence': None,
+                'ocr_raw': None,
+                'created_by': current_user,
+                'notes': notes,
+                'document_type': document_type,
+                'centro_custo_id': centro_custo_id,
+                'categoria_custo_id': categoria_custo_id,
+            }, validate_supplier_nif=True)
+        except ValueError as exc:
+            field = 'supplier_nif' if 'NIF' in str(exc).upper() else 'supplier'
+            return _render_with_errors({field: str(exc)}, request.form)
 
         if pdf_data and onedrive_subfolder:
             try:
@@ -1383,7 +1402,7 @@ def review(invoice_id):
         from db.faturas import (
             _nifs_match,
             _normalise_identity_name,
-            is_valid_portuguese_nif,
+            is_valid_supplier_nif,
         )
         supplier_identity_conflict = (
             _normalise_identity_name(inv.get('supplier_name'))
@@ -1394,7 +1413,7 @@ def review(invoice_id):
             )
             or (
                 bool(supplier.get('nif'))
-                and not is_valid_portuguese_nif(supplier.get('nif'))
+                and not is_valid_supplier_nif(supplier.get('nif'))
             )
         )
 

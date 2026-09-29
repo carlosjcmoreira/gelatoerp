@@ -250,8 +250,10 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
     if not inv:
         raise ServiceError('Fatura não encontrada.')
 
+    from db.faturas import _normalize_nif
+
     supplier_name = form.get('supplier_name', '').strip()
-    supplier_nif = ''.join(c for c in form.get('supplier_nif', '') if c.isdigit())
+    supplier_nif = _normalize_nif(form.get('supplier_nif', ''))
     invoice_number = form.get('invoice_number', '').strip()
     amount_eur = _parse_float(form.get('amount_eur', ''))
     vat_amount_eur = _parse_float(form.get('vat_amount_eur', ''))
@@ -266,6 +268,7 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
     from db.faturas import DOCUMENT_TYPE_LABELS as _DTL
     if document_type not in _DTL:
         document_type = 'fatura'
+    DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
     centro_custo_raw = form.get('centro_custo_id', '').strip()
     centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
     categoria_custo_raw = form.get('categoria_custo_id', '').strip()
@@ -294,22 +297,22 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
 
     # Server-side validation for new supplier required fields (only for faturas,
     # and only when NOT selecting an existing supplier via the dropdown)
-    if is_new_supplier and not existing_supplier_id_str and document_type == 'fatura':
-        if not supplier_name or not supplier_nif:
-            raise ServiceError('Nome e NIF do fornecedor são obrigatórios.')
+    if (is_new_supplier and not existing_supplier_id_str
+            and document_type in DOCUMENT_TYPES_INVOICE):
+        if not supplier_name:
+            raise ServiceError('O nome do fornecedor é obrigatório.')
         if not supplier_payment_method:
             raise ServiceError('Método de pagamento é obrigatório para novo fornecedor.')
         if not supplier_payment_terms:
             raise ServiceError('Prazo de pagamento é obrigatório para novo fornecedor.')
-
-    DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
 
     supplier_id = inv.get('supplier_id')
     from db.faturas import (
         _nifs_match,
         _normalise_identity_name,
         can_auto_match_supplier_nif,
-        is_valid_portuguese_nif,
+        is_valid_supplier_nif,
+        qualify_supplier_nif,
     )
 
     # Reject conflicts before creating suppliers or uploading files. A linked
@@ -318,6 +321,8 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
     if supplier_id and not existing_supplier_id_str:
         from database import get_supplier_by_id
         linked_supplier = get_supplier_by_id(supplier_id)
+        if linked_supplier and not supplier_nif:
+            supplier_nif = _normalize_nif(linked_supplier.get('nif'))
         linked_conflict = bool(
             is_new_supplier
             or not linked_supplier
@@ -363,7 +368,7 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
         )
         invalid_portuguese_nif = (
             bool(selected_supplier.get('nif'))
-            and not is_valid_portuguese_nif(selected_supplier.get('nif'))
+            and not is_valid_supplier_nif(selected_supplier.get('nif'))
         )
         selection_conflicts = (
             (original_id and original_id != supplier_id)
@@ -378,6 +383,36 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
             )
     elif document_type in DOCUMENT_TYPES_INVOICE and not supplier_id and not supplier_name:
         raise ServiceError('Seleciona ou cria um fornecedor antes de guardar este tipo de documento.')
+
+    # Use exact canonical-name lookup only when no NIF was supplied. If a NIF
+    # exists, it must resolve by identity and must never fall back to the name.
+    if (not supplier_id and not existing_supplier_id_str and not is_new_supplier
+            and supplier_name):
+        matched = None
+        if supplier_nif and can_auto_match_supplier_nif(supplier_nif):
+            try:
+                from database import get_supplier_by_nif
+                matched = get_supplier_by_nif(supplier_nif)
+            except Exception:
+                pass
+        elif not supplier_nif:
+            try:
+                from database import get_supplier_by_name
+                matched = get_supplier_by_name(supplier_name)
+            except Exception:
+                pass
+        if matched:
+            supplier_id = matched['id']
+            supplier_name = matched['name']
+            supplier_nif = _normalize_nif(matched.get('nif'))
+
+    if document_type in DOCUMENT_TYPES_INVOICE:
+        try:
+            supplier_nif = qualify_supplier_nif(supplier_nif, required=True)
+        except ValueError as exc:
+            raise ServiceError(str(exc)) from exc
+    elif supplier_nif:
+        supplier_nif = _normalize_nif(supplier_nif)
 
     if not existing_supplier_id_str and is_new_supplier and supplier_nif and supplier_name:
         # Only create a supplier when the user explicitly requested it (is_new_supplier=1).
@@ -414,21 +449,7 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
         except Exception:
             pass
 
-    # If no supplier_id yet but we have a name, try auto-lookup by name
-    if (not supplier_id and supplier_name
-            and (not supplier_nif or can_auto_match_supplier_nif(supplier_nif))):
-        try:
-            from database import get_supplier_by_name as _gsbn
-            matched = _gsbn(supplier_name)
-            if matched:
-                supplier_id = matched['id']
-                supplier_name = matched['name']
-                supplier_nif = matched.get('nif') or ''
-        except Exception:
-            pass
-
     # Enforce: invoice-type documents must have a resolved supplier before leaving draft
-    DOCUMENT_TYPES_INVOICE = {'fatura', 'nota_credito', 'nota_debito'}
     if document_type in DOCUMENT_TYPES_INVOICE and not supplier_id:
         raise ServiceError(
             'Seleciona ou cria um fornecedor antes de guardar este tipo de documento.'
@@ -455,7 +476,8 @@ def save_reviewed_invoice(invoice_id: int, form: dict, changed_by: str = 'sistem
             'document_type': document_type,
             'centro_custo_id': centro_custo_id,
             'categoria_custo_id': categoria_custo_id,
-        }, changed_by=changed_by)
+        }, changed_by=changed_by,
+            validate_supplier_nif=document_type in DOCUMENT_TYPES_INVOICE)
     except Exception as exc:
         raise ServiceError(f'Erro ao actualizar fatura: {exc}') from exc
 

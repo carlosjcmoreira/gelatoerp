@@ -1,0 +1,100 @@
+2026-09-29T15:38:06.730Z [2026-09-29 15:38:06 +0000] [33] [INFO] startup_step name=run_migrations_colaboradores_smart duration_ms=237.6
+2026-09-29T15:38:06.964Z [2026-09-29 15:38:06 +0000] [33] [INFO] startup_step name=run_migrations_transferencias_motivo duration_ms=233.9
+2026-09-29T15:38:07.640Z [2026-09-29 15:38:07 +0000] [33] [INFO] startup_step name=run_migrations_pastelaria_production_stock duration_ms=408.5
+2026-09-29T15:38:07.654Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:07.812Z [2026-09-29 15:38:07 +0000] [33] [INFO] startup_step name=run_migrations_batch_id duration_ms=171.1
+2026-09-29T15:38:08.284Z [2026-09-29 15:38:08 +0000] [33] [INFO] startup_step name=run_migrations_confeitaria_stock_transfers duration_ms=472.2
+2026-09-29T15:38:08.479Z [2026-09-29 15:38:08 +0000] [33] [INFO] startup_step name=run_migrations_stock_producao_lojas duration_ms=195.0
+2026-09-29T15:38:08.815Z [2026-09-29 15:38:08 +0000] [33] [INFO] startup_step name=run_migrations_tarefas duration_ms=335.4
+2026-09-29T15:38:09.117Z [2026-09-29 15:38:09 +0000] [33] [INFO] startup_step name=run_migrations_tarefas_v2 duration_ms=302.7
+2026-09-29T15:38:09.360Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:09.373Z [2026-09-29 15:38:09 +0000] [33] [INFO] startup_step name=run_migrations_tarefas_v3 duration_ms=254.7
+2026-09-29T15:38:09.700Z [2026-09-29 15:38:09 +0000] [33] [INFO] startup_step name=run_migrations_tile_config duration_ms=327.0
+2026-09-29T15:38:10.086Z [2026-09-29 15:38:10 +0000] [33] [INFO] startup_step name=run_migrations_agente duration_ms=385.9
+2026-09-29T15:38:10.149Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:10.349Z [2026-09-29 15:38:10 +0000] [33] [INFO] startup_step name=run_migrations_fecho_caixa_audit duration_ms=262.9
+2026-09-29T15:38:10.913Z [2026-09-29 15:38:10 +0000] [33] [INFO] startup_step name=run_migrations_pesagem_draft_batches duration_ms=564.2
+2026-09-29T15:38:11.168Z [2026-09-29 15:38:11 +0000] [33] [INFO] startup_step name=run_migrations_pesagem_day_justifications duration_ms=254.5
+2026-09-29T15:38:11.807Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:11.974Z [2026-09-29 15:38:11 +0000] [33] [INFO] startup_step name=run_migrations_pesagem_audit duration_ms=806.2
+2026-09-29T15:38:12.145Z [2026-09-29 15:38:12 +0000] [33] [INFO] startup_step name=run_migrations_conta_vendas_diarias duration_ms=170.6
+2026-09-29T15:38:12.315Z [2026-09-29 15:38:12 +0000] [33] [INFO] startup_step name=run_migrations_b2b_vendas_diarias duration_ms=170.0
+2026-09-29T15:38:12.465Z [2026-09-29 15:38:12 +0000] [33] [INFO] startup_step name=run_migrations_tesouraria_manuais duration_ms=149.3
+2026-09-29T15:38:12.660Z [2026-09-29 15:38:12 +0000] [33] [INFO] startup_step name=run_migrations_user_audit_log duration_ms=195.6
+2026-09-29T15:38:12.852Z [2026-09-29 15:38:12 +0000] [33] [INFO] startup_step name=run_migrations_cost_center_allocation duration_ms=192.0
+2026-09-29T15:38:13.045Z [2026-09-29 15:38:13 +0000] [33] [INFO] startup_step name=run_migrations_stock_gelado_carapinas duration_ms=192.0
+2026-09-29T15:38:13.281Z [2026-09-29 15:38:13 +0000] [33] [INFO] startup_step name=run_migrations_suppliers_nullable_nif duration_ms=236.8
+2026-09-29T15:38:13.399Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:13.559Z [2026-09-29 15:38:13 +0000] [33] [INFO] startup_step name=run_migrations_normalise_supplier_nifs duration_ms=277.1
+2026-09-29T15:38:13.731Z [2026-09-29 15:38:13 +0000] [33] [INFO] startup_step name=run_migrations_onedrive_retry duration_ms=172.6
+2026-09-29T15:38:13.945Z [2026-09-29 15:38:13 +0000] [33] [INFO] startup_step name=run_migrations_invoice_centros_custo duration_ms=213.9
+2026-09-29T15:38:14.181Z [2026-09-29 15:38:14 +0000] [33] [INFO] startup_step name=run_migrations_invoice_installments duration_ms=235.0
+2026-09-29T15:38:14.417Z [2026-09-29 15:38:14 +0000] [33] [INFO] startup_step name=run_migrations_supplier_aliases duration_ms=236.6
+2026-09-29T15:38:14.591Z [2026-09-29 15:38:14 +0000] [33] [INFO] startup_step name=run_migrations_supplier_centro_custo duration_ms=173.5
+2026-09-29T15:38:14.828Z [2026-09-29 15:38:14 +0000] [33] [INFO] startup_step name=run_migrations_custos_recorrentes duration_ms=236.3
+2026-09-29T15:38:15.725Z [2026-09-29 15:38:15 +0000] [33] [INFO] startup_step name=run_migrations_normalise_producao_sabores duration_ms=897.6
+2026-09-29T15:38:15.945Z [2026-09-29 15:38:15 +0000] [33] [INFO] startup_step name=run_migrations_quantidade_kg_to_numeric duration_ms=219.3
+2026-09-29T15:38:16.120Z [2026-09-29 15:38:16 +0000] [33] [INFO] startup_step name=run_migrations_loja_origem duration_ms=174.1
+2026-09-29T15:38:16.429Z [2026-09-29 15:38:16 +0000] [33] [INFO] startup_step name=run_migrations_transferencias_destino duration_ms=309.5
+2026-09-29T15:38:17.367Z [2026-09-29 15:38:17 +0000] [33] [INFO] startup_step name=run_migrations_doseamento_gelado duration_ms=938.1
+2026-09-29T15:38:17.562Z [2026-09-29 15:38:17 +0000] [33] [INFO] startup_step name=run_migrations_invoice_status_config duration_ms=194.5
+2026-09-29T15:38:17.822Z [2026-09-29 15:38:17 +0000] [33] [INFO] startup_step name=run_migrations_produto_aliases duration_ms=259.5
+2026-09-29T15:38:17.954Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:18.073Z [2026-09-29 15:38:18 +0000] [33] [INFO] startup_step name=run_migrations_b2b duration_ms=251.5
+2026-09-29T15:38:18.280Z [2026-09-29 15:38:18 +0000] [33] [INFO] startup_step name=run_migrations_faturas_clientes_status duration_ms=206.2
+2026-09-29T15:38:18.451Z [2026-09-29 15:38:18 +0000] [33] [INFO] startup_step name=run_migrations_faturas_clientes_data_pagamento duration_ms=171.5
+2026-09-29T15:38:18.691Z [2026-09-29 15:38:18 +0000] [33] [INFO] startup_step name=run_migrations_faturas_clientes_document_type duration_ms=239.0
+2026-09-29T15:38:19.016Z [2026-09-29 15:38:19 +0000] [33] [INFO] startup_step name=run_migrations_contabilidade duration_ms=324.7
+2026-09-29T15:38:19.036Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:19.212Z [2026-09-29 15:38:19 +0000] [33] [INFO] startup_step name=run_migrations_invoice_payment_audit duration_ms=196.2
+2026-09-29T15:38:19.383Z [2026-09-29 15:38:19 +0000] [33] [INFO] startup_step name=run_migrations_saved_invoice_views duration_ms=170.9
+2026-09-29T15:38:19.662Z [2026-09-29 15:38:19 +0000] [33] [INFO] startup_step name=run_migrations_invoice_audit_complete duration_ms=278.8
+2026-09-29T15:38:19.857Z [2026-09-29 15:38:19 +0000] [33] [INFO] startup_step name=run_migrations_supplier_entidade_governamental duration_ms=194.6
+2026-09-29T15:38:20.050Z [2026-09-29 15:38:20 +0000] [33] [INFO] startup_step name=run_migrations_orcamento duration_ms=193.6
+2026-09-29T15:38:20.227Z [2026-09-29 15:38:20 +0000] [33] [INFO] startup_step name=run_migrations_cost_category_is_cmvmc duration_ms=176.8
+2026-09-29T15:38:20.402Z [2026-09-29 15:38:20 +0000] [33] [INFO] startup_step name=run_migrations_supplier_categoria_custo duration_ms=174.9
+2026-09-29T15:38:20.576Z [2026-09-29 15:38:20 +0000] [33] [INFO] startup_step name=run_migrations_drop_supplier_category duration_ms=173.7
+2026-09-29T15:38:20.739Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:20.792Z [2026-09-29 15:38:20 +0000] [33] [INFO] startup_step name=run_migrations_acesso_compras duration_ms=215.5
+2026-09-29T15:38:21.750Z [2026-09-29 15:38:21 +0000] [33] [INFO] startup_step name=run_migrations_compras_origens duration_ms=957.5
+2026-09-29T15:38:22.273Z [2026-09-29 15:38:22 +0000] [33] [INFO] startup_step name=run_migrations_compras_catalogo duration_ms=522.7
+2026-09-29T15:38:22.620Z [2026-09-29 15:38:22 +0000] [33] [INFO] startup_step name=run_migrations_compras_encomendas_semanais duration_ms=347.1
+2026-09-29T15:38:22.716Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:22.973Z [2026-09-29 15:38:22 +0000] [33] [INFO] startup_step name=run_migrations_compras_pedidos_urgentes duration_ms=352.7
+2026-09-29T15:38:23.363Z [2026-09-29 15:38:23 +0000] [33] [INFO] startup_step name=run_migrations_compras_contagens_artigos duration_ms=389.6
+2026-09-29T15:38:23.700Z [2026-09-29 15:38:23 +0000] [33] [INFO] startup_step name=run_migrations_compras_pedidos_envios duration_ms=336.9
+2026-09-29T15:38:23.700Z [2026-09-29 15:38:23 +0000] [33] [INFO] startup_schema_phase duration_ms=30337.5 steps=79 slow_steps=init_database:402.1ms,run_migrations:2589.7ms,run_migrations_m0:512.3ms,run_faturas_migrations:1321.3ms,run_migrations_forecast:467.3ms,run_migrations_wind_config:503.6ms,run_migrations_cashflow:372.8ms,run_migrations_credito:341.2ms,run_migrations_eventos_v2_foundation:1287.1ms,run_migrations_eventos_customer_portal:1293.8ms,run_data_fix_stock_gelado_dedup_and_unique:179.1ms,run_migrations_caixa_loja:193.6ms,run_migrations_preco_caixa_kg:195.4ms,run_migrations_centros_custo:892.3ms,run_migrations_cost_centers_store_id:196.0ms,run_migrations_pastelaria_plano:583.7ms,run_migrations_pastelaria_count_product_id:561.1ms,run_migrations_pastelaria_count_submission:322.8ms,run_migrations_confeitaria_count_product_id:240.0ms,run_migrations_confeitaria_stock_ledger:282.4ms,run_migrations_confeitaria_stock_production:170.3ms,run_migrations_pastelaria_product_state_audit:213.8ms,run_migrations_colaboradores_smart:237.6ms,run_migrations_transferencias_motivo:233.9ms,run_migrations_transferencias_eventos:266.8ms,run_migrations_pastelaria_production_stock:408.5ms,run_migrations_batch_id:171.1ms,run_migrations_confeitaria_stock_transfers:472.2ms,run_migrations_stock_producao_lojas:195.0ms,run_migrations_tarefas:335.4ms,run_migrations_tarefas_v2:302.7ms,run_migrations_tarefas_v3:254.7ms,run_migrations_tile_config:327.0ms,run_migrations_agente:385.9ms,run_migrations_fecho_caixa_audit:262.9ms,run_migrations_pesagem_draft_batches:564.2ms,run_migrations_pesagem_day_justifications:254.5ms,run_migrations_pesagem_audit:806.2ms,run_migrations_conta_vendas_diarias:170.6ms,run_migrations_b2b_vendas_diarias:170.0ms,run_migrations_tesouraria_manuais:149.3ms,run_migrations_user_audit_log:195.6ms,run_migrations_cost_center_allocation:192.0ms,run_migrations_stock_gelado_carapinas:192.0ms,run_migrations_suppliers_nullable_nif:236.8ms,run_migrations_normalise_supplier_nifs:277.1ms,run_migrations_onedrive_retry:172.6ms,run_migrations_invoice_centros_custo:213.9ms,run_migrations_invoice_installments:235.0ms,run_migrations_supplier_aliases:236.6ms,run_migrations_supplier_centro_custo:173.5ms,run_migrations_custos_recorrentes:236.3ms,run_migrations_normalise_producao_sabores:897.6ms,run_migrations_quantidade_kg_to_numeric:219.3ms,run_migrations_loja_origem:174.1ms,run_migrations_transferencias_destino:309.5ms,run_migrations_doseamento_gelado:938.1ms,run_migrations_invoice_status_config:194.5ms,run_migrations_produto_aliases:259.5ms,run_migrations_b2b:251.5ms,run_migrations_faturas_clientes_status:206.2ms,run_migrations_faturas_clientes_data_pagamento:171.5ms,run_migrations_faturas_clientes_document_type:239.0ms,run_migrations_contabilidade:324.7ms,run_migrations_invoice_payment_audit:196.2ms,run_migrations_saved_invoice_views:170.9ms,run_migrations_invoice_audit_complete:278.8ms,run_migrations_supplier_entidade_governamental:194.6ms,run_migrations_orcamento:193.6ms,run_migrations_cost_category_is_cmvmc:176.8ms,run_migrations_supplier_categoria_custo:174.9ms,run_migrations_drop_supplier_category:173.7ms,run_migrations_acesso_compras:215.5ms,run_migrations_compras_origens:957.5ms,run_migrations_compras_catalogo:522.7ms,run_migrations_compras_encomendas_semanais:347.1ms,run_migrations_compras_pedidos_urgentes:352.7ms,run_migrations_compras_contagens_artigos:389.6ms,run_migrations_compras_pedidos_envios:336.9ms
+2026-09-29T15:38:24.141Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:24.891Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:26.679Z healthcheck failed error=healthcheck / returned status 500
+2026-09-29T15:38:26.928Z [2026-09-29 15:38:26 +0000] [33] [INFO] application_startup duration_ms=33580.7 schema_phase_duration_ms=30337.5
+2026-09-29T15:38:26.929Z [2026-09-29 15:38:26 +0000] [33] [INFO] Starting gunicorn 25.1.0
+2026-09-29T15:38:26.929Z [2026-09-29 15:38:26 +0000] [33] [INFO] Listening at:  (33)
+2026-09-29T15:38:27.200Z [2026-09-29 15:38:27 +0000] [33] [INFO] Closed preloaded PostgreSQL pool before worker fork
+2026-09-29T15:38:27.209Z [2026-09-29 15:38:27 +0000] [49] [INFO] Booting worker with pid: 49
+2026-09-29T15:38:27.239Z [2026-09-29 15:38:27 +0000] [49] [INFO] Starting event portal proof cleanup in worker 49 (age=1)
+2026-09-29T15:38:27.259Z [2026-09-29 15:38:27 +0000] [49] [INFO] Starting weather scheduler in worker 49 (age=1)
+2026-09-29T15:38:27.288Z [2026-09-29 15:38:27 +0000] [33] [INFO] Closed preloaded PostgreSQL pool before worker fork
+2026-09-29T15:38:27.296Z [2026-09-29 15:38:27 +0000] [52] [INFO] Booting worker with pid: 52
+2026-09-29T15:38:27.309Z [2026-09-29 15:38:27 +0000] [52] [INFO] Starting durable Google Sheets sync worker in worker 52 (age=2)
+2026-09-29T15:38:27.389Z [2026-09-29 15:38:27 +0000] [33] [INFO] Closed preloaded PostgreSQL pool before worker fork
+2026-09-29T15:38:27.397Z [2026-09-29 15:38:27 +0000] [54] [INFO] Booting worker with pid: 54
+2026-09-29T15:38:27.403Z [2026-09-29 15:38:27 +0000] [54] [INFO] Starting durable Google Sheets sync worker in worker 54 (age=3)
+2026-09-29T15:38:27.441Z [2026-09-29 15:38:27 +0000] [33] [INFO] Closed preloaded PostgreSQL pool before worker fork
+2026-09-29T15:38:27.448Z [2026-09-29 15:38:27 +0000] [56] [INFO] Booting worker with pid: 56
+2026-09-29T15:38:27.453Z [2026-09-29 15:38:27 +0000] [56] [INFO] Starting durable Google Sheets sync worker in worker 56 (age=4)
+2026-09-29T15:38:27.629Z [2026-09-29 15:38:27 +0000] [52] [INFO] request_metrics request_id=118cb802bd4d44cc86446a52325bc1e2 method=GET route=/ status=302 duration_ms=1.0 db_duration_ms=0.0 query_count=0 response_bytes=199
+2026-09-29T15:38:27.879Z [2026-09-29 15:38:27 +0000] [49] [INFO] Starting OneDrive retry scheduler in worker 49 (age=1)
+2026-09-29T15:38:32.149Z run_data_fix_pesagem_april2026: ID 602 fingerprint mismatch — got data=2026-03-23 sabor='Extra Noir', expected data=2026-03-23 sabor='Extra noir' — skipping
+2026-09-29T15:38:45.472Z [2026-09-29 15:38:45 +0000] [30] [INFO] Handling signal: term
+2026-09-29T15:38:45.475Z [2026-09-29 15:38:45 +0000] [46] [INFO] Worker exiting (pid: 46)
+2026-09-29T15:38:45.475Z [2026-09-29 15:38:45 +0000] [53] [INFO] Worker exiting (pid: 53)
+2026-09-29T15:38:45.475Z [2026-09-29 15:38:45 +0000] [51] [INFO] Worker exiting (pid: 51)
+2026-09-29T15:38:45.475Z [2026-09-29 15:38:45 +0000] [47] [INFO] Worker exiting (pid: 47)
+2026-09-29T15:38:46.178Z [2026-09-29 15:38:46 +0000] [30] [INFO] Shutting down: Master
+2026-09-29T16:03:15.108Z [2026-09-29 16:03:15 +0000] [52] [INFO] request_metrics request_id=9dc20a0b2a3e4548beffd6474d751ce8 method=GET route=/ status=200 duration_ms=1451.1 db_duration_ms=476.2 query_count=12 response_bytes=37178
+2026-09-29T16:03:15.573Z [2026-09-29 16:03:15 +0000] [56] [INFO] request_metrics request_id=4974a0e4dc834f369e9369f211069c95 method=GET route=/static/<path:filename> status=200 duration_ms=176.3 db_duration_ms=49.3 query_count=1 response_bytes=unknown
+2026-09-29T16:03:18.635Z [2026-09-29 16:03:18 +0000] [49] [INFO] request_metrics request_id=7d0e535528db4f24b35fe21556db59ea method=GET route=/static/<path:filename> status=304 duration_ms=5.9 db_duration_ms=0.0 query_count=0 response_bytes=unknown
+2026-09-29T16:03:18.873Z [2026-09-29 16:03:18 +0000] [56] [INFO] request_metrics request_id=5427ccadc88f447f96d1ad4ee53f8bc8 method=GET route=/static/<path:filename> status=304 duration_ms=0.7 db_duration_ms=0.0 query_count=0 response_bytes=unknown
+2026-09-29T16:10:15.609Z [2026-09-29 16:10:15 +0000] [54] [INFO] request_metrics request_id=a3c877573a5f41ef8d6d7d38ed1fc440 method=GET route=/ status=302 duration_ms=0.8 db_duration_ms=0.0 query_count=0 response_bytes=199
+2026-09-29T16:10:17.085Z [2026-09-29 16:10:17 +0000] [49] [INFO] request_metrics request_id=f6477b3f4c134c27add4f1b79fb669c5 method=GET route=/login status=200 duration_ms=180.8 db_duration_ms=44.5 query_count=1 response_bytes=20445

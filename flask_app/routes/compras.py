@@ -833,6 +833,27 @@ def review_draft(invoice_id):
         doc_type = request.form.get('document_type', 'fatura')
         if doc_type not in DOCUMENT_TYPE_LABELS:
             doc_type = 'fatura'
+        supplier_nif_clean = request.form.get('supplier_nif', '').strip() or None
+        supplier_action = request.form.get('supplier_action', '').strip()
+        supplier_id_for_nif = inv.get('supplier_id')
+        if supplier_action.startswith('associate:'):
+            selected_id = supplier_action[len('associate:'):]
+            if selected_id.isdigit():
+                supplier_id_for_nif = int(selected_id)
+        selected_supplier_for_nif = (
+            get_supplier_by_id(supplier_id_for_nif)
+            if supplier_id_for_nif else None
+        )
+        if not supplier_nif_clean and selected_supplier_for_nif:
+            supplier_nif_clean = selected_supplier_for_nif.get('nif') or None
+        from db.faturas import qualify_supplier_nif
+        if doc_type in {'fatura', 'nota_credito', 'nota_debito'}:
+            try:
+                supplier_nif_clean = qualify_supplier_nif(
+                    supplier_nif_clean, required=True
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
 
         centro_custo_raw = request.form.get('centro_custo_id', '').strip()
         try:
@@ -900,8 +921,6 @@ def review_draft(invoice_id):
 
         new_status = 'paid' if ja_paga else 'pending_review'
         _compras_actor = session.get('user', {}).get('username', 'sistema:compras')
-        supplier_nif_clean = request.form.get('supplier_nif', '').strip() or None
-        supplier_action = request.form.get('supplier_action', '').strip()
 
         # Resolve supplier_id for invoice-type documents leaving draft state.
         # update_invoice guards against moving to post-draft states without a linked supplier.
@@ -986,7 +1005,8 @@ def review_draft(invoice_id):
                     'centro_custo_id': centro_custo_id,
                     'categoria_custo_id': categoria_custo_id,
                     'notes': notes,
-                }, changed_by=_compras_actor)
+                }, changed_by=_compras_actor,
+                    validate_supplier_nif=doc_type in {'fatura', 'nota_credito', 'nota_debito'})
                 flash('Selecciona um fornecedor existente ou cria um novo antes de registar.', 'warning')
                 return redirect(url_for('compras.review_draft', invoice_id=invoice_id))
 
@@ -1496,9 +1516,10 @@ def nova_fatura():
         centro_custo_id = int(centro_custo_raw) if centro_custo_raw else None
         categoria_custo_raw = request.form.get('categoria_custo_id', '').strip()
         categoria_custo_id = int(categoria_custo_raw) if categoria_custo_raw else None
-        from db.faturas import DOCUMENT_TYPE_LABELS as _DTL
+        from db.faturas import DOCUMENT_TYPE_LABELS as _DTL, qualify_supplier_nif
         if document_type not in _DTL:
             document_type = 'fatura'
+        _INVOICE_DOC_TYPES = {'fatura', 'nota_credito', 'nota_debito'}
 
         # ── Resolve supplier (structured selection — no silent auto-creation) ─
         supplier_id_raw = request.form.get('supplier_id', '').strip()
@@ -1506,6 +1527,7 @@ def nova_fatura():
         supplier_id = None
         supplier_name = ''
         supplier_nif = None
+        create_new_supplier = False
 
         if supplier_id_raw.isdigit():
             # Existing supplier selected from the dropdown
@@ -1528,20 +1550,29 @@ def nova_fatura():
             if not supplier_name:
                 flash('Preenche o nome do fornecedor para criar um novo registo.', 'warning')
                 return redirect(url_for('compras.nova_fatura'))
-            if document_type == 'fatura' and not supplier_nif:
-                flash('O NIF é obrigatório para criar um fornecedor em faturas.', 'warning')
-                return redirect(url_for('compras.nova_fatura'))
+            create_new_supplier = True
+        elif document_type in _INVOICE_DOC_TYPES:
+            flash('Seleciona um fornecedor existente ou cria um novo antes de registar a fatura.', 'warning')
+            return redirect(url_for('compras.nova_fatura'))
+        # For non-invoice document types, a supplier is optional.
+
+        if document_type in _INVOICE_DOC_TYPES:
             try:
-                supplier_id = upsert_supplier(supplier_name, supplier_nif,
-                                              payment_method=payment_method or None)
+                supplier_nif = qualify_supplier_nif(supplier_nif, required=True)
+            except ValueError as exc:
+                flash(str(exc), 'warning')
+                return redirect(url_for('compras.nova_fatura'))
+
+        if create_new_supplier:
+            try:
+                supplier_id = upsert_supplier(
+                    supplier_name, supplier_nif,
+                    payment_method=payment_method or None,
+                )
             except Exception as exc:
                 logging.warning('compras.nova_fatura: upsert_supplier failed: %s', exc)
                 flash(f'Erro ao criar fornecedor: {exc}', 'warning')
                 return redirect(url_for('compras.nova_fatura'))
-        elif document_type == 'fatura':
-            flash('Seleciona um fornecedor existente ou cria um novo antes de registar a fatura.', 'warning')
-            return redirect(url_for('compras.nova_fatura'))
-        # For non-invoice document types, a supplier is optional.
 
         try:
             amount_eur = float(amount_str)
@@ -1603,7 +1634,7 @@ def nova_fatura():
                 'document_type': document_type,
                 'centro_custo_id': centro_custo_id,
                 'categoria_custo_id': categoria_custo_id,
-            })
+            }, validate_supplier_nif=document_type in _INVOICE_DOC_TYPES)
         except ValueError as exc:
             flash(str(exc), 'warning')
             return redirect(url_for('compras.nova_fatura'))

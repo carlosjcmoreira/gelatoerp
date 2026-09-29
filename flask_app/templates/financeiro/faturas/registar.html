@@ -107,8 +107,14 @@
                         <div class="col-12 col-sm-6">
                             <label class="form-label small">NIF do Fornecedor</label>
                             <input type="text" name="supplier_nif" id="reg-supplier-nif"
-                                   class="form-control form-control-sm" maxlength="20" placeholder="Ex: 123456789"
+                                   class="form-control form-control-sm{% if field_errors and field_errors.get('supplier_nif') %} is-invalid{% endif %}"
+                                   maxlength="20" placeholder="PT506454223 ou ESB12345678"
                                    value="{{ form_data.get('supplier_nif', '') if form_data else '' }}">
+                            {% if field_errors and field_errors.get('supplier_nif') %}
+                            <div class="invalid-feedback d-block">{{ field_errors.supplier_nif }}</div>
+                            {% else %}
+                            <div class="form-text">Obrigatório para faturas, notas de crédito e de débito.</div>
+                            {% endif %}
                         </div>
                         <div class="col-12 col-sm-6">
                             <label class="form-label small">Método de Pagamento</label>
@@ -249,7 +255,7 @@
                         <div class="col-12 col-sm-6">
                             <label class="form-label small">NIF</label>
                             <input type="text" name="nif" id="qsNif" class="form-control form-control-sm"
-                                   inputmode="numeric" placeholder="Opcional">
+                                   placeholder="PT506454223 ou ESB12345678 (opcional)">
                         </div>
                         <div class="col-12 col-sm-6">
                             <label class="form-label small">Método de Pagamento</label>

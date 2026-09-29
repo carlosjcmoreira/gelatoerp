@@ -9,6 +9,15 @@ import os
 
 # NIFs da própria empresa — nunca devem identificar um fornecedor
 OWN_COMPANY_NIFS: frozenset = frozenset({'516388819', 'PT516388819'})
+_FOREIGN_NIF_PREFIXES = frozenset(
+    """AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ
+    CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR
+    GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO
+    JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR
+    MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO
+    RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV
+    TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW EL XI XK UK""".split()
+)
 
 PAYMENT_METHOD_LABELS = {
     'transferencia': 'Transferência',
@@ -147,6 +156,11 @@ def _nifs_match(left, right) -> bool:
     return bool(left_key and right_key and left_key == right_key)
 
 
+def _is_own_company_nif(nif) -> bool:
+    key = _nif_match_key(nif)
+    return bool(key and key in {_nif_match_key(value) for value in OWN_COMPANY_NIFS})
+
+
 def is_valid_portuguese_nif(nif) -> bool:
     """Validate the checksum of a Portuguese nine-digit NIF.
 
@@ -176,12 +190,62 @@ def is_valid_portuguese_nif(nif) -> bool:
     return check == int(normalized[-1])
 
 
+def qualify_supplier_nif(nif, required: bool = True) -> str:
+    """Return a canonical NIF for a new invoice or raise a user-facing error.
+
+    Portuguese identifiers are stored with the ``PT`` prefix after checksum
+    validation. Foreign identifiers must carry a recognized two-letter
+    country/tax prefix and an unambiguous alphanumeric number. Foreign
+    country-specific VAT checksums are not inferred here.
+    """
+    normalized = _normalize_nif(nif)
+    if not normalized:
+        if required:
+            raise ValueError('O NIF do fornecedor é obrigatório para registar este documento.')
+        return None
+
+    if _is_own_company_nif(normalized):
+        raise ValueError('O NIF indicado pertence à própria empresa, não ao fornecedor.')
+
+    if normalized.startswith('PT'):
+        if not is_valid_portuguese_nif(normalized):
+            raise ValueError('NIF português inválido. Confirma os nove dígitos e o dígito de controlo.')
+        return normalized
+
+    if normalized.isdigit():
+        if is_valid_portuguese_nif(normalized):
+            return f'PT{normalized}'
+        raise ValueError(
+            'NIF inválido ou ambíguo. Confirma o NIF português de nove dígitos ou '
+            'indica o prefixo do país para um fornecedor estrangeiro.'
+        )
+
+    country_prefix, tax_number = normalized[:2], normalized[2:]
+    if (country_prefix not in _FOREIGN_NIF_PREFIXES
+            or not 5 <= len(tax_number) <= 20
+            or not tax_number.isascii()
+            or not tax_number.isalnum()):
+        raise ValueError(
+            'NIF estrangeiro inválido ou sem indicativo de país reconhecido. '
+            'Confirma o número e inclui o prefixo do país (por exemplo, ES).'
+        )
+    return normalized
+
+
+def is_valid_supplier_nif(nif) -> bool:
+    """Whether a NIF is complete enough to identify a supplier safely."""
+    try:
+        qualify_supplier_nif(nif)
+    except ValueError:
+        return False
+    return True
+
+
 def can_auto_match_supplier_nif(nif) -> bool:
     """Return whether an OCR NIF is safe to use for automatic supplier matching."""
-    normalized = _normalize_nif(nif)
-    if not normalized or normalized in OWN_COMPANY_NIFS:
+    if _is_own_company_nif(nif):
         return False
-    return is_valid_portuguese_nif(normalized)
+    return is_valid_supplier_nif(nif)
 
 
 class SupplierIdentityConflict(ValueError):
@@ -243,7 +307,7 @@ def get_supplier_by_nif(nif: str) -> dict:
     nif = _normalize_nif(nif)
     if not nif:
         return None
-    if nif in OWN_COMPANY_NIFS:
+    if _is_own_company_nif(nif):
         return None  # never match a supplier using the company's own NIF
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -411,8 +475,8 @@ def get_supplier_identity_conflicts() -> list:
                 reasons.append('nome_divergente')
             if (stored_nif or canonical_nif) and not _nifs_match(stored_nif, canonical_nif):
                 reasons.append('nif_divergente')
-            if canonical_nif and not is_valid_portuguese_nif(canonical_nif):
-                reasons.append('nif_portugues_invalido')
+            if canonical_nif and not is_valid_supplier_nif(canonical_nif):
+                reasons.append('nif_fornecedor_invalido')
             if reasons:
                 conflicts.append({
                     'invoice_id': invoice_id,
@@ -2249,7 +2313,7 @@ def get_invoice(invoice_id: int) -> dict:
             )
             or (
                 bool(inv.get('supplier_legal_nif'))
-                and not is_valid_portuguese_nif(inv.get('supplier_legal_nif'))
+                and not is_valid_supplier_nif(inv.get('supplier_legal_nif'))
             )
         )
     )
@@ -2329,7 +2393,7 @@ def save_invoice_pdf(invoice_id: int, pdf_data: bytes, pdf_filename: str):
         conn.commit()
 
 
-def create_invoice(data: dict) -> int:
+def create_invoice(data: dict, validate_supplier_nif: bool = False) -> int:
     doc_type = data.get('document_type', 'fatura')
     status = data.get('status', 'pending_review')
     if (doc_type in _DOCUMENT_TYPES_INVOICE
@@ -2344,6 +2408,13 @@ def create_invoice(data: dict) -> int:
         if data.get('supplier_id'):
             data = _canonicalize_invoice_supplier_data(
                 cursor, data, data.get('supplier_id')
+            )
+        if (validate_supplier_nif
+                and doc_type in _DOCUMENT_TYPES_INVOICE
+                and status in _STATUSES_REQUIRING_SUPPLIER):
+            data = dict(data)
+            data['supplier_nif'] = qualify_supplier_nif(
+                data.get('supplier_nif'), required=True
             )
         cursor.execute("""
             INSERT INTO invoices (
@@ -2420,7 +2491,8 @@ def get_invoice_audit_log(invoice_id: int) -> list:
         return []
 
 
-def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
+def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema',
+                   validate_supplier_nif: bool = False):
     allowed = [
         'supplier_name', 'supplier_nif', 'invoice_number', 'amount_eur', 'vat_amount_eur',
         'issue_date', 'due_date', 'category', 'onedrive_subfolder',
@@ -2454,6 +2526,31 @@ def update_invoice(invoice_id: int, data: dict, changed_by: str = 'sistema'):
                 cursor, data, effective_supplier_id,
                 previous_supplier_id=existing_supplier_id,
             )
+
+        if (validate_supplier_nif
+                and data.get('status') in _STATUSES_REQUIRING_SUPPLIER):
+            effective_doc_type = data.get('document_type')
+            if effective_doc_type is None:
+                cursor.execute(
+                    "SELECT document_type FROM invoices WHERE id = %s",
+                    (invoice_id,),
+                )
+                document_row = cursor.fetchone()
+                effective_doc_type = document_row[0] if document_row else None
+            if effective_doc_type in _DOCUMENT_TYPES_INVOICE:
+                if 'supplier_nif' not in data:
+                    cursor.execute(
+                        "SELECT supplier_nif FROM invoices WHERE id = %s",
+                        (invoice_id,),
+                    )
+                    nif_row = cursor.fetchone()
+                    candidate_nif = nif_row[0] if nif_row else None
+                else:
+                    candidate_nif = data.get('supplier_nif')
+                data = dict(data)
+                data['supplier_nif'] = qualify_supplier_nif(
+                    candidate_nif, required=True
+                )
 
         fields = []
         params = []
