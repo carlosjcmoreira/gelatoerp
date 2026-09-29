@@ -1,4 +1,5 @@
 from datetime import date
+import html as html_lib
 from pathlib import Path
 import re
 import unittest
@@ -57,17 +58,26 @@ def doseamento_payload(status, issues=None, **overrides):
 
 def monthly_cell(html, month, column_index):
     match = re.search(
-        rf"<tr>\s*<td>{re.escape(month)}</td>(.*?)</tr>",
+        rf'<tr[^>]*data-month="{re.escape(month)}"[^>]*>(.*?)</tr>',
         html,
         flags=re.DOTALL,
     )
     if not match:
         return None
-    cells = re.findall(r"<td(?:\s[^>]*)?>(.*?)</td>", match.group(1),
-                       flags=re.DOTALL)
+    cells = re.findall(
+        r"<(?:th|td)(?:\s[^>]*)?>(.*?)</(?:th|td)>",
+        match.group(1),
+        flags=re.DOTALL,
+    )
     if column_index >= len(cells):
         return None
-    return re.sub(r"<[^>]+>", "", cells[column_index]).strip()
+    return visible_text(cells[column_index])
+
+
+def visible_text(markup):
+    return " ".join(
+        html_lib.unescape(re.sub(r"<[^>]+>", " ", markup)).split()
+    )
 
 
 class EurokgMonthlyQualityTests(unittest.TestCase):
@@ -206,32 +216,69 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         ))
 
         html = response.get_data(as_text=True)
-        self.assertIn("Calculado", html)
-        self.assertIn("Parcial", html)
-        self.assertIn("Auditoria física: Fiável", html)
-        self.assertIn("Auditoria física: Incompleta", html)
-        self.assertIn("Auditoria física: Inválida", html)
+        text = visible_text(html)
+        self.assertIn("Calculado", text)
+        self.assertIn("Parcial", text)
+        self.assertIn("Auditoria física: Fiável", text)
+        self.assertIn("Auditoria física: Incompleta", text)
+        self.assertIn("Auditoria física: Inválida", text)
         self.assertNotIn("Ver motivos e dados", html)
-        self.assertNotIn("Faltam pesagens comparáveis", html)
-        self.assertIn("Cone de Baunilha", html)
-        self.assertIn("Bolhão ·", html)
-        self.assertIn("72.00 €", html)
-        self.assertIn("Configurar esta dose", html)
+        self.assertNotIn("Faltam pesagens comparáveis", text)
+        self.assertIn("Cone de Baunilha", text)
+        self.assertIn("Bolhão ·", text)
+        self.assertIn("72.00 €", text)
+        self.assertIn("Configurar esta dose", text)
         self.assertIn("produto_id=301", html)
         self.assertIn("data_inicio=2026-02-01", html)
         self.assertIn("data_fim=2026-02-28", html)
-        self.assertIn("Ver vendas ao peso", html)
+        self.assertIn("Ver vendas ao peso", text)
         self.assertNotIn("produto_id=302", html)
-        self.assertNotIn("20/03/2026", html)
-        self.assertNotIn("23/03/2026", html)
-        self.assertIn("Auditoria física incompleta ou inválida", html)
-        self.assertNotIn("negative_stock_residual", html)
-        self.assertIn("€/kg operacional", html)
-        self.assertIn("Teórico conhecido (kg)", html)
-        self.assertNotIn("Real auditado (kg)", html)
-        self.assertIn("Deslize horizontalmente", html)
+        self.assertNotIn("20/03/2026", text)
+        self.assertNotIn("23/03/2026", text)
+        self.assertIn("Auditoria física incompleta ou inválida", text)
+        self.assertNotIn("negative_stock_residual", text)
+        self.assertIn("€/kg operacional", text)
+        self.assertIn("Teórico conhecido (kg)", text)
+        self.assertNotIn("Real auditado (kg)", text)
+        self.assertIn("Deslize horizontalmente", text)
         self.assertIn('[data-bs-theme="dark"] .eurokg-shell', html)
         self.assertIn("@media (max-width:767.98px)", html)
+        self.assertIn("font-variant-numeric:tabular-nums", html)
+        self.assertIn("position:sticky; left:0", html)
+
+        table_head = re.search(r"<thead>(.*?)</thead>", html, re.DOTALL).group(1)
+        self.assertIn(
+            "Mês Consumo e dose Receita Dados Consumo operacional (kg) "
+            "Teórico conhecido (kg) Desvio (kg) Rendimento (%) Vendas (€) "
+            "€/kg operacional",
+            visible_text(table_head),
+        )
+        self.assertEqual(html.count('<col class="'), 8)
+        self.assertIn('colspan="4"', table_head)
+        self.assertIn('colspan="2"', table_head)
+
+        january = re.search(
+            r'<tr[^>]*data-month="Janeiro"[^>]*>.*?</tr>', html, re.DOTALL
+        ).group(0)
+        self.assertEqual(
+            len(re.findall(r"<(?:th|td)(?:\s[^>]*)?>", january)),
+            8,
+        )
+        self.assertNotRegex(january, r"<details[^>]*\bopen\b")
+        self.assertIn("Ver movimento (kg)", january)
+        self.assertIn("Ver detalhes", january)
+        for movement_label in (
+            "Stock inicial (kg)", "Produção (kg)", "Stock final (kg)",
+            "Quebras (kg)",
+        ):
+            self.assertIn(movement_label, january)
+
+        self.assertIn("Total anual — produção (kg):", text)
+        self.assertIn("Total anual — quebras (kg):", text)
+        footer = visible_text(
+            re.search(r"<tfoot>(.*?)</tfoot>", html, re.DOTALL).group(1)
+        )
+        self.assertEqual(footer, "TOTAL 60 — — — 1200 20.00")
 
     def test_store_view_passes_only_the_selected_store_to_month_calculation(self):
         self.mocks[0].return_value = (
@@ -252,7 +299,7 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         ))
         html = response.get_data(as_text=True)
         self.assertIn("Bolhão", html)
-        self.assertIn("Auditoria física: Fiável", html)
+        self.assertIn("Auditoria física: Fiável", visible_text(html))
 
     def test_months_without_positive_consumption_do_not_break_summary(self):
         annual = annual_data()
