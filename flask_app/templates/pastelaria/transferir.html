@@ -55,6 +55,7 @@
                         <strong>Histórico digital</strong> = registos antigos, apenas para consulta; não são adicionados ao saldo novo.<br>
                         <strong>Contagens das lojas</strong> = contagens físicas independentes do stock de produção.
                     </p>
+                    <div class="table-responsive">
                     <table class="table table-sm mb-0" style="font-size:0.8rem;">
                         <thead class="table-light">
                             <tr>
@@ -91,6 +92,7 @@
                             {% endfor %}
                         </tbody>
                     </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -102,12 +104,48 @@
         <a href="{{ url_for('pastelaria.stock_producao') }}">Registe o saldo inicial ou produção.</a>
     </div>
     {% endif %}
-    <div id="artigos-container"></div>
-
-    <button type="button" class="btn btn-outline-secondary w-100 mb-3"
-            onclick="adicionarArtigo()" style="font-size:0.85rem;">
-        + Adicionar artigo
-    </button>
+    {% set artigos_transferiveis = cards_transferivel|selectattr('pode_transferir')|list %}
+    {% if artigos_transferiveis %}
+    <p class="small text-muted mb-2">
+        Indique a quantidade de cada artigo. Campos vazios e quantidades zero são ignorados.
+    </p>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Artigo</th>
+                    <th scope="col" class="text-center">Disponível</th>
+                    <th scope="col" class="text-center">Quantidade a transferir</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for card in artigos_transferiveis %}
+                <tr>
+                    <td>
+                        <input type="hidden" name="produto_{{ loop.index0 }}"
+                               value="{{ card.identity_key }}">
+                        <span>{{ card.produto }}</span>
+                        {% if card.identity_hint %}
+                        <small class="text-muted">{{ card.identity_hint }}</small>
+                        {% endif %}
+                    </td>
+                    <td class="text-center fw-semibold">{{ card.saldo }}</td>
+                    <td class="text-center">
+                        <label class="visually-hidden" for="qty-{{ loop.index0 }}">
+                            Quantidade a transferir de {{ card.produto }}
+                        </label>
+                        <input id="qty-{{ loop.index0 }}" type="number"
+                               name="qty_{{ loop.index0 }}"
+                               class="form-control form-control-sm text-center mx-auto"
+                               style="width:6rem;" min="0" max="{{ card.saldo }}"
+                               step="1" inputmode="numeric" placeholder="0">
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
 
     {% else %}
     <div class="alert alert-info small">Sem produtos de pastelaria configurados.</div>
@@ -116,64 +154,4 @@
 
 </div>
 
-<script>
-(function() {
-    var rowCount = 0;
-    var produtos = [
-        {% for card in cards_transferivel %}
-        {
-            key: {{ card.identity_key | tojson }},
-            nome: {{ card.produto | tojson }},
-            hint: {{ card.identity_hint | tojson }},
-            saldo: {{ card.saldo }},
-            confirmado: {{ card.saldo_inicial_confirmado | tojson }},
-            transferivel: {{ card.pode_transferir | tojson }}
-        }{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ];
-
-    function escapeHtml(value) {
-        return String(value).replace(/[&<>"']/g, function(character) {
-            return {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            }[character];
-        });
-    }
-
-    window.adicionarArtigo = function() {
-        if (produtos.length === 0) return;
-        var idx = rowCount++;
-        var container = document.getElementById('artigos-container');
-        if (!container) return;
-        var div = document.createElement('div');
-        div.className = 'card mb-2 artigo-row';
-        var options = produtos.map(function(p) {
-            var saldoText = p.confirmado
-                ? ' — saldo ' + p.saldo
-                : ' — saldo inicial por confirmar';
-            var disabled = p.transferivel ? '' : ' disabled';
-            return '<option value="' + escapeHtml(p.key) + '"' + disabled + '>' +
-                escapeHtml(p.nome + p.hint + saldoText) + '</option>';
-        }).join('');
-        div.innerHTML =
-            '<div class="card-body p-2">' +
-            '<div class="d-flex gap-2 align-items-center">' +
-            '<select name="produto_' + idx + '" class="form-select form-select-sm" style="flex:1;">' +
-            '<option value="">— Escolher artigo —</option>' + options +
-            '</select>' +
-            '<input type="number" name="qty_' + idx + '" class="form-control form-control-sm text-center" placeholder="Qtd" min="1" step="1" inputmode="numeric" style="width:72px;">' +
-            '<button type="button" class="btn btn-outline-danger btn-sm px-2" onclick="this.closest(\'.artigo-row\').remove()">×</button>' +
-            '</div></div>';
-        container.appendChild(div);
-    };
-
-    {% if cards_transferivel %}
-    adicionarArtigo();
-    {% endif %}
-})();
-</script>
 {% endblock %}

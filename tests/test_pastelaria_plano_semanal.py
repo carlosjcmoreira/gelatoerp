@@ -187,6 +187,49 @@ class PastelariaTransferTests(unittest.TestCase):
             url_prefix='/pastelaria',
         )
 
+    def _post_transfer(
+        self,
+        data,
+        *,
+        configured_products=None,
+        plan_rows=None,
+        stock_options=None,
+    ):
+        with self.app.test_request_context(
+            '/pastelaria/transferir',
+            method='POST',
+            data=data,
+        ):
+            session['user'] = {
+                'username': 'operador',
+                'acesso_pastelaria': True,
+            }
+            with patch.object(
+                pastelaria_routes,
+                'get_active_venda_stores',
+                return_value=[{'name': 'Bolhão'}],
+            ), patch.object(
+                pastelaria_routes,
+                'get_produtos_pastelaria',
+                return_value=configured_products or ['Bolo Individual'],
+            ), patch.object(
+                pastelaria_routes,
+                'get_plano_do_dia_area',
+                return_value=plan_rows or [],
+            ), patch.object(
+                pastelaria_routes,
+                'get_pastelaria_stock_options',
+                return_value=stock_options or [],
+            ), patch.object(
+                pastelaria_routes,
+                'criar_ordens_transferencia_pastelaria',
+                return_value={'order_ids': [101], 'replayed': False},
+            ) as create_batch:
+                response = pastelaria_routes.transferir()
+                flashes = list(session.get('_flashes', []))
+
+        return response, create_batch, flashes
+
     def test_transfer_delegates_the_whole_request_to_atomic_stock_batch(self):
         data = {
             'loja_destino': 'Bolhão',
@@ -245,6 +288,246 @@ class PastelariaTransferTests(unittest.TestCase):
         )
         self.assertEqual(create_batch.call_args.kwargs['loja_destino'], 'Bolhão')
         self.assertEqual(create_batch.call_args.kwargs['request_key'], 'request-1')
+
+    def test_transfer_table_lines_ignore_blank_and_zero_quantities(self):
+        cake = 'Bolo — 22 cm — Chocolate'
+        data = {
+            'loja_destino': 'Bolhão',
+            'data_prevista': '2026-09-01',
+            'request_key': 'request-3',
+            'produto_0': 'catalogue:12',
+            'qty_0': '3',
+            'produto_1': 'catalogue:13',
+            'qty_1': '',
+            'produto_2': f'cake:{cake}',
+            'qty_2': '0',
+            'produto_3': f'cake:{cake}',
+            'qty_3': '2',
+        }
+        options = [
+            {
+                'identity_key': 'catalogue:12',
+                'produto': 'Croissant',
+                'kind': 'catalogue',
+                'ativo': True,
+                'saldo': 5,
+                'saldo_inicial_confirmado': True,
+            },
+            {
+                'identity_key': 'catalogue:13',
+                'produto': 'Pastel de Nata',
+                'kind': 'catalogue',
+                'ativo': True,
+                'saldo': 7,
+                'saldo_inicial_confirmado': True,
+            },
+            {
+                'identity_key': f'cake:{cake}',
+                'produto': cake,
+                'kind': 'cake',
+                'ativo': True,
+                'saldo': 12,
+                'saldo_inicial_confirmado': True,
+            },
+        ]
+        response, create_batch, _ = self._post_transfer(
+            data,
+            configured_products=[
+                'Croissant',
+                'Pastel de Nata',
+                'Bolo Individual',
+            ],
+            plan_rows=[{'produto': cake}],
+            stock_options=options,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            create_batch.call_args.kwargs['lines'],
+            [
+                {'identity_key': 'catalogue:12', 'quantidade': 3},
+                {'identity_key': f'cake:{cake}', 'quantidade': 2},
+            ],
+        )
+
+    def test_transfer_all_blank_and_zero_quantities_create_no_order(self):
+        data = {
+            'loja_destino': 'Bolhão',
+            'data_prevista': '2026-09-01',
+            'request_key': 'request-4',
+            'produto_0': 'catalogue:12',
+            'qty_0': '',
+            'produto_1': 'catalogue:13',
+            'qty_1': '0',
+        }
+        response, create_batch, flashes = self._post_transfer(
+            data,
+            configured_products=['Croissant', 'Pastel de Nata'],
+            stock_options=[
+                {
+                    'identity_key': 'catalogue:12',
+                    'produto': 'Croissant',
+                    'kind': 'catalogue',
+                    'ativo': True,
+                    'saldo': 5,
+                    'saldo_inicial_confirmado': True,
+                },
+                {
+                    'identity_key': 'catalogue:13',
+                    'produto': 'Pastel de Nata',
+                    'kind': 'catalogue',
+                    'ativo': True,
+                    'saldo': 7,
+                    'saldo_inicial_confirmado': True,
+                },
+            ],
+        )
+
+        self.assertEqual(response.status_code, 302)
+        create_batch.assert_not_called()
+        self.assertTrue(any(
+            category == 'info' and 'superior a zero' in message
+            for category, message in flashes
+        ))
+
+    def test_transfer_rejects_negative_non_integer_and_missing_product(self):
+        base_data = {
+            'loja_destino': 'Bolhão',
+            'data_prevista': '2026-09-01',
+            'request_key': 'request-5',
+        }
+        for product, quantity in [
+            ('catalogue:12', '-1'),
+            ('catalogue:12', '1.5'),
+            ('', '1'),
+            (None, '1'),
+        ]:
+            with self.subTest(product=product, quantity=quantity):
+                data = {
+                    **base_data,
+                    'qty_0': quantity,
+                }
+                if product is not None:
+                    data['produto_0'] = product
+                response, create_batch, flashes = self._post_transfer(
+                    data,
+                    configured_products=['Croissant'],
+                    stock_options=[{
+                        'identity_key': 'catalogue:12',
+                        'produto': 'Croissant',
+                        'kind': 'catalogue',
+                        'ativo': True,
+                        'saldo': 5,
+                        'saldo_inicial_confirmado': True,
+                    }],
+                )
+
+                self.assertEqual(response.status_code, 302)
+                create_batch.assert_not_called()
+                self.assertTrue(any(
+                    category == 'error' and 'quantidade inteira' in message
+                    for category, message in flashes
+                ))
+
+    def test_get_transfer_table_only_includes_eligible_date_specific_products(self):
+        planned_cake = 'Bolo — 22 cm — Chocolate'
+        unplanned_cake = 'Bolo — 24 cm — Amêndoa'
+        options = [
+            {
+                'identity_key': 'catalogue:12',
+                'produto': 'Croissant',
+                'kind': 'catalogue',
+                'ativo': True,
+                'saldo': 5,
+                'saldo_inicial_confirmado': True,
+            },
+            {
+                'identity_key': 'catalogue:13',
+                'produto': 'Pastel de Nata',
+                'kind': 'catalogue',
+                'ativo': True,
+                'saldo': 7,
+                'saldo_inicial_confirmado': False,
+            },
+            {
+                'identity_key': 'catalogue:14',
+                'produto': 'Palmier',
+                'kind': 'catalogue',
+                'ativo': True,
+                'saldo': 0,
+                'saldo_inicial_confirmado': True,
+            },
+            {
+                'identity_key': f'cake:{planned_cake}',
+                'produto': planned_cake,
+                'kind': 'cake',
+                'ativo': True,
+                'saldo': 4,
+                'saldo_inicial_confirmado': True,
+            },
+            {
+                'identity_key': f'cake:{unplanned_cake}',
+                'produto': unplanned_cake,
+                'kind': 'cake',
+                'ativo': True,
+                'saldo': 9,
+                'saldo_inicial_confirmado': True,
+            },
+        ]
+        with self.app.test_request_context(
+            '/pastelaria/transferir?data_prevista=2026-09-21',
+        ):
+            session['user'] = {
+                'username': 'operador',
+                'acesso_pastelaria': True,
+            }
+            with patch.object(
+                pastelaria_routes,
+                'get_stock_producao_area_all',
+                return_value=[],
+            ), patch.object(
+                pastelaria_routes,
+                'get_active_venda_stores',
+                return_value=[{'name': 'Bolhão'}],
+            ), patch.object(
+                pastelaria_routes,
+                'get_ultimo_stock_balcao',
+                return_value=[],
+            ), patch.object(
+                pastelaria_routes,
+                'get_plano_do_dia_area',
+                return_value=[{'produto': planned_cake}],
+            ) as get_plan, patch.object(
+                pastelaria_routes,
+                'get_produtos_pastelaria',
+                return_value=[
+                    'Croissant', 'Pastel de Nata', 'Palmier',
+                    'Bolo Individual',
+                ],
+            ), patch.object(
+                pastelaria_routes,
+                'get_pastelaria_stock_options',
+                return_value=options,
+            ), patch.object(
+                pastelaria_routes,
+                'render_template',
+                return_value='rendered',
+            ) as render_page:
+                response = pastelaria_routes.transferir()
+
+        self.assertEqual(response, 'rendered')
+        get_plan.assert_called_once_with(
+            pastelaria_routes.AREA,
+            date(2026, 9, 21),
+        )
+        self.assertEqual(
+            [
+                row['identity_key']
+                for row in render_page.call_args.kwargs['cards_transferivel']
+                if row['pode_transferir']
+            ],
+            [f'cake:{planned_cake}', 'catalogue:12'],
+        )
 
     def test_transfer_rejects_forged_cake_configuration(self):
         data = {

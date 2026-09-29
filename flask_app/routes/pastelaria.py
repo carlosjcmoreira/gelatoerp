@@ -772,22 +772,28 @@ def transferir():
             return redirect(url_for('pastelaria.transferir'))
 
         import re as _re
-        form_pairs = []
+        form_rows = {}
         for key in request.form:
-            m = _re.match(r'^produto_(\d+)$', key)
+            m = _re.match(r'^(produto|qty)_(\d+)$', key)
             if m:
-                n = int(m.group(1))
-                form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
+                field, index = m.group(1), int(m.group(2))
+                form_rows.setdefault(index, {})[field] = request.form[key]
+        form_pairs = [
+            (
+                index,
+                fields.get('produto', ''),
+                fields.get('qty', ''),
+            )
+            for index, fields in sorted(form_rows.items())
+        ]
 
         requested = []
         invalid_lines = False
-        for _, produto, qty_str in sorted(form_pairs, key=lambda x: x[0]):
+        for _, produto, qty_str in form_pairs:
             produto = (produto or '').strip()
             qty_str = (qty_str or '').strip()
             if not qty_str:
                 # Blank quantity is the same as zero in the stock table.
-                continue
-            if not produto:
                 continue
             try:
                 qty = int(qty_str)
@@ -799,6 +805,9 @@ def transferir():
                 break
             if qty == 0:
                 continue
+            if not produto:
+                invalid_lines = True
+                break
             requested.append({'identity_key': produto, 'quantidade': qty})
         if invalid_lines:
             flash(
