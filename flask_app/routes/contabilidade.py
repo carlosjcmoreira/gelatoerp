@@ -12,7 +12,7 @@ from io import BytesIO
 
 from flask import (
     Blueprint, render_template, request, redirect, url_for,
-    flash, session, jsonify, send_file,
+    flash, session, jsonify, send_file, abort,
 )
 from flask_app.auth import perm_required
 
@@ -225,6 +225,41 @@ def download_pdf(invoice_id: int):
     if not as_attachment:
         response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
     return response
+
+
+@contabilidade_bp.route('/fatura/<int:invoice_id>/detalhe')
+@perm_required('acesso_contabilidade')
+def detalhe_fatura(invoice_id: int):
+    """Render a read-only invoice detail and activity fragment for Contabilidade."""
+    from db.faturas import (
+        DOCUMENT_TYPE_LABELS,
+        get_invoice,
+        get_invoice_audit_log,
+        get_invoice_status_labels_map,
+    )
+    from db.contabilidade import ACCOUNTING_STATUS_LABELS, ACCOUNTING_STATUS_BADGE
+
+    inv = get_invoice(invoice_id)
+    if not inv:
+        abort(404)
+
+    accounting_status = inv.get('accounting_status') or 'por_contabilizar'
+    inv['accounting_status'] = accounting_status
+    inv['accounting_status_label'] = ACCOUNTING_STATUS_LABELS.get(
+        accounting_status, accounting_status
+    )
+    inv['accounting_status_badge'] = ACCOUNTING_STATUS_BADGE.get(
+        accounting_status, 'bg-secondary'
+    )
+
+    return render_template(
+        'contabilidade/_invoice_panel.html',
+        inv=inv,
+        audit_log=get_invoice_audit_log(invoice_id) or [],
+        document_type_labels=DOCUMENT_TYPE_LABELS,
+        status_labels=get_invoice_status_labels_map(),
+        accounting_status_labels=ACCOUNTING_STATUS_LABELS,
+    )
 
 
 # ── Excel export ──────────────────────────────────────────────────────────────

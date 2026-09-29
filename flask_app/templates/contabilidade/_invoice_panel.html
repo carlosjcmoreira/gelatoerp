@@ -1,0 +1,189 @@
+<div class="p-3">
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+        <div class="min-w-0">
+            <div class="fw-semibold text-break">
+                {{ inv.supplier_display_name or inv.supplier_name or '(sem fornecedor)' }}
+            </div>
+            <div class="text-muted small">
+                {{ inv.invoice_number or ('Documento ' ~ inv.id) }}
+            </div>
+        </div>
+        <div class="d-flex flex-column align-items-end gap-1">
+            {% set _doc_type = inv.document_type or 'fatura' %}
+            <span class="badge bg-light text-dark border">
+                {{ document_type_labels.get(_doc_type, _doc_type) }}
+            </span>
+            <span class="badge bg-secondary-subtle text-secondary-emphasis">
+                {{ status_labels.get(inv.status, inv.status or '—') }}
+            </span>
+        </div>
+    </div>
+
+    <div class="row g-2 mb-3">
+        <div class="col-6">
+            <div class="border rounded p-2 h-100">
+                <div class="small text-muted">Total</div>
+                <div class="fw-semibold">
+                    {{ '%.2f €'|format(inv.amount_eur) if inv.amount_eur is not none else '—' }}
+                </div>
+                {% if inv.vat_amount_eur is not none %}
+                <div class="small text-muted">IVA: {{ '%.2f €'|format(inv.vat_amount_eur) }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="border rounded p-2 h-100">
+                <div class="small text-muted">Emissão</div>
+                <div class="fw-semibold">
+                    {{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}
+                </div>
+                <div class="small text-muted">
+                    Vencimento: {{ inv.due_date.strftime('%d/%m/%Y') if inv.due_date else '—' }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if inv.has_pdf %}
+    {% set _pdf_url = url_for('contabilidade.download_pdf', invoice_id=inv.id) %}
+    <section class="mb-3" aria-label="Documento da fatura">
+        {% set _filename = (inv.pdf_filename or '')|lower %}
+        {% if _filename.endswith(('.jpg', '.jpeg', '.png')) %}
+        <img src="{{ _pdf_url }}" alt="Documento de {{ inv.invoice_number or inv.id }}"
+             class="d-block mx-auto border rounded"
+             style="max-width:100%;max-height:340px;object-fit:contain">
+        {% else %}
+        <iframe src="{{ _pdf_url }}" title="Documento de {{ inv.invoice_number or inv.id }}"
+                class="w-100 border rounded" style="height:340px"></iframe>
+        {% endif %}
+        <div class="d-flex justify-content-center gap-2 mt-2">
+            <a href="{{ _pdf_url }}" target="_blank" rel="noopener"
+               class="btn btn-outline-secondary btn-sm" data-no-loading>Ver documento</a>
+            <a href="{{ _pdf_url }}?dl=1" class="btn btn-outline-secondary btn-sm"
+               download data-no-loading>Descarregar</a>
+        </div>
+    </section>
+    {% elif inv.onedrive_web_url %}
+    <div class="border rounded p-2 mb-3 small text-center">
+        <a href="{{ inv.onedrive_web_url }}" target="_blank" rel="noopener noreferrer">
+            Abrir documento arquivado no OneDrive
+        </a>
+    </div>
+    {% else %}
+    <div class="alert alert-light border small mb-3">Não existe documento associado a esta fatura.</div>
+    {% endif %}
+
+    <section class="mb-3" aria-label="Dados da fatura">
+        <h6 class="small fw-semibold text-uppercase text-muted">Dados da fatura</h6>
+        <dl class="row small mb-0">
+            <dt class="col-5 text-muted">Fornecedor</dt>
+            <dd class="col-7 text-break">{{ inv.supplier_display_name or inv.supplier_name or '—' }}</dd>
+            {% if inv.supplier_nif %}
+            <dt class="col-5 text-muted">NIF</dt>
+            <dd class="col-7">{{ inv.supplier_nif }}</dd>
+            {% endif %}
+            <dt class="col-5 text-muted">Tipo</dt>
+            <dd class="col-7">{{ document_type_labels.get(_doc_type, _doc_type) }}</dd>
+            {% if inv.category %}
+            <dt class="col-5 text-muted">Categoria</dt>
+            <dd class="col-7">{{ inv.category }}</dd>
+            {% endif %}
+            {% if inv.paid_date %}
+            <dt class="col-5 text-muted">Data de pagamento</dt>
+            <dd class="col-7">{{ inv.paid_date.strftime('%d/%m/%Y') }}</dd>
+            {% endif %}
+            {% if inv.notes %}
+            <dt class="col-5 text-muted">Notas</dt>
+            <dd class="col-7 text-break">{{ inv.notes }}</dd>
+            {% endif %}
+        </dl>
+    </section>
+
+    <section class="card mb-3" aria-label="Estado contabilístico">
+        <div class="card-header py-2 px-3 d-flex align-items-center gap-2">
+            <span class="fw-semibold small">Contabilidade</span>
+            <span class="badge {{ inv.accounting_status_badge }}">
+                {{ inv.accounting_status_label }}
+            </span>
+        </div>
+        <div class="card-body py-2 px-3 small">
+            {% if inv.accounting_notes %}
+            <div class="mb-2 text-break" style="white-space:pre-wrap">{{ inv.accounting_notes }}</div>
+            {% endif %}
+            {% if inv.accounting_updated_by or inv.accounting_updated_at %}
+            <div class="text-muted">
+                Última atualização do registo contabilístico
+                {% if inv.accounting_updated_by %}por {{ inv.accounting_updated_by }}{% endif %}
+                {% if inv.accounting_updated_at %}em {{ inv.accounting_updated_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}.
+            </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section aria-label="Histórico de atividade">
+        <h6 class="small fw-semibold text-uppercase text-muted">Atividade registada</h6>
+        {% if audit_log %}
+        {% set _field_labels = {
+            'criação': 'Criação da fatura',
+            'revisão_ocr': 'Revisão OCR',
+            'eliminação': 'Eliminação',
+            'status': 'Estado da fatura',
+            'accounting_status': 'Estado contabilístico',
+            'accounting_notes': 'Nota contabilística',
+            'supplier_name': 'Fornecedor',
+            'supplier_nif': 'NIF do fornecedor',
+            'supplier_id': 'Ligação ao fornecedor',
+            'invoice_number': 'Número do documento',
+            'amount_eur': 'Total',
+            'vat_amount_eur': 'IVA',
+            'issue_date': 'Data de emissão',
+            'due_date': 'Data de vencimento',
+            'paid_date': 'Data de pagamento',
+            'cfo_confirmed_date': 'Data de confirmação',
+            'category': 'Categoria',
+            'document_type': 'Tipo de documento',
+            'notes': 'Notas',
+            'payment_method': 'Método de pagamento',
+            'centro_custo_id': 'Centro de custo',
+            'categoria_custo_id': 'Categoria de custo'
+        } %}
+        <ol class="list-unstyled mb-0 border-start border-2 ps-3">
+            {% for entry in audit_log %}
+            {% set _field = entry.campo_alterado %}
+            {% set _old = entry.valor_anterior %}
+            {% set _new = entry.valor_novo %}
+            {% if _field == 'accounting_status' %}
+                {% set _old = accounting_status_labels.get(_old, _old) if _old else _old %}
+                {% set _new = accounting_status_labels.get(_new, _new) if _new else _new %}
+            {% elif _field == 'status' %}
+                {% set _old = status_labels.get(_old, _old) if _old else _old %}
+                {% set _new = status_labels.get(_new, _new) if _new else _new %}
+            {% elif _field == 'document_type' %}
+                {% set _old = document_type_labels.get(_old, _old) if _old else _old %}
+                {% set _new = document_type_labels.get(_new, _new) if _new else _new %}
+            {% endif %}
+            <li class="mb-3">
+                <div class="small">
+                    <span class="text-muted">{{ _field_labels.get(_field, _field) }}:</span>
+                    {% if _old is not none and _old != '' and _field not in ('criação', 'revisão_ocr') %}
+                    <span class="text-muted">{{ _old }}</span>
+                    <span class="text-muted mx-1">→</span>
+                    {% endif %}
+                    <strong class="text-break">
+                        {% if _new is none or _new == '' %}—{% else %}{{ _new }}{% endif %}
+                    </strong>
+                </div>
+                <div class="text-muted" style="font-size:.75rem">
+                    {% if entry.alterado_por %}{{ entry.alterado_por }}{% endif %}
+                    {% if entry.alterado_em %}
+                    {% if entry.alterado_por %} · {% endif %}{{ entry.alterado_em.strftime('%d/%m/%Y %H:%M') }}
+                    {% endif %}
+                </div>
+            </li>
+            {% endfor %}
+        </ol>
+        {% else %}
+        <p class="text-muted small mb-0">Ainda não existe histórico de atividade registado para esta fatura.</p>
+        {% endif %}
+    </section>
+</div>

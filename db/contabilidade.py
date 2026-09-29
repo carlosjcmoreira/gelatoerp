@@ -277,12 +277,37 @@ def get_cont_summary() -> dict:
 
 # ── Update accounting status ──────────────────────────────────────────────────
 
+def _write_accounting_audit(cur, invoice_id: int, field: str, old_value, new_value, username: str):
+    cur.execute(
+        """INSERT INTO invoice_audit_log
+           (invoice_id, campo_alterado, valor_anterior, valor_novo, alterado_por)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (invoice_id, field, old_value, new_value, username),
+    )
+
+
 def update_accounting_status(invoice_id: int, status: str, username: str, notes: str = None) -> bool:
-    """Update accounting_status for a single invoice."""
+    """Update accounting fields and audit each value that actually changes."""
     if status not in ACCOUNTING_STATUS_LABELS:
         return False
     with db_connection() as conn:
         cur = conn.cursor()
+        cur.execute(
+            """SELECT COALESCE(accounting_status, 'por_contabilizar'), accounting_notes
+               FROM invoices WHERE id = %s FOR UPDATE""",
+            (invoice_id,),
+        )
+        current = cur.fetchone()
+        if not current:
+            return False
+
+        old_status, old_notes = current
+        status_changed = old_status != status
+        notes_changed = notes is not None and old_notes != notes
+        if not status_changed and not notes_changed:
+            conn.commit()
+            return True
+
         if notes is not None:
             cur.execute(
                 """UPDATE invoices
@@ -303,25 +328,48 @@ def update_accounting_status(invoice_id: int, status: str, username: str, notes:
                 (status, username, invoice_id),
             )
         updated = cur.rowcount
+        if updated:
+            if status_changed:
+                _write_accounting_audit(
+                    cur, invoice_id, 'accounting_status', old_status, status, username
+                )
+            if notes_changed:
+                _write_accounting_audit(
+                    cur, invoice_id, 'accounting_notes', old_notes, notes, username
+                )
         conn.commit()
     return updated > 0
 
 
 def bulk_update_accounting_status(invoice_ids: list, status: str, username: str) -> int:
-    """Bulk-update accounting_status for multiple invoices. Returns count updated."""
+    """Bulk-update statuses and audit changed invoices atomically."""
     if not invoice_ids or status not in ACCOUNTING_STATUS_LABELS:
         return 0
     with db_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            """UPDATE invoices
-               SET accounting_status = %s,
-                   accounting_updated_by = %s,
-                   accounting_updated_at = NOW()
-               WHERE id = ANY(%s)""",
-            (status, username, invoice_ids),
+            """SELECT id, COALESCE(accounting_status, 'por_contabilizar')
+               FROM invoices WHERE id = ANY(%s) FOR UPDATE""",
+            (invoice_ids,),
         )
-        updated = cur.rowcount
+        current_rows = cur.fetchall()
+        updated = 0
+        for invoice_id, old_status in current_rows:
+            if old_status == status:
+                continue
+            cur.execute(
+                """UPDATE invoices
+                   SET accounting_status = %s,
+                       accounting_updated_by = %s,
+                       accounting_updated_at = NOW()
+                   WHERE id = %s""",
+                (status, username, invoice_id),
+            )
+            if cur.rowcount:
+                _write_accounting_audit(
+                    cur, invoice_id, 'accounting_status', old_status, status, username
+                )
+                updated += 1
         conn.commit()
     return updated
 

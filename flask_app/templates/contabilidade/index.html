@@ -161,7 +161,10 @@
             </thead>
             <tbody>
             {% for inv in invoices %}
-            <tr data-inv-id="{{ inv.id }}">
+            <tr data-inv-id="{{ inv.id }}"
+                data-invoice-detail-url="{{ url_for('contabilidade.detalhe_fatura', invoice_id=inv.id) }}"
+                style="cursor:pointer"
+                onclick="handleContInvoiceRowClick(event, this)">
                 <td>
                     <input type="checkbox" class="form-check-input cb-inv" value="{{ inv.id }}"
                            onchange="updateBulkBar()">
@@ -238,6 +241,10 @@
                     </div>
                 </td>
                 <td>
+                    <button type="button" class="btn btn-outline-primary btn-sm py-0 px-1 me-1"
+                            title="Abrir detalhe e atividade"
+                            aria-label="Abrir detalhe e atividade da fatura"
+                            onclick="event.stopPropagation(); openContInvoicePanel(this.closest('tr'))">↗</button>
                     {% if inv.has_pdf %}
                     <a href="{{ url_for('contabilidade.download_pdf', invoice_id=inv.id) }}"
                        target="_blank"
@@ -304,7 +311,69 @@
 
 </div>
 
+<div class="offcanvas offcanvas-end" tabindex="-1" id="cont-invoice-panel"
+     aria-labelledby="cont-invoice-panel-title" style="width:min(520px,100vw)">
+    <div class="offcanvas-header py-2 border-bottom">
+        <h6 class="offcanvas-title mb-0 fw-semibold small" id="cont-invoice-panel-title">
+            Detalhe e atividade da fatura
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas"
+                aria-label="Fechar detalhe da fatura"></button>
+    </div>
+    <div class="offcanvas-body p-0" id="cont-invoice-panel-body">
+        <div class="text-center text-muted py-5">
+            <div class="spinner-border spinner-border-sm" role="status" aria-label="A carregar"></div>
+            <p class="mt-2 small">A carregar detalhe…</p>
+        </div>
+    </div>
+</div>
+
 <script>
+/* ── Read-only invoice activity panel ────────────────────────────── */
+var contInvoicePanelRequest = 0;
+
+function handleContInvoiceRowClick(event, row) {
+    if (event.target.closest('a,button,input,select,textarea,label,form,[data-no-invoice-panel]')) return;
+    openContInvoicePanel(row);
+}
+
+function openContInvoicePanel(row) {
+    var panelEl = document.getElementById('cont-invoice-panel');
+    var panelBody = document.getElementById('cont-invoice-panel-body');
+    if (!panelEl || !panelBody || !row) return;
+    if (!window.bootstrap || !bootstrap.Offcanvas) {
+        console.error('Bootstrap Offcanvas is not available.');
+        return;
+    }
+
+    var requestId = ++contInvoicePanelRequest;
+    panelBody.innerHTML =
+        '<div class="text-center text-muted py-5">' +
+        '<div class="spinner-border spinner-border-sm" role="status" aria-label="A carregar"></div>' +
+        '<p class="mt-2 small">A carregar detalhe…</p></div>';
+    bootstrap.Offcanvas.getOrCreateInstance(panelEl).show();
+
+    fetch(row.dataset.invoiceDetailUrl, { credentials: 'same-origin' })
+        .then(function(response) {
+            if (response.redirected) throw new Error('session');
+            if (response.status === 404) throw new Error('not-found');
+            if (!response.ok) throw new Error('request');
+            return response.text();
+        })
+        .then(function(html) {
+            if (requestId === contInvoicePanelRequest) panelBody.innerHTML = html;
+        })
+        .catch(function(error) {
+            if (requestId !== contInvoicePanelRequest) return;
+            var message = error.message === 'not-found'
+                ? 'Fatura não encontrada.'
+                : error.message === 'session'
+                    ? 'A sessão terminou. Atualize a página para voltar a entrar.'
+                    : 'Não foi possível carregar o detalhe da fatura.';
+            panelBody.innerHTML = '<p class="text-danger small p-3 mb-0">' + message + '</p>';
+        });
+}
+
 /* ── Bulk selection ────────────────────────────────────────────── */
 function getSelectedIds() {
     return Array.from(document.querySelectorAll('.cb-inv:checked')).map(cb => parseInt(cb.value));
