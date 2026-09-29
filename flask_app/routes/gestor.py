@@ -1195,10 +1195,24 @@ def _handle_config_post(action, config_option):
         else:
             flash('Por favor, insira um nome.', 'warning')
 
-    elif action == 'delete_produto_conf':
-        pid = int(request.form.get('produto_conf_id'))
-        db.delete_produto_confeitaria(pid)
-        flash('Produto eliminado!', 'success')
+    elif action in (
+        'delete_produto_conf', 'desativar_produto_conf',
+        'reativar_produto_conf',
+    ):
+        raw_id = request.form.get('produto_conf_id', '')
+        target_active = action == 'reativar_produto_conf'
+        status = 'reativado' if target_active else 'desativado'
+        try:
+            pid = int(raw_id)
+            if pid <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            flash('Produto inválido.', 'warning')
+        else:
+            if db.set_produto_confeitaria_ativo(pid, target_active):
+                flash(f'Produto {status} com sucesso.', 'success')
+            else:
+                flash('Produto não encontrado.', 'warning')
 
     elif action == 'add_produto_rec':
         nome = request.form.get('novo_prod_rec', '').strip()

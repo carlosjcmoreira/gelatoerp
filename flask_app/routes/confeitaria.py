@@ -14,7 +14,8 @@ from database import (
     upsert_stock_producao_area, get_stock_producao_area_all,
     get_stock_producao_area, reduzir_stock_producao_area,
     criar_ordem_transferencia,
-    get_all_produtos_confeitaria, add_produto_confeitaria, delete_produto_confeitaria,
+    get_all_produtos_confeitaria, add_produto_confeitaria,
+    set_produto_confeitaria_ativo,
     add_quebra_area, get_quebras_df_area, delete_quebra_area,
     get_active_venda_stores,
     get_or_create_pending_batch,
@@ -83,12 +84,12 @@ def stock_balcao():
             except ValueError:
                 quantidade = 0
 
-            if produto:
+            if produto and produto in produtos_stock:
                 add_contagem_stock(date.fromisoformat(data_contagem), loja, produto, quantidade, 'confeitaria')
                 msg = f'Contagem de {quantidade}x {produto} registada!'
                 msg_type = 'success'
             else:
-                msg = 'Por favor, selecione um produto.'
+                msg = 'Selecione um produto de Confeitaria ativo.'
                 msg_type = 'warning'
 
         elif action == 'eliminar':
@@ -263,7 +264,6 @@ def transferir():
         if loja_destino not in active_store_names:
             flash('Loja de destino inválida.', 'error')
             return redirect(url_for('confeitaria.transferir'))
-        batch_id = get_or_create_pending_batch(today, 'Confeitaria', loja_destino)
         import re as _re
         form_pairs = []
         for key in request.form:
@@ -271,15 +271,26 @@ def transferir():
             if m:
                 n = int(m.group(1))
                 form_pairs.append((n, request.form[key], request.form.get(f'qty_{n}', '')))
+        produtos_ativos = set(get_produtos_confeitaria())
+        transfer_lines = []
         for _, produto, qty_str in sorted(form_pairs, key=lambda x: x[0]):
-            if not produto:
-                continue
             try:
                 qty = int(qty_str) if qty_str else 0
             except ValueError:
                 qty = 0
-            if qty <= 0:
+            if qty <= 0 or not produto:
                 continue
+            if produto not in produtos_ativos:
+                flash(f'O produto "{produto}" não está ativo.', 'warning')
+                return redirect(url_for('confeitaria.transferir'))
+            transfer_lines.append((produto, qty))
+
+        if not transfer_lines:
+            flash('Nenhuma transferência registada. Verifique as quantidades.', 'info')
+            return redirect(url_for('confeitaria.transferir'))
+
+        batch_id = get_or_create_pending_batch(today, 'Confeitaria', loja_destino)
+        for produto, qty in transfer_lines:
             stock_disponivel = get_stock_producao_area('confeitaria', today, produto)
             if qty > stock_disponivel:
                 qty = stock_disponivel
@@ -306,8 +317,11 @@ def transferir():
         balcao_map[key][s['loja']] = {'quantidade': s['quantidade'], 'data': s['data']}
 
     cards = []
+    produtos_ativos = set(get_produtos_confeitaria())
     for sp in stock_prod:
         produto = sp['produto']
+        if produto not in produtos_ativos:
+            continue
         balcao_info = balcao_map.get(produto, {})
         balcao_mat = balcao_info.get('Matosinhos', {})
         balcao_bol = balcao_info.get('Bolhão', {})
@@ -335,6 +349,7 @@ def transferir():
 def produtos():
     if request.method == 'POST':
         action = request.form.get('action', '')
+        raw_id = None
         if action == 'add_produto_conf':
             nome = request.form.get('novo_prod_conf', '').strip()
             if nome:
@@ -343,9 +358,30 @@ def produtos():
             else:
                 flash('Por favor, insira um nome.', 'warning')
         elif action == 'delete_produto_conf':
-            pid = int(request.form.get('produto_conf_id'))
-            delete_produto_confeitaria(pid)
-            flash('Produto eliminado!', 'success')
+            # Legacy forms may still submit delete_produto_conf. Keep their
+            # behavior safe by interpreting it as a soft deactivation.
+            raw_id = request.form.get('produto_conf_id', '')
+            target_active = False
+            status = 'desativado'
+        elif action in ('desativar_produto_conf', 'reativar_produto_conf'):
+            raw_id = request.form.get('produto_conf_id', '')
+            target_active = action == 'reativar_produto_conf'
+            status = 'reativado' if target_active else 'desativado'
+        else:
+            raw_id = None
+
+        if raw_id is not None:
+            try:
+                product_id = int(raw_id)
+                if product_id <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                flash('Produto inválido.', 'warning')
+            else:
+                if set_produto_confeitaria_ativo(product_id, target_active):
+                    flash(f'Produto {status} com sucesso.', 'success')
+                else:
+                    flash('Produto não encontrado.', 'warning')
         return redirect(url_for('confeitaria.produtos'))
     return render_template('confeitaria/produtos.html',
                            active_tab='produtos',
@@ -360,15 +396,16 @@ def registar_quebra():
         produto = request.form.get('produto', '')
         lote = request.form.get('lote', '')
         motivo = request.form.get('motivo', '')
-        if quantidade > 0 and produto:
+        produtos_ativos = set(get_produtos_confeitaria())
+        if quantidade > 0 and produto in produtos_ativos:
             add_quebra_area(data_quebra, "Matosinhos", quantidade, "confeitaria", produto, lote if lote else None, motivo)
             lote_text = f" (Lote: {lote})" if lote else ""
             flash(f"Quebra de {quantidade} de {produto}{lote_text} registada com sucesso!", "success")
         else:
-            flash("Por favor, preencha os campos obrigatórios: Data, Quantidade e Produto.", "error")
+            flash("Selecione um produto ativo e indique uma quantidade válida.", "error")
         return redirect(url_for('confeitaria.registar_quebra'))
 
-    produtos = get_all_produtos_confeitaria() or []
+    produtos = get_produtos_confeitaria() or []
     historico_inicio = date.today() - timedelta(days=90)
     quebras_df = get_quebras_df_area("Matosinhos", "confeitaria", data_inicio=historico_inicio)
     quebras = []

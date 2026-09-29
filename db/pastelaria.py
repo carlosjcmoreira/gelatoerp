@@ -733,17 +733,37 @@ def update_produto_confeitaria(id: int, nome: str):
         cursor.execute("UPDATE produtos_confeitaria SET nome = %s WHERE id = %s", (nome, id))
         conn.commit()
 
-def delete_produto_confeitaria(id: int):
+def set_produto_confeitaria_ativo(id: int, ativo: bool) -> bool:
+    if not isinstance(id, int) or isinstance(id, bool) or id <= 0:
+        return False
+    if not isinstance(ativo, bool):
+        return False
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM produtos_confeitaria WHERE id = %s", (id,))
+        cursor.execute(
+            "UPDATE produtos_confeitaria SET ativo = %s WHERE id = %s",
+            (ativo, id),
+        )
+        updated = cursor.rowcount == 1
         conn.commit()
+    return updated
+
+def delete_produto_confeitaria(id: int):
+    """Legacy API: preserve catalog identity by deactivating instead of deleting."""
+    return set_produto_confeitaria_ativo(id, False)
 
 def get_all_produtos_confeitaria() -> list:
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, nome, ativo FROM produtos_confeitaria ORDER BY nome")
-        return [{'id': row[0], 'nome': row[1], 'ativo': row[2]} for row in cursor.fetchall()]
+        cursor.execute("""
+            SELECT id, nome, COALESCE(ativo, FALSE) AS ativo
+            FROM produtos_confeitaria
+            ORDER BY (ativo IS TRUE) DESC, nome
+        """)
+        return [
+            {'id': row[0], 'nome': row[1], 'ativo': bool(row[2])}
+            for row in cursor.fetchall()
+        ]
 
 @ttl_cache('motivos_quebra', ttl=300)
 def get_motivos_quebra() -> list:
