@@ -24,6 +24,10 @@ def doseamento_payload(status, issues=None):
         'mapped_sales_pct': 99.8,
         'unmapped_products': [],
         'weighted_products': [],
+        'unmapped_product_details': [],
+        'weighted_product_details': [],
+        'mapped_theoretical_kg': None,
+        'loja': 'Bolhão',
         'coverage_gaps': [],
         'interval_diagnostics': [{
             'store': 'Bolhão',
@@ -94,7 +98,7 @@ class EurokgDashboardQualityTests(unittest.TestCase):
         for item in reversed(self.patches):
             item.stop()
 
-    def test_dashboard_uses_exact_30_day_window_and_translates_invalid_evidence(self):
+    def test_dashboard_uses_exact_30_day_window_and_keeps_audit_status_separate(self):
         get_doseamento = self.mocks[-1]
         get_doseamento.return_value = doseamento_payload(
             'invalid', ['negative_stock_residual']
@@ -107,48 +111,85 @@ class EurokgDashboardQualityTests(unittest.TestCase):
             date(2026, 8, 30), date(2026, 9, 28), None, []
         )
         html = response.get_data(as_text=True)
-        self.assertIn('Inválido', html)
-        self.assertIn('não interprete o KPI diário como validação', html)
-        self.assertIn('Bolhão · Baunilha', html)
-        self.assertIn('20/09/2026', html)
-        self.assertIn('Os movimentos não conciliam com as pesagens', html)
+        self.assertIn('Auditoria física: Inválida', html)
+        self.assertIn('Auditoria física incompleta ou inválida', html)
+        self.assertIn('Consumo operacional', html)
         self.assertNotIn('negative_stock_residual', html)
+        self.assertNotIn('20/09/2026', html)
         self.assertIn('KPI operacional (€/kg)', html)
         self.assertIn('Deslize horizontalmente', html)
 
-    def test_reliable_and_incomplete_states_render_portuguese_guidance(self):
+    def test_partial_estimate_shows_missing_product_and_excluded_revenue(self):
         get_doseamento = self.mocks[-1]
-        for status, issues, expected in [
-            ('reliable', [], 'Fiável'),
-            ('incomplete', ['unmapped_products'], 'Incompleto'),
-        ]:
-            with self.subTest(status=status):
-                payload = doseamento_payload(status, issues)
-                if status == 'incomplete':
-                    payload['unmapped_products'] = ['Cone de Baunilha']
-                    payload['coverage_gaps'] = [{
-                        'store': 'Bolhão',
-                        'flavor': 'Baunilha',
-                        'snapshot_count': 1,
-                        'valid_intervals': 0,
-                        'excluded_intervals': 0,
-                        'coverage_pct': 0,
-                        'issues': ['insufficient_snapshots'],
-                    }]
-                get_doseamento.return_value = payload
-                response = self.client.get('/eurokg/dashboard')
-                html = response.get_data(as_text=True)
-                self.assertEqual(response.status_code, 200)
-                self.assertIn(expected, html)
-                if status == 'incomplete':
-                    self.assertIn(
-                        'Há produtos vendidos sem dose histórica associada',
-                        html,
-                    )
-                    self.assertIn('Cone de Baunilha', html)
-                    self.assertIn('Bolhão · Baunilha', html)
-                    self.assertIn('1 pesagens', html)
-                self.assertNotIn('unmapped_products', html)
+        payload = doseamento_payload(
+            'incomplete', ['unmapped_products']
+        )
+        payload.update({
+            'mapped_theoretical_kg': 0.35,
+            'unmapped_products': ['Cone de Baunilha'],
+            'unmapped_product_details': [{
+                'product': 'Cone de Baunilha',
+                'quantity': 4,
+                'revenue': 72.0,
+                'sales_count': 4,
+            }],
+        })
+        get_doseamento.return_value = payload
+        response = self.client.get('/eurokg/dashboard')
+        html = response.get_data(as_text=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Auditoria física: Incompleta', html)
+        self.assertIn('Teórico conhecido · Parcial', html)
+        self.assertIn('0.35', html)
+        self.assertIn('Cone de Baunilha', html)
+        self.assertIn('72.00 €', html)
+        self.assertIn('Ver doses e vendas ao peso', html)
+        self.assertIn('data_inicio=2026-08-30', html)
+        self.assertIn('data_fim=2026-09-28', html)
+        self.assertNotIn('unmapped_products', html)
+
+    def test_global_estimate_sums_known_store_subtotals_and_keeps_local_gaps(self):
+        estimate = eurokg._prepare_operational_estimate({
+            'status': 'incomplete',
+            'issues': ['unmapped_products'],
+            'stores': [
+                {
+                    'loja': 'Bolhão',
+                    'mapped_theoretical_kg': 0.4,
+                    'unmapped_product_details': [{
+                        'product': 'Cone',
+                        'quantity': 2,
+                        'revenue': 24,
+                    }],
+                },
+                {
+                    'loja': 'Matosinhos',
+                    'mapped_theoretical_kg': None,
+                    'unmapped_product_details': [],
+                },
+            ],
+        }, 2.0, 50.0)
+
+        self.assertEqual(estimate['theoretical_kg'], 0.4)
+        self.assertAlmostEqual(estimate['variance_kg'], 1.6)
+        self.assertEqual(estimate['yield_pct'], 20.0)
+        self.assertEqual(estimate['revenue_per_kg'], 25.0)
+        self.assertEqual(estimate['missing_products'][0]['store'], 'Bolhão')
+        self.assertEqual(estimate['missing_products'][0]['revenue'], 24.0)
+
+    def test_zero_operational_consumption_never_produces_division_metrics(self):
+        estimate = eurokg._prepare_operational_estimate({
+            'status': 'incomplete',
+            'issues': ['unmapped_products'],
+            'mapped_theoretical_kg': None,
+            'unmapped_products': ['Unknown'],
+        }, 0, 10)
+
+        self.assertIsNone(estimate['theoretical_kg'])
+        self.assertIsNone(estimate['variance_kg'])
+        self.assertIsNone(estimate['yield_pct'])
+        self.assertIsNone(estimate['revenue_per_kg'])
 
 
 if __name__ == '__main__':

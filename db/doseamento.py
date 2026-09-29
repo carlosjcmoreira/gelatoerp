@@ -405,6 +405,19 @@ def _explicit_rule(sale, history):
     return candidate
 
 
+def _record_unmapped_sale(bucket, key, product, quantity, revenue):
+    """Accumulate sale impact for a product that cannot add theoretical kg."""
+    details = bucket[key]
+    item = details.setdefault(product, {
+        "quantity": Decimal("0"),
+        "revenue": Decimal("0"),
+        "sales_count": 0,
+    })
+    item["quantity"] += quantity
+    item["revenue"] += revenue
+    item["sales_count"] += 1
+
+
 def get_dose_product_configuration_queue():
     """Return only products explicitly selected for Euro/kg.
 
@@ -1318,6 +1331,7 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         "sales": Decimal("0"), "mapped_sales": Decimal("0"),
         "sale_rows": 0, "fixed_rows": 0,
         "weighted_rows": 0, "unmapped": [], "weighted_products": [],
+        "unmapped_details": {}, "weighted_details": {},
     })
     for sale in sales:
         store = sale.get("loja", sale.get("store", loja))
@@ -1329,11 +1343,15 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         bucket = buckets[store]
         bucket["sale_rows"] += 1
         quantity = _decimal(sale.get("quantidade"))
+        revenue = _decimal(sale.get("valor_euros", sale.get("revenue")))
         bucket["sales"] += quantity
-        bucket["revenue"] += _decimal(sale.get("valor_euros", sale.get("revenue")))
+        bucket["revenue"] += revenue
         row = _explicit_rule(sale, history)
         if row is None:
             bucket["unmapped"].append(product)
+            _record_unmapped_sale(
+                bucket, "unmapped_details", product, quantity, revenue
+            )
             continue
         tipo = str(row.get("tipo_dose", "fixa")).casefold()
         bucket["mapped_sales"] += quantity
@@ -1341,6 +1359,9 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
             weight = sale.get("peso_vendido_kg")
             if weight is None:
                 bucket["weighted_products"].append(product)
+                _record_unmapped_sale(
+                    bucket, "weighted_details", product, quantity, revenue
+                )
                 continue
             bucket["weighted_rows"] += 1
             bucket["theoretical"] += _decimal(weight)
@@ -1379,6 +1400,19 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
         )
         unmapped = sorted(set(bucket["unmapped"]))
         weighted = sorted(set(bucket["weighted_products"]))
+        def serialize_details(details):
+            return [
+                {
+                    "product": product,
+                    "quantity": float(values["quantity"]),
+                    "revenue": float(values["revenue"]),
+                    "sales_count": values["sales_count"],
+                }
+                for product, values in sorted(
+                    details.items(), key=lambda item: item[0].casefold()
+                )
+            ]
+
         theoretical_value = (
             theoretical
             if bucket["fixed_rows"] or bucket["weighted_rows"] else None
@@ -1498,6 +1532,12 @@ def calculate_doseamento(sales, history, rotation, data_inicio=None,
             "status": status, "coverage_pct": round(float(coverage), 1),
             "issues": sorted(issues), "unmapped_products": unmapped,
             "weighted_products": weighted,
+            "unmapped_product_details": serialize_details(
+                bucket.get("unmapped_details", {})
+            ),
+            "weighted_product_details": serialize_details(
+                bucket.get("weighted_details", {})
+            ),
             "interval_diagnostics": interval_diagnostics,
             "coverage_gaps": coverage_gaps,
             "mapped_sales_pct": float(mapped * 100 / sales) if sales > 0 else 0.0,

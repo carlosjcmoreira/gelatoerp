@@ -34,8 +34,8 @@ eurokg_bp = Blueprint('eurokg', __name__)
 
 
 MENU_ITEMS = [
-    {'id': 'dashboard', 'icon': '📊', 'label': 'Dashboard Euro/kg', 'description': 'Compare consumo teórico e real, desvio, rendimento, receita/kg e fiabilidade dos últimos 30 dias.', 'url_endpoint': 'eurokg.dashboard'},
-    {'id': 'resumo', 'icon': '📅', 'label': 'Resumo Mensal', 'description': 'Acompanhe por mês a dose, o consumo, a receita/kg e a qualidade dos dados.', 'url_endpoint': 'eurokg.resumo_mensal'},
+    {'id': 'dashboard', 'icon': '📊', 'label': 'Dashboard Euro/kg', 'description': 'Compare kg teóricos calculáveis com o consumo operacional dos últimos 30 dias e veja os avisos de dados.', 'url_endpoint': 'eurokg.dashboard'},
+    {'id': 'resumo', 'icon': '📅', 'label': 'Resumo Mensal', 'description': 'Acompanhe por mês os kg teóricos conhecidos, o consumo operacional e os artigos em falta.', 'url_endpoint': 'eurokg.resumo_mensal'},
     {'id': 'consumo', 'icon': '🧮', 'label': 'Consumo Teórico', 'description': 'Consulte e configure as doses usadas para converter vendas em kg teóricos.', 'url_endpoint': 'eurokg.consumo_teorico'},
     {'id': 'vendas', 'icon': '💶', 'label': 'Vendas por Produto', 'description': 'Veja unidades e valor vendido por produto e por mês.', 'url_endpoint': 'eurokg.vendas_produto'},
     {'id': 'pesagens', 'icon': '⚖️', 'label': 'Pesagens', 'description': 'Consulte as pesagens que sustentam o cálculo do consumo real.', 'url_endpoint': 'eurokg.pesagens'},
@@ -213,6 +213,141 @@ def _prepare_dashboard_quality(doseamento):
             for issue in gap.get('issues', [])
         ]
     return doseamento
+
+
+def _finite_float(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _known_theoretical_kg(doseamento):
+    """Return the mapped subtotal even when audit quality is incomplete."""
+    store_rows = doseamento.get('stores')
+    if store_rows is not None:
+        values = [
+            _finite_float(row.get('mapped_theoretical_kg'))
+            for row in store_rows
+        ]
+        known_values = [value for value in values if value is not None]
+        return sum(known_values) if known_values else None
+
+    value = _finite_float(doseamento.get('mapped_theoretical_kg'))
+    if value is not None:
+        return value
+    if doseamento.get('status') == 'reliable':
+        return _finite_float(doseamento.get('theoretical_kg'))
+    return None
+
+
+def _missing_product_details(doseamento):
+    """Flatten store-scoped dose gaps into concise, actionable rows."""
+    store_rows = doseamento.get('stores')
+    if store_rows is None:
+        store_rows = [doseamento]
+
+    missing = []
+    for store_row in store_rows:
+        store_name = store_row.get('loja') or store_row.get('name') or ''
+        detail_sets = (
+            ('Sem dose histórica', 'unmapped_product_details',
+             'unmapped_products'),
+            ('Sem kg vendido', 'weighted_product_details',
+             'weighted_products'),
+        )
+        for reason, detail_key, names_key in detail_sets:
+            details = store_row.get(detail_key) or []
+            if not details:
+                details = [
+                    {'product': product, 'quantity': None, 'revenue': None}
+                    for product in store_row.get(names_key, [])
+                ]
+            for detail in details:
+                missing.append({
+                    'store': store_name,
+                    'product': detail.get('product', ''),
+                    'reason': reason,
+                    'quantity': _finite_float(detail.get('quantity')),
+                    'revenue': _finite_float(detail.get('revenue')),
+                })
+    return sorted(
+        missing,
+        key=lambda item: (
+            str(item['store']).casefold(),
+            str(item['product']).casefold(),
+            item['reason'],
+        ),
+    )
+
+
+def _prepare_operational_estimate(
+    doseamento, operational_kg, operational_revenue
+):
+    """Combine known theoretical kg with the legacy operational series.
+
+    Audit status remains available separately; it no longer gates these
+    indicative values.
+    """
+    theoretical_kg = _known_theoretical_kg(doseamento)
+    operational_kg = _finite_float(operational_kg)
+    operational_revenue = _finite_float(operational_revenue)
+    missing_products = _missing_product_details(doseamento)
+    variance_kg = (
+        operational_kg - theoretical_kg
+        if operational_kg is not None and theoretical_kg is not None
+        else None
+    )
+    yield_pct = (
+        theoretical_kg * 100 / operational_kg
+        if theoretical_kg is not None and operational_kg is not None
+        and operational_kg > 0 else None
+    )
+    revenue_per_kg = (
+        operational_revenue / operational_kg
+        if operational_revenue is not None and operational_kg is not None
+        and operational_kg > 0 else None
+    )
+    missing_sales_eur = sum(
+        item['revenue'] or 0 for item in missing_products
+    )
+
+    audit_issues = set(doseamento.get('issues', [])) - {
+        'unmapped_products', 'weight_products', 'no_sales',
+    }
+    audit_status = doseamento.get('status')
+    if 'no_sales' in doseamento.get('issues', []) and not missing_products:
+        audit_note = 'Sem vendas importadas neste período.'
+    elif audit_status == 'invalid' or audit_issues:
+        audit_note = 'Auditoria física incompleta ou inválida; ver Pesagens.'
+    elif audit_status == 'incomplete' and not missing_products:
+        audit_note = 'Auditoria física incompleta; ver Pesagens.'
+    else:
+        audit_note = None
+
+    return {
+        'theoretical_kg': theoretical_kg,
+        'operational_kg': operational_kg,
+        'variance_kg': variance_kg,
+        'yield_pct': yield_pct,
+        'revenue_per_kg': revenue_per_kg,
+        'missing_products': missing_products,
+        'missing_products_count': len(missing_products),
+        'missing_sales_eur': missing_sales_eur,
+        'is_partial': bool(missing_products),
+        'theoretical_status': (
+            'Parcial' if missing_products
+            else 'Calculado' if theoretical_kg is not None
+            else 'Sem dados'
+        ),
+        'audit_status_label': {
+            'reliable': 'Fiável',
+            'incomplete': 'Incompleta',
+            'invalid': 'Inválida',
+        }.get(audit_status, 'Desconhecida'),
+        'audit_note': audit_note,
+    }
 
 
 def _parse_product_dose_batch(form):
@@ -542,10 +677,29 @@ def dashboard():
 
     data_inicio_30 = today - timedelta(days=29)
     intended_stores = [store['name'] for store in store_filters]
-    doseamento_30 = _prepare_dashboard_quality(get_doseamento_period(
+    doseamento_30 = get_doseamento_period(
         data_inicio_30, today, loja_db, intended_stores
-    ))
+    )
     kpi_df = calculate_kpi_by_day(loja_db, data_inicio_30, today)
+    operational_kg_30 = (
+        _finite_float(pd.to_numeric(
+            kpi_df['consumo_kg'], errors='coerce'
+        ).sum(min_count=1))
+        if not kpi_df.empty and 'consumo_kg' in kpi_df else None
+    )
+    operational_revenue_30 = (
+        _finite_float(pd.to_numeric(
+            kpi_df['vendas'], errors='coerce'
+        ).sum(min_count=1))
+        if not kpi_df.empty and 'vendas' in kpi_df else None
+    )
+    estimate_30 = _prepare_operational_estimate(
+        doseamento_30, operational_kg_30, operational_revenue_30
+    )
+    estimate_30.update({
+        'data_inicio': data_inicio_30.isoformat(),
+        'data_fim': today.isoformat(),
+    })
 
     chart_json = None
     daily_details = []
@@ -605,7 +759,8 @@ def dashboard():
         month_name=month_name, year=today.year,
         chart_json=chart_json, daily_details=daily_details,
         detail_entrada_label=detail_entrada_label,
-        doseamento=doseamento_30, store_filters=store_filters)
+        doseamento=doseamento_30, estimate=estimate_30,
+        store_filters=store_filters)
 
 
 @eurokg_bp.route('/resumo')
@@ -627,12 +782,6 @@ def resumo_mensal():
     else:
         entrada_label = 'Produção (kg)'
 
-    formula = (
-        "Desvio = Consumo real − Consumo teórico | "
-        "Rendimento = Consumo teórico ÷ Consumo real | "
-        "€/kg = Receita ÷ Consumo real"
-    )
-
     annual_resumo = calculate_kpi_annual(current_year, loja_db)
     resumo_rows = []
     total_consumo = 0
@@ -644,7 +793,7 @@ def resumo_mensal():
         kpi_data = annual_resumo[m]
         consumo_kg = kpi_data['consumo']
         vendas_eur = kpi_data['vendas']
-        euro_kg = kpi_data['kpi']
+        euro_kg = kpi_data['kpi'] if consumo_kg > 0 else None
         target = get_target_by_month(m)
         entrada_val = kpi_data.get('entrada', kpi_data['producao'])
 
@@ -673,62 +822,57 @@ def resumo_mensal():
                 ),
                 date.today(),
             )
-            dose = _prepare_dashboard_quality(get_doseamento_period(
+            dose = get_doseamento_period(
                 period_start, period_end, loja_db,
                 [store['name'] for store in store_filters],
-            ))
+            )
+            estimate = _prepare_operational_estimate(
+                dose, consumo_kg, vendas_eur
+            )
             resumo_row.update({
+                'data_inicio': period_start.isoformat(),
+                'data_fim': period_end.isoformat(),
                 'theoretical_kg': (
-                    round(dose['theoretical_kg'], 2)
-                    if dose['theoretical_kg'] is not None else None
-                ),
-                'real_kg': (
-                    round(dose['real_kg'], 2)
-                    if dose['real_kg'] is not None else None
+                    round(estimate['theoretical_kg'], 2)
+                    if estimate['theoretical_kg'] is not None else None
                 ),
                 'variance_kg': (
-                    round(dose['variance_kg'], 2)
-                    if dose['variance_kg'] is not None else None
-                ),
-                'variance_pct': (
-                    round(dose['variance_pct'], 1)
-                    if dose['variance_pct'] is not None else None
+                    round(estimate['variance_kg'], 2)
+                    if estimate['variance_kg'] is not None else None
                 ),
                 'yield_pct': (
-                    round(dose['yield_pct'], 1)
-                    if dose['yield_pct'] is not None else None
+                    round(estimate['yield_pct'], 1)
+                    if estimate['yield_pct'] is not None else None
                 ),
-                'revenue_per_kg': (
-                    round(dose['revenue_per_kg'], 2)
-                    if dose['revenue_per_kg'] is not None else None
-                ),
-                'status': dose['status'],
-                'coverage_pct': dose['coverage_pct'],
-                'issues': dose['issues'],
-                'issue_guidance': dose['issue_guidance'],
-                'unmapped_products': dose.get('unmapped_products', []),
-                'weighted_products': dose.get('weighted_products', []),
-                'coverage_gaps': dose.get('coverage_gaps', []),
-                'interval_diagnostics': dose.get(
-                    'interval_diagnostics', []
+                'status': estimate['theoretical_status'],
+                'audit_status_label': estimate['audit_status_label'],
+                'audit_note': estimate['audit_note'],
+                'missing_products': estimate['missing_products'],
+                'missing_sales_eur': round(
+                    estimate['missing_sales_eur'], 2
                 ),
             })
         resumo_rows.append(resumo_row)
 
-    total_euro_kg = total_vendas / total_consumo if total_consumo > 0 else 0
+    total_euro_kg = (
+        total_vendas / total_consumo if total_consumo > 0 else None
+    )
 
     tabs = _build_tabs(loja_filter, is_gestor, 'resumo')
 
     return render_template('eurokg/resumo_mensal.html',
         active_tab='resumo', tabs=tabs,
         is_gestor=is_gestor, loja_filter=loja_filter,
-        current_year=current_year, entrada_label=entrada_label, formula=formula,
+        current_year=current_year, entrada_label=entrada_label,
         resumo_rows=resumo_rows,
         total_entrada=round(total_entrada, 2),
         total_quebras=round(total_quebras, 2),
         total_consumo=round(total_consumo, 2),
         total_vendas=round(total_vendas, 2),
-        total_euro_kg=round(total_euro_kg, 2),
+        total_euro_kg=(
+            round(total_euro_kg, 2)
+            if total_euro_kg is not None else None
+        ),
         store_filters=store_filters)
 
 

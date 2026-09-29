@@ -72,11 +72,11 @@
     {% include "components/tabs.html" %}
     <div class="eurokg-shell p-3 p-md-4">
         <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">
-            <div><div class="eyebrow mb-1">Dose control · últimos 30 dias</div>
+            <div><div class="eyebrow mb-1">Euro/kg · últimos 30 dias</div>
                 <h1 class="page-title h3 mb-1">Euro/kg e disciplina de serviço</h1>
-                <p class="text-muted mb-0">Compare o consumo teórico das vendas com o consumo real apurado pelo stock. Veja o desvio, rendimento, receita/kg, cobertura e problemas de dados; use o seletor de loja e o detalhe diário para investigar.</p>
+                <p class="text-muted mb-0">Compare os kg calculáveis das vendas com o consumo da série operacional existente.</p>
             </div>
-            <div class="coaching-note px-3 py-2 small align-self-start"><strong class="d-block">Como ler hoje</strong><span class="text-muted">Confirme a cobertura antes de comparar equipas.</span></div>
+            <div class="coaching-note px-3 py-2 small align-self-start"><strong class="d-block">Estimativa parcial?</strong><span class="text-muted">Os artigos em falta aparecem no aviso abaixo.</span></div>
         </div>
         {% if is_gestor %}
         <div class="store-switcher d-flex flex-wrap gap-2 mb-4">
@@ -84,92 +84,36 @@
             {% for store in store_filters %}<a href="{{ url_for('eurokg.dashboard', loja=store.name) }}" class="btn btn-sm {% if loja_filter == store.name %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ store.name }}</a>{% endfor %}
         </div>
         {% endif %}
-        <div class="row g-2 mb-4">
-            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3" title="Unidades vendidas multiplicadas pela dose válida na data de cada venda."><div class="metric-label mb-2">Consumo teórico</div><div class="metric-value">{% if doseamento.theoretical_kg is not none %}{{ "%.2f"|format(doseamento.theoretical_kg) }} <small class="fs-6 fw-semibold">kg</small>{% else %}—{% endif %}</div><small class="text-muted">Dose prevista pelas vendas</small></div></div>
-            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3" title="Stock inicial mais entradas, menos saídas, quebras e stock final."><div class="metric-label mb-2">Consumo real</div><div class="metric-value">{% if doseamento.real_kg is not none %}{{ "%.2f"|format(doseamento.real_kg) }} <small class="fs-6 fw-semibold">kg</small>{% else %}—{% endif %}</div><small class="text-muted">Apurado por stock e movimentos</small></div></div>
-            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3" title="Consumo real menos consumo teórico; positivo significa consumo acima da dose prevista."><div class="metric-label mb-2">Desvio real − teórico</div><div class="metric-value">{% if doseamento.variance_kg is not none %}{{ "%+.2f"|format(doseamento.variance_kg) }} <small class="fs-6 fw-semibold">kg</small>{% else %}—{% endif %}</div>{% if doseamento.variance_pct is not none %}<small class="text-muted">{{ "%+.1f"|format(doseamento.variance_pct) }}% do teórico</small>{% else %}<small class="text-muted">Real menos dose prevista</small>{% endif %}</div></div>
-            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3" title="Consumo teórico dividido pelo consumo real."><div class="metric-label mb-2">Rendimento</div><div class="metric-value">{% if doseamento.yield_pct is not none %}{{ "%.1f"|format(doseamento.yield_pct) }}%{% else %}—{% endif %}</div><small class="text-muted">Teórico ÷ real</small></div></div>
-            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3" title="Receita dos produtos de gelado dividida pelo consumo real."><div class="metric-label mb-2">Receita / kg</div><div class="metric-value">{% if doseamento.revenue_per_kg is not none %}{{ "%.2f"|format(doseamento.revenue_per_kg) }}€{% else %}—{% endif %}</div><small class="text-muted">Receita ÷ consumo real</small></div></div>
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3"><div class="metric-label mb-2">Teórico conhecido · {{ estimate.theoretical_status }}</div><div class="metric-value">{% if estimate.theoretical_kg is not none %}{{ "%.2f"|format(estimate.theoretical_kg) }} <small class="fs-6 fw-semibold">kg</small>{% else %}—{% endif %}</div><small class="text-muted">Soma dos artigos com dose ou kg registado</small></div></div>
+            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3"><div class="metric-label mb-2">Consumo operacional</div><div class="metric-value">{% if estimate.operational_kg is not none %}{{ "%.2f"|format(estimate.operational_kg) }} <small class="fs-6 fw-semibold">kg</small>{% else %}—{% endif %}</div><small class="text-muted">Série existente de stock e movimentos</small></div></div>
+            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3"><div class="metric-label mb-2">Desvio operacional − teórico</div><div class="metric-value">{% if estimate.variance_kg is not none %}{{ "%+.2f"|format(estimate.variance_kg) }} <small class="fs-6 fw-semibold">kg</small>{% else %}—{% endif %}</div><small class="text-muted">Consumo operacional menos teórico</small></div></div>
+            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3"><div class="metric-label mb-2">Rendimento</div><div class="metric-value">{% if estimate.yield_pct is not none %}{{ "%.1f"|format(estimate.yield_pct) }}%{% else %}—{% endif %}</div><small class="text-muted">Teórico conhecido ÷ consumo operacional</small></div></div>
+            <div class="col-6 col-md-4 col-xl"><div class="metric-card p-3"><div class="metric-label mb-2">€/kg operacional</div><div class="metric-value">{% if estimate.revenue_per_kg is not none %}{{ "%.2f"|format(estimate.revenue_per_kg) }}€{% else %}—{% endif %}</div><small class="text-muted">Vendas ÷ consumo operacional</small></div></div>
         </div>
-        <p class="small text-muted mb-4"><strong>Como interpretar “—”:</strong> significa que o valor não pode ser calculado com evidência suficiente; nunca representa zero. “Incompleto” indica evidência em falta, “inválido” indica uma inconsistência e só “fiável” permite comparar os indicadores.</p>
-        <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
-            <span class="status-pill status-{{ doseamento.status }}">{% if doseamento.status == 'reliable' %}Fiável{% elif doseamento.status == 'incomplete' %}Incompleto{% else %}Inválido{% endif %}</span>
-            <span class="small text-muted">Cobertura de dias válidos: {{ doseamento.coverage_pct }}% · Vendas mapeadas: {{ "%.1f"|format(doseamento.mapped_sales_pct) }}%</span>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <span class="status-pill status-{{ doseamento.status }}">Auditoria física: {% if doseamento.status == 'reliable' %}Fiável{% elif doseamento.status == 'incomplete' %}Incompleta{% else %}Inválida{% endif %}</span>
+            <span class="small text-muted">“—” significa que não há dados válidos para calcular, não zero.</span>
         </div>
-        <p class="small text-muted mb-3">A cobertura mede os dias cobertos por intervalos físicos válidos, não a percentagem de pesagens carregadas. No Global Porto, apresenta o menor valor entre as lojas e sabores relevantes.</p>
-        {% if doseamento.issue_guidance or doseamento.interval_diagnostics %}
-        <section class="quality-panel p-3 mb-4" aria-labelledby="quality-diagnostics-title">
-            <h2 id="quality-diagnostics-title" class="h6 fw-bold mb-2">O que falta confirmar</h2>
-            {% if doseamento.issue_guidance %}
-            <ul class="mb-2 ps-3">
-                {% for item in doseamento.issue_guidance %}
-                <li class="mb-2"><strong>{{ item.title }}.</strong> {{ item.action }}</li>
-                {% endfor %}
-            </ul>
-            {% endif %}
-            {% if doseamento.unmapped_products %}
-            <details class="mb-2">
-                <summary class="fw-semibold">Ver produtos sem dose ({{ doseamento.unmapped_products|length }})</summary>
-                <ul class="mb-0 mt-2 ps-3">{% for product in doseamento.unmapped_products %}<li>{{ product }}</li>{% endfor %}</ul>
-            </details>
-            {% endif %}
-            {% if doseamento.coverage_gaps %}
-            <details class="mb-2">
-                <summary class="fw-semibold">Ver lojas e sabores com cobertura incompleta ({{ doseamento.coverage_gaps|length }})</summary>
-                <ul class="interval-list mt-2 mb-0">
-                    {% for gap in doseamento.coverage_gaps %}
-                    <li class="mb-3">
-                        <strong>{{ gap.store }} · {{ gap.flavor or 'Sabor não identificado' }}</strong>
-                        <span class="d-block small text-muted">
-                            {{ gap.coverage_pct }}% de cobertura · {{ gap.snapshot_count }} pesagens ·
-                            {{ gap.valid_intervals }} intervalos válidos · {{ gap.excluded_intervals }} excluídos
-                        </span>
-                        {% if gap.issue_guidance %}
-                        <ul class="small mt-1 mb-0 ps-3">{% for item in gap.issue_guidance %}<li><strong>{{ item.title }}.</strong> {{ item.action }}</li>{% endfor %}</ul>
-                        {% endif %}
-                    </li>
+        {% if estimate.missing_products %}
+        <section class="quality-panel p-3 mb-3" aria-label="Produtos excluídos da estimativa parcial">
+            <strong>Estimativa parcial:</strong> {{ estimate.missing_products_count }} artigo(s) sem dose ou kg{% if estimate.missing_sales_eur %} · {{ "%.2f"|format(estimate.missing_sales_eur) }} € em vendas excluídas{% endif %}.
+            <details class="mt-1">
+                <summary class="fw-semibold">Ver artigos e lojas</summary>
+                <ul class="small mb-1 mt-1 ps-3">
+                    {% for item in estimate.missing_products %}
+                    <li>{% if item.store %}{{ item.store }} · {% endif %}<strong>{{ item.product }}</strong> — {{ item.reason }}{% if item.revenue is not none %} · {{ "%.2f"|format(item.revenue) }} €{% endif %}</li>
                     {% endfor %}
                 </ul>
             </details>
-            {% endif %}
-            {% if doseamento.weighted_products %}
-            <details class="mb-2">
-                <summary class="fw-semibold">Ver vendas ao peso sem kg ({{ doseamento.weighted_products|length }})</summary>
-                <ul class="mb-0 mt-2 ps-3">{% for product in doseamento.weighted_products %}<li>{{ product }}</li>{% endfor %}</ul>
-            </details>
-            {% endif %}
-            {% if doseamento.interval_diagnostics %}
-            <details>
-                <summary class="fw-semibold">Ver intervalos com problemas ou avisos ({{ doseamento.interval_diagnostics|length }})</summary>
-                <ul class="interval-list mt-2 mb-0">
-                    {% for interval in doseamento.interval_diagnostics %}
-                    <li class="mb-3">
-                        <strong>{{ interval.store }} · {{ interval.flavor or 'Sabor não identificado' }}</strong>
-                        <span class="d-block small text-muted">
-                            {% if interval.start_date %}{{ interval.start_date.strftime('%d/%m/%Y') }}{% else %}Data inicial desconhecida{% endif %}
-                            –
-                            {% if interval.end_date %}{{ interval.end_date.strftime('%d/%m/%Y') }}{% else %}data final desconhecida{% endif %}
-                            {% if interval.days is not none %}· {{ interval.days }} dias{% endif %}
-                            · {% if interval.usable %}intervalo utilizável com aviso{% else %}intervalo excluído{% endif %}
-                        </span>
-                        {% if interval.issue_guidance or interval.flag_guidance %}
-                        <ul class="small mt-1 mb-0 ps-3">
-                            {% for item in interval.issue_guidance %}<li><strong>{{ item.title }}.</strong> {{ item.action }}</li>{% endfor %}
-                            {% for item in interval.flag_guidance %}<li><strong>{{ item.title }}.</strong> {{ item.action }}</li>{% endfor %}
-                        </ul>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
-            </details>
-            {% endif %}
+            <a class="small" href="{{ url_for('eurokg.consumo_teorico', loja=loja_filter, data_inicio=estimate.data_inicio, data_fim=estimate.data_fim) }}">Ver doses e vendas ao peso</a>
         </section>
         {% endif %}
+        {% if estimate.audit_note %}<p class="small text-muted mb-4">{{ estimate.audit_note }} <a href="{{ url_for('eurokg.pesagens') }}">Ver pesagens</a></p>{% endif %}
         <hr class="section-rule my-4">
         <div class="d-flex justify-content-between align-items-end mb-3"><div><div class="eyebrow">Ritmo diário operacional</div><h2 class="h5 fw-bold mb-0">Euro/kg diário nos últimos 30 dias</h2></div><span class="small text-muted d-none d-md-inline">Vendas realizadas ÷ consumo operacional</span></div>
         <div class="kpi-legacy-note small p-3 mb-3">
-            Este gráfico e a tabela usam a série operacional diária existente. É distinta da comparação auditada por doses históricas e intervalos físicos de stock apresentada nos indicadores acima.
-            {% if doseamento.status != 'reliable' %}<strong class="d-block mt-1">O estado da comparação é {{ 'incompleto' if doseamento.status == 'incomplete' else 'inválido' }}; não interprete o KPI diário como validação dos dados deste período.</strong>{% endif %}
+            Este gráfico e a tabela mostram o Euro/kg da série operacional diária existente. O teórico conhecido acima usa doses históricas e não inclui artigos no aviso de estimativa parcial.
         </div>
         {% if chart_json %}
         <div id="kpi-chart" style="width:100%; height:350px;"></div>

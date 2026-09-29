@@ -98,19 +98,18 @@
 
     <div class="eyebrow">Histórico anual</div>
     <h2 class="h5 fw-bold mb-1">Resumo mensal {{ current_year }}</h2>
-    <p class="text-muted small mb-3">Consumo, receita por kg e aderência da dose em cada período.</p>
+    <p class="text-muted small mb-3">Consumo operacional e estimativa dos kg previstos pelas vendas.</p>
     <div class="formula small py-2 px-3 mb-3">
-        <strong>Fórmula:</strong> {{ formula }}
+        <strong>Comparação:</strong> teórico conhecido = vendas com dose/kg disponível; desvio = consumo operacional − teórico conhecido; rendimento = teórico conhecido ÷ consumo operacional; €/kg operacional = vendas ÷ consumo operacional.
     </div>
     <div class="monthly-note small p-3 mb-3">
-        <strong class="d-block">Indicadores diferentes</strong>
-        <span>Stock, entradas, quebras, consumo, vendas e “€/kg operacional” são a série operacional existente. As colunas teóricas e auditadas só são calculadas quando há evidência suficiente de doses históricas e intervalos físicos de stock.</span>
-        <span class="coverage-hint d-block mt-1">Cobertura = dias do período cobertos por intervalos físicos válidos. No Global Porto mostra o menor valor entre lojas e sabores relevantes; 0,0% não significa que não existam pesagens. “—” significa que o valor auditado não pode ser calculado, não zero.</span>
+        <strong class="d-block">Como interpretar</strong>
+        <span>Uma estimativa parcial soma os produtos calculáveis e exclui os que ainda precisam de dose ou kg vendido. Os valores operacionais mantêm a série antiga; “—” indica que não há dados válidos para calcular o indicador.</span>
     </div>
 
-    <p class="table-scroll-hint small d-md-none mb-2">Deslize horizontalmente para consultar todas as colunas e os detalhes.</p>
+    <p class="table-scroll-hint small d-md-none mb-2">Deslize horizontalmente para consultar os valores e avisos.</p>
     <div class="table-responsive">
-        <table class="table table-sm table-striped" tabindex="0" aria-label="Resumo mensal Euro/kg; deslize horizontalmente para consultar todas as colunas">
+        <table class="table table-sm table-striped" tabindex="0" aria-label="Resumo mensal Euro/kg; deslize horizontalmente para consultar valores e avisos">
             <thead>
                 <tr>
                     <th>Mês</th>
@@ -118,11 +117,13 @@
                     <th>{{ entrada_label }}</th>
                     <th>Stock Fim (kg)</th>
                     <th>Quebras (kg)</th>
-                    <th>Consumo (kg)</th>
+                    <th>Consumo operacional (kg)</th>
                     <th>Vendas (€)</th>
                     <th>€/kg operacional</th>
-                    <th>Teórico (kg)</th><th>Real auditado (kg)</th><th>Desvio auditado</th><th>Rendimento</th><th>Receita/kg auditada</th>
-                    <th>Fiabilidade</th>
+                    <th>Teórico conhecido (kg)</th>
+                    <th>Desvio op. − teórico</th>
+                    <th>Rendimento</th>
+                    <th>Dados</th>
                 </tr>
             </thead>
             <tbody>
@@ -135,52 +136,28 @@
                     <td>{{ row.quebras }}</td>
                     <td>{{ row.consumo }}</td>
                     <td>{{ row.vendas }}</td>
-                    <td>{{ row.euro_kg }}</td>
-                    <td>{{ row.get('theoretical_kg') if row.get('theoretical_kg') is not none else '—' }}</td><td>{{ row.get('real_kg') if row.get('real_kg') is not none else '—' }}</td><td>{{ (row.get('variance_kg')|string) + ' kg' if row.get('variance_kg') is not none else '—' }}</td><td>{{ (row.get('yield_pct')|string) + '%' if row.get('yield_pct') is not none else '—' }}</td><td>{{ row.get('revenue_per_kg') if row.get('revenue_per_kg') is not none else '—' }}</td>
-                    {% if row.get('status') is not none %}
+                    <td>{{ "%.2f"|format(row.euro_kg) if row.euro_kg is not none else '—' }}</td>
+                    <td>{{ "%.2f"|format(row.theoretical_kg) if row.get('theoretical_kg') is not none else '—' }}</td>
+                    <td>{{ "%+.2f kg"|format(row.variance_kg) if row.get('variance_kg') is not none else '—' }}</td>
+                    <td>{{ "%.1f%%"|format(row.yield_pct) if row.get('yield_pct') is not none else '—' }}</td>
                     <td>
-                        <span class="status-pill status-{{ row.status }}">{% if row.status == 'reliable' %}Fiável{% elif row.status == 'incomplete' %}Incompleto{% else %}Inválido{% endif %}</span>
-                        {% if row.get('coverage_pct') is not none %}<small class="text-muted ms-1">{{ row.coverage_pct }}%</small>{% endif %}
-                        {% if row.status != 'reliable' %}
-                        <details class="monthly-diagnostics mt-2">
-                            <summary>Ver motivos e dados</summary>
-                            <div class="monthly-diagnostics-content monthly-note small p-2 mt-2">
-                                {% if row.issue_guidance %}
-                                <ul class="mb-2">{% for item in row.issue_guidance %}<li><strong>{{ item.title }}.</strong> {{ item.action }}</li>{% endfor %}</ul>
-                                {% endif %}
-                                {% if row.unmapped_products %}
-                                <strong>Produtos sem dose:</strong><ul>{% for product in row.unmapped_products %}<li>{{ product }}</li>{% endfor %}</ul>
-                                {% endif %}
-                                {% if row.weighted_products %}
-                                <strong>Vendas ao peso sem kg:</strong><ul>{% for product in row.weighted_products %}<li>{{ product }}</li>{% endfor %}</ul>
-                                {% endif %}
-                                {% if row.coverage_gaps %}
-                                <strong>Lojas e sabores com cobertura incompleta:</strong>
-                                <ul>{% for gap in row.coverage_gaps %}
-                                    <li><strong>{{ gap.store }} · {{ gap.flavor or 'Sabor não identificado' }}</strong> — {{ gap.coverage_pct }}% · {{ gap.snapshot_count }} pesagens · {{ gap.valid_intervals }} intervalos válidos · {{ gap.excluded_intervals }} excluídos
-                                        {% if gap.issue_guidance %}<ul>{% for item in gap.issue_guidance %}<li>{{ item.title }}. {{ item.action }}</li>{% endfor %}</ul>{% endif %}
-                                    </li>
-                                {% endfor %}</ul>
-                                {% endif %}
-                                {% if row.interval_diagnostics %}
-                                <strong>Intervalos com problemas ou avisos:</strong>
-                                <ul>{% for interval in row.interval_diagnostics %}
-                                    <li><strong>{{ interval.store }} · {{ interval.flavor or 'Sabor não identificado' }}</strong> —
-                                        {% if interval.start_date %}{{ interval.start_date.strftime('%d/%m/%Y') }}{% else %}Data inicial desconhecida{% endif %}
-                                        a {% if interval.end_date %}{{ interval.end_date.strftime('%d/%m/%Y') }}{% else %}data final desconhecida{% endif %}
-                                        · {% if interval.usable %}utilizável com aviso{% else %}excluído{% endif %}
-                                        <ul>
-                                            {% for item in interval.issue_guidance %}<li>{{ item.title }}. {{ item.action }}</li>{% endfor %}
-                                            {% for item in interval.flag_guidance %}<li>{{ item.title }}. {{ item.action }}</li>{% endfor %}
-                                        </ul>
-                                    </li>
-                                {% endfor %}</ul>
-                                {% endif %}
-                            </div>
+                        {% if row.get('status') is not none %}
+                        <span class="status-pill {% if row.status == 'Parcial' %}status-incomplete{% elif row.status == 'Calculado' %}status-reliable{% else %}status-invalid{% endif %}">{{ row.status }}</span>
+                        <small class="d-block text-muted mt-1">Auditoria física: {{ row.audit_status_label }}</small>
+                        {% if row.audit_note %}<small class="d-block text-muted mt-1">{{ row.audit_note }} <a href="{{ url_for('eurokg.pesagens') }}">Ver pesagens</a></small>{% endif %}
+                        {% if row.missing_products %}
+                        <details class="monthly-diagnostics mt-1">
+                            <summary>{{ row.missing_products|length }} produto(s) sem kg{% if row.missing_sales_eur %} · {{ "%.2f"|format(row.missing_sales_eur) }} €{% endif %}</summary>
+                            <ul class="small mt-1 mb-1 ps-3">
+                                {% for item in row.missing_products %}
+                                <li>{% if item.store %}{{ item.store }} · {% endif %}<strong>{{ item.product }}</strong> — {{ item.reason }}{% if item.revenue is not none %} · {{ "%.2f"|format(item.revenue) }} €{% endif %}</li>
+                                {% endfor %}
+                            </ul>
+                            <a class="small" href="{{ url_for('eurokg.consumo_teorico', loja=loja_filter, data_inicio=row.data_inicio, data_fim=row.data_fim) }}">Ver doses e vendas ao peso</a>
                         </details>
                         {% endif %}
+                        {% else %}—{% endif %}
                     </td>
-                    {% else %}<td>—</td>{% endif %}
                 </tr>
                 {% endfor %}
                 <tr class="fw-bold" style="background:var(--gelato-mint);">
@@ -191,14 +168,14 @@
                     <td>{{ total_quebras }}</td>
                     <td>{{ total_consumo }}</td>
                     <td>{{ total_vendas }}</td>
-                    <td>{{ total_euro_kg }}</td>
-                    <td colspan="6"></td>
+                    <td>{{ "%.2f"|format(total_euro_kg) if total_euro_kg is not none else '—' }}</td>
+                    <td colspan="4"></td>
                 </tr>
             </tbody>
         </table>
     </div>
     <hr class="section-rule my-4">
-    <p class="small text-muted mb-0"><strong>Leitura dos indicadores auditados:</strong> Teórico resulta das vendas e doses históricas; Real resulta do stock e movimentos; Desvio é Real − Teórico; Rendimento é Teórico ÷ Real; Receita/kg auditada é vendas ÷ Real. Um período inválido indica uma inconsistência a investigar na origem; não deve ser corrigido alterando o estado apresentado.</p>
+    <p class="small text-muted mb-0">A auditoria física de pesagens continua disponível na página Pesagens. Uma auditoria incompleta ou inválida não apaga a estimativa; apenas avisa que o consumo físico ainda precisa de confirmação.</p>
     </div>
 </div>
 {% endblock %}

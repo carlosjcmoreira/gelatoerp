@@ -52,6 +52,12 @@ def test_history_date_and_unmapped():
         rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
     )
     assert result["unmapped_products"] == ["Cone", "Unknown"]
+    assert result["unmapped_product_details"] == [
+        {"product": "Cone", "quantity": 1.0, "revenue": 20.0,
+         "sales_count": 1},
+        {"product": "Unknown", "quantity": 1.0, "revenue": 20.0,
+         "sales_count": 1},
+    ]
     assert result["status"] == "incomplete"
     assert result["theoretical_kg"] is None
 
@@ -63,6 +69,10 @@ def test_weight_is_explicitly_incomplete():
         rotation(), date(2025, 1, 1), date(2025, 1, 1), "A",
     )
     assert result["weighted_products"] == ["Gelado weight"]
+    assert result["weighted_product_details"] == [{
+        "product": "Gelado weight", "quantity": 10.0,
+        "revenue": 20.0, "sales_count": 1,
+    }]
     assert "weight_products" in result["issues"]
 
 
@@ -249,6 +259,10 @@ def test_global_preserves_mapped_subtotal_when_incomplete():
     assert result["status"] == "incomplete"
     assert result["theoretical_kg"] is None
     assert result["mapped_theoretical_kg"] == 1.0
+    assert result["stores"][0]["unmapped_product_details"] == [{
+        "product": "Unknown", "quantity": 10.0,
+        "revenue": 20.0, "sales_count": 1,
+    }]
 
 
 def test_global_conserves_store_totals():

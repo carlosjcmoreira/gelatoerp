@@ -35,6 +35,7 @@ def doseamento_payload(status, issues=None, **overrides):
         "status": status,
         "issues": issues or [],
         "coverage_pct": 100 if status == "reliable" else 0,
+        "mapped_theoretical_kg": 2 if status == "reliable" else None,
         "theoretical_kg": 2 if status == "reliable" else None,
         "real_kg": 2 if status == "reliable" else None,
         "variance_kg": 0 if status == "reliable" else None,
@@ -43,6 +44,9 @@ def doseamento_payload(status, issues=None, **overrides):
         "revenue_per_kg": 10 if status == "reliable" else None,
         "unmapped_products": [],
         "weighted_products": [],
+        "unmapped_product_details": [],
+        "weighted_product_details": [],
+        "loja": "Bolhão",
         "coverage_gaps": [],
         "interval_diagnostics": [],
     }
@@ -123,6 +127,13 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
                     ["insufficient_coverage", "no_usable_intervals",
                      "insufficient_snapshots"],
                     unmapped_products=["Cone de Baunilha"],
+                    mapped_theoretical_kg=1.35,
+                    unmapped_product_details=[{
+                        "product": "Cone de Baunilha",
+                        "quantity": 4,
+                        "revenue": 72,
+                        "sales_count": 4,
+                    }],
                     coverage_gaps=[{
                         "store": "Bolhão",
                         "flavor": "Baunilha",
@@ -170,21 +181,23 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         ))
 
         html = response.get_data(as_text=True)
-        self.assertIn("Fiável", html)
-        self.assertIn("Incompleto", html)
-        self.assertIn("Inválido", html)
-        self.assertIn("0,0% não significa que não existam pesagens", html)
-        self.assertIn("Ver motivos e dados", html)
-        self.assertIn("Faltam pesagens comparáveis", html)
+        self.assertIn("Calculado", html)
+        self.assertIn("Parcial", html)
+        self.assertIn("Auditoria física: Fiável", html)
+        self.assertIn("Auditoria física: Incompleta", html)
+        self.assertIn("Auditoria física: Inválida", html)
+        self.assertNotIn("Ver motivos e dados", html)
+        self.assertNotIn("Faltam pesagens comparáveis", html)
         self.assertIn("Cone de Baunilha", html)
-        self.assertIn("Bolhão · Baunilha", html)
-        self.assertIn("Matosinhos · Chocolate", html)
-        self.assertIn("20/03/2026", html)
-        self.assertIn("23/03/2026", html)
-        self.assertIn("Os movimentos não conciliam com as pesagens", html)
+        self.assertIn("Bolhão ·", html)
+        self.assertIn("72.00 €", html)
+        self.assertNotIn("20/03/2026", html)
+        self.assertNotIn("23/03/2026", html)
+        self.assertIn("Auditoria física incompleta ou inválida", html)
         self.assertNotIn("negative_stock_residual", html)
         self.assertIn("€/kg operacional", html)
-        self.assertIn("Real auditado (kg)", html)
+        self.assertIn("Teórico conhecido (kg)", html)
+        self.assertNotIn("Real auditado (kg)", html)
         self.assertIn("Deslize horizontalmente", html)
         self.assertIn('[data-bs-theme="dark"] .eurokg-shell', html)
         self.assertIn("@media (max-width:767.98px)", html)
@@ -208,7 +221,7 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         ))
         html = response.get_data(as_text=True)
         self.assertIn("Bolhão", html)
-        self.assertIn("Fiável", html)
+        self.assertIn("Auditoria física: Fiável", html)
 
 
 if __name__ == "__main__":
