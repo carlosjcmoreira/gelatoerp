@@ -811,7 +811,9 @@ def resumo_mensal():
             'quebras': round(kpi_data['quebras'], 2) if kpi_data['quebras'] > 0 else 0,
             'consumo': round(consumo_kg, 2),
             'vendas': round(vendas_eur, 2),
-            'euro_kg': round(euro_kg, 2),
+            'euro_kg': (
+                round(euro_kg, 2) if euro_kg is not None else None
+            ),
         }
         if m <= date.today().month:
             import calendar

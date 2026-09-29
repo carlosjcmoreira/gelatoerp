@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+import re
 import unittest
 from unittest.mock import patch
 
@@ -52,6 +53,21 @@ def doseamento_payload(status, issues=None, **overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def monthly_cell(html, month, column_index):
+    match = re.search(
+        rf"<tr>\s*<td>{re.escape(month)}</td>(.*?)</tr>",
+        html,
+        flags=re.DOTALL,
+    )
+    if not match:
+        return None
+    cells = re.findall(r"<td(?:\s[^>]*)?>(.*?)</td>", match.group(1),
+                       flags=re.DOTALL)
+    if column_index >= len(cells):
+        return None
+    return re.sub(r"<[^>]+>", "", cells[column_index]).strip()
 
 
 class EurokgMonthlyQualityTests(unittest.TestCase):
@@ -237,6 +253,30 @@ class EurokgMonthlyQualityTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("Bolhão", html)
         self.assertIn("Auditoria física: Fiável", html)
+
+    def test_months_without_positive_consumption_do_not_break_summary(self):
+        annual = annual_data()
+        annual[2].update({"consumo": 0, "kpi": 0})
+        annual[3].update({"consumo": -1, "kpi": 0})
+        self.mocks[1].return_value = annual
+        self.mocks[4].return_value = doseamento_payload("reliable")
+
+        store_contexts = [
+            ("Global Porto", None, [
+                {"name": "Bolhão"}, {"name": "Matosinhos"},
+            ]),
+            ("Bolhão", "Bolhão", [{"name": "Bolhão"}]),
+        ]
+        for context in store_contexts:
+            with self.subTest(loja=context[0]):
+                self.mocks[0].return_value = context
+                response = self.client.get("/eurokg/resumo")
+
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                self.assertEqual(monthly_cell(html, "Janeiro", 6), "20.00")
+                self.assertEqual(monthly_cell(html, "Fevereiro", 6), "—")
+                self.assertEqual(monthly_cell(html, "Março", 6), "—")
 
 
 if __name__ == "__main__":
