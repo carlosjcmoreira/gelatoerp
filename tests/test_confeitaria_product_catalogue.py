@@ -195,19 +195,18 @@ class ConfeitariaProductCatalogueTests(unittest.TestCase):
         self.assertTrue(response.headers['Location'].endswith('/test-home'))
         set_active.assert_not_called()
 
-    def test_inactive_product_is_rejected_from_new_stock_counts(self):
+    def test_legacy_stock_page_keeps_history_but_does_not_write_or_delete(self):
         with (
             patch(
                 'flask_app.routes.confeitaria._tabs_with_urls',
                 return_value=[],
             ),
             patch(
-                'flask_app.routes.confeitaria.get_produtos_confeitaria',
-                return_value=['Cookie Ativo'],
-            ),
-            patch(
-                'flask_app.routes.confeitaria.add_contagem_stock',
+                'db.pastelaria.add_contagem_stock',
             ) as add_count,
+            patch(
+                'db.pastelaria.delete_contagem_stock',
+            ) as delete_count,
             patch(
                 'flask_app.routes.confeitaria.get_ultimo_stock_balcao',
                 return_value=[],
@@ -217,17 +216,32 @@ class ConfeitariaProductCatalogueTests(unittest.TestCase):
                 return_value=pd.DataFrame(),
             ),
         ):
-            response = self.client.post('/confeitaria/stock-balcao', data={
-                'action': 'registar',
-                'data_contagem': '2026-09-29',
-                'loja': 'Matosinhos',
-                'produto': 'Cookie Arquivado',
-                'quantidade': '4',
-            })
+            responses = [
+                self.client.post('/confeitaria/stock-balcao', data={
+                    'action': 'registar',
+                    'data_contagem': '2026-09-29',
+                    'loja': 'Matosinhos',
+                    'produto': 'Cookie Ativo',
+                    'quantidade': '4',
+                }),
+                self.client.post('/confeitaria/stock-balcao', data={
+                    'action': 'eliminar',
+                    'id_delete': '1',
+                }),
+            ]
 
-        self.assertEqual(response.status_code, 200)
+        self.assertTrue(all(response.status_code == 200 for response in responses))
+        for response in responses:
+            self.assertIn(
+                'novas contagens físicas são registadas em Vendas',
+                response.get_data(as_text=True),
+            )
         add_count.assert_not_called()
-        self.assertIn('ativo', response.get_data(as_text=True))
+        delete_count.assert_not_called()
+        self.assertNotIn(
+            'id_delete',
+            responses[0].get_data(as_text=True),
+        )
 
     def test_inactive_product_is_rejected_before_creating_a_transfer_batch(self):
         with (

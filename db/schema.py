@@ -8456,6 +8456,7 @@ _LOCK_PASTELARIA_PLANO = 202716
 _LOCK_PASTELARIA_PRODUCT_STATE_AUDIT = 202717
 _LOCK_PASTELARIA_COUNT_PRODUCT_ID = 202718
 _LOCK_PASTELARIA_COUNT_SUBMISSION = 202719
+_LOCK_CONFEITARIA_COUNT_PRODUCT_ID = 202721
 
 
 def run_migrations_pastelaria_plano():
@@ -8995,6 +8996,62 @@ def run_migrations_pastelaria_count_submission():
         """)
         conn.commit()
         logger.info("run_migrations_pastelaria_count_submission: schema ready")
+
+
+def run_migrations_confeitaria_count_product_id():
+    """Add stable product identity for new Confeitaria physical counts.
+
+    Existing name-based count rows deliberately remain unlinked.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)",
+            (_LOCK_CONFEITARIA_COUNT_PRODUCT_ID,),
+        )
+        if not cursor.fetchone()[0]:
+            logger.info(
+                "run_migrations_confeitaria_count_product_id: lock held, skipping"
+            )
+            return
+
+        cursor.execute("""
+            ALTER TABLE contagem_stock
+            ADD COLUMN IF NOT EXISTS produto_confeitaria_id INTEGER
+        """)
+        cursor.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname='contagem_stock_produto_confeitaria_id_fkey'
+                      AND conrelid='contagem_stock'::regclass
+                ) THEN
+                    ALTER TABLE contagem_stock
+                    ADD CONSTRAINT contagem_stock_produto_confeitaria_id_fkey
+                    FOREIGN KEY (produto_confeitaria_id)
+                    REFERENCES produtos_confeitaria(id)
+                    ON DELETE RESTRICT;
+                END IF;
+            END $$;
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_contagem_stock_confeitaria_product
+            ON contagem_stock
+                (store_id, data DESC, produto_confeitaria_id, id DESC)
+            WHERE tipo='confeitaria' AND origem='contagem'
+              AND produto_confeitaria_id IS NOT NULL
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_contagem_stock_confeitaria_submission
+            ON contagem_stock (store_id, data DESC, submitted_at DESC)
+            WHERE tipo='confeitaria' AND origem='contagem'
+              AND submission_id IS NOT NULL
+        """)
+        conn.commit()
+        logger.info(
+            "run_migrations_confeitaria_count_product_id: schema ready"
+        )
 
 
 def run_migrations_pastelaria_product_state_audit():

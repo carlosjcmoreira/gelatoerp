@@ -43,6 +43,11 @@ from db.pastelaria import (
     get_pesagem_audit_history,
     restore_stock_gelado,
 )
+from db.confeitaria import (
+    get_confeitaria_store_count_grid,
+    save_confeitaria_store_counts,
+    get_confeitaria_count_submission_history,
+)
 from sabor_utils import normalise_sabor
 from db.weighing_status import get_daily_weighing_statuses, portugal_today
 
@@ -52,6 +57,7 @@ TAB_DEFS = [
     {'id': 'dashboard', 'label': 'Resumo Diário', 'icon': '📊', 'endpoint': 'vendas.dashboard'},
     {'id': 'compras_loja', 'label': 'Compras da Loja', 'icon': '🛍️', 'endpoint': 'vendas.compras_loja'},
     {'id': 'contagem_pastelaria', 'label': 'Contagem Pastelaria', 'icon': '🍰', 'endpoint': 'vendas.contagem_pastelaria'},
+    {'id': 'contagem_confeitaria', 'label': 'Contagem Confeitaria', 'icon': '🍪', 'endpoint': 'vendas.contagem_confeitaria'},
     {'id': 'transferencias', 'label': 'Receção de Mercadoria', 'icon': '📦', 'endpoint': 'vendas.transferencias'},
     {'id': 'transferir_gelado', 'label': 'Transferir Gelado', 'icon': '📤', 'endpoint': 'vendas.transferir_gelado'},
     {'id': 'quebras', 'label': 'Registar Quebras', 'icon': '⚠️', 'endpoint': 'vendas.quebras'},
@@ -63,6 +69,13 @@ TAB_DEFS = [
 
 _LOJA_ONLY_TILE_IDS = {'transferencias', 'transferir_gelado'}
 _EOD_ONLY_TILE_IDS = {'pesagem'}
+
+
+def supports_vendas_confeitaria_count(store):
+    """Confeitaria counts are available to every active Vendas store."""
+    return bool(store) and bool(store.get('is_active', True)) and bool(
+        store.get('supports_vendas', True)
+    )
 
 
 def get_supported_vendas_tile_ids(store, include_gestor_only=True):
@@ -80,6 +93,11 @@ def get_supported_vendas_tile_ids(store, include_gestor_only=True):
         if tile_id in _LOJA_ONLY_TILE_IDS and store_type != 'loja':
             continue
         if tile_id in _EOD_ONLY_TILE_IDS and not requires_eod:
+            continue
+        if (
+            tile_id == 'contagem_confeitaria'
+            and not supports_vendas_confeitaria_count(store)
+        ):
             continue
         seen.add(tile_id)
         supported.append(tile_id)
@@ -256,18 +274,10 @@ def _build_tabs(active_id, loja_id=None):
     is_gestor = bool(user.get('acesso_gestor'))
 
     # Determine store capabilities to filter tabs
-    store_type = 'loja'
-    requires_eod = True
-    if loja_id:
-        store = get_store_by_id(loja_id)
-        if store:
-            store_type = store.get('store_type', 'loja')
-            requires_eod = store.get('requires_eod_weighing', True)
+    store = get_store_by_id(loja_id) if loja_id else None
 
     # Tab visibility rules by store profile
-    supported_ids = None
-    if loja_id:
-        supported_ids = set(get_supported_vendas_tile_ids(store))
+    supported_ids = set(get_supported_vendas_tile_ids(store))
 
     tabs = []
     for t in TAB_DEFS:
@@ -276,7 +286,7 @@ def _build_tabs(active_id, loja_id=None):
             continue
         if not gestor_only and not visibility.get(t['id'], True):
             continue
-        if supported_ids is not None and t['id'] not in supported_ids:
+        if t['id'] not in supported_ids:
             continue
         kwargs = {}
         if loja_id:
@@ -981,6 +991,136 @@ def contagem_pastelaria():
         is_gestor=is_gestor,
         count_history=count_history,
         vendas_stores=get_vendas_module_stores(),
+    )
+
+
+@vendas_bp.route('/contagem-confeitaria', methods=['GET', 'POST'])
+@login_required
+def contagem_confeitaria():
+    if not _check_vendas_access():
+        return redirect(url_for('home.index'))
+
+    loja_id, loja_nome, store = _get_count_store()
+    if not store:
+        return redirect(url_for('home.index'))
+    if not supports_vendas_confeitaria_count(store):
+        abort(403)
+
+    error = None
+    raw_date = (
+        request.form.get('data_contagem')
+        if request.method == 'POST'
+        else request.args.get('data_contagem')
+    )
+    date_error = False
+    try:
+        count_date = date.fromisoformat(raw_date) if raw_date else date.today()
+    except (TypeError, ValueError):
+        date_error = True
+        error = 'Escolha uma data válida para a contagem.'
+        flash(error, 'warning')
+        count_date = date.today()
+
+    try:
+        grid = get_confeitaria_store_count_grid(count_date, loja_id)
+    except ValueError as exc:
+        if 'Loja inválida' in str(exc):
+            abort(403)
+        raise
+
+    if request.method == 'POST' and not date_error:
+        if request.form.get('action') != 'guardar_grelha':
+            abort(405)
+        values = []
+        try:
+            expected_fields = {
+                f"count_{product['id']}" for product in grid['products']
+            }
+            submitted_fields = {
+                field for field in request.form
+                if field.startswith('count_')
+            }
+            if submitted_fields != expected_fields:
+                raise ValueError(
+                    'A grelha recebida está incompleta. '
+                    'Atualize a página antes de guardar.'
+                )
+
+            for product in grid['products']:
+                field_name = f"count_{product['id']}"
+                raw_values = request.form.getlist(field_name)
+                if len(raw_values) != 1:
+                    raise ValueError(
+                        'A grelha recebida está incompleta. '
+                        'Atualize a página antes de guardar.'
+                    )
+                raw_quantity = raw_values[0].strip()
+                if raw_quantity == '':
+                    quantity = 0
+                elif raw_quantity.isascii() and raw_quantity.isdigit():
+                    quantity = int(raw_quantity)
+                else:
+                    raise ValueError(
+                        'Use números inteiros não negativos; os campos '
+                        'vazios serão guardados como 0.'
+                    )
+                if quantity > 2_147_483_647:
+                    raise ValueError('A quantidade excede o limite permitido.')
+                values.append((product['id'], quantity))
+
+            submitted_by = session.get('user', {}).get('username', '')
+            saved = save_confeitaria_store_counts(
+                count_date,
+                loja_id,
+                values,
+                request.form.get('snapshot_token'),
+                submitted_by=submitted_by,
+            )
+            flash(
+                f'Contagem de Confeitaria guardada: {saved} valores.',
+                'success',
+            )
+            return redirect(url_for(
+                'vendas.contagem_confeitaria',
+                loja_id=loja_id,
+                data_contagem=count_date.isoformat(),
+            ))
+        except (TypeError, ValueError) as exc:
+            error = str(exc)
+            flash(error, 'warning')
+            try:
+                grid = get_confeitaria_store_count_grid(count_date, loja_id)
+            except ValueError as grid_exc:
+                if 'Loja inválida' in str(grid_exc):
+                    abort(403)
+                raise
+            submitted = dict(values)
+            for product in grid.get('products', []):
+                if product['id'] in submitted:
+                    product['count'] = submitted[product['id']]
+
+    is_gestor = bool(session.get('user', {}).get('acesso_gestor'))
+    count_history = (
+        get_confeitaria_count_submission_history(count_date, loja_id)
+        if is_gestor and not date_error else []
+    )
+    vendas_stores = [
+        candidate
+        for candidate in get_vendas_module_stores()
+        if supports_vendas_confeitaria_count(candidate)
+    ]
+    return render_template(
+        'vendas/contagem_confeitaria.html',
+        active_tab='contagem_confeitaria',
+        tabs=_build_tabs('contagem_confeitaria', loja_id),
+        loja_id=loja_id,
+        loja_nome=loja_nome,
+        count_date=count_date,
+        count_grid=grid,
+        error=error,
+        is_gestor=is_gestor,
+        count_history=count_history,
+        vendas_stores=vendas_stores,
     )
 
 

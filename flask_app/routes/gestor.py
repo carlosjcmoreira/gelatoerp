@@ -2062,6 +2062,7 @@ _TILE_MASTER = {
         {'id': 'dashboard',         'icon': '📊',  'default_label': 'Resumo Diário',                'description': 'Resumo das vendas do dia por loja com totais e indicadores de performance'},
         {'id': 'compras_loja',      'icon': '🛍️', 'default_label': 'Compras da Loja',               'description': 'Entrada comum para encomendas, pedidos urgentes, contagens e histórico da loja'},
         {'id': 'contagem_pastelaria','icon': '🍰',  'default_label': 'Contagem Pastelaria',           'description': 'Registar a contagem de produtos de pastelaria da própria loja'},
+        {'id': 'contagem_confeitaria','icon': '🍪', 'default_label': 'Contagem Confeitaria',         'description': 'Registar a contagem física de produtos de Confeitaria por loja e data'},
         {'id': 'transferencias',    'icon': '📦',  'default_label': 'Receção de Mercadoria',        'description': 'Confirmar a receção de transferências enviadas pela produção e pastelaria'},
         {'id': 'transferir_gelado',  'icon': '📤',  'default_label': 'Transferir Gelado',             'description': 'Transferir gelado entre lojas autorizadas'},
         {'id': 'quebras',           'icon': '⚠️',  'default_label': 'Registar Quebras',             'description': 'Registar quebras de gelado, pastelaria e confeitaria com motivo justificativo'},

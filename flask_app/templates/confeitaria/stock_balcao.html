@@ -14,39 +14,11 @@
     </div>
     {% endif %}
 
-    <h6 class="mb-2">Registar Contagem de Stock</h6>
-
-    <form method="POST" action="{{ url_for('confeitaria.stock_balcao') }}">
-        <input type="hidden" name="action" value="registar">
-        <div class="row g-2 mb-2">
-            <div class="col-6">
-                <label class="form-label small">Data</label>
-                <input type="date" class="form-control form-control-sm" name="data_contagem" value="{{ today }}" required>
-            </div>
-            <div class="col-6">
-                <label class="form-label small">Loja</label>
-                <select class="form-select form-select-sm" name="loja">
-                    <option value="Matosinhos">Matosinhos</option>
-                    <option value="Bolhão">Bolhão</option>
-                </select>
-            </div>
-        </div>
-        <div class="row g-2 mb-2">
-            <div class="col-6">
-                <label class="form-label small">Produto</label>
-                <select class="form-select form-select-sm" name="produto" required>
-                    {% for p in produtos %}
-                    <option value="{{ p }}">{{ p }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="col-6">
-                <label class="form-label small">Quantidade (und)</label>
-                <input type="number" class="form-control form-control-sm" name="quantidade" value="0" min="0" step="1" required>
-            </div>
-        </div>
-        <button type="submit" class="btn btn-primary btn-sm w-100 mt-2 mb-4">Registar Contagem</button>
-    </form>
+    <div class="alert alert-info mb-3">
+        As novas contagens físicas são registadas em Vendas, na opção
+        <strong>Contagem Confeitaria</strong>. Este ecrã mantém o resumo e o histórico.
+        Registos antigos continuam com os nomes originais e sem associação automática.
+    </div>
 
     <hr>
     <h6 class="mb-2">Stock por Produto e Local</h6>
@@ -116,18 +88,6 @@
         </table>
     </div>
 
-    <form method="POST" action="{{ url_for('confeitaria.stock_balcao') }}" class="mt-2">
-        <input type="hidden" name="action" value="eliminar">
-        <div class="row g-2 align-items-end">
-            <div class="col-auto">
-                <label class="form-label small">ID a eliminar</label>
-                <input type="number" class="form-control form-control-sm" name="id_delete" min="1" step="1" required style="width:100px">
-            </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-outline-danger btn-sm">Eliminar</button>
-            </div>
-        </div>
-    </form>
     {% endif %}
 </div>
 {% endblock %}

@@ -6,7 +6,7 @@ import pandas as pd
 from database import (
     get_produtos_confeitaria,
     get_ultimo_stock_balcao,
-    add_contagem_stock, delete_contagem_stock, get_contagem_stock_df,
+    get_contagem_stock_df,
     get_produtos_by_area,
     upsert_plano_area, marcar_produto_no_plano, remover_produto_do_plano,
     get_plano_do_dia_area, get_plano_produto,
@@ -65,42 +65,15 @@ def index():
 @confeitaria_bp.route('/stock-balcao', methods=['GET', 'POST'])
 @perm_required('acesso_confeitaria')
 def stock_balcao():
-    produtos_stock = get_produtos_confeitaria() or []
-
     msg = None
     msg_type = None
 
     if request.method == 'POST':
-        action = request.form.get('action', '')
-
-        if action == 'registar':
-            data_contagem = request.form.get('data_contagem', '')
-            loja = request.form.get('loja', 'Matosinhos')
-            produto = request.form.get('produto', '')
-            quantidade = request.form.get('quantidade', '0')
-
-            try:
-                quantidade = int(quantidade)
-            except ValueError:
-                quantidade = 0
-
-            if produto and produto in produtos_stock:
-                add_contagem_stock(date.fromisoformat(data_contagem), loja, produto, quantidade, 'confeitaria')
-                msg = f'Contagem de {quantidade}x {produto} registada!'
-                msg_type = 'success'
-            else:
-                msg = 'Selecione um produto de Confeitaria ativo.'
-                msg_type = 'warning'
-
-        elif action == 'eliminar':
-            id_del = request.form.get('id_delete', '0')
-            try:
-                delete_contagem_stock(int(id_del))
-                msg = 'Contagem eliminada!'
-                msg_type = 'success'
-            except (ValueError, Exception):
-                msg = 'Erro ao eliminar contagem.'
-                msg_type = 'danger'
+        msg = (
+            'As novas contagens físicas são registadas em Vendas, na opção '
+            'Contagem Confeitaria. Este histórico mantém os registos anteriores.'
+        )
+        msg_type = 'warning'
 
     stock_resumo = get_ultimo_stock_balcao('confeitaria')
 
@@ -128,11 +101,9 @@ def stock_balcao():
     return render_template('confeitaria/stock_balcao.html',
                            active_tab='stock_balcao',
                            tabs=_tabs_with_urls(),
-                           produtos=produtos_stock,
                            stock_resumo=stock_resumo,
                            stock_matrix=stock_matrix_list,
                            contagens=contagens_list,
-                           today=date.today().isoformat(),
                            msg=msg,
                            msg_type=msg_type)
 

@@ -130,6 +130,11 @@ def get_confeitaria_stock() -> pd.DataFrame:
         return pd.read_sql_query(query, conn)
 
 def add_contagem_stock(data: date, loja: str, produto: str, quantidade: int, tipo: str):
+    if tipo == 'confeitaria':
+        raise ValueError(
+            'As contagens de Confeitaria devem ser guardadas pela grelha '
+            'autorizada de Vendas.'
+        )
     with db_connection() as conn:
         cursor = conn.cursor()
         if tipo == 'pastelaria' and data.weekday() == 6:
@@ -698,6 +703,10 @@ def delete_contagem_stock(contagem_id: int):
             (contagem_id,),
         )
         row = cursor.fetchone()
+        if row and row[1] == 'confeitaria':
+            raise ValueError(
+                'O histórico de contagens de Confeitaria é apenas de consulta.'
+            )
         if row and row[1] == 'pastelaria' and row[0].weekday() == 6:
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
