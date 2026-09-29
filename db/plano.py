@@ -1071,17 +1071,268 @@ def criar_ordens_transferencia_pastelaria(
     return {"order_ids": order_ids, "replayed": False}
 
 
-def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
+def _normalizar_ordens_rececao_batch(ordem_ids):
+    if not isinstance(ordem_ids, (list, tuple)) or not ordem_ids:
+        raise ValueError("Indique pelo menos uma ordem de transferência.")
+    if len(ordem_ids) > 1000:
+        raise ValueError("O lote contém demasiadas ordens.")
+
+    normalized = []
+    seen = set()
+    for order_id in ordem_ids:
+        if (
+            isinstance(order_id, bool)
+            or not isinstance(order_id, int)
+            or order_id <= 0
+        ):
+            raise ValueError("O lote contém um identificador de ordem inválido.")
+        if order_id in seen:
+            raise ValueError("O mesmo identificador de ordem foi repetido.")
+        seen.add(order_id)
+        normalized.append(order_id)
+    return sorted(normalized)
+
+
+def _lock_and_validate_rececao_batch(cursor, order_ids, loja_destino):
+    cursor.execute("""
+        SELECT id, batch_id, loja_destino, status, destino_tipo,
+               COALESCE(rececao_estado, 'por_verificar'), motivo_problema
+        FROM ordens_transferencia
+        WHERE id = ANY(%s)
+        ORDER BY id
+    """, (order_ids,))
+    initial_rows = cursor.fetchall()
+    if len(initial_rows) != len(order_ids):
+        raise ValueError(
+            "Uma ou mais ordens do lote não existem."
+        )
+
+    batch_ids = {row[1] or None for row in initial_rows}
+    if len(batch_ids) != 1:
+        raise ValueError(
+            "O lote contém ordens de transferências diferentes."
+        )
+    batch_id = next(iter(batch_ids))
+
+    if batch_id is None:
+        cursor.execute("""
+            SELECT id, batch_id, loja_destino, status, destino_tipo,
+                   COALESCE(rececao_estado, 'por_verificar'),
+                   motivo_problema
+            FROM ordens_transferencia
+            WHERE id = ANY(%s)
+            ORDER BY id
+            FOR UPDATE
+        """, (order_ids,))
+    else:
+        cursor.execute("""
+            SELECT id, batch_id, loja_destino, status, destino_tipo,
+                   COALESCE(rececao_estado, 'por_verificar'),
+                   motivo_problema
+            FROM ordens_transferencia
+            WHERE id = ANY(%s) OR batch_id = %s
+            ORDER BY id
+            FOR UPDATE
+        """, (order_ids, batch_id))
+    locked_rows = cursor.fetchall()
+    selected_set = set(order_ids)
+    selected_rows = [
+        row for row in locked_rows if row[0] in selected_set
+    ]
+    if len(selected_rows) != len(order_ids):
+        raise ValueError("Uma ou mais ordens do lote já não existem.")
+
+    if any(row[2] != loja_destino for row in selected_rows):
+        raise ValueError("O lote contém ordens destinadas a outra loja.")
+    if any(
+        row[3] != 'confirmada' or row[4] != 'loja'
+        for row in selected_rows
+    ):
+        raise ValueError(
+            "O lote contém ordens que não podem ser recebidas por uma loja."
+        )
+    if {row[1] or None for row in selected_rows} != {batch_id}:
+        raise ValueError(
+            "O lote contém ordens de transferências diferentes."
+        )
+
+    if batch_id is None:
+        if len(order_ids) != 1:
+            raise ValueError(
+                "Ordens sem identificador de lote têm de ser processadas "
+                "individualmente."
+            )
+        batch_rows = [
+            (row[0], row[5], row[6]) for row in selected_rows
+        ]
+    else:
+        batch_rows = [
+            (row[0], row[5], row[6])
+            for row in locked_rows
+            if row[1] == batch_id
+            and row[2] == loja_destino
+            and row[3] == 'confirmada'
+            and row[4] == 'loja'
+        ]
+
+    selected_ids = set(order_ids)
+    all_ids = {row[0] for row in batch_rows}
+    pending_ids = {
+        row[0] for row in batch_rows
+        if row[1] == 'por_verificar'
+    }
+    if selected_ids != pending_ids and selected_ids != all_ids:
+        raise ValueError(
+            "Os identificadores não correspondem ao lote completo pendente."
+        )
+    return selected_rows
+
+
+def confirmar_ordens_transferencia_batch(
+    ordem_ids, loja_destino: str, confirmado_por: str,
+):
+    """Accept a whole destination-store batch once, without moving stock."""
+    order_ids = _normalizar_ordens_rececao_batch(ordem_ids)
+    destination = str(loja_destino or '').strip()
+    actor = str(confirmado_por or '').strip()
+    if not destination or len(destination) > 100:
+        raise ValueError("Loja de destino inválida.")
+    if not actor or len(actor) > 100:
+        raise ValueError("Não foi possível identificar o responsável.")
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        selected_rows = _lock_and_validate_rececao_batch(
+            cursor, order_ids, destination
+        )
+        if any(
+            row[5] not in ('por_verificar', 'aceite')
+            for row in selected_rows
+        ):
+            raise ValueError(
+                "Uma ou mais ordens já têm outro estado de receção."
+            )
+
+        pending_ids = [
+            row[0] for row in selected_rows
+            if row[5] == 'por_verificar'
+        ]
+        if pending_ids:
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET rececao_estado = 'aceite', aceite_por = %s,
+                    aceite_em = NOW(), problema_por = NULL,
+                    problema_em = NULL, motivo_problema = NULL
+                WHERE id = ANY(%s)
+                  AND loja_destino = %s
+                  AND status = 'confirmada'
+                  AND destino_tipo = 'loja'
+                  AND rececao_estado = 'por_verificar'
+                RETURNING id
+            """, (actor, pending_ids, destination))
+            updated_ids = [row[0] for row in cursor.fetchall()]
+            if set(updated_ids) != set(pending_ids):
+                raise ValueError(
+                    "O estado do lote mudou. Atualize a página e tente de novo."
+                )
+            for order_id in sorted(updated_ids):
+                _insert_evento(cursor, order_id, 'aceite', actor)
+
+        conn.commit()
+    return {
+        'updated_count': len(pending_ids),
+        'replayed': not pending_ids,
+    }
+
+
+def reportar_problema_ordens_transferencia_batch(
+    ordem_ids, loja_destino: str, reportado_por: str, motivo: str,
+):
+    """Record one problem report for a complete store batch, once only."""
+    order_ids = _normalizar_ordens_rececao_batch(ordem_ids)
+    destination = str(loja_destino or '').strip()
+    actor = str(reportado_por or '').strip()
+    reason = str(motivo or '').strip()
+    if not destination or len(destination) > 100:
+        raise ValueError("Loja de destino inválida.")
+    if not actor or len(actor) > 100:
+        raise ValueError("Não foi possível identificar o responsável.")
+    if not reason:
+        raise ValueError("O motivo do problema é obrigatório.")
+    if len(reason) > 500:
+        raise ValueError("O motivo do problema não pode exceder 500 caracteres.")
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        selected_rows = _lock_and_validate_rececao_batch(
+            cursor, order_ids, destination
+        )
+        for row in selected_rows:
+            state = row[5]
+            if state not in ('por_verificar', 'problema'):
+                raise ValueError(
+                    "Uma ou mais ordens já têm outro estado de receção."
+                )
+            if state == 'problema' and row[6] != reason:
+                raise ValueError(
+                    "Já existe um problema registado com outro motivo."
+                )
+
+        pending_ids = [
+            row[0] for row in selected_rows
+            if row[5] == 'por_verificar'
+        ]
+        if pending_ids:
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET rececao_estado = 'problema', problema_por = %s,
+                    problema_em = NOW(), motivo_problema = %s
+                WHERE id = ANY(%s)
+                  AND loja_destino = %s
+                  AND status = 'confirmada'
+                  AND destino_tipo = 'loja'
+                  AND rececao_estado = 'por_verificar'
+                RETURNING id
+            """, (actor, reason, pending_ids, destination))
+            updated_ids = [row[0] for row in cursor.fetchall()]
+            if set(updated_ids) != set(pending_ids):
+                raise ValueError(
+                    "O estado do lote mudou. Atualize a página e tente de novo."
+                )
+            for order_id in sorted(updated_ids):
+                _insert_evento(
+                    cursor,
+                    order_id,
+                    'problema_reportado',
+                    actor,
+                    reason,
+                )
+
+        conn.commit()
+    return {
+        'updated_count': len(pending_ids),
+        'replayed': not pending_ids,
+    }
+
+
+def confirmar_ordem_transferencia(
+    ordem_id: int, confirmado_por: str, loja_destino: str = None,
+):
     """Record the destination store's optional acceptance without moving stock."""
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
+        query = """
             UPDATE ordens_transferencia
             SET rececao_estado = 'aceite', aceite_por = %s, aceite_em = NOW(),
                 problema_por = NULL, problema_em = NULL, motivo_problema = NULL
             WHERE id = %s AND status = 'confirmada'
               AND destino_tipo = 'loja' AND rececao_estado = 'por_verificar'
-        """, (confirmado_por, ordem_id))
+        """
+        params = [confirmado_por, ordem_id]
+        if loja_destino is not None:
+            query += " AND loja_destino = %s"
+            params.append(loja_destino)
+        cursor.execute(query, params)
         updated = cursor.rowcount > 0
         if updated:
             _insert_evento(cursor, ordem_id, 'aceite', confirmado_por)
@@ -1091,20 +1342,28 @@ def confirmar_ordem_transferencia(ordem_id: int, confirmado_por: str):
 
 def reportar_problema_ordem_transferencia(
     ordem_id: int, reportado_por: str, motivo: str,
+    loja_destino: str = None,
 ):
     """Record a receipt discrepancy without changing the completed movement."""
-    motivo = (motivo or '').strip()
+    motivo = str(motivo or '').strip()
     if not motivo:
         raise ValueError("O motivo do problema é obrigatório")
+    if len(motivo) > 500:
+        raise ValueError("O motivo do problema não pode exceder 500 caracteres")
     with db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("""
+        query = """
             UPDATE ordens_transferencia
             SET rececao_estado = 'problema', problema_por = %s,
                 problema_em = NOW(), motivo_problema = %s
             WHERE id = %s AND status = 'confirmada'
               AND destino_tipo = 'loja' AND rececao_estado = 'por_verificar'
-        """, (reportado_por, motivo, ordem_id))
+        """
+        params = [reportado_por, motivo, ordem_id]
+        if loja_destino is not None:
+            query += " AND loja_destino = %s"
+            params.append(loja_destino)
+        cursor.execute(query, params)
         updated = cursor.rowcount > 0
         if updated:
             _insert_evento(

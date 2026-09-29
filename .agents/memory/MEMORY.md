@@ -29,6 +29,7 @@
 - [Daily weighing state](daily-weighing-state.md) — EOD status uses stable store identity and Lisbon closed days; justified days are audited exceptions that reject later stock writes.
 - [Weighing audit and recovery](weighing-audit-recovery.md) — weighing changes are append-only audited; deletion is reversible deactivation, and operational reads use active rows only.
 - [Store-scoped Vendas tiles](store-scoped-vendas-tiles.md) — module identity stays global; child tile settings use stable store IDs and canonical capability filtering.
+- [Vendas receipt store scope](vendas-receipt-store-scope.md) — receipt writes must use the selected active store and validate the complete batch before recording proof.
 - [Compras supply origins](compras-supply-origins.md) — spreadsheet labels can be internal hubs or informal categories; weekly and urgent supply flows must stay distinct.
 - [Compras catalog history](compras-catalog-history.md) — versioned seed imports must preserve pre-existing catalogue rows rather than deleting historical identities.
 - [Invoice product links](invoice-product-links.md) — catalogue associations never rewrite invoice-line snapshots; auto-suggestions require exact text and confirmed canonical supplier scope.

@@ -161,6 +161,77 @@ class OptionalAcceptanceMigrationTests(unittest.TestCase):
                 """)
                 connection.commit()
 
+    def _run_acceptance_migration(self):
+        with patch("db.schema.db_connection", self.isolated_connection):
+            schema.run_migrations_transferencias_aceitacao_opcional()
+
+    def _create_receipt_batch(self, batch_id, areas, destination="Bolhão"):
+        order_ids = []
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                for index, area in enumerate(areas, start=1):
+                    cursor.execute("""
+                        INSERT INTO ordens_transferencia (
+                            data, area_origem, produto, quantidade, unidade,
+                            loja_destino, status, criado_por, confirmado_por,
+                            confirmado_em, data_prevista, batch_id,
+                            destino_tipo, rececao_estado
+                        )
+                        VALUES (
+                            '2026-09-14', %s, %s, %s, 'und',
+                            %s, 'confirmada', 'origem', 'origem',
+                            '2026-09-14 08:00', '2026-09-16', %s,
+                            'loja', 'por_verificar'
+                        )
+                        RETURNING id
+                    """, (
+                        area,
+                        f"{area} item {index}",
+                        index,
+                        destination,
+                        batch_id,
+                    ))
+                    order_id = cursor.fetchone()[0]
+                    order_ids.append(order_id)
+                    cursor.execute("""
+                        INSERT INTO transferencias_eventos (
+                            ordem_id, event_type, utilizador
+                        ) VALUES (%s, 'criado', 'origem')
+                    """, (order_id,))
+                connection.commit()
+        return order_ids
+
+    def _seed_physical_count(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO contagem_stock (
+                        data, loja, produto, quantidade, tipo, origem
+                    )
+                    VALUES ('2026-09-14', 'Bolhão', 'Bolo de noz', 7,
+                            'confeitaria', 'contagem')
+                """)
+                connection.commit()
+
+    def _inventory_snapshot(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT data, loja, tipo_produto, produto, sabor, lote,
+                           quantidade, unidade, ordem_transferencia_id
+                    FROM rececao_mercadoria
+                    ORDER BY id
+                """)
+                receipts = cursor.fetchall()
+                cursor.execute("""
+                    SELECT data, loja, produto, quantidade, tipo, origem,
+                           ordem_transferencia_id
+                    FROM contagem_stock
+                    ORDER BY id
+                """)
+                counts = cursor.fetchall()
+        return receipts, counts
+
     def test_migration_is_repeatable_and_never_duplicates_stock(self):
         with patch("db.schema.db_connection", self.isolated_connection):
             schema.run_migrations_transferencias_aceitacao_opcional()
@@ -235,6 +306,168 @@ class OptionalAcceptanceMigrationTests(unittest.TestCase):
                 self.assertEqual(cursor.fetchall(), [
                     ("aceite", 1), ("criado", 1), ("executado", 1)
                 ])
+
+    def test_z_mixed_origin_batches_are_accepted_once_without_stock_changes(self):
+        self._run_acceptance_migration()
+        self._seed_physical_count()
+        confeitaria_ids = self._create_receipt_batch(
+            "confeitaria-receipt", ["Confeitaria", "Confeitaria"]
+        )
+        pastelaria_ids = self._create_receipt_batch(
+            "pastelaria-receipt", ["Pastelaria"]
+        )
+        mixed_ids = self._create_receipt_batch(
+            "mixed-receipt", ["Confeitaria", "Pastelaria"]
+        )
+        all_order_ids = confeitaria_ids + pastelaria_ids + mixed_ids
+
+        inventory_before = self._inventory_snapshot()
+
+        with patch("db.plano.db_connection", self.isolated_connection):
+            for batch_ids in (confeitaria_ids, pastelaria_ids, mixed_ids):
+                first = plano.confirmar_ordens_transferencia_batch(
+                    batch_ids, "Bolhão", "loja"
+                )
+                replay = plano.confirmar_ordens_transferencia_batch(
+                    batch_ids, "Bolhão", "loja"
+                )
+                self.assertEqual(first['updated_count'], len(batch_ids))
+                self.assertFalse(first['replayed'])
+                self.assertEqual(replay['updated_count'], 0)
+                self.assertTrue(replay['replayed'])
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, status, rececao_estado, aceite_por
+                    FROM ordens_transferencia
+                    WHERE id = ANY(%s)
+                    ORDER BY id
+                """, (all_order_ids,))
+                self.assertEqual(
+                    cursor.fetchall(),
+                    [
+                        (order_id, "confirmada", "aceite", "loja")
+                        for order_id in sorted(all_order_ids)
+                    ],
+                )
+                cursor.execute("""
+                    SELECT ordem_id, COUNT(*)
+                    FROM transferencias_eventos
+                    WHERE ordem_id = ANY(%s) AND event_type = 'aceite'
+                    GROUP BY ordem_id ORDER BY ordem_id
+                """, (all_order_ids,))
+                self.assertEqual(
+                    cursor.fetchall(),
+                    [(order_id, 1) for order_id in sorted(all_order_ids)],
+                )
+        self.assertEqual(self._inventory_snapshot(), inventory_before)
+
+    def test_z_invalid_batch_ids_reject_every_order_before_any_receipt_proof(self):
+        self._run_acceptance_migration()
+        batch_ids = self._create_receipt_batch(
+            "one-batch", ["Confeitaria", "Confeitaria"]
+        )
+        same_batch_foreign_store = self._create_receipt_batch(
+            "one-batch", ["Pastelaria"], destination="Matosinhos"
+        )
+        other_batch = self._create_receipt_batch(
+            "another-batch", ["Pastelaria"]
+        )
+
+        with patch("db.plano.db_connection", self.isolated_connection):
+            invalid_batches = [
+                [batch_ids[0]],  # Partial membership is not the pending batch.
+                [batch_ids[0], batch_ids[1], batch_ids[0]],  # Duplicate ID.
+                [batch_ids[0], same_batch_foreign_store[0]],
+                [batch_ids[0], other_batch[0]],
+                [batch_ids[0], "not-an-id"],
+            ]
+            for invalid_ids in invalid_batches:
+                with self.subTest(ids=invalid_ids):
+                    with self.assertRaises(ValueError):
+                        plano.confirmar_ordens_transferencia_batch(
+                            invalid_ids, "Bolhão", "loja"
+                        )
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                all_order_ids = (
+                    batch_ids + same_batch_foreign_store + other_batch
+                )
+                cursor.execute("""
+                    SELECT id, rececao_estado
+                    FROM ordens_transferencia
+                    WHERE id = ANY(%s)
+                    ORDER BY id
+                """, (all_order_ids,))
+                self.assertEqual(
+                    cursor.fetchall(),
+                    [
+                        (order_id, "por_verificar")
+                        for order_id in sorted(all_order_ids)
+                    ],
+                )
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM transferencias_eventos
+                    WHERE ordem_id = ANY(%s)
+                      AND event_type IN ('aceite', 'problema_reportado')
+                """, (all_order_ids,))
+                self.assertEqual(cursor.fetchone()[0], 0)
+
+    def test_z_problem_report_batch_is_once_only_and_keeps_inventory_unchanged(self):
+        self._run_acceptance_migration()
+        self._seed_physical_count()
+        order_ids = self._create_receipt_batch(
+            "problem-receipt", ["Confeitaria", "Pastelaria"]
+        )
+
+        inventory_before = self._inventory_snapshot()
+
+        with patch("db.plano.db_connection", self.isolated_connection):
+            first = plano.reportar_problema_ordens_transferencia_batch(
+                order_ids, "Bolhão", "loja", "Quantidade incorreta"
+            )
+            replay = plano.reportar_problema_ordens_transferencia_batch(
+                order_ids, "Bolhão", "loja", "Quantidade incorreta"
+            )
+            self.assertEqual(first['updated_count'], len(order_ids))
+            self.assertFalse(first['replayed'])
+            self.assertEqual(replay['updated_count'], 0)
+            self.assertTrue(replay['replayed'])
+            with self.assertRaises(ValueError):
+                plano.reportar_problema_ordens_transferencia_batch(
+                    order_ids, "Bolhão", "loja", "Outro motivo"
+                )
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, rececao_estado, motivo_problema, problema_por
+                    FROM ordens_transferencia
+                    WHERE id = ANY(%s)
+                    ORDER BY id
+                """, (order_ids,))
+                self.assertEqual(
+                    cursor.fetchall(),
+                    [
+                        (order_id, "problema", "Quantidade incorreta", "loja")
+                        for order_id in sorted(order_ids)
+                    ],
+                )
+                cursor.execute("""
+                    SELECT ordem_id, COUNT(*)
+                    FROM transferencias_eventos
+                    WHERE ordem_id = ANY(%s)
+                      AND event_type = 'problema_reportado'
+                    GROUP BY ordem_id ORDER BY ordem_id
+                """, (order_ids,))
+                self.assertEqual(
+                    cursor.fetchall(),
+                    [(order_id, 1) for order_id in sorted(order_ids)],
+                )
+        self.assertEqual(self._inventory_snapshot(), inventory_before)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@
                         <span class="fw-bold small">{{ o.produto }}</span>
                         {% if o.sabor and o.sabor != o.produto %}<span class="text-muted small ms-1">({{ o.sabor }})</span>{% endif %}
                     </div>
-                    <span class="fw-bold small">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</span>
+                    <span class="fw-bold small">{% if o.unidade == 'und' and o.quantidade == o.quantidade|int %}{{ o.quantidade|int }}{% else %}{{ "%.1f"|format(o.quantidade) }}{% endif %} {{ o.unidade }}</span>
                 </div>
             </div>
             {% endfor %}
@@ -88,7 +88,7 @@
                     <td>{{ o.data.strftime('%d/%m') }}</td>
                     <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.65rem;">{{ o.area_origem }}</span></td>
                     <td>{{ o.produto }}{% if o.sabor and o.sabor != o.produto %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
-                    <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
+                    <td class="text-center">{% if o.unidade == 'und' and o.quantidade == o.quantidade|int %}{{ o.quantidade|int }}{% else %}{{ "%.1f"|format(o.quantidade) }}{% endif %} {{ o.unidade }}</td>
                     <td class="text-center">
                         {% if o.rececao_estado == 'aceite' %}
                         <span class="badge bg-success" style="font-size:0.65rem;">Aceite</span>

@@ -13,7 +13,7 @@ from database import (
     add_stock_gelado, get_stock_gelado_df, get_stock_gelado_by_id,
     delete_stock_gelado, update_stock_gelado,
     add_stock_gelado_carapinas, get_carapinas_for_stock_ids,
-    get_ordens_transferencia, confirmar_ordem_transferencia,
+    get_ordens_transferencia,
     get_active_venda_stores, get_vendas_module_stores, get_store_by_id,
     upsert_fecho_caixa, get_fecho_caixa, get_fecho_caixa_mensal, get_fecho_caixa_by_id, salvar_justificacao_fecho,
     list_fecho_caixa, list_fecho_caixa_all_stores, delete_fecho_caixa_by_id,
@@ -27,7 +27,8 @@ from flask_app.utils.finance import parse_date as _shared_parse_date
 from db.plano import (
     get_ordem_transferencia_by_id, criar_transferencia_entre_lojas,
     get_latest_pesagem_por_sabor, get_effective_stock_por_sabor,
-    reportar_problema_ordem_transferencia,
+    confirmar_ordens_transferencia_batch,
+    reportar_problema_ordens_transferencia_batch,
 )
 from db.pastelaria import (
     get_pastelaria_sunday_count_grid,
@@ -149,6 +150,29 @@ def _parse_manual_pesagem_entries(raw_entries):
             'suspeito': bool(raw.get('suspeito')),
         })
     return entries
+
+
+def _parse_transfer_receipt_ids(raw_ids):
+    if not isinstance(raw_ids, str) or not raw_ids.strip():
+        raise ValueError("Indique as ordens de transferência.")
+    parts = raw_ids.split(',')
+    if len(parts) > 1000:
+        raise ValueError("O lote contém demasiadas ordens.")
+
+    order_ids = []
+    seen = set()
+    for part in parts:
+        value = part.strip()
+        if not value or not value.isascii() or not value.isdigit():
+            raise ValueError("O lote contém um identificador inválido.")
+        order_id = int(value)
+        if order_id <= 0:
+            raise ValueError("O lote contém um identificador inválido.")
+        if order_id in seen:
+            raise ValueError("O mesmo identificador de ordem foi repetido.")
+        seen.add(order_id)
+        order_ids.append(order_id)
+    return order_ids
 
 
 def _get_user_loja():
@@ -1765,80 +1789,107 @@ def transferencias():
     if not _check_vendas_access():
         return redirect(url_for('home.index'))
 
-    loja_id, loja_nome = _get_user_loja()
+    loja_id, loja_nome, store = _get_count_store()
+    if not store:
+        flash('Não foi possível identificar uma loja Vendas ativa.', 'warning')
+        return redirect(url_for('home.index'))
     if not _check_store_capability(loja_id, 'loja_only'):
         return redirect(url_for('vendas.index', loja_id=loja_id))
 
     if request.method == 'POST':
         action = request.form.get('action')
-        ordem_id = request.form.get('ordem_id')
         username = session.get('user', {}).get('username', '')
 
         try:
-            if action == 'confirmar' and ordem_id:
-                ordem = get_ordem_transferencia_by_id(int(ordem_id))
-                if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                    updated = confirmar_ordem_transferencia(int(ordem_id), username)
-                    if updated:
-                        flash('Receção aceite. O stock já estava atualizado.', 'success')
+            if action in ('confirmar', 'reportar_problema'):
+                submitted_ids = request.form.getlist('ordem_id')
+                if len(submitted_ids) != 1:
+                    raise ValueError(
+                        "Indique uma única ordem de transferência."
+                    )
+                order_ids = _parse_transfer_receipt_ids(submitted_ids[0])
+                if len(order_ids) != 1:
+                    raise ValueError(
+                        "Indique uma única ordem de transferência."
+                    )
+                ordem_id = order_ids[0]
+                ordem = get_ordem_transferencia_by_id(ordem_id)
+                if not ordem or ordem.get('loja_destino') != loja_nome:
+                    flash(
+                        'Sem permissão para processar esta transferência.',
+                        'warning',
+                    )
+                elif action == 'confirmar':
+                    result = confirmar_ordens_transferencia_batch(
+                        [ordem_id], loja_nome, username
+                    )
+                    if result['updated_count']:
+                        flash(
+                            'Receção aceite. O stock já estava atualizado.',
+                            'success',
+                        )
                     else:
                         flash('Transferência já processada anteriormente.', 'warning')
                 else:
-                    flash('Sem permissão para confirmar esta transferência.', 'warning')
-            elif action == 'reportar_problema' and ordem_id:
-                motivo = request.form.get('motivo_problema', '').strip()
-                if not motivo:
-                    flash('Indique o problema encontrado.', 'warning')
-                    return redirect(url_for('vendas.transferencias', loja_id=loja_id))
-                ordem = get_ordem_transferencia_by_id(int(ordem_id))
-                if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                    updated = reportar_problema_ordem_transferencia(
-                        int(ordem_id), username, motivo
+                    motivo = request.form.get('motivo_problema', '').strip()
+                    if not motivo:
+                        raise ValueError('Indique o problema encontrado.')
+                    result = reportar_problema_ordens_transferencia_batch(
+                        [ordem_id], loja_nome, username, motivo
                     )
-                    if updated:
+                    if result['updated_count']:
                         flash('Problema reportado. O stock não foi alterado.', 'info')
                     else:
                         flash('Transferência já processada anteriormente.', 'warning')
-                else:
-                    flash('Sem permissão para reportar esta transferência.', 'warning')
             elif action == 'confirmar_batch':
-                ids_str = request.form.get('ordem_ids', '')
-                ids = [int(x) for x in ids_str.split(',') if x.strip().isdigit()]
-                success = 0
-                for oid in ids:
-                    ordem = get_ordem_transferencia_by_id(oid)
-                    if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                        if confirmar_ordem_transferencia(oid, username):
-                            success += 1
-                if success:
-                    flash(f'Receção aceite: {success} artigo(s).', 'success')
+                submitted_ids = request.form.getlist('ordem_ids')
+                if len(submitted_ids) != 1:
+                    raise ValueError("Indique um único lote de ordens.")
+                order_ids = _parse_transfer_receipt_ids(submitted_ids[0])
+                result = confirmar_ordens_transferencia_batch(
+                    order_ids, loja_nome, username
+                )
+                if result['updated_count']:
+                    flash(
+                        f'Receção aceite: {result["updated_count"]} artigo(s).',
+                        'success',
+                    )
                 else:
-                    flash('Sem transferências a confirmar ou já processadas.', 'warning')
+                    flash(
+                        'Receção já processada anteriormente.',
+                        'warning',
+                    )
             elif action == 'reportar_problema_batch':
-                ids_str = request.form.get('ordem_ids', '')
+                submitted_ids = request.form.getlist('ordem_ids')
+                if len(submitted_ids) != 1:
+                    raise ValueError("Indique um único lote de ordens.")
+                order_ids = _parse_transfer_receipt_ids(submitted_ids[0])
                 motivo = request.form.get('motivo_problema', '').strip()
                 if not motivo:
-                    flash('Indique o problema encontrado.', 'warning')
-                    return redirect(url_for('vendas.transferencias', loja_id=loja_id))
-                ids = [int(x) for x in ids_str.split(',') if x.strip().isdigit()]
-                success = 0
-                for oid in ids:
-                    ordem = get_ordem_transferencia_by_id(oid)
-                    if ordem and _user_owns_loja(ordem.get('loja_destino', '')):
-                        if reportar_problema_ordem_transferencia(
-                            oid, username, motivo
-                        ):
-                            success += 1
-                if success:
+                    raise ValueError('Indique o problema encontrado.')
+                result = reportar_problema_ordens_transferencia_batch(
+                    order_ids, loja_nome, username, motivo
+                )
+                if result['updated_count']:
                     flash(
-                        f'Problema reportado em {success} artigo(s). '
+                        f'Problema reportado em {result["updated_count"]} artigo(s). '
                         'O stock não foi alterado.',
                         'info',
                     )
                 else:
-                    flash('Sem transferências por verificar.', 'warning')
+                    flash(
+                        'Este problema já tinha sido reportado.',
+                        'warning',
+                    )
+            else:
+                raise ValueError('Ação de receção inválida.')
+        except ValueError as exc:
+            flash(str(exc), 'warning')
         except Exception as exc:
-            logger.exception('Erro ao processar transferência ordem_id=%s action=%s', ordem_id, action)
+            logger.exception(
+                'Erro ao processar receção de transferência action=%s',
+                action,
+            )
             flash('Erro interno ao processar a transferência. Tente novamente.', 'danger')
 
         return redirect(url_for('vendas.transferencias', loja_id=loja_id))
@@ -1858,18 +1909,50 @@ def transferencias():
         if batch_key not in batch_map:
             batch_map[batch_key] = {
                 'batch_id': o.get('batch_id'),
-                'area_origem': o['area_origem'],
-                'data_prevista': o.get('data_prevista') or o['data'],
-                'data': o['data'],
-                'criado_por': o.get('criado_por'),
+                'areas_origem': set(),
+                'datas_previstas': set(),
+                'datas': set(),
+                'criadores': set(),
                 'ordens': [],
             }
-        batch_map[batch_key]['ordens'].append(o)
+        grupo = batch_map[batch_key]
+        grupo['areas_origem'].add(o['area_origem'])
+        grupo['datas_previstas'].add(o.get('data_prevista') or o['data'])
+        grupo['datas'].add(o['data'])
+        if o.get('criado_por'):
+            grupo['criadores'].add(o['criado_por'])
+        grupo['ordens'].append(o)
 
     for g in batch_map.values():
+        g['area_origem'] = (
+            next(iter(g['areas_origem']))
+            if len(g['areas_origem']) == 1
+            else 'Misto'
+        )
+        g['data_prevista'] = (
+            next(iter(g['datas_previstas']))
+            if len(g['datas_previstas']) == 1
+            else None
+        )
+        g['data'] = (
+            next(iter(g['datas']))
+            if len(g['datas']) == 1
+            else None
+        )
+        g['criado_por'] = (
+            next(iter(g['criadores']))
+            if len(g['criadores']) == 1
+            else None
+        )
         g['ordem_ids_csv'] = ','.join(str(o['id']) for o in g['ordens'])
 
-    grupos_pendentes = sorted(batch_map.values(), key=lambda g: (g['data_prevista'], g['data']))
+    grupos_pendentes = sorted(
+        batch_map.values(),
+        key=lambda g: (
+            g['data_prevista'] or date.min,
+            g['data'] or date.min,
+        ),
+    )
 
     return render_template('vendas/transferencias.html',
                            active_tab='transferencias',
