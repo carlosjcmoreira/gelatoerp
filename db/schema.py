@@ -8458,6 +8458,7 @@ _LOCK_PASTELARIA_COUNT_PRODUCT_ID = 202718
 _LOCK_PASTELARIA_COUNT_SUBMISSION = 202719
 _LOCK_CONFEITARIA_COUNT_PRODUCT_ID = 202721
 _LOCK_CONFEITARIA_STOCK_LEDGER = 202722
+_LOCK_CONFEITARIA_STOCK_PRODUCTION = 202723
 
 
 def run_migrations_pastelaria_plano():
@@ -9128,6 +9129,73 @@ def run_migrations_confeitaria_stock_ledger():
         conn.commit()
         logger.info(
             "run_migrations_confeitaria_stock_ledger: schema ready"
+        )
+
+
+def run_migrations_confeitaria_stock_production():
+    """Allow immutable production-delta movements in the stock ledger."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)",
+            (_LOCK_CONFEITARIA_STOCK_PRODUCTION,),
+        )
+        if not cursor.fetchone()[0]:
+            logger.info(
+                "run_migrations_confeitaria_stock_production: "
+                "lock held, skipping"
+            )
+            return
+
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conrelid = 'confeitaria_stock_movements'::regclass
+                  AND conname =
+                      'ck_confeitaria_stock_movement_type_quantity'
+            )
+        """)
+        check_installed = cursor.fetchone()[0]
+        if not check_installed:
+            cursor.execute("""
+                DO $$
+                DECLARE old_constraint RECORD;
+                BEGIN
+                    FOR old_constraint IN
+                        SELECT conname
+                        FROM pg_constraint
+                        WHERE conrelid =
+                            'confeitaria_stock_movements'::regclass
+                          AND contype = 'c'
+                          AND conname <>
+                            'ck_confeitaria_stock_movement_type_quantity'
+                          AND pg_get_constraintdef(oid) ILIKE '%tipo%'
+                    LOOP
+                        EXECUTE format(
+                            'ALTER TABLE confeitaria_stock_movements '
+                            'DROP CONSTRAINT %I',
+                            old_constraint.conname
+                        );
+                    END LOOP;
+                END
+                $$
+            """)
+            cursor.execute("""
+                ALTER TABLE confeitaria_stock_movements
+                ADD CONSTRAINT
+                    ck_confeitaria_stock_movement_type_quantity
+                CHECK (
+                    (tipo = 'saldo_inicial' AND quantidade >= 0)
+                    OR (
+                        tipo IN ('correcao', 'producao')
+                        AND quantidade <> 0
+                    )
+                )
+            """)
+        conn.commit()
+        logger.info(
+            "run_migrations_confeitaria_stock_production: schema ready"
         )
 
 

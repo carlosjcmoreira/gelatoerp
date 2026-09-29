@@ -1,7 +1,8 @@
 """Audited, product-ID-based stock balances for Confeitaria."""
 
+from collections.abc import Mapping
 from datetime import date, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from db.connection import db_connection
 
@@ -9,6 +10,7 @@ from db.connection import db_connection
 MOVEMENT_LABELS = {
     'saldo_inicial': 'Saldo inicial',
     'correcao': 'Acerto',
+    'producao': 'Produção real',
 }
 
 _MAX_QUANTITY = 2_147_483_647
@@ -41,7 +43,7 @@ def _validate_date(movement_date):
 
 def _validate_movement(tipo, quantity):
     tipo = str(tipo or '').strip()
-    if tipo not in MOVEMENT_LABELS:
+    if tipo not in ('saldo_inicial', 'correcao'):
         raise ConfeitariaStockError('Tipo de movimento inválido.')
     if isinstance(quantity, bool) or not isinstance(quantity, int):
         raise ConfeitariaStockError(
@@ -56,7 +58,7 @@ def _validate_movement(tipo, quantity):
     return tipo, quantity
 
 
-def _validate_actor_and_reason(actor, reason):
+def _validate_actor(actor):
     if not isinstance(actor, str) or not actor.strip():
         raise ConfeitariaStockError(
             'Não foi possível identificar o responsável.'
@@ -64,7 +66,11 @@ def _validate_actor_and_reason(actor, reason):
     actor = actor.strip()
     if len(actor) > 100:
         raise ConfeitariaStockError('O nome do responsável é demasiado longo.')
+    return actor
 
+
+def _validate_actor_and_reason(actor, reason):
+    actor = _validate_actor(actor)
     if not isinstance(reason, str) or not reason.strip():
         raise ConfeitariaStockError('O motivo é obrigatório.')
     reason = reason.strip()
@@ -274,6 +280,211 @@ def register_confeitaria_stock_movement(
         idempotency_key=request_key,
         replayed=False,
     )
+
+
+def record_confeitaria_production_batch(
+    *, data, production_values, responsavel,
+):
+    """Save real production, its legacy stock delta, and audit movements atomically.
+
+    The locked production-plan value is the source for the effective delta.
+    Reposting the same values therefore creates no duplicate stock movement.
+    """
+    movement_date = _validate_date(data)
+    actor = _validate_actor(responsavel)
+    if not isinstance(production_values, Mapping):
+        raise ConfeitariaStockError('Os valores de produção são inválidos.')
+
+    normalized_values = {}
+    for raw_product_name, quantity in production_values.items():
+        if not isinstance(raw_product_name, str):
+            raise ConfeitariaStockError('Produto de produção inválido.')
+        product_name = raw_product_name.strip()
+        if not product_name or len(product_name) > 255:
+            raise ConfeitariaStockError('Produto de produção inválido.')
+        if product_name in normalized_values:
+            raise ConfeitariaStockError(
+                f'O produto {product_name} foi indicado mais de uma vez.'
+            )
+        if isinstance(quantity, bool) or not isinstance(quantity, int):
+            raise ConfeitariaStockError(
+                'A produção real tem de ser um número inteiro.'
+            )
+        if quantity < 0:
+            raise ConfeitariaStockError(
+                'A produção real não pode ser negativa.'
+            )
+        if quantity > _MAX_QUANTITY:
+            raise ConfeitariaStockError(
+                'A produção real excede o limite permitido.'
+            )
+        normalized_values[product_name] = quantity
+
+    if not normalized_values:
+        return []
+
+    product_names = sorted(normalized_values)
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT produto, producao_real
+            FROM plano_producao_confeitaria
+            WHERE data = %s AND produto = ANY(%s)
+            ORDER BY produto
+            FOR UPDATE
+        """, (movement_date, product_names))
+        plan_rows = {
+            row[0]: row[1]
+            for row in cursor.fetchall()
+        }
+
+        for product_name in product_names:
+            if product_name not in plan_rows:
+                raise ConfeitariaStockError(
+                    f'O produto {product_name} já não está no plano desta data.'
+                )
+
+        changes = []
+        for product_name in product_names:
+            previous_real = plan_rows[product_name]
+            target_real = normalized_values[product_name]
+            previous_quantity = int(previous_real or 0)
+            delta = target_real - previous_quantity
+            changes.append({
+                'produto': product_name,
+                'previous_real': previous_real,
+                'target_real': target_real,
+                'delta': delta,
+                'changed': previous_real != target_real,
+            })
+
+        changed_names = [
+            change['produto'] for change in changes if change['changed']
+        ]
+        products_by_name = {}
+        if changed_names:
+            cursor.execute("""
+                SELECT id, nome, ativo
+                FROM produtos_confeitaria
+                WHERE nome = ANY(%s)
+                ORDER BY id
+                FOR SHARE
+            """, (changed_names,))
+            products_by_name = {
+                row[1]: (int(row[0]), bool(row[2]))
+                for row in cursor.fetchall()
+            }
+            for product_name in changed_names:
+                product = products_by_name.get(product_name)
+                if not product:
+                    raise ConfeitariaStockError(
+                        f'O produto {product_name} já não existe no catálogo.'
+                    )
+                if not product[1]:
+                    raise ConfeitariaStockError(
+                        f'O produto {product_name} está inativo e não aceita '
+                        'nova produção.'
+                    )
+
+        movement_changes = [
+            change for change in changes if change['delta'] != 0
+        ]
+        for product_id in sorted(
+            products_by_name[change['produto']][0]
+            for change in movement_changes
+        ):
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f'confeitaria-stock-product:{product_id}',),
+            )
+
+        balance_by_name = {}
+        for change in movement_changes:
+            product_id = products_by_name[change['produto']][0]
+            balance, opening_set = _stock_state(cursor, product_id)
+            if not opening_set:
+                raise ConfeitariaStockError(
+                    f"Confirme primeiro o saldo inicial de "
+                    f"{change['produto']} antes de registar produção."
+                )
+            if balance + change['delta'] < 0:
+                raise ConfeitariaStockError(
+                    f"A correção da produção deixaria o saldo de "
+                    f"{change['produto']} negativo."
+                )
+            balance_by_name[change['produto']] = balance
+
+        results = []
+        for change in changes:
+            product_name = change['produto']
+            target_real = change['target_real']
+            delta = change['delta']
+            movement_id = None
+
+            if change['changed']:
+                cursor.execute("""
+                    UPDATE plano_producao_confeitaria
+                    SET producao_real = %s, updated_at = NOW()
+                    WHERE data = %s AND produto = %s
+                """, (target_real, movement_date, product_name))
+
+            if delta:
+                product_id = products_by_name[product_name][0]
+                previous_quantity = int(change['previous_real'] or 0)
+                operation = (
+                    'Produção real corrigida'
+                    if change['previous_real'] is not None
+                    else 'Produção real registada'
+                )
+                reason = (
+                    f'{operation} de {previous_quantity} para '
+                    f'{target_real}; diferença {delta:+d}.'
+                )
+                request_key = str(uuid4())
+
+                # Keep legacy transfers working until their separate cutover,
+                # without ever using legacy quantity in the audited balance.
+                cursor.execute("""
+                    INSERT INTO stock_producao_confeitaria (
+                        data, produto, quantidade
+                    )
+                    VALUES (%s, %s, GREATEST(%s, 0))
+                    ON CONFLICT (data, produto) DO UPDATE
+                    SET quantidade = GREATEST(
+                            stock_producao_confeitaria.quantidade + %s, 0
+                        ),
+                        updated_at = NOW()
+                """, (
+                    movement_date, product_name, delta, delta,
+                ))
+
+                cursor.execute("""
+                    INSERT INTO confeitaria_stock_movements (
+                        produto_confeitaria_id, produto, tipo, quantidade,
+                        data, responsavel, motivo, idempotency_key
+                    )
+                    VALUES (%s, %s, 'producao', %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (
+                    product_id, product_name, delta, movement_date,
+                    actor, reason, request_key,
+                ))
+                movement_id = cursor.fetchone()[0]
+
+            results.append({
+                'produto': product_name,
+                'producao_real': target_real,
+                'delta': delta,
+                'changed': change['changed'],
+                'movement_id': movement_id,
+                'saldo_auditado': (
+                    balance_by_name[product_name] + delta
+                    if delta else None
+                ),
+            })
+
+        conn.commit()
+    return results
 
 
 def get_confeitaria_stock_balance(produto_confeitaria_id):

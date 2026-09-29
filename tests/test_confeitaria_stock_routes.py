@@ -131,7 +131,10 @@ class ConfeitariaStockRouteTests(unittest.TestCase):
         self.assertIn('Saldo confirmado antes de desativar', page)
         self.assertIn('gestor-antigo', page)
         self.assertIn('11', page)
-        self.assertIn('A produção e as transferências ainda não atualizam', page)
+        self.assertIn(
+            'transferências ainda não geram',
+            page,
+        )
         self.assertIn('disabled', page)
 
     def test_production_stock_is_registered_in_confeitaria_navigation(self):
@@ -300,6 +303,118 @@ class ConfeitariaStockRouteTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIn('não foi duplicado', ' '.join(self._take_flashes()))
+
+    def test_production_page_keeps_saved_values_editable_including_zero(self):
+        plan = [
+            {
+                'produto': 'Cookie Ativo',
+                'estimado': 3,
+                'real': 0,
+            },
+            {
+                'produto': 'Cookie Arquivado',
+                'estimado': 5,
+                'real': 7,
+            },
+        ]
+        with (
+            patch(
+                'flask_app.routes.confeitaria._tabs_with_urls',
+                return_value=[],
+            ),
+            patch(
+                'flask_app.routes.confeitaria.get_plano_do_dia_area',
+                return_value=plan,
+            ),
+        ):
+            response = self.client.get('/confeitaria/produzir')
+
+        page = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('2/2 registados', page)
+        self.assertIn('name="real_Cookie Ativo"', page)
+        self.assertIn('name="real_Cookie Arquivado"', page)
+        self.assertIn('value="0"', page)
+        self.assertIn('value="7"', page)
+
+    def test_production_post_saves_only_values_entered_for_plan_products(self):
+        plan = [
+            {'produto': 'Cookie Ativo'},
+            {'produto': 'Cookie Arquivado'},
+        ]
+        with (
+            patch(
+                'flask_app.routes.confeitaria.get_plano_do_dia_area',
+                return_value=plan,
+            ),
+            patch(
+                'flask_app.routes.confeitaria.record_confeitaria_production_batch',
+                return_value=[
+                    {'changed': True},
+                    {'changed': False},
+                ],
+            ) as record,
+        ):
+            response = self.client.post(
+                '/confeitaria/produzir',
+                data={
+                    'real_Cookie Ativo': '0',
+                    'real_Cookie Arquivado': '8',
+                    'real_NotInPlan': '99',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith(
+            '/confeitaria/produzir'
+        ))
+        record.assert_called_once_with(
+            data=date.today(),
+            production_values={
+                'Cookie Ativo': 0,
+                'Cookie Arquivado': 8,
+            },
+            responsavel='gestor-confeitaria',
+        )
+
+    def test_invalid_production_quantity_does_not_call_atomic_service(self):
+        with (
+            patch(
+                'flask_app.routes.confeitaria.get_plano_do_dia_area',
+                return_value=[{'produto': 'Cookie Ativo'}],
+            ),
+            patch(
+                'flask_app.routes.confeitaria.record_confeitaria_production_batch'
+            ) as record,
+        ):
+            response = self.client.post(
+                '/confeitaria/produzir',
+                data={'real_Cookie Ativo': '3.5'},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('número inteiro', ' '.join(self._take_flashes()))
+        record.assert_not_called()
+
+    def test_production_page_requires_confeitaria_permission(self):
+        self._set_user(acesso_confeitaria=False)
+        with (
+            patch(
+                'flask_app.routes.confeitaria.get_plano_do_dia_area'
+            ) as get_plan,
+            patch(
+                'flask_app.routes.confeitaria.record_confeitaria_production_batch'
+            ) as record,
+        ):
+            response = self.client.post(
+                '/confeitaria/produzir',
+                data={'real_Cookie Ativo': '4'},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers['Location'].endswith('/test-home'))
+        get_plan.assert_not_called()
+        record.assert_not_called()
 
 
 if __name__ == '__main__':

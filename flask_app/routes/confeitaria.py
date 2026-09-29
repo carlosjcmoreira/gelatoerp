@@ -8,6 +8,7 @@ from db.confeitaria_stock import (
     ConfeitariaStockError,
     get_confeitaria_stock_movements,
     get_confeitaria_stock_options,
+    record_confeitaria_production_batch,
     register_confeitaria_stock_movement,
 )
 from database import (
@@ -17,8 +18,7 @@ from database import (
     get_produtos_by_area,
     upsert_plano_area, marcar_produto_no_plano, remover_produto_do_plano,
     get_plano_do_dia_area, get_plano_produto,
-    update_producao_real_area,
-    upsert_stock_producao_area, get_stock_producao_area_all,
+    get_stock_producao_area_all,
     get_stock_producao_area, reduzir_stock_producao_area,
     criar_ordem_transferencia,
     get_all_produtos_confeitaria, add_produto_confeitaria,
@@ -271,30 +271,50 @@ def produzir():
 
     if request.method == 'POST':
         plano = get_plano_do_dia_area('confeitaria', today)
-        registos = 0
+        production_values = {}
         for entry in plano:
             produto = entry['produto']
-            real_str = request.form.get(f'real_{produto}', '0')
+            real_str = request.form.get(f'real_{produto}')
+            if real_str is None or not real_str.strip():
+                continue
             try:
                 real = int(real_str)
             except ValueError:
-                real = 0
-            if real > 0:
-                prev_real = entry['real'] if entry['real'] is not None else 0
-                delta = real - prev_real
-                update_producao_real_area('confeitaria', today, produto, real)
-                registos += 1
-                if delta != 0:
-                    upsert_stock_producao_area('confeitaria', today, produto, delta)
-        if registos > 0:
-            flash(f'{registos} produto(s) registado(s)!', 'success')
+                flash(
+                    f'Indique um número inteiro para a produção real de '
+                    f'{produto}.',
+                    'error',
+                )
+                return redirect(url_for('confeitaria.produzir'))
+            production_values[produto] = real
+
+        if not production_values:
+            flash('Nenhuma alteração.', 'info')
+            return redirect(url_for('confeitaria.produzir'))
+
+        try:
+            results = record_confeitaria_production_batch(
+                data=today,
+                production_values=production_values,
+                responsavel=session.get('user', {}).get('username', ''),
+            )
+        except ConfeitariaStockError as exc:
+            flash(str(exc), 'error')
+            return redirect(url_for('confeitaria.produzir'))
+
+        registos = sum(1 for result in results if result['changed'])
+        if registos:
+            flash(
+                f'{registos} produto(s) de produção real guardado(s).',
+                'success',
+            )
         else:
             flash('Nenhuma alteração.', 'info')
         return redirect(url_for('confeitaria.produzir'))
 
     plano = get_plano_do_dia_area('confeitaria', today)
     for entry in plano:
-        entry['has_real'] = entry['real'] is not None and entry['real'] > 0
+        entry['has_real'] = entry['real'] is not None
         if entry['has_real']:
             entry['diferenca'] = entry['real'] - entry['estimado']
         else:

@@ -13,9 +13,11 @@
     </div>
 
     <div class="alert alert-info small">
-        O saldo auditado inclui apenas os movimentos registados nesta página.
-        A produção e as transferências ainda não atualizam este saldo. O total
-        digital antigo abaixo é apenas uma referência separada; as contagens
+        O saldo auditado inclui os saldos iniciais, os acertos e a produção
+        real registada. A produção mantém também o stock digital antigo para
+        as transferências atuais. Como essas transferências ainda não geram
+        movimentos auditados, este saldo não representa o stock disponível
+        para transferir. Os totais antigos ficam separados; as contagens
         físicas das lojas não são convertidas em stock de produção.
     </div>
 
@@ -206,7 +208,8 @@
             <table class="table table-sm table-hover mb-0 align-middle">
                 <thead class="table-light">
                     <tr>
-                        <th>Data</th>
+                        <th>Data de produção</th>
+                        <th>Registado em</th>
                         <th>Produto</th>
                         <th>Movimento</th>
                         <th class="text-end">Unidades</th>
@@ -218,6 +221,9 @@
                     {% for movement in movements %}
                     <tr>
                         <td>{{ movement.data.strftime('%d/%m/%Y') }}</td>
+                        <td>
+                            {{ movement.created_at.strftime('%d/%m/%Y %H:%M') }}
+                        </td>
                         <td>
                             {{ movement.produto }}
                             <small class="text-muted">
@@ -233,7 +239,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="6"
+                        <td colspan="7"
                             class="text-center text-muted py-3">
                             Ainda não há movimentos auditados.
                         </td>

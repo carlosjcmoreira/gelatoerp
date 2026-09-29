@@ -32,14 +32,12 @@
                         <td>{{ e.produto }}</td>
                         <td class="text-center">{{ e.estimado }}</td>
                         <td class="text-center">
-                            {% if e.has_real %}
-                            <strong>{{ e.real }}</strong>
-                            {% else %}
                             <input type="number" name="real_{{ e.produto }}"
                                    class="form-control form-control-sm text-center"
-                                   min="0" step="1" placeholder="0"
+                                   min="0" step="1"
+                                   value="{{ e.real if e.has_real else '' }}"
+                                   placeholder="0"
                                    style="max-width:80px;margin:0 auto;">
-                            {% endif %}
                         </td>
                         <td class="text-center">
                             {% if e.diferenca is not none %}
