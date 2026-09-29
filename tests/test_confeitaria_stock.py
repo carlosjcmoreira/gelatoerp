@@ -347,7 +347,13 @@ class ConfeitariaStockLedgerPostgresTests(unittest.TestCase):
         self.assertEqual(self._balance(self.product_id)['saldo'], 3)
 
     def test_inactive_product_is_not_marked_transferable(self):
-        self._register(self.product_id, 'saldo_inicial', 4)
+        opening_key = str(uuid.uuid4())
+        self._register(
+            self.product_id,
+            'saldo_inicial',
+            4,
+            key=opening_key,
+        )
         with self.isolated_connection() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("""
@@ -361,6 +367,21 @@ class ConfeitariaStockLedgerPostgresTests(unittest.TestCase):
         self.assertTrue(balance['saldo_inicial_confirmado'])
         self.assertFalse(balance['ativo'])
         self.assertFalse(balance['transferivel'])
+        self.assertEqual(len(self._history(self.product_id)), 1)
+        replay = self._register(
+            self.product_id,
+            'saldo_inicial',
+            4,
+            key=opening_key,
+        )
+        self.assertTrue(replay['replayed'])
+        self.assertEqual(self._movement_count(self.product_id), 1)
+        with self.assertRaisesRegex(
+            confeitaria_stock.ConfeitariaStockError,
+            'está inativo',
+        ):
+            self._register(self.product_id, 'correcao', 1)
+        self.assertEqual(self._movement_count(self.product_id), 1)
 
     def test_ledger_rows_cannot_be_updated_or_deleted(self):
         movement = self._register(

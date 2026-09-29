@@ -223,6 +223,10 @@ def register_confeitaria_stock_movement(
             raise ConfeitariaStockError(
                 'O produto de Confeitaria já não existe no catálogo.'
             )
+        if not product[2]:
+            raise ConfeitariaStockError(
+                'O produto está inativo e não aceita novos movimentos.'
+            )
 
         balance, opening_set = _stock_state(cursor, product_id)
         if tipo == 'saldo_inicial':

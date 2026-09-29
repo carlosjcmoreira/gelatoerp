@@ -3,6 +3,13 @@ from flask_app.auth import perm_required
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 import pandas as pd
+from uuid import uuid4
+from db.confeitaria_stock import (
+    ConfeitariaStockError,
+    get_confeitaria_stock_movements,
+    get_confeitaria_stock_options,
+    register_confeitaria_stock_movement,
+)
 from database import (
     get_produtos_confeitaria,
     get_ultimo_stock_balcao,
@@ -26,6 +33,7 @@ confeitaria_bp = Blueprint('confeitaria', __name__)
 
 TABS = [
     {'id': 'stock_balcao', 'label': 'Visão de Stock', 'icon': '📦', 'endpoint': 'confeitaria.stock_balcao'},
+    {'id': 'stock_producao', 'label': 'Stock de Produção', 'icon': '🏭', 'endpoint': 'confeitaria.stock_producao'},
     {'id': 'planear', 'label': 'Planear Produção', 'icon': '📋', 'endpoint': 'confeitaria.planear'},
     {'id': 'produzir', 'label': 'Produzir', 'icon': '▶️', 'endpoint': 'confeitaria.produzir'},
     {'id': 'transferir', 'label': 'Transferir para Loja', 'icon': '🔄', 'endpoint': 'confeitaria.transferir'},
@@ -106,6 +114,96 @@ def stock_balcao():
                            contagens=contagens_list,
                            msg=msg,
                            msg_type=msg_type)
+
+
+def _render_stock_producao_page(form_data=None):
+    today = date.today()
+    if form_data is None:
+        form_data = {
+            'produto_confeitaria_id': '',
+            'tipo': 'saldo_inicial',
+            'quantidade': '',
+            'data': today.isoformat(),
+            'motivo': '',
+            'idempotency_key': str(uuid4()),
+        }
+    return render_template(
+        'confeitaria/stock_producao.html',
+        active_tab='stock_producao',
+        tabs=_tabs_with_urls(),
+        options=get_confeitaria_stock_options(),
+        movements=get_confeitaria_stock_movements(limit=100),
+        legacy_stock=get_stock_producao_area_all('confeitaria', today),
+        today=today.isoformat(),
+        form_data=form_data,
+    )
+
+
+@confeitaria_bp.route('/stock-producao', methods=['GET', 'POST'])
+@perm_required('acesso_confeitaria')
+def stock_producao():
+    if request.method == 'POST':
+        form_data = {
+            'produto_confeitaria_id': request.form.get(
+                'produto_confeitaria_id', ''
+            ).strip(),
+            'tipo': request.form.get('tipo', '').strip(),
+            'quantidade': request.form.get('quantidade', '').strip(),
+            'data': request.form.get('data', '').strip(),
+            'motivo': request.form.get('motivo', '').strip(),
+            'idempotency_key': request.form.get(
+                'idempotency_key', ''
+            ).strip(),
+        }
+        if not form_data['idempotency_key']:
+            flash(
+                'O formulário expirou. Atualize a página antes de guardar.',
+                'error',
+            )
+            form_data['idempotency_key'] = str(uuid4())
+            return _render_stock_producao_page(form_data)
+
+        try:
+            product_id = int(form_data['produto_confeitaria_id'])
+            quantity = int(form_data['quantidade'])
+            movement_date = date.fromisoformat(form_data['data'])
+        except (TypeError, ValueError):
+            flash(
+                'Indique um produto, uma data válida e uma quantidade inteira.',
+                'error',
+            )
+            return _render_stock_producao_page(form_data)
+
+        try:
+            result = register_confeitaria_stock_movement(
+                produto_confeitaria_id=product_id,
+                tipo=form_data['tipo'],
+                quantidade=quantity,
+                data=movement_date,
+                responsavel=session.get('user', {}).get('username', ''),
+                motivo=form_data['motivo'],
+                idempotency_key=form_data['idempotency_key'],
+            )
+        except ConfeitariaStockError as exc:
+            flash(str(exc), 'error')
+            form_data['idempotency_key'] = str(uuid4())
+            return _render_stock_producao_page(form_data)
+
+        if result['replayed']:
+            flash(
+                f"Este movimento já estava registado e não foi duplicado. "
+                f"Saldo atual de {result['produto']}: {result['saldo']}.",
+                'success',
+            )
+        else:
+            flash(
+                f"Movimento guardado. Saldo auditado de "
+                f"{result['produto']}: {result['saldo']}.",
+                'success',
+            )
+        return redirect(url_for('confeitaria.stock_producao'))
+
+    return _render_stock_producao_page()
 
 
 @confeitaria_bp.route('/planear', methods=['GET', 'POST'])

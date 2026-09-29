@@ -2124,6 +2124,7 @@ _TILE_MASTER = {
     ],
     'confeitaria': [
         {'id': 'stock_balcao', 'icon': '📦', 'default_label': 'Visão de Stock',           'description': 'Ver o stock atual de confeitaria disponível por loja'},
+        {'id': 'stock_producao', 'icon': '🏭', 'default_label': 'Stock de Produção',       'description': 'Confirmar saldo inicial, registar acertos e consultar o saldo auditado da produção'},
         {'id': 'planear',      'icon': '📋', 'default_label': 'Planear Produção',          'description': 'Definir as quantidades a produzir por produto de confeitaria para o dia'},
         {'id': 'produzir',     'icon': '▶️', 'default_label': 'Produzir',                  'description': 'Registar a produção realizada de produtos de confeitaria'},
         {'id': 'transferir',   'icon': '🔄', 'default_label': 'Transferir para Loja',      'description': 'Enviar stock de confeitaria para a loja via ordem de transferência'},

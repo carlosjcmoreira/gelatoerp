@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% set back_url = url_for("confeitaria.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3">
+    {% include "components/tabs.html" %}
+
+    <div class="mb-3">
+        <h5 class="mb-1">📦 Stock de Produção</h5>
+        <p class="text-muted small mb-0">
+            Confirme o saldo inicial e registe acertos justificados por produto.
+        </p>
+    </div>
+
+    <div class="alert alert-info small">
+        O saldo auditado inclui apenas os movimentos registados nesta página.
+        A produção e as transferências ainda não atualizam este saldo. O total
+        digital antigo abaixo é apenas uma referência separada; as contagens
+        físicas das lojas não são convertidas em stock de produção.
+    </div>
+
+    {% if options %}
+    <div class="card mb-3">
+        <div class="card-header py-2 fw-semibold">Registar movimento auditado</div>
+        <div class="card-body">
+            <form method="post" class="row g-2">
+                <input type="hidden" name="idempotency_key"
+                       value="{{ form_data.idempotency_key }}">
+
+                <div class="col-12 col-md-6">
+                    <label for="produto_confeitaria_id"
+                           class="form-label small mb-1">Produto</label>
+                    <select class="form-select form-select-sm"
+                            name="produto_confeitaria_id"
+                            id="produto_confeitaria_id" required>
+                        <option value="">— Escolher produto —</option>
+                        {% for option in options %}
+                        <option value="{{ option.produto_confeitaria_id }}"
+                                {% if not option.ativo %}disabled{% endif %}
+                                {% if form_data.produto_confeitaria_id|string == option.produto_confeitaria_id|string %}selected{% endif %}>
+                            {{ option.produto }}
+                            (ID {{ option.produto_confeitaria_id }})
+                            {% if not option.ativo %}
+                                — Inativo; apenas histórico
+                            {% elif option.saldo_inicial_confirmado %}
+                                — Saldo auditado {{ option.saldo }}
+                            {% else %}
+                                — Saldo inicial por confirmar
+                            {% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-12 col-md-3">
+                    <label for="tipo" class="form-label small mb-1">
+                        Tipo de movimento
+                    </label>
+                    <select class="form-select form-select-sm"
+                            name="tipo" id="tipo" required>
+                        <option value="saldo_inicial"
+                                {% if form_data.tipo == 'saldo_inicial' %}selected{% endif %}>
+                            Confirmar saldo inicial
+                        </option>
+                        <option value="correcao"
+                                {% if form_data.tipo == 'correcao' %}selected{% endif %}>
+                            Acerto (+ ou −)
+                        </option>
+                    </select>
+                </div>
+
+                <div class="col-6 col-md-1">
+                    <label for="quantidade" class="form-label small mb-1">
+                        Unidades
+                    </label>
+                    <input type="number" class="form-control form-control-sm"
+                           name="quantidade" id="quantidade" step="1"
+                           {% if form_data.tipo == 'saldo_inicial' %}min="0"{% endif %}
+                           value="{{ form_data.quantidade }}" required>
+                </div>
+
+                <div class="col-6 col-md-2">
+                    <label for="data" class="form-label small mb-1">Data</label>
+                    <input type="date" class="form-control form-control-sm"
+                           name="data" id="data" value="{{ form_data.data }}"
+                           required>
+                </div>
+
+                <div class="col-12">
+                    <label for="motivo" class="form-label small mb-1">
+                        Motivo
+                    </label>
+                    <input type="text" class="form-control form-control-sm"
+                           name="motivo" id="motivo" maxlength="2000"
+                           value="{{ form_data.motivo }}" required
+                           placeholder="Explique a confirmação ou o acerto">
+                </div>
+
+                <div class="col-12">
+                    <div class="form-text mb-2" id="quantity-help">
+                        O saldo inicial pode ser zero e só pode ser confirmado
+                        uma vez por produto.
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        Guardar movimento
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-warning">
+        Não existem produtos de Confeitaria configurados.
+    </div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-header py-2 fw-semibold">
+            Saldo auditado por produto
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Produto</th>
+                        <th class="text-center">Saldo inicial</th>
+                        <th class="text-end">Saldo auditado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for option in options %}
+                    <tr>
+                        <td>
+                            {{ option.produto }}
+                            <small class="text-muted">
+                                (ID {{ option.produto_confeitaria_id }})
+                            </small>
+                            {% if not option.ativo %}
+                            <span class="badge bg-secondary">Inativo</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if option.saldo_inicial_confirmado %}
+                            <span class="badge bg-success">Confirmado</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">
+                                Por confirmar
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end fw-semibold">
+                            {% if option.saldo_inicial_confirmado %}
+                            {{ option.saldo }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3"
+                            class="text-center text-muted py-3">
+                            Sem produtos configurados.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header py-2 fw-semibold">
+            Saldo digital antigo — apenas referência
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Produto (texto do registo antigo)</th>
+                        <th class="text-end">Total digital antigo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in legacy_stock %}
+                    <tr>
+                        <td>{{ row.produto }}</td>
+                        <td class="text-end">{{ row.quantidade }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="2"
+                            class="text-center text-muted py-3">
+                            Sem stock digital antigo registado.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header py-2 fw-semibold">Movimentos auditados recentes</div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Data</th>
+                        <th>Produto</th>
+                        <th>Movimento</th>
+                        <th class="text-end">Unidades</th>
+                        <th>Responsável</th>
+                        <th>Motivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for movement in movements %}
+                    <tr>
+                        <td>{{ movement.data.strftime('%d/%m/%Y') }}</td>
+                        <td>
+                            {{ movement.produto }}
+                            <small class="text-muted">
+                                (ID {{ movement.produto_confeitaria_id }})
+                            </small>
+                        </td>
+                        <td>{{ movement.tipo_label }}</td>
+                        <td class="text-end">
+                            {{ '+' if movement.quantidade > 0 else '' }}{{ movement.quantidade }}
+                        </td>
+                        <td>{{ movement.responsavel }}</td>
+                        <td>{{ movement.motivo }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6"
+                            class="text-center text-muted py-3">
+                            Ainda não há movimentos auditados.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var type = document.getElementById('tipo');
+    var quantity = document.getElementById('quantidade');
+    var help = document.getElementById('quantity-help');
+    if (!type || !quantity || !help) return;
+
+    function updateQuantityHelp() {
+        if (type.value === 'saldo_inicial') {
+            quantity.min = '0';
+            help.textContent =
+                'O saldo inicial pode ser zero e só pode ser confirmado uma vez por produto.';
+        } else {
+            quantity.removeAttribute('min');
+            help.textContent =
+                'Registe o aumento ou a redução. O acerto não pode deixar o saldo abaixo de zero.';
+        }
+    }
+    type.addEventListener('change', updateQuantityHelp);
+    updateQuantityHelp();
+})();
+</script>
+{% endblock %}

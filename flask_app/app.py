@@ -159,6 +159,11 @@ def _seed_all_tiles():
         from flask_app.routes.pastelaria import TABS as PASTELARIA_TABS
         seed_tile_config('pastelaria', [{'id': t['id'], 'label': t['label']} for t in PASTELARIA_TABS])
 
+        from flask_app.routes.confeitaria import TABS as CONFEITARIA_TABS
+        seed_tile_config('confeitaria', [
+            {'id': t['id'], 'label': t['label']} for t in CONFEITARIA_TABS
+        ])
+
         from flask_app.routes.vendas import (
             TAB_DEFS as VENDAS_TABS,
             get_supported_vendas_tile_ids,
