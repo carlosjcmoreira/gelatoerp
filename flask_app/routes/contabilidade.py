@@ -36,6 +36,21 @@ def _parse_date(raw: str):
     return None
 
 
+def _safe_contabilidade_return_url(raw: str):
+    """Accept only local Contabilidade URLs for post-ticket redirects."""
+    from urllib.parse import urlparse
+
+    value = (raw or '').strip()
+    if not value or value.startswith('//') or '\\' in value:
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme or parsed.netloc:
+        return None
+    if parsed.path != '/contabilidade' and not parsed.path.startswith('/contabilidade/'):
+        return None
+    return value
+
+
 def _parse_centro_custo_filter(raw: str):
     raw = (raw or '').strip()
     if raw == '__none__':
@@ -403,13 +418,30 @@ def criar_ticket():
     descricao = request.form.get('descricao', '').strip()
     prazo_raw = request.form.get('prazo', '').strip()
     invoice_id_raw = request.form.get('invoice_id', '').strip()
+    invoice_required = request.form.get('invoice_id_required') == '1'
+    return_url_raw = request.form.get('_return_url', '').strip()
+    return_url = _safe_contabilidade_return_url(return_url_raw)
+    list_return = url_for('contabilidade.index') if invoice_required else None
+    error_return = return_url or list_return or url_for('contabilidade.tickets')
 
     if not titulo:
         flash('O título do ticket é obrigatório.', 'error')
-        return redirect(url_for('contabilidade.tickets'))
+        return redirect(error_return)
 
     prazo = _parse_date(prazo_raw)
-    invoice_id = int(invoice_id_raw) if invoice_id_raw.isdigit() else None
+    invoice_id = None
+    if invoice_id_raw:
+        if not invoice_id_raw.isdigit() or int(invoice_id_raw) <= 0:
+            flash('A fatura associada é inválida. O ticket não foi criado.', 'error')
+            return redirect(error_return)
+        invoice_id = int(invoice_id_raw)
+        from db.faturas import get_invoice
+        if not get_invoice(invoice_id):
+            flash('A fatura selecionada já não existe. O ticket não foi criado.', 'error')
+            return redirect(error_return)
+    elif invoice_required:
+        flash('Selecione uma fatura antes de criar o ticket.', 'error')
+        return redirect(error_return)
 
     ticket_id = create_ticket(
         titulo=titulo,
@@ -420,12 +452,8 @@ def criar_ticket():
     )
     flash('Ticket criado com sucesso.', 'success')
 
-    return_url = request.form.get('_return_url', '').strip()
-    if return_url:
-        from urllib.parse import urlparse
-        parsed = urlparse(return_url)
-        if not parsed.scheme and not parsed.netloc:
-            return redirect(return_url)
+    if return_url or invoice_required:
+        return redirect(return_url or url_for('contabilidade.index'))
 
     return redirect(url_for('contabilidade.ticket_detalhe', ticket_id=ticket_id))
 

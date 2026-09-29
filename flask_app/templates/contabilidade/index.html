@@ -156,7 +156,7 @@
                     <th class="d-none d-lg-table-cell text-end">IVA</th>
                     <th class="d-none d-sm-table-cell">Pgto.</th>
                     <th>{{ sort_a('accounting_status', 'Contabilístico') }}</th>
-                    <th style="width:36px"></th>
+                    <th style="width:190px">Ações</th>
                 </tr>
             </thead>
             <tbody>
@@ -240,7 +240,12 @@
                         </div>
                     </div>
                 </td>
-                <td>
+                <td class="text-nowrap">
+                    <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2 me-1"
+                            data-bs-toggle="modal" data-bs-target="#contab-ticket-modal"
+                            data-invoice-id="{{ inv.id }}"
+                            data-invoice-label="{{ (inv.invoice_number or ('Fatura ' ~ inv.id)) ~ ' · ' ~ (inv.supplier_display_name or inv.supplier_name or '') }}"
+                            title="Criar ticket associado a esta fatura">Criar ticket</button>
                     <button type="button" class="btn btn-outline-primary btn-sm py-0 px-1 me-1"
                             title="Abrir detalhe e atividade"
                             aria-label="Abrir detalhe e atividade da fatura"
@@ -328,6 +333,59 @@
     </div>
 </div>
 
+<div class="modal fade" id="contab-ticket-modal" tabindex="-1"
+     aria-labelledby="contab-ticket-modal-title" aria-hidden="true">
+    <div class="modal-dialog modal-md">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="contab-ticket-modal-title">Criar ticket para a fatura</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"
+                        aria-label="Fechar"></button>
+            </div>
+            <form method="post" action="{{ url_for('contabilidade.criar_ticket') }}"
+                  id="contab-ticket-form">
+                <input type="hidden" name="invoice_id" id="contab-ticket-invoice-id">
+                <input type="hidden" name="invoice_id_required" value="1">
+                <input type="hidden" name="_return_url" value="{{ request.full_path.rstrip('?') }}">
+                <div class="modal-body">
+                    <div class="alert alert-light border small mb-3">
+                        Associado a: <strong id="contab-ticket-invoice-label">Selecione uma fatura</strong>
+                    </div>
+                    <div class="mb-2">
+                        <label for="contab-ticket-title" class="form-label small fw-semibold mb-1">
+                            Título <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" name="titulo" id="contab-ticket-title"
+                               class="form-control form-control-sm" required maxlength="255"
+                               placeholder="Descreva o problema brevemente">
+                    </div>
+                    <div class="mb-2">
+                        <label for="contab-ticket-description" class="form-label small fw-semibold mb-1">
+                            Descrição
+                        </label>
+                        <textarea name="descricao" id="contab-ticket-description"
+                                  class="form-control form-control-sm" rows="3"
+                                  placeholder="Detalhe o que é necessário verificar"></textarea>
+                    </div>
+                    <div>
+                        <label for="contab-ticket-deadline" class="form-label small fw-semibold mb-1">
+                            Prazo (opcional)
+                        </label>
+                        <input type="date" name="prazo" id="contab-ticket-deadline"
+                               class="form-control form-control-sm">
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary btn-sm"
+                            id="contab-ticket-submit">Criar ticket</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
 /* ── Read-only invoice activity panel ────────────────────────────── */
 var contInvoicePanelRequest = 0;
@@ -373,6 +431,36 @@ function openContInvoicePanel(row) {
             panelBody.innerHTML = '<p class="text-danger small p-3 mb-0">' + message + '</p>';
         });
 }
+
+/* ── Ticket form context ─────────────────────────────────────────── */
+(function() {
+    var modal = document.getElementById('contab-ticket-modal');
+    if (!modal) return;
+
+    modal.addEventListener('show.bs.modal', function(event) {
+        var trigger = event.relatedTarget;
+        var invoiceId = trigger ? trigger.getAttribute('data-invoice-id') : '';
+        var invoiceLabel = trigger ? trigger.getAttribute('data-invoice-label') : '';
+        document.getElementById('contab-ticket-invoice-id').value = invoiceId || '';
+        document.getElementById('contab-ticket-invoice-label').textContent =
+            invoiceLabel || 'Fatura não identificada';
+        document.getElementById('contab-ticket-title').value = '';
+        document.getElementById('contab-ticket-description').value = '';
+        document.getElementById('contab-ticket-deadline').value = '';
+        document.getElementById('contab-ticket-submit').disabled = !invoiceId;
+    });
+
+    modal.addEventListener('shown.bs.modal', function() {
+        var title = document.getElementById('contab-ticket-title');
+        if (!document.getElementById('contab-ticket-submit').disabled) title.focus();
+    });
+
+    modal.addEventListener('hidden.bs.modal', function() {
+        document.getElementById('contab-ticket-invoice-id').value = '';
+        document.getElementById('contab-ticket-invoice-label').textContent = 'Selecione uma fatura';
+        document.getElementById('contab-ticket-submit').disabled = false;
+    });
+})();
 
 /* ── Bulk selection ────────────────────────────────────────────── */
 function getSelectedIds() {
