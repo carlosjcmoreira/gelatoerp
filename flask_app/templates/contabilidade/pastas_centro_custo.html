@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% set back_url = url_for("home.index") %}
+
+{% block content %}
+<div class="container-fluid px-3 py-3 pb-5">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="mb-0">📂 Pastas por centro de custo</h5>
+    </div>
+
+    {% include 'contabilidade/_view_navigation.html' %}
+
+    <p class="text-muted small mb-3">
+        {{ total_documents }} documento{{ 's' if total_documents != 1 else '' }} carregado{{ 's' if total_documents != 1 else '' }}.
+        Cada fatura conta uma vez neste total, mesmo quando aparece em várias pastas.
+        Esta organização é virtual: os ficheiros não são movidos nem copiados.
+    </p>
+
+    {% if folders %}
+        {% for folder in folders %}
+        <section class="card mb-3" aria-labelledby="cost-center-folder-{{ loop.index }}">
+            <div class="card-header py-2 d-flex align-items-center justify-content-between gap-2">
+                <h6 class="mb-0 fw-semibold" id="cost-center-folder-{{ loop.index }}">
+                    {{ folder.label }}
+                </h6>
+                <span class="badge bg-secondary">
+                    {{ folder.count }} documento{{ 's' if folder.count != 1 else '' }}
+                </span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Documento</th>
+                            <th>Fornecedor</th>
+                            <th>Data de emissão</th>
+                            <th class="text-end">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for invoice in folder.documents %}
+                        <tr>
+                            <td>
+                                <button type="button"
+                                        class="btn btn-link btn-sm p-0 text-start fw-semibold"
+                                        data-detail-url="{{ url_for('contabilidade.detalhe_fatura', invoice_id=invoice.id) }}"
+                                        onclick="openFolderInvoiceDetail(this)">
+                                    {{ invoice.invoice_number or ('Documento #' ~ invoice.id) }}
+                                </button>
+                                {% if invoice.pdf_filename %}
+                                <small class="d-block text-muted text-break">{{ invoice.pdf_filename }}</small>
+                                {% endif %}
+                            </td>
+                            <td>{{ invoice.supplier_display_name or '—' }}</td>
+                            <td class="text-nowrap">
+                                {{ invoice.issue_date.strftime('%d/%m/%Y') if invoice.issue_date else '—' }}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                <a class="btn btn-outline-success btn-sm"
+                                   href="{{ url_for('contabilidade.download_pdf', invoice_id=invoice.id, dl=1) }}">
+                                    Descarregar
+                                </a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        {% endfor %}
+    {% else %}
+    <div class="text-center text-muted py-5">
+        <div style="font-size:2.5rem" aria-hidden="true">📂</div>
+        <p class="mt-2 mb-1">Não existem documentos carregados.</p>
+        <small>As faturas com ficheiro associado aparecerão aqui, organizadas pelo centro de custo.</small>
+    </div>
+    {% endif %}
+</div>
+
+<div class="offcanvas offcanvas-end" tabindex="-1" id="folder-invoice-panel"
+     aria-labelledby="folder-invoice-panel-title" style="width:min(520px,100vw)">
+    <div class="offcanvas-header py-2 border-bottom">
+        <h6 class="offcanvas-title mb-0 fw-semibold small" id="folder-invoice-panel-title">
+            Detalhe e atividade da fatura
+        </h6>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas"
+                aria-label="Fechar detalhe da fatura"></button>
+    </div>
+    <div class="offcanvas-body p-0" id="folder-invoice-panel-body">
+        <div class="text-center text-muted py-5">
+            <div class="spinner-border spinner-border-sm" role="status" aria-label="A carregar"></div>
+            <p class="mt-2 small">A carregar detalhe…</p>
+        </div>
+    </div>
+</div>
+
+<script>
+async function openFolderInvoiceDetail(button) {
+    const panel = document.getElementById('folder-invoice-panel');
+    const body = document.getElementById('folder-invoice-panel-body');
+    body.innerHTML = '<div class="text-center text-muted py-5"><div class="spinner-border spinner-border-sm" role="status" aria-label="A carregar"></div><p class="mt-2 small">A carregar detalhe…</p></div>';
+    bootstrap.Offcanvas.getOrCreateInstance(panel).show();
+
+    try {
+        const response = await fetch(button.dataset.detailUrl, {
+            headers: {'X-Requested-With': 'XMLHttpRequest'}
+        });
+        if (!response.ok) throw new Error('Falha ao carregar detalhe');
+        body.innerHTML = await response.text();
+    } catch (_error) {
+        body.innerHTML = '<div class="alert alert-danger m-3 small">Não foi possível carregar o detalhe desta fatura.</div>';
+    }
+}
+</script>
+{% endblock %}

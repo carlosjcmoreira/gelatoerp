@@ -346,6 +346,91 @@ def get_cont_invoice_zip_data(invoice_ids: list[int]) -> list[dict]:
     return [{'id': row[0], 'pdf_data': row[1]} for row in rows]
 
 
+def get_cont_invoice_document_folders() -> dict:
+    """Group uploaded Contabilidade documents by their effective cost-center assignments."""
+    sql = """
+        SELECT DISTINCT
+            i.id,
+            i.invoice_number,
+            i.pdf_filename,
+            i.issue_date,
+            i.document_type,
+            COALESCE(NULLIF(s.common_name, ''), s.name, i.supplier_name),
+            i.supplier_name,
+            cc.id,
+            cc.code,
+            cc.name
+        FROM invoices i
+        LEFT JOIN suppliers s ON s.id = i.supplier_id
+        LEFT JOIN invoice_centros_custo icc ON icc.invoice_id = i.id
+        LEFT JOIN cost_centers cc
+          ON cc.id = COALESCE(icc.centro_custo_id, i.centro_custo_id)
+        WHERE i.status NOT IN ('draft', 'cancelled')
+          AND i.pdf_data IS NOT NULL
+          AND octet_length(i.pdf_data) > 0
+        ORDER BY cc.code NULLS LAST, cc.name NULLS LAST,
+                 i.issue_date DESC NULLS LAST, i.id DESC
+    """
+    with db_connection() as conn:
+        cur = conn.cursor()
+        cur.execute(sql)
+        rows = cur.fetchall()
+
+    folders_by_key = {}
+    invoice_ids = set()
+    for row in rows:
+        invoice_id = row[0]
+        invoice_ids.add(invoice_id)
+        center_id = row[7]
+        folder_key = ('center', center_id) if center_id is not None else ('none', None)
+        folder = folders_by_key.get(folder_key)
+        if folder is None:
+            center_name = row[9]
+            folder = {
+                'id': center_id,
+                'code': row[8],
+                'name': center_name,
+                'label': (
+                    f'{row[8]} — {center_name}'
+                    if center_id is not None and row[8] and center_name
+                    else center_name or f'Centro de custo #{center_id}'
+                    if center_id is not None
+                    else 'Sem centro de custo'
+                ),
+                'documents': [],
+                '_invoice_ids': set(),
+            }
+            folders_by_key[folder_key] = folder
+
+        if invoice_id in folder['_invoice_ids']:
+            continue
+        folder['_invoice_ids'].add(invoice_id)
+        folder['documents'].append({
+            'id': invoice_id,
+            'invoice_number': row[1],
+            'pdf_filename': row[2],
+            'issue_date': row[3],
+            'document_type': row[4],
+            'supplier_display_name': row[5] or row[6] or '—',
+            'supplier_name': row[6],
+        })
+
+    folders = list(folders_by_key.values())
+    for folder in folders:
+        folder['count'] = len(folder['documents'])
+        folder.pop('_invoice_ids', None)
+    folders.sort(key=lambda folder: (
+        folder['id'] is None,
+        (folder['code'] or '').casefold(),
+        (folder['name'] or '').casefold(),
+        folder['id'] or 0,
+    ))
+    return {
+        'folders': folders,
+        'total_documents': len(invoice_ids),
+    }
+
+
 def get_cont_summary() -> dict:
     """Return summary stats for the dashboard cards."""
     today = date.today()

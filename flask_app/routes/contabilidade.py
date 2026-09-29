@@ -279,6 +279,20 @@ def index():
     )
 
 
+@contabilidade_bp.route('/pastas-centro-custo')
+@perm_required('acesso_contabilidade')
+def pastas_centro_custo():
+    from db.contabilidade import get_cont_invoice_document_folders
+
+    folder_data = get_cont_invoice_document_folders()
+    return render_template(
+        'contabilidade/pastas_centro_custo.html',
+        folders=folder_data['folders'],
+        total_documents=folder_data['total_documents'],
+        active_view='folders',
+    )
+
+
 # ── Update accounting status (AJAX) ──────────────────────────────────────────
 
 @contabilidade_bp.route('/atualizar-estado', methods=['POST'])

@@ -1,0 +1,28 @@
+<nav class="row g-2 mb-3" aria-label="Vistas da Contabilidade">
+    <div class="col-12 col-md-6">
+        <a href="{{ url_for('contabilidade.index') }}"
+           class="card h-100 text-decoration-none text-body {% if active_view == 'list' %}border-primary bg-primary-subtle{% else %}border-secondary-subtle{% endif %}"
+           {% if active_view == 'list' %}aria-current="page"{% endif %}>
+            <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+                <span aria-hidden="true" style="font-size:1.4rem">📋</span>
+                <span>
+                    <strong class="d-block">Lista de faturas</strong>
+                    <small class="text-muted">Pesquisar, filtrar e gerir faturas</small>
+                </span>
+            </div>
+        </a>
+    </div>
+    <div class="col-12 col-md-6">
+        <a href="{{ url_for('contabilidade.pastas_centro_custo') }}"
+           class="card h-100 text-decoration-none text-body {% if active_view == 'folders' %}border-primary bg-primary-subtle{% else %}border-secondary-subtle{% endif %}"
+           {% if active_view == 'folders' %}aria-current="page"{% endif %}>
+            <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+                <span aria-hidden="true" style="font-size:1.4rem">📂</span>
+                <span>
+                    <strong class="d-block">Pastas por centro de custo</strong>
+                    <small class="text-muted">Consultar documentos carregados</small>
+                </span>
+            </div>
+        </a>
+    </div>
+</nav>
