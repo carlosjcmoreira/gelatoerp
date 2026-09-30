@@ -893,6 +893,7 @@ def get_ordens_transferencia_with_events(
     data_fim: date = None,
     page: int = 1,
     per_page: int = 50,
+    rececao_estado: str = None,
 ) -> dict:
     """Return paginated orders with their audit events embedded, newest first.
 
@@ -922,6 +923,44 @@ def get_ordens_transferencia_with_events(
         if area_origem:
             where += " AND o.area_origem = %s"
             params.append(area_origem)
+        if rececao_estado == 'por_verificar':
+            where += (
+                " AND COALESCE(o.destino_tipo, 'loja') <> 'b2b'"
+                " AND COALESCE(o.rececao_estado, 'por_verificar')"
+                " = 'por_verificar'"
+            )
+        elif rececao_estado == 'aceite':
+            where += (
+                " AND COALESCE(o.destino_tipo, 'loja') <> 'b2b'"
+                " AND COALESCE(o.rececao_estado, 'por_verificar') = 'aceite'"
+                " AND NOT EXISTS ("
+                " SELECT 1 FROM transferencias_eventos receipt_event"
+                " WHERE receipt_event.ordem_id = o.id"
+                " AND receipt_event.event_type = 'aceite'"
+                " AND receipt_event.motivo LIKE %s)"
+            )
+            params.append(f'{ADMIN_RECEIPT_AUDIT_PREFIX}%')
+        elif rececao_estado == 'problema':
+            where += (
+                " AND COALESCE(o.destino_tipo, 'loja') <> 'b2b'"
+                " AND COALESCE(o.rececao_estado, 'por_verificar') = 'problema'"
+            )
+        elif rececao_estado == 'regularizada_admin':
+            where += (
+                " AND COALESCE(o.destino_tipo, 'loja') <> 'b2b'"
+                " AND COALESCE(o.rececao_estado, 'por_verificar') = 'aceite'"
+                " AND EXISTS ("
+                " SELECT 1 FROM transferencias_eventos receipt_event"
+                " WHERE receipt_event.ordem_id = o.id"
+                " AND receipt_event.event_type = 'aceite'"
+                " AND receipt_event.motivo LIKE %s)"
+            )
+            params.append(f'{ADMIN_RECEIPT_AUDIT_PREFIX}%')
+        elif rececao_estado == 'nao_aplicavel':
+            where += (
+                " AND (COALESCE(o.destino_tipo, 'loja') = 'b2b'"
+                " OR o.rececao_estado = 'nao_aplicavel')"
+            )
         if data_inicio:
             where += " AND o.data >= %s"
             params.append(data_inicio)

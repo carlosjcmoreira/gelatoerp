@@ -62,6 +62,96 @@ class LogisticaLegacyReceiptRegularizationTests(unittest.TestCase):
             ),
         )
 
+    def test_history_receipt_filter_is_passed_and_kept_in_pagination(self):
+        self._set_user(manager=False, administrative=True)
+        b2b_order = {
+            "id": 12,
+            "data": date(2026, 9, 10),
+            "data_prevista": None,
+            "area_origem": "Gelado",
+            "produto": "Chocolate",
+            "sabor": "Chocolate",
+            "quantidade": 2.0,
+            "unidade": "kg",
+            "loja_destino": "B2B",
+            "status": "confirmada",
+            "destino_tipo": "b2b",
+            "destino_nome": "Cliente externo",
+            "rececao_estado": "nao_aplicavel",
+            "rececao_regularizada_admin": False,
+            "motivo_problema": None,
+            "motivo_rejeicao": None,
+            "eventos": [{
+                "event_type": "criado",
+                "utilizador": "gestor-teste",
+                "motivo": None,
+                "created_at": None,
+                "is_admin_regularization": False,
+            }],
+        }
+        query = (
+            "/logistica/transferencias?tab=historico&area_origem=Gelado"
+            "&status=confirmada&loja_destino=B2B"
+            "&rececao_estado=nao_aplicavel&data_inicio=2026-09-09"
+            "&data_fim=2026-09-15&page=1"
+        )
+        with (
+            patch(
+                "flask_app.routes.logistica.get_ordens_transferencia_with_events",
+                return_value={
+                    "ordens": [b2b_order],
+                    "total": 2,
+                    "page": 1,
+                    "per_page": 1,
+                    "total_pages": 2,
+                },
+            ) as get_history,
+            patch(
+                "flask_app.routes.logistica.get_ordens_transferencia",
+                return_value=[{
+                    "loja_destino": "B2B",
+                    "destino_tipo": "b2b",
+                }],
+            ),
+            patch(
+                "flask_app.routes.logistica.render_template",
+                return_value="history",
+            ) as render_template,
+        ):
+            response = self.client.get(query)
+
+        self.assertEqual(response.status_code, 200)
+        get_history.assert_called_once_with(
+            status="confirmada",
+            loja_destino="B2B",
+            area_origem="Gelado",
+            rececao_estado="nao_aplicavel",
+            data_inicio=date(2026, 9, 9),
+            data_fim=date(2026, 9, 15),
+            page=1,
+            per_page=50,
+        )
+        context = render_template.call_args.kwargs
+        self.assertEqual(context["filtro_rececao"], "nao_aplicavel")
+        self.assertEqual(context["total"], 2)
+
+        with self.app.test_request_context(query):
+            html = render_flask_template(
+                "logistica/transferencias.html", **context
+            )
+        self.assertIn(
+            '<option value="nao_aplicavel" selected>',
+            html,
+        )
+        self.assertIn("B2B", html)
+        self.assertIn("Não aplicável", html)
+        self.assertIn("rececao_estado=nao_aplicavel", html)
+        self.assertIn("area_origem=Gelado", html)
+        self.assertIn("loja_destino=B2B", html)
+        self.assertIn("data_inicio=2026-09-09", html)
+        self.assertIn("data_fim=2026-09-15", html)
+        self.assertIn("page=2", html)
+
     def test_active_tab_requests_only_pending_orders_and_shows_empty_copy(self):
         self._set_user(manager=False, administrative=True)
         with (

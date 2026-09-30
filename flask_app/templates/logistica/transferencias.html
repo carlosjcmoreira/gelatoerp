@@ -126,6 +126,15 @@
             </select>
         </div>
         <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Receção</label>
+            <select name="rececao_estado" class="form-select form-select-sm">
+                <option value="">Todas</option>
+                {% for val, lbl in estados_rececao %}
+                <option value="{{ val }}" {% if filtro_rececao == val %}selected{% endif %}>{{ lbl }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
             <label class="form-label mb-1 small fw-semibold">Destino</label>
             <select name="loja_destino" class="form-select form-select-sm">
                 <option value="">Todas</option>
@@ -173,6 +182,7 @@
             <th class="text-center">Data</th>
             <th class="text-center">Entrega</th>
             <th class="text-center">Estado</th>
+            <th class="text-center">Receção</th>
             <th class="text-center" style="width:36px;"></th>
         </tr>
     </thead>
@@ -194,10 +204,22 @@
         <td class="text-center">{{ o.data.strftime('%d/%m/%Y') if o.data else '—' }}</td>
         <td class="text-center">{% if o.data_prevista %}{{ o.data_prevista.strftime('%d/%m') }}{% else %}—{% endif %}</td>
         <td class="text-center"><span class="badge bg-{{ status_color }}" style="font-size:0.7rem;">{{ status_label }}</span></td>
+        {% if o.destino_tipo == 'b2b' or o.rececao_estado == 'nao_aplicavel' %}
+        {% set rececao_color = 'secondary' %}{% set rececao_label = 'Não aplicável' %}
+        {% elif o.rececao_regularizada_admin %}
+        {% set rececao_color = 'info text-dark' %}{% set rececao_label = 'Regularizada administrativamente' %}
+        {% elif o.rececao_estado == 'aceite' %}
+        {% set rececao_color = 'success' %}{% set rececao_label = 'Aceite' %}
+        {% elif o.rececao_estado == 'problema' %}
+        {% set rececao_color = 'danger' %}{% set rececao_label = 'Com problema' %}
+        {% else %}
+        {% set rececao_color = 'warning text-dark' %}{% set rececao_label = 'Por verificar' %}
+        {% endif %}
+        <td class="text-center"><span class="badge bg-{{ rececao_color }} text-wrap" style="font-size:0.68rem;">{{ rececao_label }}</span></td>
         <td class="text-center text-muted" id="chevron-{{ o.id }}">▶</td>
     </tr>
     <tr id="eventos-{{ o.id }}" style="display:none;">
-        <td colspan="9" class="p-0">
+        <td colspan="10" class="p-0">
             <div class="px-3 py-2 bg-light border-bottom">
                 {% if o.rececao_estado == 'problema' and o.motivo_problema %}
                 <div class="alert alert-danger py-1 px-2 mb-2" style="font-size:0.8rem;">
@@ -251,6 +273,18 @@
             </div>
             <span class="badge bg-{{ status_color }} ms-2 flex-shrink-0" style="font-size:0.65rem;">{{ status_label }}</span>
         </div>
+        {% if o.destino_tipo == 'b2b' or o.rececao_estado == 'nao_aplicavel' %}
+        {% set rececao_color = 'secondary' %}{% set rececao_label = 'Não aplicável' %}
+        {% elif o.rececao_regularizada_admin %}
+        {% set rececao_color = 'info text-dark' %}{% set rececao_label = 'Regularizada administrativamente' %}
+        {% elif o.rececao_estado == 'aceite' %}
+        {% set rececao_color = 'success' %}{% set rececao_label = 'Aceite' %}
+        {% elif o.rececao_estado == 'problema' %}
+        {% set rececao_color = 'danger' %}{% set rececao_label = 'Com problema' %}
+        {% else %}
+        {% set rececao_color = 'warning text-dark' %}{% set rececao_label = 'Por verificar' %}
+        {% endif %}
+        <div class="mt-1"><span class="badge bg-{{ rececao_color }} text-wrap" style="font-size:0.65rem;">Receção: {{ rececao_label }}</span></div>
         <div class="mt-1 text-muted" style="font-size:0.78rem;">
             <span>{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</span>
             &nbsp;·&nbsp;<span>{% if o.destino_tipo == 'b2b' %}B2B · {{ o.destino_nome }}{% else %}{{ o.loja_destino }}{% endif %}</span>
@@ -285,19 +319,19 @@
 <nav class="mt-3">
     <ul class="pagination pagination-sm justify-content-center flex-wrap">
         <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-            <a class="page-link" href="?tab=historico&area_origem={{ filtro_area }}&status={{ filtro_status }}&loja_destino={{ filtro_loja }}&data_inicio={{ filtro_data_inicio }}&data_fim={{ filtro_data_fim }}&page={{ page - 1 }}">‹</a>
+            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=page - 1) }}">‹</a>
         </li>
         {% for p in range(1, total_pages + 1) %}
         {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
         <li class="page-item {% if p == page %}active{% endif %}">
-            <a class="page-link" href="?tab=historico&area_origem={{ filtro_area }}&status={{ filtro_status }}&loja_destino={{ filtro_loja }}&data_inicio={{ filtro_data_inicio }}&data_fim={{ filtro_data_fim }}&page={{ p }}">{{ p }}</a>
+            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=p) }}">{{ p }}</a>
         </li>
         {% elif p == page - 3 or p == page + 3 %}
         <li class="page-item disabled"><span class="page-link">…</span></li>
         {% endif %}
         {% endfor %}
         <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-            <a class="page-link" href="?tab=historico&area_origem={{ filtro_area }}&status={{ filtro_status }}&loja_destino={{ filtro_loja }}&data_inicio={{ filtro_data_inicio }}&data_fim={{ filtro_data_fim }}&page={{ page + 1 }}">›</a>
+            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=page + 1) }}">›</a>
         </li>
     </ul>
 </nav>

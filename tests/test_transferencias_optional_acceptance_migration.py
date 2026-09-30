@@ -234,7 +234,8 @@ class OptionalAcceptanceMigrationTests(unittest.TestCase):
 
     def _seed_transfer_order(
         self, order_id, status="confirmada", receipt_state="por_verificar",
-        destination_type="loja", store="Matosinhos",
+        destination_type="loja", store="Matosinhos", area="Gelado",
+        transfer_date="2026-09-14",
     ):
         with self.isolated_connection() as connection:
             with connection.cursor() as cursor:
@@ -244,12 +245,13 @@ class OptionalAcceptanceMigrationTests(unittest.TestCase):
                         unidade, loja_destino, status, criado_por,
                         destino_tipo, rececao_estado
                     ) VALUES (
-                        %s, '2026-09-14', 'Gelado', %s, %s, 1,
+                        %s, %s, %s, %s, %s, 1,
                         'kg', %s, %s, 'teste', %s, %s
                     )
                 """, (
-                    order_id, f"Teste {order_id}", f"Teste {order_id}",
-                    store, status, destination_type, receipt_state,
+                    order_id, transfer_date, area, f"Teste {order_id}",
+                    f"Teste {order_id}", store, status, destination_type,
+                    receipt_state,
                 ))
                 connection.commit()
 
@@ -547,6 +549,115 @@ class OptionalAcceptanceMigrationTests(unittest.TestCase):
         self.assertEqual(
             rejected_filter["ordens"][0]["status"], "rejeitada"
         )
+
+    def test_z_history_receipt_filter_composes_with_existing_filters_without_writes(self):
+        self._run_acceptance_migration()
+        self._seed_transfer_order(
+            1086, status="confirmada", receipt_state="aceite"
+        )
+        self._seed_transfer_order(
+            1087, status="rejeitada", receipt_state="problema"
+        )
+        self._seed_transfer_order(
+            1088, receipt_state="por_verificar",
+            transfer_date="2026-09-10",
+        )
+        self._seed_transfer_order(
+            1089, receipt_state="por_verificar",
+            transfer_date="2026-09-10",
+        )
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE ordens_transferencia
+                    SET rececao_estado = CASE
+                        WHEN id = 2 THEN 'aceite'
+                        WHEN id = 3 THEN 'nao_aplicavel'
+                        ELSE rececao_estado
+                    END
+                    WHERE id IN (2, 3)
+                """)
+                cursor.execute("""
+                    INSERT INTO transferencias_eventos (
+                        ordem_id, event_type, utilizador, motivo
+                    ) VALUES (%s, 'aceite', %s, %s)
+                """, (
+                    2,
+                    "gestor-teste",
+                    f"{plano.ADMIN_RECEIPT_AUDIT_PREFIX} teste",
+                ))
+                connection.commit()
+
+        inventory_before = self._inventory_snapshot()
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, status, rececao_estado
+                    FROM ordens_transferencia ORDER BY id
+                """)
+                orders_before = cursor.fetchall()
+
+        with patch("db.plano.db_connection", self.isolated_connection):
+            unverified = plano.get_ordens_transferencia_with_events(
+                rececao_estado="por_verificar"
+            )
+            accepted = plano.get_ordens_transferencia_with_events(
+                rececao_estado="aceite"
+            )
+            problem = plano.get_ordens_transferencia_with_events(
+                rececao_estado="problema"
+            )
+            regularized = plano.get_ordens_transferencia_with_events(
+                rececao_estado="regularizada_admin"
+            )
+            not_applicable = plano.get_ordens_transferencia_with_events(
+                rececao_estado="nao_aplicavel"
+            )
+            combined_first = plano.get_ordens_transferencia_with_events(
+                area_origem="Gelado",
+                loja_destino="Matosinhos",
+                rececao_estado="por_verificar",
+                data_inicio=date(2026, 9, 10),
+                data_fim=date(2026, 9, 10),
+                page=1,
+                per_page=1,
+            )
+            combined_last = plano.get_ordens_transferencia_with_events(
+                area_origem="Gelado",
+                loja_destino="Matosinhos",
+                rececao_estado="por_verificar",
+                data_inicio=date(2026, 9, 10),
+                data_fim=date(2026, 9, 10),
+                page=3,
+                per_page=1,
+            )
+
+        self.assertEqual(unverified["total"], 3)
+        self.assertEqual(accepted["total"], 1)
+        self.assertEqual(accepted["ordens"][0]["id"], 1086)
+        self.assertEqual(problem["total"], 1)
+        self.assertEqual(problem["ordens"][0]["id"], 1087)
+        self.assertEqual(regularized["total"], 1)
+        self.assertEqual(regularized["ordens"][0]["id"], 2)
+        self.assertTrue(
+            regularized["ordens"][0]["rececao_regularizada_admin"]
+        )
+        self.assertEqual(not_applicable["total"], 1)
+        self.assertEqual(not_applicable["ordens"][0]["destino_tipo"], "b2b")
+        self.assertEqual(combined_first["total"], 3)
+        self.assertEqual(combined_first["total_pages"], 3)
+        self.assertEqual(combined_last["page"], 3)
+        self.assertEqual(combined_last["total"], 3)
+        self.assertEqual(len(combined_last["ordens"]), 1)
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, status, rececao_estado
+                    FROM ordens_transferencia ORDER BY id
+                """)
+                self.assertEqual(cursor.fetchall(), orders_before)
+        self.assertEqual(self._inventory_snapshot(), inventory_before)
 
     def test_z_mixed_origin_batches_are_accepted_once_without_stock_changes(self):
         self._run_acceptance_migration()

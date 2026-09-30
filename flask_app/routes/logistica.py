@@ -116,10 +116,18 @@ def transferencias():
         ('confirmada', 'Concluída'),
         ('rejeitada', 'Rejeição histórica'),
     ]
+    estados_rececao = [
+        ('por_verificar', 'Por verificar'),
+        ('aceite', 'Aceite pela loja'),
+        ('problema', 'Com problema'),
+        ('regularizada_admin', 'Regularizada administrativamente'),
+        ('nao_aplicavel', 'Não aplicável (inclui B2B)'),
+    ]
     lojas = []
     filtro_area = ''
     filtro_status = ''
     filtro_loja = ''
+    filtro_rececao = ''
     filtro_data_inicio = ''
     filtro_data_fim = ''
 
@@ -127,12 +135,16 @@ def transferencias():
         area_origem = request.args.get('area_origem', '').strip() or None
         status = request.args.get('status', '').strip() or None
         loja_destino = request.args.get('loja_destino', '').strip() or None
+        rececao_estado = request.args.get('rececao_estado', '').strip()
+        if rececao_estado not in {value for value, _ in estados_rececao}:
+            rececao_estado = ''
         data_inicio_str = request.args.get('data_inicio', '').strip()
         data_fim_str = request.args.get('data_fim', '').strip()
 
         filtro_area = area_origem or ''
         filtro_status = status or ''
         filtro_loja = loja_destino or ''
+        filtro_rececao = rececao_estado
         filtro_data_inicio = data_inicio_str
         filtro_data_fim = data_fim_str
 
@@ -159,6 +171,7 @@ def transferencias():
             status=status,
             loja_destino=loja_destino,
             area_origem=area_origem,
+            rececao_estado=rececao_estado or None,
             data_inicio=data_inicio,
             data_fim=data_fim,
             page=page,
@@ -192,9 +205,11 @@ def transferencias():
         areas=areas,
         lojas=lojas,
         statuses=statuses,
+        estados_rececao=estados_rececao,
         filtro_area=filtro_area,
         filtro_status=filtro_status,
         filtro_loja=filtro_loja,
+        filtro_rececao=filtro_rececao,
         filtro_data_inicio=filtro_data_inicio,
         filtro_data_fim=filtro_data_fim,
         is_gestor=is_gestor,
