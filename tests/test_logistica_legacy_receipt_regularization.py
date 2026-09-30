@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 from flask import Flask, render_template as render_flask_template
@@ -90,9 +91,46 @@ class LogisticaLegacyReceiptRegularizationTests(unittest.TestCase):
 
     def test_manager_get_receives_full_server_preview_and_csrf_token(self):
         self._set_user(manager=True)
+        history_order = {
+            "id": 1,
+            "data": date(2026, 9, 29),
+            "data_prevista": date(2026, 9, 30),
+            "area_origem": "Gelado",
+            "produto": "Pistachio",
+            "sabor": "Pistachio",
+            "quantidade": 4.0,
+            "unidade": "kg",
+            "loja_destino": "Bolhão",
+            "status": "confirmada",
+            "destino_tipo": "loja",
+            "destino_nome": None,
+            "rececao_estado": "por_verificar",
+            "motivo_problema": None,
+            "motivo_rejeicao": None,
+            "eventos": [{
+                "event_type": "criado",
+                "utilizador": "gestor-teste",
+                "motivo": None,
+                "created_at": None,
+                "is_admin_regularization": False,
+            }],
+        }
+        history_result = {
+            "ordens": [history_order],
+            "total": 2,
+            "page": 1,
+            "per_page": 1,
+            "total_pages": 2,
+        }
         with (
-            self._patch_history_data()[0] as _events,
-            self._patch_history_data()[1] as _orders,
+            patch(
+                "flask_app.routes.logistica.get_ordens_transferencia_with_events",
+                return_value=history_result,
+            ),
+            patch(
+                "flask_app.routes.logistica.get_ordens_transferencia",
+                return_value=[],
+            ),
             patch(
                 "flask_app.routes.logistica.get_legacy_transfer_receipt_preview",
                 return_value=self.preview,
@@ -122,6 +160,35 @@ class LogisticaLegacyReceiptRegularizationTests(unittest.TestCase):
         self.assertIn("Bolhão: 2", html)
         self.assertIn("Destino B2B: 1", html)
         self.assertIn("Escreva 2 para confirmar", html)
+        order_row_index = html.index(
+            '<tr class="transfer-history-order-row"'
+        )
+        self.assertLess(order_row_index, html.index('<tr id="eventos-1"'))
+        self.assertIn('id="mob-eventos-1"', html)
+        pagination_index = html.index('class="pagination')
+        regularization_index = html.index(
+            '<section class="card border-warning'
+        )
+        self.assertLess(order_row_index, pagination_index)
+        self.assertLess(pagination_index, regularization_index)
+        self.assertNotIn('<tr class="ordem-row"', html)
+
+        empty_context = {
+            **context,
+            "ordens": [],
+            "total": 0,
+            "total_pages": 1,
+        }
+        with self.app.test_request_context(
+            "/logistica/transferencias?tab=historico"
+        ):
+            empty_html = render_flask_template(
+                "logistica/transferencias.html", **empty_context
+            )
+        self.assertLess(
+            empty_html.index("Sem ordens de transferência"),
+            empty_html.index('<section class="card border-warning'),
+        )
         with self.client.session_transaction() as current_session:
             self.assertEqual(
                 current_session[
