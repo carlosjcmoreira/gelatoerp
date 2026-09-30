@@ -48,6 +48,84 @@
         </div>
     </div>
 
+    {% if artigo.origem_revisao_estado %}
+    <div class="card mb-3">
+        <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+            <strong>Revisão da origem herdada</strong>
+            <span class="badge {{ 'text-bg-warning' if artigo.origem_revisao_estado == 'por_rever' else 'text-bg-success' }}">
+                {{ 'Por rever' if artigo.origem_revisao_estado == 'por_rever' else 'Revisto' }}
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="small mb-3">
+                <strong>Designação original preservada:</strong>
+                {{ artigo.origem_original or artigo.fornecedor }}
+                {% if artigo.origem_nome %}
+                <span class="text-muted">· Origem operacional: {{ artigo.origem_nome }}</span>
+                {% endif %}
+                {% if artigo.fornecedor_oficial_nome %}
+                <div class="mt-1">
+                    <strong>Fornecedor oficial atual:</strong>
+                    {{ artigo.fornecedor_oficial_nome }}
+                </div>
+                {% else %}
+                <div class="mt-1 text-muted">Fornecedor oficial por confirmar.</div>
+                {% endif %}
+            </div>
+
+            <h6 class="small fw-semibold">Histórico das decisões</h6>
+            {% if origin_review_history %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Data</th>
+                            <th>Decisão</th>
+                            <th>Fornecedor</th>
+                            <th>Registado por</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in origin_review_history %}
+                        <tr>
+                            <td>{{ row.created_at.strftime('%d/%m/%Y %H:%M') if row.created_at else '—' }}</td>
+                            <td>
+                                {{ 'Fornecedor confirmado' if row.estado_novo == 'revisto' else 'Mantido por rever' }}
+                                {% if row.rotulo_original %}
+                                <div class="small text-muted">
+                                    {{ row.origem_tipo|replace('_', ' ') }} · {{ row.rotulo_original }}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.fornecedor_anterior_id != row.fornecedor_novo_id %}
+                                    {{ row.fornecedor_anterior_nome or 'Sem fornecedor' }}
+                                    → {{ row.fornecedor_novo_nome or 'Sem fornecedor' }}
+                                {% else %}
+                                    {{ row.fornecedor_novo_nome or row.fornecedor_anterior_nome or 'Sem fornecedor confirmado' }}
+                                    {% if row.estado_novo == 'por_rever' and row.fornecedor_novo_id %}
+                                    <div class="small text-muted">Ligação preservada</div>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ row.actor }}
+                                {% if row.reason %}
+                                <div class="small text-muted">{{ row.reason }}</div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="small text-muted">Ainda não há decisões registadas.</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="card">
         <div class="card-header fw-semibold">Histórico de quantidade e custo</div>
         <div class="card-body p-0">

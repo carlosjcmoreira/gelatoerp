@@ -37,15 +37,29 @@
         <div class="card-body p-2">
             <form method="get" class="row g-2 align-items-center"
                   data-unsaved-navigation>
-                <div class="col">
+                <div class="col-12 col-md">
                     <input type="search" name="q" value="{{ search or '' }}"
                            class="form-control form-control-sm"
                            placeholder="Pesquisar origem, produto ou marca">
                 </div>
+                <div class="col-12 col-md-3">
+                    <select name="revisao" class="form-select form-select-sm"
+                            aria-label="Filtrar pelo estado da revisão da origem">
+                        <option value="todos" {% if review_filter == 'todos' %}selected{% endif %}>
+                            Todas as revisões
+                        </option>
+                        <option value="por_rever" {% if review_filter == 'por_rever' %}selected{% endif %}>
+                            Por rever
+                        </option>
+                        <option value="revisto" {% if review_filter == 'revisto' %}selected{% endif %}>
+                            Revistos
+                        </option>
+                    </select>
+                </div>
                 <div class="col-auto">
                     <button class="btn btn-outline-primary btn-sm" type="submit">Pesquisar</button>
                 </div>
-                {% if search %}
+                {% if search or review_filter != 'todos' %}
                 <div class="col-auto">
                     <a class="btn btn-link btn-sm" href="{{ url_for('compras.artigos') }}">Limpar</a>
                 </div>
@@ -115,6 +129,7 @@
           action="{{ url_for('compras.artigos') }}">
         <input type="hidden" name="action" value="bulk_edit">
         <input type="hidden" name="q" value="{{ search or '' }}">
+        <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
     </form>
 
     {% if bulk_error_message %}
@@ -205,6 +220,11 @@
                         <span class="badge {% if a.ativo %}text-bg-success{% else %}text-bg-secondary{% endif %}">
                             {{ 'Ativo' if a.ativo else 'Inativo' }}
                         </span>
+                        {% if a.origem_revisao_estado %}
+                        <span class="badge {% if a.origem_revisao_estado == 'por_rever' %}text-bg-warning{% else %}text-bg-success{% endif %}">
+                            {{ 'Por rever' if a.origem_revisao_estado == 'por_rever' else 'Revisto' }}
+                        </span>
+                        {% endif %}
                         <form method="post" class="d-inline" data-unsaved-navigation>
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="artigo_id" value="{{ a.id }}">
@@ -272,6 +292,12 @@
                                             Texto original preservado: {{ a.origem_original }}
                                         </div>
                                         {% endif %}
+                                        {% if a.origem_revisao_estado %}
+                                        <div class="small text-muted mt-1">
+                                            Designação original preservada:
+                                            {{ a.origem_original or a.fornecedor }}
+                                        </div>
+                                        {% endif %}
                                     </div>
                                     <div class="col-12 col-md-8">
                                         <div class="form-label small mb-1">Fornecedor oficial</div>
@@ -285,6 +311,17 @@
                                         {% else %}
                                         <span class="badge text-bg-warning">Fornecedor por confirmar</span>
                                         {% endif %}
+                                        {% if a.origem_revisao_estado %}
+                                        <button type="button" class="btn btn-outline-warning btn-sm ms-2"
+                                                data-bs-toggle="modal" data-bs-target="#revisaoOrigemModal"
+                                                data-artigo-id="{{ a.id }}"
+                                                data-artigo-produto="{{ a.produto }}"
+                                                data-etiqueta-original="{{ a.origem_original or a.fornecedor }}"
+                                                data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}"
+                                                data-fornecedor-nome="{{ a.fornecedor_oficial_nome or '' }}">
+                                            {{ 'Rever origem' if a.origem_revisao_estado == 'por_rever' else 'Alterar revisão' }}
+                                        </button>
+                                        {% else %}
                                         <button type="button" class="btn btn-outline-primary btn-sm ms-2"
                                                 data-bs-toggle="modal" data-bs-target="#fornecedorOficialModal"
                                                 data-artigo-id="{{ a.id }}"
@@ -292,6 +329,7 @@
                                                 data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}">
                                             {{ 'Alterar fornecedor oficial' if a.fornecedor_oficial_id else 'Associar fornecedor oficial' }}
                                         </button>
+                                        {% endif %}
                                         {% if a.origem_tipo == 'por_resolver'
                                               or (not a.origem_id and not a.fornecedor_oficial_id) %}
                                         <button type="button" class="btn btn-outline-warning btn-sm ms-1"
@@ -317,6 +355,12 @@
                                         <span class="badge {% if tipo_origem_label == 'Por resolver' %}text-bg-warning{% else %}text-bg-light{% endif %}">
                                             {{ tipo_origem_label }}
                                         </span>
+                                        {% if a.origem_revisao_estado %}
+                                        <span class="small text-muted">Revisão da origem:</span>
+                                        <span class="badge {% if a.origem_revisao_estado == 'por_rever' %}text-bg-warning{% else %}text-bg-success{% endif %}">
+                                            {{ 'Por rever' if a.origem_revisao_estado == 'por_rever' else 'Revisto' }}
+                                        </span>
+                                        {% endif %}
                                         {% if a.source_version %}
                                         <span class="small text-muted">Versão do catálogo: {{ a.source_version }}</span>
                                         {% endif %}
@@ -374,6 +418,78 @@
                         <button type="button" class="btn btn-outline-secondary"
                                 data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" class="btn btn-primary">Guardar ligação</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="revisaoOrigemModal" tabindex="-1"
+         aria-labelledby="revisaoOrigemTitulo" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="post" action="{{ url_for('compras.artigos') }}"
+                      data-unsaved-navigation>
+                    <input type="hidden" name="action" value="review_origin">
+                    <input type="hidden" name="artigo_id" id="revisaoOrigemArtigoId">
+                    <input type="hidden" name="q" value="{{ search or '' }}">
+                    <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="revisaoOrigemTitulo">Rever origem herdada</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                aria-label="Fechar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-2">
+                            Artigo: <strong id="revisaoOrigemProduto"></strong>
+                        </p>
+                        <p class="small text-muted mb-2">
+                            Designação original:
+                            <span id="revisaoOrigemEtiqueta"></span>
+                        </p>
+                        <p class="small mb-2">
+                            Fornecedor oficial atual:
+                            <strong id="revisaoOrigemFornecedorAtual">Por confirmar</strong>
+                        </p>
+                        <p class="small text-muted">
+                            A revisão não altera a origem operacional nem documentos
+                            históricos. Manter por rever preserva qualquer ligação a
+                            fornecedor já confirmada.
+                        </p>
+                        {% if suppliers %}
+                        <label for="revisaoOrigemSupplierId" class="form-label">
+                            Fornecedor registado confirmado
+                        </label>
+                        <select name="supplier_id" id="revisaoOrigemSupplierId"
+                                class="form-select">
+                            <option value="">Selecionar fornecedor...</option>
+                            {% for supplier in suppliers %}
+                            <option value="{{ supplier.id }}">
+                                {{ supplier.common_name or supplier.name }}
+                                {% if supplier.common_name %} — {{ supplier.name }}{% endif %}
+                                {% if supplier.nif %} · NIF {{ supplier.nif }}{% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <div class="alert alert-warning small mb-0">
+                            Ainda não há fornecedores registados. Pode manter o artigo
+                            por rever até um fornecedor ser confirmado.
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary"
+                                data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" name="review_action" value="pending"
+                                class="btn btn-outline-warning">
+                            Manter por rever
+                        </button>
+                        <button type="submit" name="review_action" value="confirm"
+                                class="btn btn-primary"
+                                {% if not suppliers %}disabled{% endif %}>
+                            Confirmar fornecedor
+                        </button>
                     </div>
                 </form>
             </div>
@@ -459,6 +575,28 @@ document.addEventListener('DOMContentLoaded', function () {
             if (supplierSelect) {
                 supplierSelect.value =
                     button.getAttribute('data-fornecedor-id') || 'none';
+            }
+        });
+    }
+
+    const reviewModal = document.getElementById('revisaoOrigemModal');
+    if (reviewModal) {
+        reviewModal.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            if (!button) return;
+            document.getElementById('revisaoOrigemArtigoId').value =
+                button.getAttribute('data-artigo-id') || '';
+            document.getElementById('revisaoOrigemProduto').textContent =
+                button.getAttribute('data-artigo-produto') || '';
+            document.getElementById('revisaoOrigemEtiqueta').textContent =
+                button.getAttribute('data-etiqueta-original') || '';
+            document.getElementById('revisaoOrigemFornecedorAtual').textContent =
+                button.getAttribute('data-fornecedor-nome') || 'Por confirmar';
+            const supplierSelect =
+                document.getElementById('revisaoOrigemSupplierId');
+            if (supplierSelect) {
+                supplierSelect.value =
+                    button.getAttribute('data-fornecedor-id') || '';
             }
         });
     }

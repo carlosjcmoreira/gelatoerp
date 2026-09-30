@@ -33,6 +33,10 @@ from database import (
     derive_local_from_store,
     get_confirming_contracts,
 )
+from db.artigos import (
+    get_artigo_origem_revisao_history,
+    review_artigo_origem,
+)
 from db.faturas import (
     get_invoices,
     count_invoices,
@@ -1313,6 +1317,7 @@ def artigos():
 
         elif action == 'bulk_edit':
             search_after_save = request.form.get('q', '').strip()
+            review_filter_after_save = request.form.get('revisao', '').strip()
             raw_article_ids = request.form.getlist('artigo_id')
             article_ids = []
             try:
@@ -1399,10 +1404,12 @@ def artigos():
                         'a origem por resolver.',
                         'warning',
                     )
-                return redirect(
-                    url_for('compras.artigos', q=search_after_save)
-                    if search_after_save else url_for('compras.artigos')
-                )
+                redirect_args = {}
+                if search_after_save:
+                    redirect_args['q'] = search_after_save
+                if review_filter_after_save in ('por_rever', 'revisto'):
+                    redirect_args['revisao'] = review_filter_after_save
+                return redirect(url_for('compras.artigos', **redirect_args))
 
         elif action == 'confirm_supplier':
             article_raw = request.form.get('artigo_id', '').strip()
@@ -1430,6 +1437,54 @@ def artigos():
                         )
                 except ValueError as exc:
                     flash(str(exc), 'danger')
+
+        elif action == 'review_origin':
+            article_raw = request.form.get('artigo_id', '').strip()
+            decision = request.form.get('review_action', '').strip()
+            supplier_raw = request.form.get('supplier_id', '').strip()
+            if not article_raw.isascii() or not article_raw.isdecimal():
+                flash('Selecione um artigo válido.', 'warning')
+            elif decision not in ('confirm', 'pending'):
+                flash('Escolha como pretende resolver a revisão.', 'warning')
+            elif decision == 'confirm' and (
+                not supplier_raw.isascii() or not supplier_raw.isdecimal()
+                or int(supplier_raw) <= 0
+            ):
+                flash('Selecione um fornecedor registado.', 'warning')
+            else:
+                try:
+                    result = review_artigo_origem(
+                        int(article_raw),
+                        int(supplier_raw) if decision == 'confirm' else None,
+                        actor=_get_username(),
+                    )
+                    if result is None:
+                        flash('Artigo não encontrado.', 'warning')
+                    elif decision == 'confirm':
+                        flash(
+                            f'Fornecedor "{result["supplier_name"]}" confirmado; '
+                            'a origem original foi preservada.',
+                            'success',
+                        )
+                    else:
+                        message = 'Artigo mantido por rever.'
+                        if result.get('supplier_name'):
+                            message += (
+                                f' A ligação atual a '
+                                f'"{result["supplier_name"]}" foi preservada.'
+                            )
+                        flash(message, 'info')
+                except (TypeError, ValueError) as exc:
+                    flash(str(exc), 'danger')
+
+            redirect_args = {}
+            return_q = request.form.get('q', '').strip()
+            return_filter = request.form.get('revisao', '').strip()
+            if return_q:
+                redirect_args['q'] = return_q
+            if return_filter in ('por_rever', 'revisto'):
+                redirect_args['revisao'] = return_filter
+            return redirect(url_for('compras.artigos', **redirect_args))
 
         elif action == 'set_official_supplier':
             article_raw = request.form.get('artigo_id', '').strip()
@@ -1485,15 +1540,32 @@ def artigos():
         if bulk_edit_failed
         else request.args.get('q', '')
     )
+    review_filter = (
+        request.form.get('revisao', 'todos')
+        if bulk_edit_failed
+        else request.args.get('revisao', 'todos')
+    )
+    if review_filter not in ('todos', 'por_rever', 'revisto'):
+        review_filter = 'todos'
     search = search_raw.strip().casefold()
     artigos_list = get_artigos_administrativos(apenas_ativos=False)
+    if review_filter == 'por_rever':
+        artigos_list = [
+            article for article in artigos_list
+            if article.get('origem_revisao_estado') == 'por_rever'
+        ]
+    elif review_filter == 'revisto':
+        artigos_list = [
+            article for article in artigos_list
+            if article.get('origem_revisao_estado') == 'revisto'
+        ]
     if search:
         artigos_list = [
             a for a in artigos_list
             if search in ' '.join(
                 str(a.get(key) or '') for key in
                 (
-                    'fornecedor', 'produto', 'marca', 'origem_nome',
+                    'fornecedor', 'origem_original', 'produto', 'marca', 'origem_nome',
                     'fornecedor_oficial_nome', 'categoria_artigo',
                 )
             ).casefold()
@@ -1507,6 +1579,7 @@ def artigos():
                            artigos=artigos_list, origens=origens,
                            suppliers=suppliers,
                            article_categories=ARTICLE_CATEGORIES, search=search,
+                           review_filter=review_filter,
                            bulk_error_message=bulk_error_message)
 
 
@@ -1518,11 +1591,13 @@ def artigo_detalhe(artigo_id: int):
         flash('Artigo não encontrado.', 'warning')
         return redirect(url_for('compras.artigos'))
     comercial = get_artigo_comercial_history(artigo_id)
+    origin_review_history = get_artigo_origem_revisao_history(artigo_id)
     return render_template(
         'compras/artigo_detalhe.html',
         artigo=artigo,
         comercial=comercial,
         origem_history=[],
+        origin_review_history=origin_review_history,
     )
 
 

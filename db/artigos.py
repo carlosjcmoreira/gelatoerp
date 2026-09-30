@@ -270,7 +270,7 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
                    a.marca, a.unidade, a.catalog_key, a.source_dataset,
                    a.source_version, a.source_row, o.ativo,
                     a.fornecedor_oficial_id, official_s.name,
-                    a.categoria_artigo
+                    a.categoria_artigo, a.origem_revisao_estado
             FROM artigos_administrativos a
             LEFT JOIN compras_origens o ON o.id = a.origem_id
             LEFT JOIN suppliers official_s
@@ -294,6 +294,7 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
             'fornecedor_oficial_id': r[18],
             'fornecedor_oficial_nome': r[19],
             'categoria_artigo': r[20],
+            'origem_revisao_estado': r[21],
         }
         for r in rows
     ]
@@ -1175,6 +1176,167 @@ def set_artigo_fornecedor_oficial(
         'changed': True,
         'supplier_name': next_supplier_name,
     }
+
+
+def review_artigo_origem(
+    artigo_id: int,
+    supplier_id: int | None,
+    actor: str = 'sistema',
+) -> dict | None:
+    """Record a human decision about a legacy non-supplier origin.
+
+    Confirming a supplier updates only the independent official-supplier link.
+    Keeping the article pending preserves any link already on the article.
+    Neither action changes the legacy origin label or historical documents.
+    """
+    if not isinstance(artigo_id, int) or isinstance(artigo_id, bool) or artigo_id <= 0:
+        raise ValueError('Artigo inválido.')
+    if supplier_id is not None and (
+        not isinstance(supplier_id, int)
+        or isinstance(supplier_id, bool)
+        or supplier_id <= 0
+    ):
+        raise ValueError('Fornecedor inválido.')
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT a.origem_revisao_estado, a.origem_id, a.origem_original,
+                   a.fornecedor, a.fornecedor_oficial_id, official_s.name,
+                   o.tipo
+            FROM artigos_administrativos a
+            LEFT JOIN compras_origens o ON o.id = a.origem_id
+            LEFT JOIN suppliers official_s
+                   ON official_s.id = a.fornecedor_oficial_id
+            WHERE a.id = %s
+            FOR UPDATE OF a
+            """,
+            (artigo_id,),
+        )
+        current = cursor.fetchone()
+        if not current:
+            return None
+
+        review_state, origin_id, original_label, legacy_label = current[:4]
+        previous_supplier_id, previous_supplier_name, origin_type = current[4:]
+        if origin_type not in ('centro_interno', 'categoria_operacional'):
+            raise ValueError('Este artigo não tem uma origem herdada para rever.')
+        if review_state not in ('por_rever', 'revisto'):
+            raise ValueError('Este artigo não está marcado para revisão da origem.')
+
+        if supplier_id is None:
+            next_review_state = 'por_rever'
+            next_supplier_id = previous_supplier_id
+            next_supplier_name = previous_supplier_name
+            reason = 'gestor manteve a origem herdada por rever'
+        else:
+            cursor.execute(
+                "SELECT name FROM suppliers WHERE id = %s",
+                (supplier_id,),
+            )
+            supplier = cursor.fetchone()
+            if not supplier or not str(supplier[0] or '').strip():
+                raise ValueError('O fornecedor selecionado não existe.')
+            next_review_state = 'revisto'
+            next_supplier_id = supplier_id
+            next_supplier_name = str(supplier[0]).strip()
+            reason = 'gestor confirmou o fornecedor na revisão da origem herdada'
+
+        state_changed = review_state != next_review_state
+        supplier_changed = previous_supplier_id != next_supplier_id
+        changed = state_changed or supplier_changed
+        if changed:
+            cursor.execute(
+                """
+                UPDATE artigos_administrativos
+                   SET origem_revisao_estado = %s,
+                       fornecedor_oficial_id = %s,
+                       human_modified_at = NOW(), updated_at = NOW()
+                 WHERE id = %s
+                """,
+                (next_review_state, next_supplier_id, artigo_id),
+            )
+
+        if supplier_changed:
+            cursor.execute(
+                """
+                INSERT INTO artigos_administrativos_fornecedor_audit
+                    (artigo_id, fornecedor_anterior_id, fornecedor_anterior_nome,
+                     fornecedor_novo_id, fornecedor_novo_nome, actor, reason)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    artigo_id, previous_supplier_id, previous_supplier_name,
+                    next_supplier_id, next_supplier_name, actor,
+                    'confirmação de fornecedor na revisão da origem herdada',
+                ),
+            )
+
+        cursor.execute(
+            """
+            INSERT INTO artigos_administrativos_origem_revisao_audit
+                (artigo_id, estado_anterior, estado_novo, origem_id,
+                 origem_tipo, rotulo_original,
+                 fornecedor_anterior_id, fornecedor_anterior_nome,
+                 fornecedor_novo_id, fornecedor_novo_nome, actor, reason)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                artigo_id, review_state, next_review_state, origin_id,
+                origin_type, original_label or legacy_label,
+                previous_supplier_id, previous_supplier_name,
+                next_supplier_id, next_supplier_name,
+                str(actor or 'sistema')[:255], reason,
+            ),
+        )
+        conn.commit()
+
+    invalidate_prefix('artigos_administrativos')
+    return {
+        'found': True,
+        'changed': changed,
+        'estado': next_review_state,
+        'supplier_id': next_supplier_id,
+        'supplier_name': next_supplier_name,
+    }
+
+
+def get_artigo_origem_revisao_history(artigo_id: int) -> list:
+    """Return the immutable decision history for a legacy-origin review."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT h.id, h.estado_anterior, h.estado_novo, h.origem_tipo,
+                   h.rotulo_original,
+                   h.fornecedor_anterior_id, h.fornecedor_anterior_nome,
+                   h.fornecedor_novo_id, h.fornecedor_novo_nome,
+                   h.actor, h.reason, h.created_at
+            FROM artigos_administrativos_origem_revisao_audit h
+            WHERE h.artigo_id = %s
+            ORDER BY h.created_at DESC, h.id DESC
+            """,
+            (artigo_id,),
+        )
+        rows = cursor.fetchall()
+    return [
+        {
+            'id': row[0],
+            'estado_anterior': row[1],
+            'estado_novo': row[2],
+            'origem_tipo': row[3],
+            'rotulo_original': row[4],
+            'fornecedor_anterior_id': row[5],
+            'fornecedor_anterior_nome': row[6],
+            'fornecedor_novo_id': row[7],
+            'fornecedor_novo_nome': row[8],
+            'actor': row[9],
+            'reason': row[10],
+            'created_at': row[11],
+        }
+        for row in rows
+    ]
 
 
 def toggle_artigo_administrativo(artigo_id: int, ativo: bool):

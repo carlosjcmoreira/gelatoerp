@@ -367,6 +367,7 @@ class TestComprasAccess(unittest.TestCase):
                 'origem_original': 'Matosinhos',
                 'fornecedor_oficial_id': 20,
                 'fornecedor_oficial_nome': 'DEGAR SRL',
+                'origem_revisao_estado': 'por_rever',
             },
             {
                 'id': 103, 'fornecedor': 'Categoria', 'produto': 'Sem fornecedor',
@@ -376,6 +377,7 @@ class TestComprasAccess(unittest.TestCase):
                 'origem_original': 'Categoria',
                 'fornecedor_oficial_id': None,
                 'fornecedor_oficial_nome': None,
+                'origem_revisao_estado': 'por_rever',
             },
             {
                 'id': 104, 'fornecedor': 'Texto com nome semelhante',
@@ -430,16 +432,24 @@ class TestComprasAccess(unittest.TestCase):
                 side_effect=render_template,
             ):
                 response = self.client.get('/compras/artigos')
+                pending_response = self.client.get(
+                    '/compras/artigos?revisao=por_rever'
+                )
         finally:
             self.app.jinja_loader = original_loader
 
         self.assertEqual(response.status_code, 200)
         html = ' '.join(response.get_data(as_text=True).split())
+        pending_html = ' '.join(pending_response.get_data(as_text=True).split())
         self.assertEqual(html.count('Mesmo fornecedor da origem'), 1)
         self.assertIn('Inocentro Legal, Lda.', html)
         self.assertIn('Fornecedor externo', html)
         self.assertIn('Centro interno', html)
         self.assertIn('Categoria operacional', html)
+        self.assertIn('Designação original preservada: Matosinhos', html)
+        self.assertIn('Rever origem', html)
+        self.assertIn('name="review_action" value="pending"', html)
+        self.assertIn('name="review_action" value="confirm"', html)
         self.assertIn('DEGAR SRL', html)
         self.assertIn('Fornecedor coincidente', html)
         self.assertIn('GARCIAS, S.A.', html)
@@ -457,6 +467,9 @@ class TestComprasAccess(unittest.TestCase):
         self.assertIn('name="action" value="bulk_edit"', html)
         self.assertIn('Guardar alterações', html)
         self.assertNotIn('<th>Fornecedor oficial</th>', html)
+        self.assertIn('Produto interno', pending_html)
+        self.assertIn('Sem fornecedor', pending_html)
+        self.assertNotIn('Produto externo', pending_html)
 
     def test_catalogue_confirms_supplier_using_submitted_id(self):
         self._set_session_user(_user(acesso_compras=True))
@@ -488,6 +501,62 @@ class TestComprasAccess(unittest.TestCase):
         with self.client.session_transaction() as sess:
             messages = [message for _, message in sess.get('_flashes', [])]
         self.assertIn('Fornecedor "Fornecedor Canónico" confirmado.', messages)
+
+    def test_catalogue_review_can_keep_pending_and_preserves_filter(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.review_artigo_origem',
+            return_value={
+                'found': True, 'changed': False, 'estado': 'por_rever',
+                'supplier_id': 42, 'supplier_name': 'Fornecedor existente',
+            },
+        ) as review_origin:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'review_origin',
+                    'artigo_id': '18',
+                    'review_action': 'pending',
+                    'supplier_id': '',
+                    'q': 'Matosinhos',
+                    'revisao': 'por_rever',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('q=Matosinhos', response.location)
+        self.assertIn('revisao=por_rever', response.location)
+        self.assertEqual(review_origin.call_args.args, (18, None))
+        self.assertEqual(review_origin.call_args.kwargs['actor'], 'testuser')
+        with self.client.session_transaction() as sess:
+            messages = [message for _, message in sess.get('_flashes', [])]
+        self.assertTrue(any('ligação atual' in message for message in messages))
+
+    def test_catalogue_review_confirms_registered_supplier(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.review_artigo_origem',
+            return_value={
+                'found': True, 'changed': True, 'estado': 'revisto',
+                'supplier_id': 42, 'supplier_name': 'Fornecedor Canónico',
+            },
+        ) as review_origin:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'review_origin',
+                    'artigo_id': '18',
+                    'review_action': 'confirm',
+                    'supplier_id': '42',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(review_origin.call_args.args, (18, 42))
+        self.assertEqual(review_origin.call_args.kwargs['actor'], 'testuser')
+        with self.client.session_transaction() as sess:
+            messages = [message for _, message in sess.get('_flashes', [])]
+        self.assertTrue(any('a origem original foi preservada' in m for m in messages))
 
     def test_catalogue_noop_save_has_accurate_feedback(self):
         self._set_session_user(_user(acesso_compras=True))

@@ -80,7 +80,9 @@ def run_migrations_compras_origens():
                         REFERENCES compras_origens(id) ON DELETE SET NULL,
                     ADD COLUMN IF NOT EXISTS origem_original VARCHAR(255),
                     ADD COLUMN IF NOT EXISTS fornecedor_oficial_id INTEGER
-                        REFERENCES suppliers(id) ON DELETE SET NULL
+                        REFERENCES suppliers(id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS origem_revisao_estado VARCHAR(20)
+                        CHECK (origem_revisao_estado IN ('por_rever', 'revisto'))
                 """
             )
             cursor.execute(
@@ -130,6 +132,38 @@ def run_migrations_compras_origens():
                     ON artigos_administrativos_fornecedor_audit(artigo_id, created_at DESC)
                 """
             )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS artigos_administrativos_origem_revisao_audit (
+                    id BIGSERIAL PRIMARY KEY,
+                    artigo_id INTEGER REFERENCES artigos_administrativos(id)
+                        ON DELETE SET NULL,
+                    estado_anterior VARCHAR(20),
+                    estado_novo VARCHAR(20) NOT NULL,
+                    origem_id INTEGER REFERENCES compras_origens(id)
+                        ON DELETE SET NULL,
+                    origem_tipo VARCHAR(30),
+                    rotulo_original VARCHAR(255),
+                    fornecedor_anterior_id INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    fornecedor_anterior_nome VARCHAR(255),
+                    fornecedor_novo_id INTEGER REFERENCES suppliers(id)
+                        ON DELETE SET NULL,
+                    fornecedor_novo_nome VARCHAR(255),
+                    actor VARCHAR(255) NOT NULL DEFAULT 'sistema',
+                    reason TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_artigos_origem_revisao_audit_artigo
+                    ON artigos_administrativos_origem_revisao_audit(
+                        artigo_id, created_at DESC
+                    )
+                """
+            )
 
             cursor.execute(
                 """
@@ -165,7 +199,8 @@ def run_migrations_compras_origens():
 
             cursor.execute(
                 "SELECT DISTINCT fornecedor FROM artigos_administrativos "
-                "WHERE fornecedor IS NOT NULL AND BTRIM(fornecedor) <> ''"
+                "WHERE fornecedor IS NOT NULL AND BTRIM(fornecedor) <> '' "
+                "AND origem_id IS NULL AND fornecedor_oficial_id IS NULL"
             )
             legacy_labels = [row[0] for row in cursor.fetchall()]
             for label in legacy_labels:
@@ -206,6 +241,7 @@ def run_migrations_compras_origens():
                            origem_original = COALESCE(a.origem_original, a.fornecedor)
                       FROM compras_origens o
                      WHERE a.origem_id IS NULL
+                       AND a.fornecedor_oficial_id IS NULL
                        AND a.fornecedor = %s
                        AND o.chave = %s
                     """,
@@ -224,6 +260,50 @@ def run_migrations_compras_origens():
                    AND o.ativo = TRUE
                    AND o.supplier_id IS NOT NULL
                    AND a.fornecedor_oficial_id IS NULL
+                """
+            )
+            # Keep the legacy operational origin separate from the supplier
+            # decision. This idempotent backfill includes articles that already
+            # have a confirmed official supplier and never overwrites a human
+            # review state.
+            cursor.execute(
+                """
+                WITH candidates AS (
+                    SELECT a.id, a.origem_id, o.tipo,
+                           COALESCE(
+                               NULLIF(BTRIM(a.origem_original), ''),
+                               a.fornecedor
+                           ) AS rotulo_original,
+                           a.fornecedor_oficial_id,
+                           official_s.name AS fornecedor_nome
+                    FROM artigos_administrativos a
+                    JOIN compras_origens o ON o.id = a.origem_id
+                    LEFT JOIN suppliers official_s
+                           ON official_s.id = a.fornecedor_oficial_id
+                    WHERE o.tipo IN ('centro_interno', 'categoria_operacional')
+                      AND a.origem_revisao_estado IS NULL
+                ),
+                updated AS (
+                    UPDATE artigos_administrativos a
+                       SET origem_revisao_estado = 'por_rever'
+                      FROM candidates c
+                     WHERE a.id = c.id
+                       AND a.origem_revisao_estado IS NULL
+                    RETURNING a.id
+                )
+                INSERT INTO artigos_administrativos_origem_revisao_audit
+                    (artigo_id, estado_anterior, estado_novo, origem_id,
+                     origem_tipo, rotulo_original,
+                     fornecedor_anterior_id, fornecedor_anterior_nome,
+                     fornecedor_novo_id, fornecedor_novo_nome, actor, reason)
+                SELECT c.id, NULL, 'por_rever', c.origem_id, c.tipo,
+                       c.rotulo_original,
+                       c.fornecedor_oficial_id, c.fornecedor_nome,
+                       c.fornecedor_oficial_id, c.fornecedor_nome,
+                       'sistema',
+                       'origem herdada marcada para revisão manual'
+                  FROM candidates c
+                  JOIN updated u ON u.id = c.id
                 """
             )
             conn.commit()

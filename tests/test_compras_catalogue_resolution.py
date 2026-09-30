@@ -392,5 +392,109 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         conn.commit.assert_called_once()
 
 
+class TestLegacyOriginReview(unittest.TestCase):
+    def test_confirming_supplier_preserves_origin_and_audits_both_decisions(self):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [
+            (
+                'por_rever', 71, 'MATOSINHOS', 'Matosinhos',
+                55, 'Fornecedor anterior', 'centro_interno',
+            ),
+            ('Fornecedor confirmado, Lda.',),
+        ]
+        conn = _connection(cursor)
+
+        with patch('db.artigos.db_connection', return_value=conn), \
+                patch('db.artigos.invalidate_prefix') as invalidate:
+            from db.artigos import review_artigo_origem
+            result = review_artigo_origem(18, 42, actor='ana')
+
+        self.assertEqual(result, {
+            'found': True, 'changed': True, 'estado': 'revisto',
+            'supplier_id': 42, 'supplier_name': 'Fornecedor confirmado, Lda.',
+        })
+        calls = cursor.execute.call_args_list
+        self.assertIn('FOR UPDATE OF a', calls[0].args[0])
+        article_update = next(
+            call for call in calls if 'UPDATE artigos_administrativos' in call.args[0]
+        )
+        self.assertEqual(article_update.args[1], ('revisto', 42, 18))
+        self.assertNotIn('origem_id =', article_update.args[0])
+        self.assertNotIn('origem_original =', article_update.args[0])
+        supplier_audit = next(
+            call for call in calls
+            if 'INSERT INTO artigos_administrativos_fornecedor_audit'
+            in call.args[0]
+        )
+        self.assertEqual(supplier_audit.args[1][1:5], (
+            55, 'Fornecedor anterior', 42, 'Fornecedor confirmado, Lda.',
+        ))
+        review_audit = next(
+            call for call in calls
+            if 'INSERT INTO artigos_administrativos_origem_revisao_audit'
+            in call.args[0]
+        )
+        self.assertEqual(review_audit.args[1][1:6], (
+            'por_rever', 'revisto', 71, 'centro_interno', 'MATOSINHOS',
+        ))
+        conn.commit.assert_called_once()
+        invalidate.assert_called_once_with('artigos_administrativos')
+
+    def test_keep_pending_preserves_existing_supplier_and_records_decision(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (
+            'revisto', 81, 'MOEDAS', 'Moedas',
+            55, 'Fornecedor já ligado', 'categoria_operacional',
+        )
+        conn = _connection(cursor)
+
+        with patch('db.artigos.db_connection', return_value=conn), \
+                patch('db.artigos.invalidate_prefix') as invalidate:
+            from db.artigos import review_artigo_origem
+            result = review_artigo_origem(19, None, actor='ana')
+
+        self.assertEqual(result, {
+            'found': True, 'changed': True, 'estado': 'por_rever',
+            'supplier_id': 55, 'supplier_name': 'Fornecedor já ligado',
+        })
+        article_update = next(
+            call for call in cursor.execute.call_args_list
+            if 'UPDATE artigos_administrativos' in call.args[0]
+        )
+        self.assertEqual(article_update.args[1], ('por_rever', 55, 19))
+        self.assertFalse(any(
+            'INSERT INTO artigos_administrativos_fornecedor_audit' in call.args[0]
+            for call in cursor.execute.call_args_list
+        ))
+        review_audit = next(
+            call for call in cursor.execute.call_args_list
+            if 'INSERT INTO artigos_administrativos_origem_revisao_audit'
+            in call.args[0]
+        )
+        self.assertEqual(review_audit.args[1][6:10], (
+            55, 'Fornecedor já ligado', 55, 'Fornecedor já ligado',
+        ))
+        conn.commit.assert_called_once()
+        invalidate.assert_called_once_with('artigos_administrativos')
+
+    def test_review_rejects_non_legacy_origin_without_writes(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = (
+            'por_rever', 91, 'Fornecedor', 'Fornecedor',
+            42, 'Fornecedor Legal', 'fornecedor_externo',
+        )
+        conn = _connection(cursor)
+
+        with patch('db.artigos.db_connection', return_value=conn), \
+                patch('db.artigos.invalidate_prefix') as invalidate:
+            from db.artigos import review_artigo_origem
+            with self.assertRaisesRegex(ValueError, 'origem herdada'):
+                review_artigo_origem(20, 42, actor='ana')
+
+        self.assertEqual(cursor.execute.call_count, 1)
+        conn.commit.assert_not_called()
+        invalidate.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

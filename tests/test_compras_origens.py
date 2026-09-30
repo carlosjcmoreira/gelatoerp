@@ -56,7 +56,7 @@ class TestComprasOriginMigration(unittest.TestCase):
 
         cursor = MagicMock()
         cursor.fetchone.return_value = (True,)
-        cursor.fetchall.return_value = []
+        cursor.fetchall.return_value = [('Matosinhos',)]
         conn = MagicMock()
         conn.cursor.return_value = cursor
         conn.__enter__ = lambda instance: instance
@@ -75,4 +75,36 @@ class TestComprasOriginMigration(unittest.TestCase):
             sql for sql in statements if "INSERT INTO compras_origens" in sql
         ))
         self.assertTrue(any("ALTER TABLE artigos_administrativos" in sql for sql in statements))
+        legacy_label_query = next(
+            sql for sql in statements
+            if "SELECT DISTINCT fornecedor FROM artigos_administrativos" in sql
+        )
+        self.assertIn("origem_id IS NULL", legacy_label_query)
+        self.assertIn("fornecedor_oficial_id IS NULL", legacy_label_query)
+        article_origin_updates = [
+            sql for sql in statements
+            if "UPDATE artigos_administrativos a" in sql
+            and "o.chave = %s" in sql
+        ]
+        self.assertTrue(article_origin_updates)
+        self.assertTrue(all(
+            "a.fornecedor_oficial_id IS NULL" in sql
+            for sql in article_origin_updates
+        ))
+        review_schema = next(
+            sql for sql in statements
+            if "CREATE TABLE IF NOT EXISTS artigos_administrativos_origem_revisao_audit"
+            in sql
+        )
+        self.assertIn("estado_novo VARCHAR(20) NOT NULL", review_schema)
+        review_backfill = next(
+            sql for sql in statements if "WITH candidates AS" in sql
+        )
+        self.assertIn("'centro_interno', 'categoria_operacional'", review_backfill)
+        self.assertIn("a.origem_revisao_estado IS NULL", review_backfill)
+        self.assertIn("INSERT INTO artigos_administrativos_origem_revisao_audit",
+                      review_backfill)
+        self.assertNotIn("SET fornecedor_oficial_id", review_backfill)
+        self.assertNotIn("UPDATE invoice_linhas", review_backfill)
+        self.assertNotIn("UPDATE contagens", review_backfill)
         conn.commit.assert_called_once()

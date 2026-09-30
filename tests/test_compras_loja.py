@@ -418,6 +418,7 @@ class TestComprasLoja(unittest.TestCase):
         self.assertIn('value="13"', html)
         self.assertIn('value="15"', html)
         self.assertIn('Café Garcias · GARCIAS, S.A.', html)
+        self.assertIn('Fornecedor por confirmar', html)
         self.assertIn('data-category-select', html)
         self.assertIn('O valor zero é uma contagem válida.', html)
         self.assertNotIn('Artigo inativo', html)
