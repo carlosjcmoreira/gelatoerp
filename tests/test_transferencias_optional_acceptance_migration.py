@@ -482,6 +482,72 @@ class OptionalAcceptanceMigrationTests(unittest.TestCase):
                     ("aceite", 1), ("criado", 1), ("executado", 1)
                 ])
 
+    def test_zz_history_query_only_returns_final_states_and_paginates_them(self):
+        self._run_acceptance_migration()
+        self._seed_transfer_order(
+            1086, status="pendente", destination_type="b2b"
+        )
+        self._seed_transfer_order(
+            1087, status="rejeitada", receipt_state="problema"
+        )
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO transferencias_eventos (
+                        ordem_id, event_type, utilizador, motivo
+                    ) VALUES (%s, 'aceite', %s, %s)
+                """, (
+                    2,
+                    "gestor-teste",
+                    f"{plano.ADMIN_RECEIPT_AUDIT_PREFIX} teste",
+                ))
+                connection.commit()
+
+        with patch("db.plano.db_connection", self.isolated_connection):
+            first_page = plano.get_ordens_transferencia_with_events(
+                page=1, per_page=2
+            )
+            second_page = plano.get_ordens_transferencia_with_events(
+                page=2, per_page=2
+            )
+            pending_filter = plano.get_ordens_transferencia_with_events(
+                status="pendente"
+            )
+            rejected_filter = plano.get_ordens_transferencia_with_events(
+                status="rejeitada"
+            )
+
+        self.assertEqual(first_page["total"], 4)
+        self.assertEqual(first_page["total_pages"], 2)
+        self.assertEqual(len(first_page["ordens"]), 2)
+        self.assertEqual(second_page["total"], 4)
+        self.assertEqual(len(second_page["ordens"]), 2)
+        all_history = first_page["ordens"] + second_page["ordens"]
+        self.assertEqual(
+            {order["status"] for order in all_history},
+            {"confirmada", "rejeitada"},
+        )
+        self.assertTrue(any(
+            order["status"] == "confirmada"
+            and order["rececao_estado"] == "por_verificar"
+            for order in all_history
+        ))
+        self.assertTrue(any(
+            order["destino_tipo"] == "b2b"
+            and order["destino_nome"] == "Cliente"
+            for order in all_history
+        ))
+        self.assertTrue(any(
+            order["id"] == 2 and order["rececao_regularizada_admin"]
+            for order in all_history
+        ))
+        self.assertEqual(pending_filter["total"], 0)
+        self.assertEqual(pending_filter["ordens"], [])
+        self.assertEqual(rejected_filter["total"], 1)
+        self.assertEqual(
+            rejected_filter["ordens"][0]["status"], "rejeitada"
+        )
+
     def test_z_mixed_origin_batches_are_accepted_once_without_stock_changes(self):
         self._run_acceptance_migration()
         self._seed_physical_count()

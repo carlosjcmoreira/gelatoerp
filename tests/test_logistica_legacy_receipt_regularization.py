@@ -61,6 +61,33 @@ class LogisticaLegacyReceiptRegularizationTests(unittest.TestCase):
             ),
         )
 
+    def test_active_tab_requests_only_pending_orders_and_shows_empty_copy(self):
+        self._set_user(manager=False, administrative=True)
+        with (
+            patch(
+                "flask_app.routes.logistica.get_ordens_transferencia",
+                return_value=[],
+            ) as get_orders,
+            patch(
+                "flask_app.routes.logistica.render_template",
+                return_value="active",
+            ) as render_template,
+        ):
+            response = self.client.get("/logistica/transferencias?tab=ativas")
+
+        self.assertEqual(response.status_code, 200)
+        get_orders.assert_called_once_with(status="pendente")
+        context = render_template.call_args.kwargs
+        self.assertEqual(context["transferencias"], [])
+        with self.app.test_request_context(
+            "/logistica/transferencias?tab=ativas"
+        ):
+            html = render_flask_template(
+                "logistica/transferencias.html", **context
+            )
+        self.assertIn("Sem transferências pendentes.", html)
+        self.assertNotIn("Sem transferências agendadas.", html)
+
     def test_manager_get_receives_full_server_preview_and_csrf_token(self):
         self._set_user(manager=True)
         with (

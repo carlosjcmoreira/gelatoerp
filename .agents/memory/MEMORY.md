@@ -7,6 +7,7 @@
 - [Supplier common names](supplier-common-names.md) — common names are presentation-only; legal identity and historical invoice text remain immutable through this feature.
 - [Portal brand default invariants](portal-brand-default-invariants.md) — public default brands must stay attached to active stores, with store-row locking shared by brand and store lifecycle writes.
 - [B2B transfer destinations](b2b-transfer-destinations.md) — external recipients are typed destinations, never stores; they must not create internal receipt stock.
+- [Transfer status vs. receipt](transfer-status-vs-receipt.md) — active/history placement follows execution status; optional receipt evidence does not reopen completed orders.
 - [Pastelaria transfer stock gate](pastelaria-transfer-stock.md) — transfers now require an explicit trusted production balance and atomic audited debits; legacy balances stay reference-only.
 - [Pastelaria priority-plan snapshots](pastelaria-priority-plan-snapshots.md) — Sunday plans require explicit minima and complete counts; generated versions are immutable and concurrency-safe.
 - [Pastelaria Sunday count consistency](pastelaria-sunday-count-consistency.md) — Sunday grid reads and every count mutation must share one date lock and effective-cell version.

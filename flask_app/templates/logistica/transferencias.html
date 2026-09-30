@@ -43,18 +43,6 @@
             {% if t.n_pendentes > 0 %}
             <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">{{ t.n_pendentes }} pend.</span>
             {% endif %}
-            {% if t.n_confirmadas > 0 %}
-            <span class="badge bg-success ms-1" style="font-size:0.65rem;">{{ t.n_confirmadas }} concluída(s)</span>
-            {% endif %}
-            {% if t.n_por_verificar > 0 %}
-            <span class="badge bg-warning text-dark ms-1" style="font-size:0.65rem;">{{ t.n_por_verificar }} por verificar</span>
-            {% endif %}
-            {% if t.n_problemas > 0 %}
-            <span class="badge bg-danger ms-1" style="font-size:0.65rem;">{{ t.n_problemas }} problema(s)</span>
-            {% endif %}
-            {% if t.n_rejeitadas > 0 %}
-            <span class="badge bg-danger ms-1" style="font-size:0.65rem;">{{ t.n_rejeitadas }} rej.</span>
-            {% endif %}
         </div>
     </div>
     <div class="collapse show" id="transf-{{ loop.index }}">
