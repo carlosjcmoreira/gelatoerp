@@ -232,6 +232,181 @@ class OptionalAcceptanceMigrationTests(unittest.TestCase):
                 counts = cursor.fetchall()
         return receipts, counts
 
+    def _seed_transfer_order(
+        self, order_id, status="confirmada", receipt_state="por_verificar",
+        destination_type="loja", store="Matosinhos",
+    ):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO ordens_transferencia (
+                        id, data, area_origem, produto, sabor, quantidade,
+                        unidade, loja_destino, status, criado_por,
+                        destino_tipo, rececao_estado
+                    ) VALUES (
+                        %s, '2026-09-14', 'Gelado', %s, %s, 1,
+                        'kg', %s, %s, 'teste', %s, %s
+                    )
+                """, (
+                    order_id, f"Teste {order_id}", f"Teste {order_id}",
+                    store, status, destination_type, receipt_state,
+                ))
+                connection.commit()
+
+    def _restore_legacy_receipt_test_states(self):
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE ordens_transferencia
+                    SET rececao_estado='aceite'
+                    WHERE id=2
+                """)
+                cursor.execute("""
+                    UPDATE ordens_transferencia
+                    SET rececao_estado='nao_aplicavel'
+                    WHERE id=3
+                """)
+                connection.commit()
+
+    def test_z_legacy_receipt_regularization_is_scoped_audited_and_idempotent(self):
+        self._run_acceptance_migration()
+        self._restore_legacy_receipt_test_states()
+        self._seed_transfer_order(1086)
+        inventory_before = self._inventory_snapshot()
+
+        with patch("db.plano.db_connection", self.isolated_connection):
+            preview = plano.get_legacy_transfer_receipt_preview()
+            self.assertEqual(preview["eligible_count"], 1)
+            self.assertEqual(
+                preview["eligible_by_store"],
+                [{"store": "Matosinhos", "count": 1}],
+            )
+            self.assertEqual(preview["excluded_count"], 2)
+
+            first = plano.regularize_legacy_transfer_receipts(
+                preview["eligible_count"], preview["snapshot"], "gestor-teste"
+            )
+            replay = plano.regularize_legacy_transfer_receipts(
+                preview["eligible_count"], preview["snapshot"], "gestor-teste"
+            )
+
+        self.assertEqual(first["updated_count"], 1)
+        self.assertFalse(first["stale"])
+        self.assertTrue(replay["stale"])
+        self.assertEqual(replay["updated_count"], 0)
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT status, rececao_estado, aceite_por,
+                           aceite_em IS NOT NULL
+                    FROM ordens_transferencia WHERE id=1
+                """)
+                self.assertEqual(
+                    cursor.fetchone(),
+                    ("confirmada", "aceite", "gestor-teste", True),
+                )
+                cursor.execute("""
+                    SELECT COUNT(*), MIN(utilizador), MIN(motivo)
+                    FROM transferencias_eventos
+                    WHERE ordem_id=1 AND event_type='aceite'
+                """)
+                event_count, actor, reason = cursor.fetchone()
+                self.assertEqual(event_count, 1)
+                self.assertEqual(actor, "gestor-teste")
+                self.assertTrue(reason.startswith("Regularização administrativa:"))
+                self.assertIn(
+                    "Não constitui confirmação física da receção pela loja.",
+                    reason,
+                )
+                cursor.execute("""
+                    SELECT status, rececao_estado
+                    FROM ordens_transferencia WHERE id=1086
+                """)
+                self.assertEqual(
+                    cursor.fetchone(), ("confirmada", "por_verificar")
+                )
+        self.assertEqual(self._inventory_snapshot(), inventory_before)
+
+    def test_z_legacy_receipt_regularization_rejects_changed_snapshot_even_if_count_matches(self):
+        self._run_acceptance_migration()
+        self._restore_legacy_receipt_test_states()
+        self._seed_transfer_order(4)
+        self._seed_transfer_order(
+            5, status="pendente", receipt_state="por_verificar"
+        )
+        with patch("db.plano.db_connection", self.isolated_connection):
+            preview = plano.get_legacy_transfer_receipt_preview()
+
+        self.assertEqual(preview["eligible_count"], 2)
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    UPDATE ordens_transferencia
+                    SET rececao_estado='aceite'
+                    WHERE id=1
+                """)
+                cursor.execute("""
+                    UPDATE ordens_transferencia
+                    SET status='confirmada'
+                    WHERE id=5
+                """)
+                connection.commit()
+
+        with patch("db.plano.db_connection", self.isolated_connection):
+            result = plano.regularize_legacy_transfer_receipts(
+                preview["eligible_count"], preview["snapshot"], "gestor-teste"
+            )
+
+        self.assertTrue(result["stale"])
+        self.assertEqual(result["current_count"], 2)
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, rececao_estado
+                    FROM ordens_transferencia
+                    WHERE id IN (4, 5)
+                    ORDER BY id
+                """)
+                self.assertEqual(
+                    cursor.fetchall(),
+                    [(4, "por_verificar"), (5, "por_verificar")],
+                )
+                cursor.execute("""
+                    SELECT COUNT(*) FROM transferencias_eventos
+                    WHERE event_type='aceite' AND motivo LIKE
+                        'Regularização administrativa:%'
+                """)
+                self.assertEqual(cursor.fetchone()[0], 0)
+
+    def test_z_legacy_receipt_regularization_rolls_back_if_audit_insert_fails(self):
+        self._run_acceptance_migration()
+        self._restore_legacy_receipt_test_states()
+        with patch("db.plano.db_connection", self.isolated_connection):
+            preview = plano.get_legacy_transfer_receipt_preview()
+            with patch(
+                "db.plano._insert_evento",
+                side_effect=RuntimeError("audit insert failed"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "audit insert failed"):
+                    plano.regularize_legacy_transfer_receipts(
+                        preview["eligible_count"],
+                        preview["snapshot"],
+                        "gestor-teste",
+                    )
+
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT rececao_estado, aceite_por
+                    FROM ordens_transferencia WHERE id=1
+                """)
+                self.assertEqual(cursor.fetchone(), ("por_verificar", None))
+                cursor.execute("""
+                    SELECT COUNT(*) FROM transferencias_eventos
+                    WHERE ordem_id=1 AND event_type='aceite'
+                """)
+                self.assertEqual(cursor.fetchone()[0], 0)
+
     def test_migration_is_repeatable_and_never_duplicates_stock(self):
         with patch("db.schema.db_connection", self.isolated_connection):
             schema.run_migrations_transferencias_aceitacao_opcional()

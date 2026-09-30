@@ -1,16 +1,51 @@
-from flask import Blueprint, render_template, url_for, request, redirect, flash, session
+from flask import (
+    Blueprint, render_template, url_for, request, redirect, flash, session,
+    abort,
+)
 from flask_app.auth import perm_required
 from flask_app.analytics import queue_analytics_event
 from datetime import date, datetime
 from collections import defaultdict
+import logging
+import secrets
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import get_ordens_transferencia
-from db.plano import get_ordens_transferencia_with_events
+from db.plano import (
+    get_ordens_transferencia_with_events,
+    get_legacy_transfer_receipt_preview,
+    regularize_legacy_transfer_receipts,
+)
 from db.artigos import get_artigos_administrativos
 import db.materiais as mat_db
 
 logistica_bp = Blueprint('logistica', __name__)
+logger = logging.getLogger(__name__)
+
+_LEGACY_RECEIPT_CSRF_KEY = 'logistica_legacy_receipt_csrf'
+_LEGACY_RECEIPT_PREVIEW_KEY = 'logistica_legacy_receipt_preview'
+
+
+def _is_gestor_user():
+    user = session.get('user') or {}
+    return isinstance(user, dict) and bool(user.get('acesso_gestor'))
+
+
+def _legacy_receipt_csrf_token():
+    token = session.get(_LEGACY_RECEIPT_CSRF_KEY)
+    if not token:
+        token = secrets.token_urlsafe(24)
+        session[_LEGACY_RECEIPT_CSRF_KEY] = token
+    return token
+
+
+def _require_legacy_receipt_csrf():
+    supplied = request.form.get('csrf_token', '')
+    expected = session.get(_LEGACY_RECEIPT_CSRF_KEY, '')
+    if not expected or not secrets.compare_digest(
+        supplied.encode('utf-8'), expected.encode('utf-8')
+    ):
+        abort(400, description='A página expirou. Atualize e tente novamente.')
 
 TABS = [
     {'id': 'transferencias', 'label': 'Transferências', 'icon': '🚚', 'url_endpoint': 'logistica.transferencias'},
@@ -43,6 +78,9 @@ def transferencias():
     tab = request.args.get('tab', 'ativas')
     if tab not in ('ativas', 'historico'):
         tab = 'ativas'
+    is_gestor = _is_gestor_user()
+    legacy_receipt_preview = None
+    legacy_receipt_csrf = None
 
     # ── "Ativas" tab data ──────────────────────────────────────────────────────
     transferencias_data = []
@@ -147,6 +185,13 @@ def transferencias():
         })
         if any(o.get('destino_tipo') == 'b2b' for o in todas_ordens):
             lojas.append('B2B')
+        if is_gestor:
+            legacy_receipt_preview = get_legacy_transfer_receipt_preview()
+            session[_LEGACY_RECEIPT_PREVIEW_KEY] = {
+                'eligible_count': legacy_receipt_preview['eligible_count'],
+                'snapshot': legacy_receipt_preview['snapshot'],
+            }
+            legacy_receipt_csrf = _legacy_receipt_csrf_token()
 
     return render_template(
         'logistica/transferencias.html',
@@ -165,7 +210,75 @@ def transferencias():
         filtro_loja=filtro_loja,
         filtro_data_inicio=filtro_data_inicio,
         filtro_data_fim=filtro_data_fim,
+        is_gestor=is_gestor,
+        legacy_receipt_preview=legacy_receipt_preview,
+        legacy_receipt_csrf=legacy_receipt_csrf,
     )
+
+
+@logistica_bp.route(
+    '/transferencias/regularizar-rececoes-antigas', methods=['POST']
+)
+@perm_required('acesso_administrativo')
+def regularizar_transferencias_antigas():
+    if not _is_gestor_user():
+        abort(403)
+    _require_legacy_receipt_csrf()
+
+    expected_raw = request.form.get('expected_count', '').strip()
+    confirmation_raw = request.form.get('confirmation_count', '').strip()
+    snapshot = request.form.get('expected_snapshot', '').strip()
+    preview = session.get(_LEGACY_RECEIPT_PREVIEW_KEY) or {}
+    if (
+        not expected_raw.isdigit()
+        or not confirmation_raw.isdigit()
+        or expected_raw != confirmation_raw
+        or int(expected_raw) != preview.get('eligible_count')
+        or not secrets.compare_digest(
+            snapshot.encode('utf-8'),
+            str(preview.get('snapshot') or '').encode('utf-8'),
+        )
+    ):
+        flash(
+            'A confirmação não corresponde à prévia. Atualize a página e '
+            'confirme o total apresentado.',
+            'warning',
+        )
+        return redirect(url_for('logistica.transferencias', tab='historico'))
+
+    actor = (session.get('user') or {}).get('username')
+    try:
+        result = regularize_legacy_transfer_receipts(
+            int(expected_raw), snapshot, actor
+        )
+        if result['stale']:
+            flash(
+                'O conjunto elegível mudou desde a prévia. Nenhuma ordem foi '
+                'alterada; a lista foi atualizada.',
+                'warning',
+            )
+        elif result['updated_count']:
+            flash(
+                f'{result["updated_count"]} receção(ões) regularizada(s) '
+                'administrativamente. O stock não foi alterado.',
+                'success',
+            )
+        else:
+            flash(
+                'Não havia receções antigas elegíveis para regularizar.',
+                'info',
+            )
+    except ValueError as exc:
+        flash(str(exc), 'warning')
+    except Exception:
+        logger.exception('Falha na regularização administrativa de receções antigas')
+        flash(
+            'Não foi possível concluir a regularização. Nenhuma alteração '
+            'parcial foi guardada; atualize a página e tente novamente.',
+            'danger',
+        )
+
+    return redirect(url_for('logistica.transferencias', tab='historico'))
 
 
 # ── Backwards-compatible redirects ─────────────────────────────────────────────

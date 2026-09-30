@@ -91,7 +91,11 @@
                     <td class="text-center">{% if o.unidade == 'und' and o.quantidade == o.quantidade|int %}{{ o.quantidade|int }}{% else %}{{ "%.1f"|format(o.quantidade) }}{% endif %} {{ o.unidade }}</td>
                     <td class="text-center">
                         {% if o.rececao_estado == 'aceite' %}
+                        {% if o.rececao_regularizada_admin %}
+                        <span class="badge bg-info text-dark" style="font-size:0.65rem;">Regularizada administrativamente</span>
+                        {% else %}
                         <span class="badge bg-success" style="font-size:0.65rem;">Aceite</span>
+                        {% endif %}
                         {% elif o.rececao_estado == 'problema' %}
                         <span class="badge bg-danger" style="font-size:0.65rem;">Problema reportado</span>
                         {% elif o.status == 'rejeitada' %}
@@ -101,7 +105,9 @@
                         {% endif %}
                     </td>
                     <td class="text-muted" style="font-size:0.78rem;">
-                        {% if o.rececao_estado == 'problema' and o.motivo_problema %}
+                        {% if o.rececao_regularizada_admin %}
+                        Regularização administrativa; não comprova receção física pela loja.
+                        {% elif o.rececao_estado == 'problema' and o.motivo_problema %}
                         {{ o.motivo_problema }}
                         {% elif o.status == 'rejeitada' and o.motivo_rejeicao %}
                         {{ o.motivo_rejeicao }}

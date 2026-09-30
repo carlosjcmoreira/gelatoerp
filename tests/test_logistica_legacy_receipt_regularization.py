@@ -1,0 +1,204 @@
+import unittest
+from unittest.mock import patch
+
+from flask import Flask, render_template as render_flask_template
+
+from flask_app.routes import logistica as logistica_routes
+from flask_app.routes.logistica import logistica_bp
+
+
+class LogisticaLegacyReceiptRegularizationTests(unittest.TestCase):
+    def setUp(self):
+        self.app = Flask(
+            __name__, template_folder="../flask_app/templates"
+        )
+        self.app.secret_key = "test-secret"
+        self.app.add_url_rule(
+            "/home", endpoint="home.index", view_func=lambda: ""
+        )
+        self.app.add_url_rule(
+            "/login", endpoint="auth.login", view_func=lambda: ""
+        )
+        self.app.add_url_rule(
+            "/vendas", endpoint="vendas.index", view_func=lambda: ""
+        )
+        self.app.register_blueprint(logistica_bp, url_prefix="/logistica")
+        self.client = self.app.test_client()
+        self.preview = {
+            "max_order_id": 1085,
+            "total_legacy": 3,
+            "eligible_count": 2,
+            "eligible_by_store": [{"store": "Bolhão", "count": 2}],
+            "excluded_count": 1,
+            "excluded_by_reason": [{"reason": "Destino B2B", "count": 1}],
+            "snapshot": "a" * 64,
+            "eligible_ids": [1, 2],
+        }
+
+    def _set_user(self, *, manager=True, administrative=False):
+        with self.client.session_transaction() as current_session:
+            current_session["user"] = {
+                "username": "gestor-teste" if manager else "logistica-teste",
+                "acesso_gestor": manager,
+                "acesso_administrativo": administrative,
+            }
+
+    def _patch_history_data(self):
+        return (
+            patch(
+                "flask_app.routes.logistica.get_ordens_transferencia_with_events",
+                return_value={
+                    "ordens": [],
+                    "total": 0,
+                    "page": 1,
+                    "per_page": 50,
+                    "total_pages": 1,
+                },
+            ),
+            patch(
+                "flask_app.routes.logistica.get_ordens_transferencia",
+                return_value=[],
+            ),
+        )
+
+    def test_manager_get_receives_full_server_preview_and_csrf_token(self):
+        self._set_user(manager=True)
+        with (
+            self._patch_history_data()[0] as _events,
+            self._patch_history_data()[1] as _orders,
+            patch(
+                "flask_app.routes.logistica.get_legacy_transfer_receipt_preview",
+                return_value=self.preview,
+            ),
+            patch(
+                "flask_app.routes.logistica.render_template",
+                return_value="history",
+            ) as render_template,
+        ):
+            response = self.client.get(
+                "/logistica/transferencias?tab=historico"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        context = render_template.call_args.kwargs
+        self.assertEqual(
+            context["legacy_receipt_preview"]["eligible_count"], 2
+        )
+        self.assertTrue(context["legacy_receipt_csrf"])
+        with self.app.test_request_context(
+            "/logistica/transferencias?tab=historico"
+        ):
+            html = render_flask_template(
+                "logistica/transferencias.html", **context
+            )
+        self.assertIn("Regularizar receções antigas", html)
+        self.assertIn("Bolhão: 2", html)
+        self.assertIn("Destino B2B: 1", html)
+        self.assertIn("Escreva 2 para confirmar", html)
+        with self.client.session_transaction() as current_session:
+            self.assertEqual(
+                current_session[
+                    logistica_routes._LEGACY_RECEIPT_PREVIEW_KEY
+                ]["snapshot"],
+                self.preview["snapshot"],
+            )
+
+    def test_admin_without_gestor_never_gets_preview_and_cannot_post(self):
+        self._set_user(manager=False, administrative=True)
+        with (
+            self._patch_history_data()[0],
+            self._patch_history_data()[1],
+            patch(
+                "flask_app.routes.logistica.get_legacy_transfer_receipt_preview"
+            ) as get_preview,
+            patch(
+                "flask_app.routes.logistica.render_template",
+                return_value="history",
+            ) as render_template,
+        ):
+            response = self.client.get(
+                "/logistica/transferencias?tab=historico"
+            )
+            post_response = self.client.post(
+                "/logistica/transferencias/regularizar-rececoes-antigas",
+                data={"csrf_token": "forged"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(
+            render_template.call_args.kwargs["legacy_receipt_preview"]
+        )
+        get_preview.assert_not_called()
+        self.assertEqual(post_response.status_code, 403)
+
+    def test_post_rejects_missing_csrf_token(self):
+        self._set_user(manager=True)
+        with patch(
+            "flask_app.routes.logistica.regularize_legacy_transfer_receipts"
+        ) as regularize:
+            response = self.client.post(
+                "/logistica/transferencias/regularizar-rececoes-antigas",
+                data={
+                    "expected_count": "2",
+                    "confirmation_count": "2",
+                    "expected_snapshot": self.preview["snapshot"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
+        regularize.assert_not_called()
+
+    def test_post_requires_exact_preview_count_then_reports_success(self):
+        self._set_user(manager=True)
+        with self.client.session_transaction() as current_session:
+            current_session[logistica_routes._LEGACY_RECEIPT_CSRF_KEY] = "csrf"
+            current_session[logistica_routes._LEGACY_RECEIPT_PREVIEW_KEY] = {
+                "eligible_count": 2,
+                "snapshot": self.preview["snapshot"],
+            }
+
+        endpoint = "/logistica/transferencias/regularizar-rececoes-antigas"
+        with patch(
+            "flask_app.routes.logistica.regularize_legacy_transfer_receipts",
+            return_value={
+                "stale": False, "updated_count": 2, "replayed": False
+            },
+        ) as regularize:
+            mismatch = self.client.post(
+                endpoint,
+                data={
+                    "csrf_token": "csrf",
+                    "expected_count": "2",
+                    "confirmation_count": "1",
+                    "expected_snapshot": self.preview["snapshot"],
+                },
+            )
+            self.assertEqual(mismatch.status_code, 302)
+            regularize.assert_not_called()
+
+            response = self.client.post(
+                endpoint,
+                data={
+                    "csrf_token": "csrf",
+                    "expected_count": "2",
+                    "confirmation_count": "2",
+                    "expected_snapshot": self.preview["snapshot"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        regularize.assert_called_once_with(
+            2, self.preview["snapshot"], "gestor-teste"
+        )
+        with self.client.session_transaction() as current_session:
+            self.assertTrue(
+                any(
+                    "2 receção(ões) regularizada(s) administrativamente"
+                    in message
+                    for _category, message in current_session["_flashes"]
+                )
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

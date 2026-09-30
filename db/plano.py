@@ -2,10 +2,15 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from datetime import datetime, date, timedelta
 import logging
+import hashlib
 from db.connection import db_connection, get_connection, release_connection, logger
 from db.cache import ttl_cache, invalidate
 from db.stores import get_store_id_by_name
 import json
+
+
+LEGACY_TRANSFER_RECEIPT_MAX_ID = 1085
+ADMIN_RECEIPT_AUDIT_PREFIX = 'Regularização administrativa:'
 
 def get_plano_producao(data: date, sabor: str) -> dict:
     with db_connection() as conn:
@@ -551,6 +556,162 @@ def _insert_evento(cursor, ordem_id: int, event_type: str, utilizador: str | Non
         raise
 
 
+def _legacy_transfer_receipt_summary(rows):
+    eligible = []
+    eligible_by_store = {}
+    excluded_by_reason = {}
+
+    for row in rows:
+        order_id, status, destination_type, receipt_state, store_name = row
+        store_name = str(store_name or '').strip()
+        if (
+            status == 'confirmada'
+            and destination_type == 'loja'
+            and receipt_state == 'por_verificar'
+            and store_name
+        ):
+            eligible.append((int(order_id), store_name))
+            eligible_by_store[store_name] = eligible_by_store.get(store_name, 0) + 1
+            continue
+
+        if destination_type == 'b2b':
+            reason = 'Destino B2B'
+        elif status != 'confirmada':
+            reason = 'Execução não confirmada'
+        elif receipt_state == 'aceite':
+            reason = 'Receção já aceite'
+        elif receipt_state == 'problema':
+            reason = 'Problema reportado'
+        elif destination_type != 'loja':
+            reason = 'Destino diferente de loja'
+        elif not store_name:
+            reason = 'Loja de destino em falta'
+        else:
+            reason = 'Outro estado de receção'
+        excluded_by_reason[reason] = excluded_by_reason.get(reason, 0) + 1
+
+    snapshot_payload = json.dumps(
+        eligible, ensure_ascii=False, separators=(',', ':')
+    ).encode('utf-8')
+    snapshot = hashlib.sha256(snapshot_payload).hexdigest()
+
+    return {
+        'max_order_id': LEGACY_TRANSFER_RECEIPT_MAX_ID,
+        'total_legacy': len(rows),
+        'eligible_count': len(eligible),
+        'eligible_by_store': [
+            {'store': name, 'count': count}
+            for name, count in sorted(eligible_by_store.items())
+        ],
+        'excluded_count': len(rows) - len(eligible),
+        'excluded_by_reason': [
+            {'reason': reason, 'count': count}
+            for reason, count in sorted(excluded_by_reason.items())
+        ],
+        'snapshot': snapshot,
+        'eligible_ids': [order_id for order_id, _ in eligible],
+    }
+
+
+def get_legacy_transfer_receipt_preview():
+    """Summarize the one-time legacy receipt set without changing any rows."""
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, status, destino_tipo, rececao_estado, loja_destino
+            FROM ordens_transferencia
+            WHERE id <= %s
+            ORDER BY id
+        """, (LEGACY_TRANSFER_RECEIPT_MAX_ID,))
+        rows = cursor.fetchall()
+    return _legacy_transfer_receipt_summary(rows)
+
+
+def regularize_legacy_transfer_receipts(expected_count, expected_snapshot, actor):
+    """Atomically regularize only the previewed legacy store receipts.
+
+    This records administrative acceptance, not physical receipt evidence, and
+    intentionally does not create or modify any inventory movement.
+    """
+    try:
+        expected_count = int(expected_count)
+    except (TypeError, ValueError):
+        raise ValueError('Contagem de confirmação inválida.')
+    actor = str(actor or '').strip()
+    expected_snapshot = str(expected_snapshot or '').strip()
+    if expected_count < 0:
+        raise ValueError('Contagem de confirmação inválida.')
+    if not actor or len(actor) > 100:
+        raise ValueError('Não foi possível identificar o Gestor responsável.')
+    if len(expected_snapshot) != 64:
+        raise ValueError('A prévia expirou. Atualize a página e tente novamente.')
+
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            # Lock the entire bounded legacy set so rows cannot enter or leave
+            # eligibility while the preview snapshot is checked and applied.
+            cursor.execute("""
+                SELECT id, status, destino_tipo, rececao_estado, loja_destino
+                FROM ordens_transferencia
+                WHERE id <= %s
+                ORDER BY id
+                FOR UPDATE
+            """, (LEGACY_TRANSFER_RECEIPT_MAX_ID,))
+            rows = cursor.fetchall()
+            current = _legacy_transfer_receipt_summary(rows)
+            if (
+                current['eligible_count'] != expected_count
+                or current['snapshot'] != expected_snapshot
+            ):
+                conn.rollback()
+                return {
+                    'stale': True,
+                    'updated_count': 0,
+                    'current_count': current['eligible_count'],
+                }
+
+            order_ids = current['eligible_ids']
+            if not order_ids:
+                conn.commit()
+                return {'stale': False, 'updated_count': 0, 'replayed': True}
+
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET rececao_estado = 'aceite',
+                    aceite_por = %s,
+                    aceite_em = NOW()
+                WHERE id = ANY(%s)
+                  AND id <= %s
+                  AND status = 'confirmada'
+                  AND destino_tipo = 'loja'
+                  AND rececao_estado = 'por_verificar'
+                RETURNING id
+            """, (actor, order_ids, LEGACY_TRANSFER_RECEIPT_MAX_ID))
+            updated_ids = [row[0] for row in cursor.fetchall()]
+            if set(updated_ids) != set(order_ids):
+                raise RuntimeError(
+                    'O conjunto de receções antigas mudou durante a regularização.'
+                )
+
+            reason = (
+                f'{ADMIN_RECEIPT_AUDIT_PREFIX} realizada por {actor}. '
+                'Não constitui confirmação física da receção pela loja.'
+            )
+            for order_id in sorted(updated_ids):
+                _insert_evento(cursor, order_id, 'aceite', actor, reason)
+
+            conn.commit()
+            return {
+                'stale': False,
+                'updated_count': len(updated_ids),
+                'replayed': False,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+
+
 def get_or_create_pending_batch(
     data: date,
     area_origem: str,
@@ -676,10 +837,17 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
                    confirmado_em, created_at, data_prevista, motivo_rejeicao,
                    batch_id, loja_origem, destino_tipo, destino_nome,
                    rececao_estado, aceite_por, aceite_em, problema_por,
-                   problema_em, motivo_problema
+                   problema_em, motivo_problema,
+                   EXISTS (
+                       SELECT 1
+                       FROM transferencias_eventos audit_event
+                       WHERE audit_event.ordem_id = ordens_transferencia.id
+                         AND audit_event.event_type = 'aceite'
+                         AND audit_event.motivo LIKE %s
+                   )
             FROM ordens_transferencia WHERE 1=1
         """
-        params = []
+        params = [f'{ADMIN_RECEIPT_AUDIT_PREFIX}%']
         if status:
             query += " AND status = %s"
             params.append(status)
@@ -713,6 +881,7 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
         'rececao_estado': r[19] or 'por_verificar', 'aceite_por': r[20],
         'aceite_em': r[21], 'problema_por': r[22], 'problema_em': r[23],
         'motivo_problema': r[24],
+        'rececao_regularizada_admin': bool(r[25]) if len(r) > 25 else False,
     } for r in rows]
 
 
@@ -812,6 +981,12 @@ def get_ordens_transferencia_with_events(
                     'utilizador': ev_row[2],
                     'motivo': ev_row[3],
                     'created_at': ev_row[4],
+                    'is_admin_regularization': (
+                        ev_row[1] == 'aceite'
+                        and str(ev_row[3] or '').startswith(
+                            ADMIN_RECEIPT_AUDIT_PREFIX
+                        )
+                    ),
                 }
                 if ev_row[0] in idx:
                     idx[ev_row[0]]['eventos'].append(ev)
@@ -825,7 +1000,12 @@ def get_ordens_transferencia_with_events(
                         'utilizador': o.get('criado_por'),
                         'motivo': None,
                         'created_at': o.get('created_at'),
+                        'is_admin_regularization': False,
                     }]
+                o['rececao_regularizada_admin'] = any(
+                    ev.get('is_admin_regularization')
+                    for ev in o['eventos']
+                )
 
         return {
             'ordens': ordens,

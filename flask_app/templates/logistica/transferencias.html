@@ -83,7 +83,11 @@
                             {% if o.rececao_estado == 'por_verificar' %}
                             <div class="text-warning" style="font-size:0.68rem; margin-top:2px;">Por verificar</div>
                             {% elif o.rececao_estado == 'aceite' %}
+                            {% if o.rececao_regularizada_admin %}
+                            <div class="text-info" style="font-size:0.68rem; margin-top:2px;">Regularizada administrativamente</div>
+                            {% else %}
                             <div class="text-success" style="font-size:0.68rem; margin-top:2px;">Aceite pela loja</div>
+                            {% endif %}
                             {% elif o.rececao_estado == 'problema' %}
                             <div class="text-danger" style="font-size:0.68rem; margin-top:2px;">Problema: {{ o.motivo_problema }}</div>
                             {% endif %}
@@ -110,6 +114,76 @@
 {% else %}
 {# ═══ HISTÓRICO tab ════════════════════════════════════════════════════════ #}
 <p class="text-muted small mb-3">Histórico completo de todas as áreas, com rastreabilidade de eventos.</p>
+
+{% if is_gestor and legacy_receipt_preview %}
+<section class="card border-warning mb-3" aria-labelledby="legacy-receipt-title">
+    <div class="card-body">
+        <h6 id="legacy-receipt-title" class="fw-bold mb-2">Regularizar receções antigas</h6>
+        <p class="small mb-2">
+            Prévia calculada para todas as ordens com ID até
+            <strong>{{ legacy_receipt_preview.max_order_id }}</strong>;
+            não depende dos filtros nem da página atual.
+        </p>
+        <div class="alert alert-warning py-2 small mb-3">
+            Esta ação regista uma regularização administrativa. Não comprova
+            receção física pela loja e não cria nem altera movimentos de stock.
+        </div>
+        <div class="row g-3 small">
+            <div class="col-12 col-md-6">
+                <strong>{{ legacy_receipt_preview.eligible_count }} elegível(eis)</strong>
+                {% if legacy_receipt_preview.eligible_by_store %}
+                <ul class="mb-0 mt-1">
+                    {% for item in legacy_receipt_preview.eligible_by_store %}
+                    <li>{{ item.store }}: {{ item.count }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-muted">Nenhuma ordem elegível neste conjunto.</div>
+                {% endif %}
+            </div>
+            <div class="col-12 col-md-6">
+                <strong>{{ legacy_receipt_preview.excluded_count }} excluída(s)</strong>
+                {% if legacy_receipt_preview.excluded_by_reason %}
+                <ul class="mb-0 mt-1">
+                    {% for item in legacy_receipt_preview.excluded_by_reason %}
+                    <li>{{ item.reason }}: {{ item.count }}</li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-muted">Não há ordens excluídas.</div>
+                {% endif %}
+            </div>
+        </div>
+        {% if legacy_receipt_preview.eligible_count > 0 %}
+        <form method="post"
+              action="{{ url_for('logistica.regularizar_transferencias_antigas') }}"
+              class="mt-3 pt-3 border-top">
+            <input type="hidden" name="csrf_token" value="{{ legacy_receipt_csrf }}">
+            <input type="hidden" name="expected_count"
+                   value="{{ legacy_receipt_preview.eligible_count }}">
+            <input type="hidden" name="expected_snapshot"
+                   value="{{ legacy_receipt_preview.snapshot }}">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-sm-5">
+                    <label for="legacy-receipt-confirmation" class="form-label small mb-1">
+                        Escreva {{ legacy_receipt_preview.eligible_count }} para confirmar
+                    </label>
+                    <input id="legacy-receipt-confirmation" name="confirmation_count"
+                           type="text" inputmode="numeric" pattern="[0-9]*"
+                           class="form-control form-control-sm" autocomplete="off"
+                           required>
+                </div>
+                <div class="col-12 col-sm-auto">
+                    <button type="submit" class="btn btn-warning btn-sm fw-semibold">
+                        Regularizar {{ legacy_receipt_preview.eligible_count }} receção(ões)
+                    </button>
+                </div>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
 
 <!-- ── Filter bar ─────────────────────────────────────────────────────── -->
 <form method="GET" action="{{ url_for('logistica.transferencias') }}" class="mb-3">
@@ -220,7 +294,8 @@
                 {% for ev in o.eventos %}
                 {% if ev.event_type == 'criado' %}{% set ev_icon = '🆕' %}{% set ev_color = 'secondary' %}{% set ev_label = 'Criado' %}
                 {% elif ev.event_type == 'executado' %}{% set ev_icon = '🚚' %}{% set ev_color = 'success' %}{% set ev_label = 'Executado' %}
-                {% elif ev.event_type in ('aceite', 'confirmado') %}{% set ev_icon = '✅' %}{% set ev_color = 'success' %}{% set ev_label = 'Aceite' %}
+                {% elif ev.is_admin_regularization %}{% set ev_icon = '🧾' %}{% set ev_color = 'info' %}{% set ev_label = 'Regularizada administrativamente' %}
+                {% elif ev.event_type in ('aceite', 'confirmado') %}{% set ev_icon = '✅' %}{% set ev_color = 'success' %}{% set ev_label = 'Aceite pela loja' %}
                 {% elif ev.event_type == 'problema_reportado' %}{% set ev_icon = '⚠️' %}{% set ev_color = 'danger' %}{% set ev_label = 'Problema' %}
                 {% else %}{% set ev_icon = '❌' %}{% set ev_color = 'secondary' %}{% set ev_label = 'Rejeição histórica' %}{% endif %}
                 <div class="d-flex align-items-start gap-2">
@@ -228,7 +303,7 @@
                     <span style="font-size:0.8rem;">
                         <strong>{{ ev.utilizador or '—' }}</strong>
                         {% if ev.created_at %}&nbsp;·&nbsp; {{ ev.created_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}
-                        {% if ev.motivo %}&nbsp;·&nbsp; <em class="text-danger">{{ ev.motivo }}</em>{% endif %}
+                        {% if ev.motivo %}&nbsp;·&nbsp; <em class="{% if ev.is_admin_regularization %}text-muted{% else %}text-danger{% endif %}">{{ ev.motivo }}</em>{% endif %}
                     </span>
                 </div>
                 {% endfor %}
@@ -272,7 +347,8 @@
             {% for ev in o.eventos %}
             {% if ev.event_type == 'criado' %}{% set ev_icon = '🆕' %}{% set ev_label = 'Criado' %}
             {% elif ev.event_type == 'executado' %}{% set ev_icon = '🚚' %}{% set ev_label = 'Executado' %}
-            {% elif ev.event_type in ('aceite', 'confirmado') %}{% set ev_icon = '✅' %}{% set ev_label = 'Aceite' %}
+            {% elif ev.is_admin_regularization %}{% set ev_icon = '🧾' %}{% set ev_label = 'Regularizada administrativamente' %}
+            {% elif ev.event_type in ('aceite', 'confirmado') %}{% set ev_icon = '✅' %}{% set ev_label = 'Aceite pela loja' %}
             {% elif ev.event_type == 'problema_reportado' %}{% set ev_icon = '⚠️' %}{% set ev_label = 'Problema' %}
             {% else %}{% set ev_icon = '❌' %}{% set ev_label = 'Rejeição histórica' %}{% endif %}
             <div class="small text-muted">
