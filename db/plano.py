@@ -909,7 +909,9 @@ def get_ordens_transferencia_with_events(
     """
     with db_connection() as conn:
         cursor = conn.cursor()
-        where = " WHERE 1=1"
+        # The paginated history reader is only for final execution states.
+        # Keep this in SQL so totals and page boundaries exclude pending rows.
+        where = " WHERE o.status IN ('confirmada', 'rejeitada')"
         params = []
         if status:
             where += " AND o.status = %s"

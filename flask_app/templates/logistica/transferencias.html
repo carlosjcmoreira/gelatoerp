@@ -23,7 +23,7 @@
 
 {% if tab == 'ativas' %}
 {# ═══ ATIVAS tab ══════════════════════════════════════════════════════════ #}
-<p class="text-muted small mb-3">Vista consolidada das transferências agrupadas por data prevista e destino.</p>
+<p class="text-muted small mb-3">Ordens pendentes agrupadas por data prevista e destino.</p>
 
 {% if transferencias %}
 {% for t in transferencias %}
@@ -107,13 +107,13 @@
 </div>
 {% endfor %}
 {% else %}
-<div class="alert alert-info">Sem transferências agendadas.</div>
+<div class="alert alert-info">Sem transferências pendentes.</div>
 {% endif %}
 
 
 {% else %}
 {# ═══ HISTÓRICO tab ════════════════════════════════════════════════════════ #}
-<p class="text-muted small mb-3">Histórico completo de todas as áreas, com rastreabilidade de eventos.</p>
+<p class="text-muted small mb-3">Transferências concluídas ou rejeitadas, com rastreabilidade de eventos.</p>
 
 {% if is_gestor and legacy_receipt_preview %}
 <section class="card border-warning mb-3" aria-labelledby="legacy-receipt-title">
