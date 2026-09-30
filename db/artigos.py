@@ -644,71 +644,41 @@ def get_artigo_comercial_history(artigo_id: int) -> dict:
     }
 
 
-def add_artigo_administrativo(fornecedor: str, produto: str, marca: str = None,
-                              unidade: str = None, origem_id: int = None,
+def add_artigo_administrativo(produto: str, supplier_id: int,
+                              marca: str = None, unidade: str = None,
                               actor: str = 'sistema',
                               categoria_artigo: str = 'Por classificar') -> bool:
     from db.compras_article_categories import validate_article_category
 
     categoria_artigo = validate_article_category(categoria_artigo)
+    if not isinstance(supplier_id, int) or isinstance(supplier_id, bool) or supplier_id <= 0:
+        raise ValueError('Selecione um fornecedor válido.')
+    produto = str(produto or '').strip()
+    if not produto:
+        raise ValueError('Indique o nome do artigo.')
+
     with db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM suppliers WHERE id = %s FOR KEY SHARE",
+            (supplier_id,),
+        )
+        supplier_row = cursor.fetchone()
+        supplier_name = str(supplier_row[0] or '').strip() if supplier_row else ''
+        if not supplier_name:
+            raise ValueError('O fornecedor selecionado não existe.')
+
         try:
-            if origem_id is None:
-                origin = classify_compras_origin_label(fornecedor)
-                if origin.get('store_name'):
-                    cursor.execute(
-                        """
-                        INSERT INTO compras_origens
-                            (chave, tipo, nome, rotulo_original, store_id)
-                        SELECT %s, %s, %s, %s, s.id
-                        FROM stores s
-                        WHERE LOWER(s.name) = LOWER(%s)
-                        ON CONFLICT (chave) DO NOTHING
-                        """,
-                        (
-                            origin['key'], origin['tipo'], origin['nome'],
-                            origin['rotulo_original'], origin['store_name'],
-                        ),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        INSERT INTO compras_origens (chave, tipo, nome, rotulo_original)
-                        VALUES (%s, %s, %s, %s)
-                        ON CONFLICT (chave) DO NOTHING
-                        """,
-                        (
-                            origin['key'], origin['tipo'], origin['nome'],
-                            origin['rotulo_original'],
-                        ),
-                    )
-                cursor.execute(
-                    "SELECT id FROM compras_origens WHERE chave = %s",
-                    (origin['key'],),
-                )
-                origin_row = cursor.fetchone()
-                origem_id = origin_row[0] if origin_row else None
-            cursor.execute(
-                """
-                SELECT supplier_id
-                FROM compras_origens
-                WHERE id = %s AND tipo = 'fornecedor_externo' AND ativo = TRUE
-                """,
-                (origem_id,),
-            )
-            origin_supplier = cursor.fetchone()
-            official_supplier_id = origin_supplier[0] if origin_supplier else None
             cursor.execute(
                 """
                 INSERT INTO artigos_administrativos
-                    (fornecedor, produto, marca, unidade, origem_id,
+                    (fornecedor, produto, marca, unidade,
                      fornecedor_oficial_id, categoria_artigo,
-                     origem_original, human_modified_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                     human_modified_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
                 """,
-                (fornecedor, produto, marca or None, unidade or None,
-                 origem_id, official_supplier_id, categoria_artigo, fornecedor),
+                (supplier_name, produto, marca or None, unidade or None,
+                 supplier_id, categoria_artigo),
             )
             conn.commit()
             success = True

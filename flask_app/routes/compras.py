@@ -1241,13 +1241,16 @@ def artigos():
         action = request.form.get('action')
 
         if action == 'add':
-            fornecedor = request.form.get('fornecedor', '').strip()
+            supplier_raw = request.form.get('supplier_id', '').strip()
+            supplier_id = (
+                int(supplier_raw)
+                if supplier_raw.isascii() and supplier_raw.isdecimal()
+                else None
+            )
             produto = request.form.get('produto', '').strip()
             marca = request.form.get('marca', '').strip() or None
             unidade = request.form.get('unidade', '').strip() or None
-            origem_raw = request.form.get('origem_id', '').strip()
-            origem_id = int(origem_raw) if origem_raw.isdigit() else None
-            if fornecedor and produto:
+            if supplier_id is not None and supplier_id > 0 and produto:
                 try:
                     categoria_artigo = validate_article_category(
                         request.form.get(
@@ -1255,8 +1258,8 @@ def artigos():
                         )
                     )
                     success = add_artigo_administrativo(
-                        fornecedor, produto, marca=marca, unidade=unidade,
-                        origem_id=origem_id, actor=_get_username(),
+                        produto, supplier_id=supplier_id,
+                        marca=marca, unidade=unidade, actor=_get_username(),
                         categoria_artigo=categoria_artigo,
                     )
                     if success:
@@ -1266,7 +1269,7 @@ def artigos():
                 except ValueError as exc:
                     flash(str(exc), 'warning')
             else:
-                flash('Preencha fornecedor e produto.', 'warning')
+                flash('Selecione um fornecedor e indique o produto.', 'warning')
 
         elif action == 'edit':
             try:
@@ -1495,15 +1498,14 @@ def artigos():
                 )
             ).casefold()
         ]
-    fornecedores = sorted(set(a['fornecedor'] for a in artigos_list))
     for article in artigos_list:
         if article['id'] in bulk_form_state:
             article['_bulk_edit'] = bulk_form_state[article['id']]
     origens = get_compras_origens(apenas_ativos=True)
     suppliers = get_suppliers()
     return render_template('compras/artigos.html',
-                           artigos=artigos_list, fornecedores=fornecedores,
-                           origens=origens, suppliers=suppliers,
+                           artigos=artigos_list, origens=origens,
+                           suppliers=suppliers,
                            article_categories=ARTICLE_CATEGORIES, search=search,
                            bulk_error_message=bulk_error_message)
 

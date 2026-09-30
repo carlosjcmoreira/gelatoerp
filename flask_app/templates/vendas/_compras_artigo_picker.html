@@ -24,8 +24,9 @@
                 <option value="{{ article.id }}"
                         data-category="{{ article.categoria_artigo or 'Por classificar' }}"
                         data-product="{{ article.produto }}"
+                        data-supplier="{{ article.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}"
                         data-unit="{{ article.unidade or 'unidade' }}">
-                    {{ article.produto }}
+                    {{ article.produto }} · {{ article.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}
                 </option>
                 {% endfor %}
             </select>
@@ -72,6 +73,9 @@
                     <tr data-selected-row data-article-id="{{ row.artigo_id }}">
                         <td>
                             <div class="fw-semibold">{{ article_match.value.produto }}</div>
+                            <div class="text-muted small">
+                                Fornecedor: {{ article_match.value.fornecedor_oficial_nome or 'Por confirmar' }}
+                            </div>
                             <div class="text-muted small">
                                 {{ article_match.value.categoria_artigo or 'Por classificar' }}
                                 · {{ article_match.value.unidade or 'unidade' }}

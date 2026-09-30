@@ -228,7 +228,7 @@ class TestComprasAccess(unittest.TestCase):
                 expected_descriptions[item['url']],
             )
 
-    def test_catalogue_explains_origin_supplier_unit_and_brand(self):
+    def test_catalogue_explains_direct_supplier_and_legacy_origins(self):
         with open(
             'flask_app/templates/compras/artigos.html',
             encoding='utf-8',
@@ -241,19 +241,19 @@ class TestComprasAccess(unittest.TestCase):
         )
         self.assertIn('Origem por resolver:', html)
         self.assertIn(
-            'A designação original foi preservada',
+            'As etiquetas e origens dos artigos existentes foram preservadas.',
             html,
         )
         self.assertIn(
-            'Os artigos ativos continuam disponíveis para contagens e pedidos das lojas enquanto esta validação estiver pendente.',
+            'Os artigos ativos continuam disponíveis para contagens e pedidos das lojas enquanto a revisão estiver pendente.',
             html,
         )
         self.assertIn(
-            'Use <strong>Confirmar fornecedor</strong> apenas para corrigir a origem;',
+            'Nos artigos novos, escolha diretamente um fornecedor do cadastro único.',
             html,
         )
         self.assertIn(
-            'Origem pode ser fornecedor, centro interno ou categoria.',
+            'As origens internas e categorias dos artigos existentes ficam preservadas para revisão; não são convertidas em fornecedores.',
             html,
         )
         self.assertIn(
@@ -264,6 +264,12 @@ class TestComprasAccess(unittest.TestCase):
             'Marca é opcional e pode ser diferente do fornecedor.',
             html,
         )
+        add_form = html.split(
+            '<form method="post" class="row g-2 align-items-end"', 1
+        )[1].split('</form>', 1)[0]
+        self.assertIn('name="supplier_id"', add_form)
+        self.assertNotIn('name="origem_id"', add_form)
+        self.assertNotIn('name="fornecedor"', add_form)
         self.assertIn('data-bs-target="#confirmarFornecedorModal"', html)
         self.assertIn('name="supplier_id"', html)
         self.assertIn('value="confirm_supplier"', html)
@@ -290,6 +296,57 @@ class TestComprasAccess(unittest.TestCase):
         self.assertEqual(
             render_catalogue.call_args.kwargs['suppliers'],
             suppliers,
+        )
+
+    def test_new_article_posts_selected_supplier_id(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.add_artigo_administrativo',
+            return_value=True,
+        ) as add_article:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'add',
+                    'supplier_id': '42',
+                    'produto': 'Café em grão',
+                    'marca': 'Garcias',
+                    'unidade': 'kg',
+                    'categoria_artigo': 'Bebidas e café',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        add_article.assert_called_once_with(
+            'Café em grão',
+            supplier_id=42,
+            marca='Garcias',
+            unidade='kg',
+            actor='testuser',
+            categoria_artigo='Bebidas e café',
+        )
+
+    def test_new_article_rejects_missing_or_malformed_supplier_selection(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.add_artigo_administrativo',
+        ) as add_article:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'add',
+                    'supplier_id': '²',
+                    'produto': 'Café em grão',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        add_article.assert_not_called()
+        with self.client.session_transaction() as sess:
+            flashes = sess.get('_flashes', [])
+        self.assertIn(
+            ('warning', 'Selecione um fornecedor e indique o produto.'),
+            flashes,
         )
 
     def test_catalogue_renders_origin_and_supplier_relationships_by_id(self):
@@ -330,6 +387,14 @@ class TestComprasAccess(unittest.TestCase):
                 'fornecedor_oficial_id': 31,
                 'fornecedor_oficial_nome': 'Fornecedor coincidente',
             },
+            {
+                'id': 105, 'fornecedor': 'GARCIAS, S.A.',
+                'produto': 'Café em grão', 'ativo': True, 'origem_id': None,
+                'origem_tipo': None, 'origem_supplier_id': None,
+                'origem_nome': None, 'origem_original': None,
+                'fornecedor_oficial_id': 42,
+                'fornecedor_oficial_nome': 'GARCIAS, S.A.',
+            },
         ]
         origins = [
             {'id': 1, 'nome': 'Inocentro', 'tipo': 'fornecedor_externo'},
@@ -344,6 +409,7 @@ class TestComprasAccess(unittest.TestCase):
             {'id': 10, 'name': 'Inocentro Legal, Lda.'},
             {'id': 20, 'name': 'DEGAR SRL'},
             {'id': 31, 'name': 'Fornecedor coincidente'},
+            {'id': 42, 'name': 'GARCIAS, S.A.', 'nif': 'PT501141243'},
         ]
         original_loader = self.app.jinja_loader
         self.app.jinja_loader = FileSystemLoader(
@@ -376,6 +442,8 @@ class TestComprasAccess(unittest.TestCase):
         self.assertIn('Categoria operacional', html)
         self.assertIn('DEGAR SRL', html)
         self.assertIn('Fornecedor coincidente', html)
+        self.assertIn('GARCIAS, S.A.', html)
+        self.assertIn('PT501141243', html)
         self.assertIn('Fornecedor por confirmar', html)
         self.assertIn('Etiqueta da origem', html)
         self.assertIn(

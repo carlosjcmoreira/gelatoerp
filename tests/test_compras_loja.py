@@ -107,6 +107,12 @@ class TestComprasLoja(unittest.TestCase):
                 'unidade': 'kg', 'ativo': False,
                 'origem_tipo': 'fornecedor_externo', 'origem_supplier_id': 10,
             },
+            {
+                'id': 4, 'produto': 'Café Garcias', 'fornecedor': 'GARCIAS, S.A.',
+                'unidade': 'kg', 'ativo': True, 'origem_tipo': 'por_resolver',
+                'origem_supplier_id': None, 'fornecedor_oficial_id': 42,
+                'fornecedor_oficial_nome': 'GARCIAS, S.A.',
+            },
         ]
         with patch(
             'flask_app.routes.vendas.get_store_by_id',
@@ -123,8 +129,41 @@ class TestComprasLoja(unittest.TestCase):
         kwargs = render.call_args.kwargs
         self.assertEqual(kwargs['loja_id'], 2)
         self.assertEqual(kwargs['loja_nome'], 'Matosinhos')
-        self.assertEqual([article['id'] for article in kwargs['artigos_disponiveis']], [1, 2])
+        self.assertEqual(
+            [article['id'] for article in kwargs['artigos_disponiveis']],
+            [1, 2, 4],
+        )
+        direct_supplier_article = kwargs['artigos_disponiveis'][2]
+        self.assertEqual(direct_supplier_article['fornecedor_oficial_id'], 42)
+        self.assertEqual(
+            direct_supplier_article['fornecedor_oficial_nome'],
+            'GARCIAS, S.A.',
+        )
         self.assertEqual(kwargs['active_section'], 'urgente')
+
+    def test_store_article_picker_shows_direct_supplier(self):
+        from jinja2 import Environment, FileSystemLoader
+
+        environment = Environment(loader=FileSystemLoader('flask_app/templates'))
+        picker = environment.get_template(
+            'vendas/_compras_artigo_picker.html'
+        ).module.article_picker
+        html = str(picker(
+            [{
+                'id': 42, 'produto': 'Café em grão',
+                'categoria_artigo': 'Bebidas e café', 'unidade': 'kg',
+                'fornecedor_oficial_nome': 'GARCIAS, S.A.',
+            }],
+            ['Bebidas e café'],
+            'weekly-articles',
+            'Quantidade pedida',
+            saved_lines=[{
+                'artigo_id': 42, 'quantidade': 2, 'observacoes': '',
+            }],
+        ))
+
+        self.assertIn('Café em grão · GARCIAS, S.A.', html)
+        self.assertIn('Fornecedor: GARCIAS, S.A.', html)
 
     @staticmethod
     def _active_articles():
@@ -168,6 +207,15 @@ class TestComprasLoja(unittest.TestCase):
                 'source_origin_id': 1, 'source_origin_name': 'Fornecedor A',
                 'source_origin_type': 'fornecedor_externo', 'origin_active': True,
                 'fornecedor_oficial_nome': 'Fornecedor A',
+            },
+            {
+                'id': 15, 'produto': 'Café Garcias', 'unidade': 'kg',
+                'ativo': True, 'origem_id': None, 'origem_nome': None,
+                'origem_tipo': 'por_resolver', 'origem_ativa': None,
+                'source_origin_id': None, 'source_origin_name': None,
+                'source_origin_type': 'por_resolver', 'origin_active': None,
+                'fornecedor_oficial_id': 42,
+                'fornecedor_oficial_nome': 'GARCIAS, S.A.',
             },
         ]
 
@@ -275,7 +323,7 @@ class TestComprasLoja(unittest.TestCase):
         self.assertIn('value="12"', html)
         self.assertIn('value="13"', html)
         self.assertIn('Adicionar artigo', html)
-        self.assertNotIn('Fornecedor por confirmar', html)
+        self.assertIn('Fornecedor por confirmar', html)
         self.assertNotIn('Fornecedor oficial', html)
         self.assertNotIn('Artigo inativo', html)
 
@@ -368,6 +416,8 @@ class TestComprasLoja(unittest.TestCase):
         self.assertIn('name="contagem_id"', html)
         self.assertIn('value="70"', html)
         self.assertIn('value="13"', html)
+        self.assertIn('value="15"', html)
+        self.assertIn('Café Garcias · GARCIAS, S.A.', html)
         self.assertIn('data-category-select', html)
         self.assertIn('O valor zero é uma contagem válida.', html)
         self.assertNotIn('Artigo inativo', html)

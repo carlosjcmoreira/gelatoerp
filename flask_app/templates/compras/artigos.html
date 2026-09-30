@@ -17,18 +17,18 @@
     <div class="alert alert-info small py-2 px-3 mb-3" role="note">
         <div>
             <strong>Origem por resolver:</strong>
-            A designação original foi preservada, mas ainda não foi associada a
-            uma origem confirmada. Os artigos ativos continuam disponíveis para
-            contagens e pedidos das lojas enquanto esta validação estiver pendente.
+            As etiquetas e origens dos artigos existentes foram preservadas.
+            Os artigos ativos continuam disponíveis para contagens e pedidos das lojas
+            enquanto a revisão estiver pendente.
         </div>
         <div class="mt-1">
-            A origem operacional e o fornecedor oficial são campos distintos.
-            Use <strong>Confirmar fornecedor</strong> apenas para corrigir a origem;
-            associe o fornecedor oficial separadamente, sem alterar Matosinhos ou categorias.
+            Nos artigos novos, escolha diretamente um fornecedor do cadastro único.
+            As origens internas e categorias dos artigos existentes ficam preservadas
+            para revisão; não são convertidas em fornecedores.
         </div>
         <div class="mt-1">
-            <strong>Campos:</strong> Origem pode ser fornecedor, centro interno ou
-            categoria. Unidade é a medida usada nas quantidades (ex.: und, kg, cx),
+            <strong>Campos:</strong> O fornecedor escolhido fica ligado ao artigo pelo
+            seu registo. Unidade é a medida usada nas quantidades (ex.: und, kg, cx),
             não a quantidade. Marca é opcional e pode ser diferente do fornecedor.
         </div>
     </div>
@@ -61,27 +61,24 @@
                   data-unsaved-navigation>
                 <input type="hidden" name="action" value="add">
                 <div class="col-12 col-md-2">
-                    <label class="form-label small mb-1">Origem de abastecimento</label>
-                    <select name="origem_id" class="form-select form-select-sm" required>
-                        <option value="">Selecionar origem...</option>
-                        {% for origem in origens %}
-                        <option value="{{ origem.id }}">
-                            {{ origem.nome }} · {{ origem.tipo|replace('_', ' ') }}
+                    <label class="form-label small mb-1">Fornecedor</label>
+                    <select name="supplier_id" class="form-select form-select-sm" required
+                            {% if not suppliers %}disabled{% endif %}>
+                        <option value="">Selecionar fornecedor...</option>
+                        {% for supplier in suppliers %}
+                        <option value="{{ supplier.id }}">
+                            {{ supplier.common_name or supplier.name }}
+                            {% if supplier.common_name %} — {{ supplier.name }}{% endif %}
+                            {% if supplier.nif %} · NIF {{ supplier.nif }}{% endif %}
                         </option>
                         {% endfor %}
                     </select>
-                </div>
-                <div class="col-12 col-md-2">
-                    <label class="form-label small mb-1">Etiqueta da origem</label>
-                    <input type="text" name="fornecedor" class="form-control form-control-sm"
-                           placeholder="Texto original" required list="fornecedores-list"
-                           aria-describedby="etiqueta-origem-ajuda">
-                    <div id="etiqueta-origem-ajuda" class="form-text small">
-                        O texto não confirma um fornecedor.
+                    {% if not suppliers %}
+                    <div class="form-text small">
+                        Registe primeiro um fornecedor na
+                        <a href="{{ url_for('faturas.fornecedores', origem='compras') }}">lista de Fornecedores</a>.
                     </div>
-                    <datalist id="fornecedores-list">
-                        {% for f in fornecedores %}<option value="{{ f }}">{% endfor %}
-                    </datalist>
+                    {% endif %}
                 </div>
                 <div class="col-12 col-md-3">
                     <label class="form-label small mb-1">Produto</label>
@@ -107,7 +104,8 @@
                            placeholder="und/kg/cx" aria-label="Unidade de encomenda e contagem">
                 </div>
                 <div class="col-12 col-md-1">
-                    <button type="submit" class="btn btn-primary btn-sm w-100">Adicionar</button>
+                    <button type="submit" class="btn btn-primary btn-sm w-100"
+                            {% if not suppliers %}disabled{% endif %}>Adicionar</button>
                 </div>
             </form>
         </div>
@@ -250,7 +248,7 @@
                                                 class="form-select form-select-sm">
                                             {% if not origin_is_available.value %}
                                             <option value="" selected>
-                                                Manter origem atual{% if a.origem_nome %}: {{ a.origem_nome }}{% elif a.origem_tipo == 'por_resolver' or not a.origem_id %}: por resolver{% else %}: indisponível{% endif %}
+                                                Manter origem atual{% if a.origem_nome %}: {{ a.origem_nome }}{% elif a.fornecedor_oficial_id and not a.origem_id %}: fornecedor ligado diretamente{% elif a.origem_tipo == 'por_resolver' or not a.origem_id %}: por resolver{% else %}: indisponível{% endif %}
                                             </option>
                                             {% endif %}
                                             {% for origem in origens %}
@@ -294,7 +292,8 @@
                                                 data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}">
                                             {{ 'Alterar fornecedor oficial' if a.fornecedor_oficial_id else 'Associar fornecedor oficial' }}
                                         </button>
-                                        {% if a.origem_tipo == 'por_resolver' or not a.origem_id %}
+                                        {% if a.origem_tipo == 'por_resolver'
+                                              or (not a.origem_id and not a.fornecedor_oficial_id) %}
                                         <button type="button" class="btn btn-outline-warning btn-sm ms-1"
                                                 data-bs-toggle="modal" data-bs-target="#confirmarFornecedorModal"
                                                 data-artigo-id="{{ a.id }}"
@@ -311,6 +310,9 @@
                                             'categoria_operacional': 'Categoria operacional',
                                             'por_resolver': 'Por resolver'
                                         }.get(a.origem_tipo, 'Por resolver') %}
+                                        {% if not a.origem_id and a.fornecedor_oficial_id %}
+                                            {% set tipo_origem_label = 'Fornecedor ligado diretamente' %}
+                                        {% endif %}
                                         <span class="small text-muted">Estado da origem:</span>
                                         <span class="badge {% if tipo_origem_label == 'Por resolver' %}text-bg-warning{% else %}text-bg-light{% endif %}">
                                             {{ tipo_origem_label }}

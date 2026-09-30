@@ -1,10 +1,10 @@
 ---
-name: Compras supply origins
-description: Keep operational purchasing origins separate from confirmed official supplier identity.
+name: Compras origins and direct suppliers
+description: New Compras articles require a registered supplier ID while historical operational origins remain separate.
 ---
 
-The purchasing spreadsheet's supplier column is not a reliable supplier registry. Operational origin and official supplier identity are separate facts: Matosinhos can remain the internal stock hub, Moedas an operational purchasing category, and Gráfica an informal category while an article is independently linked to a confirmed canonical supplier ID. Preserve both facts as separate snapshots in purchasing records.
+Operational origins and registered supplier identity are separate facts. Matosinhos can remain an internal stock hub and Moedas an operational category; do not convert these labels into legal suppliers. New articles must link directly to a registered supplier ID and must not create an external origin from the selected supplier name. Preserve legacy origin records and labels for history and manual review.
 
-**Why:** Treating origin labels as suppliers creates false legal identities and loses the distinction between who manages stock and who officially supplies an article.
+**Why:** Treating origin labels as suppliers creates false legal identities and loses the distinction between who manages stock and who officially supplies an article. New article creation now has a single authoritative supplier registry, while historical rows still carry operational-origin meaning.
 
-**How to apply:** Use typed operational origins for routing and a separate canonical supplier ID for supplier analysis. Never infer supplier identity from an article name, raw label, or invoice; leave the official link optional until a person confirms it.
+**How to apply:** Require the canonical supplier ID for new articles. Keep existing operational origins and original labels intact until reviewed; never infer or manufacture supplier identity from a raw label, article name, or invoice. For later analysis, use the direct supplier link together with store and product identity.

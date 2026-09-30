@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 from db.artigos import (
+    add_artigo_administrativo,
     catalog_key_for,
     classify_compras_origin_label,
     infer_artigo_unidade,
@@ -73,6 +74,60 @@ class TestComprasCatalogBulkEdit(unittest.TestCase):
                 connection.rollback()
                 raise
         return context
+
+    def test_add_article_links_canonical_supplier_without_creating_an_origin(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value
+        cursor.fetchone.return_value = ('GARCIAS, S.A.',)
+
+        with patch(
+            'db.artigos.db_connection',
+            side_effect=self._connection_context(connection),
+        ), patch('db.artigos.invalidate_prefix') as invalidate:
+            result = add_artigo_administrativo(
+                'Café em grão', supplier_id=42, marca='Garcias',
+                unidade='kg', categoria_artigo='Bebidas e café',
+            )
+
+        self.assertTrue(result)
+        insert_call = next(
+            call for call in cursor.execute.call_args_list
+            if 'INSERT INTO artigos_administrativos' in call.args[0]
+        )
+        self.assertNotIn('origem_id', insert_call.args[0])
+        self.assertEqual(
+            insert_call.args[1],
+            ('GARCIAS, S.A.', 'Café em grão', 'Garcias', 'kg', 42,
+             'Bebidas e café'),
+        )
+        self.assertFalse(any(
+            'compras_origens' in call.args[0]
+            for call in cursor.execute.call_args_list
+        ))
+        connection.commit.assert_called_once()
+        invalidate.assert_called_once_with('artigos_administrativos')
+
+    def test_add_article_rejects_unknown_supplier_without_inserting(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value
+        cursor.fetchone.return_value = None
+
+        with patch(
+            'db.artigos.db_connection',
+            side_effect=self._connection_context(connection),
+        ), patch('db.artigos.invalidate_prefix') as invalidate:
+            with self.assertRaisesRegex(ValueError, 'fornecedor selecionado não existe'):
+                add_artigo_administrativo(
+                    'Café em grão', supplier_id=999,
+                    categoria_artigo='Bebidas e café',
+                )
+
+        self.assertFalse(any(
+            'INSERT INTO artigos_administrativos' in call.args[0]
+            for call in cursor.execute.call_args_list
+        ))
+        connection.commit.assert_not_called()
+        invalidate.assert_not_called()
 
     @staticmethod
     def _change(article_id):
