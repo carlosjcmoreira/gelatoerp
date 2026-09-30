@@ -31,7 +31,7 @@
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0 small">
                             <thead class="table-light">
-                                <tr><th>Prioridade / loja</th><th>Data pretendida</th><th>Motivo</th><th>Artigos e origem</th><th>Estado</th><th>Ações</th></tr>
+                                <tr><th>Prioridade / loja</th><th>Data pretendida</th><th>Motivo</th><th>Artigos e fornecedor</th><th>Estado</th><th>Ações</th></tr>
                             </thead>
                             <tbody>
                             {% for order in orders %}
@@ -51,7 +51,7 @@
                                 </td>
                                 <td>
                                     <div>{{ order.artigos_resumo }}</div>
-                                    <div class="text-muted">{{ order.origens_resumo }}</div>
+                                    <div class="text-muted">{{ order.fornecedores_resumo or 'Fornecedor por confirmar' }}</div>
                                     <div class="text-muted">{{ '%.3f'|format(order.quantidade_total or 0) }} unidades agregadas</div>
                                     <a class="small text-decoration-none" href="{{ url_for('compras.pedido_urgente_detalhe', order_id=order.id) }}">Ver detalhe e histórico</a>
                                 </td>

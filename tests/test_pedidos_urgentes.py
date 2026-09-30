@@ -33,8 +33,9 @@ class TestPedidosUrgentes(unittest.TestCase):
             cls.store_ids = [row[0] for row in cursor.fetchall()]
         articles = get_available_urgent_articles()
         cls.coin_article = next(
-            (article for article in articles if article["origem_catalogo_chave"] == "categoria:moedas"),
-            None,
+            (article for article in articles
+             if article.get("fornecedor_oficial_id") is not None),
+            articles[0] if articles else None,
         )
         if not cls.store_ids or not cls.coin_article:
             raise unittest.SkipTest("Catálogo de moedas ou lojas não disponível.")
@@ -63,11 +64,22 @@ class TestPedidosUrgentes(unittest.TestCase):
             today=lisboa_today(),
         )
 
-    def test_coins_use_matosinhos_internal_origin_without_supplier(self):
+    def test_new_order_uses_direct_supplier_and_keeps_store_context(self):
         order = self._create()
-        line = get_urgent_order(order["id"])["linhas"][0]
-        self.assertEqual(line["origem_tipo_snapshot"], "centro_interno")
-        self.assertEqual(line["origem_nome_snapshot"], "Matosinhos")
+        saved_order = get_urgent_order(order["id"])
+        line = saved_order["linhas"][0]
+        self.assertEqual(saved_order["store_id"], self.store_ids[0])
+        self.assertEqual(
+            line["fornecedor_oficial_id_snapshot"],
+            self.coin_article.get("fornecedor_oficial_id"),
+        )
+        self.assertEqual(
+            line["fornecedor_oficial_nome_snapshot"],
+            self.coin_article.get("fornecedor_oficial_nome"),
+        )
+        self.assertIsNone(line["origem_id_snapshot"])
+        self.assertIsNone(line["origem_tipo_snapshot"])
+        self.assertIsNone(line["origem_nome_snapshot"])
         self.assertIsNone(line["origem_supplier_id_snapshot"])
 
     def test_same_submission_is_idempotent(self):

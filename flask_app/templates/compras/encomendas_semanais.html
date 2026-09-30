@@ -111,7 +111,7 @@
         <div class="col-12 col-xl-5">
             <section class="card shadow-sm border-0 h-100">
                 <div class="card-header bg-transparent">
-                    <div class="fw-semibold">Consolidação por artigo e origem</div>
+                    <div class="fw-semibold">Consolidação por artigo e fornecedor</div>
                     <div class="text-muted small">Inclui encomendas submetidas, em preparação e concluídas.</div>
                 </div>
                 <div class="card-body p-0">
@@ -121,8 +121,7 @@
                             <thead class="table-light">
                                 <tr>
                                     <th>Artigo</th>
-                                    <th>Origem</th>
-                                    <th>Fornecedor oficial</th>
+                                    <th>Fornecedor</th>
                                     <th class="text-end">Total</th>
                                 </tr>
                             </thead>
@@ -132,9 +131,6 @@
                                     <td>
                                         <div class="fw-semibold">{{ item.produto_snapshot }}</div>
                                         <div class="text-muted small">{{ item.lojas_count }} loja(s)</div>
-                                    </td>
-                                    <td class="text-muted small">
-                                        {{ item.origem_nome_snapshot or 'Origem por validar' }}
                                     </td>
                                     <td class="text-muted small">
                                         {{ item.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}

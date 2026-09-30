@@ -14,6 +14,7 @@ from db.pedidos_urgentes import (
 from db.encomendas_semanais import (
     get_available_weekly_articles,
     get_or_create_weekly_order,
+    get_weekly_consolidation,
     save_weekly_draft,
     submit_weekly_order,
 )
@@ -34,9 +35,17 @@ class TestComprasEnvios(unittest.TestCase):
             )
             cls.store_ids = [row[0] for row in cursor.fetchall()]
         articles = get_available_urgent_articles()
-        cls.article = articles[0] if articles else None
+        cls.article = next(
+            (article for article in articles
+             if article.get("fornecedor_oficial_id") is not None),
+            articles[0] if articles else None,
+        )
         weekly_articles = get_available_weekly_articles()
-        cls.weekly_article = weekly_articles[0] if weekly_articles else None
+        cls.weekly_article = next(
+            (article for article in weekly_articles
+             if article.get("fornecedor_oficial_id") is not None),
+            weekly_articles[0] if weekly_articles else None,
+        )
         if not cls.store_ids or not cls.article or not cls.weekly_article:
             raise unittest.SkipTest(
                 "É necessária uma loja ativa e artigos ativos semeados."
@@ -289,12 +298,36 @@ class TestComprasEnvios(unittest.TestCase):
         submitted = submit_weekly_order(order["id"], self.actor, today=sunday)
         self.assertEqual(submitted["status"], "submetida")
         self.assertEqual(len(draft["linhas"]), 1)
+        self.assertEqual(submitted["store_id"], self.store_ids[0])
+        request_line = submitted["linhas"][0]
+        self.assertEqual(
+            request_line["fornecedor_oficial_id_snapshot"],
+            self.weekly_article.get("fornecedor_oficial_id"),
+        )
+        self.assertEqual(
+            request_line["fornecedor_oficial_nome_snapshot"],
+            self.weekly_article.get("fornecedor_oficial_nome"),
+        )
+        self.assertIsNone(request_line["origem_id_snapshot"])
+        self.assertIsNone(request_line["origem_tipo_snapshot"])
+        self.assertIsNone(request_line["origem_nome_snapshot"])
+
+        consolidated = get_weekly_consolidation(sunday)
+        article_rows = [
+            row for row in consolidated
+            if row["artigo_id"] == self.weekly_article["id"]
+        ]
+        self.assertEqual(len(article_rows), 1)
+        self.assertEqual(
+            article_rows[0]["fornecedor_oficial_id_snapshot"],
+            self.weekly_article.get("fornecedor_oficial_id"),
+        )
 
         dispatch = create_dispatch(
             "semanal",
             submitted["id"],
             [{
-                "pedido_linha_id": submitted["linhas"][0]["id"],
+                "pedido_linha_id": request_line["id"],
                 "quantidade": "4",
             }],
             self.actor,
@@ -302,6 +335,12 @@ class TestComprasEnvios(unittest.TestCase):
         )
         shipment = get_shipment(dispatch["id"])
         self.assertEqual(shipment["quantidade_enviada_total"], 4.0)
+        self.assertEqual(shipment["store_id"], self.store_ids[0])
+        self.assertEqual(
+            shipment["linhas"][0]["fornecedor_oficial_id_snapshot"],
+            request_line["fornecedor_oficial_id_snapshot"],
+        )
+        self.assertIsNone(shipment["linhas"][0]["origem_tipo_snapshot"])
         receipt = create_receipt(
             dispatch["id"],
             self.store_ids[0],

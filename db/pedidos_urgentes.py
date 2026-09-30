@@ -204,40 +204,10 @@ def _article_catalog_rows(cursor, article_ids: list[int]) -> dict[int, dict]:
     cursor.execute(
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
-               o.id AS catalog_origin_id, o.chave AS catalog_origin_key,
-               COALESCE(o.tipo, 'por_resolver') AS catalog_origin_type,
-               COALESCE(
-                   o.nome, NULLIF(BTRIM(a.origem_original), ''),
-                   NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
-               ) AS catalog_origin_name,
-               o.supplier_id, s.name AS supplier_nome, o.ativo AS origin_active,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN hub.id ELSE o.id END
-                   AS source_origin_id,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN 'centro_interno'
-                    ELSE COALESCE(o.tipo, 'por_resolver') END AS source_origin_type,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN hub.nome
-                    ELSE COALESCE(
-                        o.nome, NULLIF(BTRIM(a.origem_original), ''),
-                        NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
-                    ) END AS source_origin_name,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN hub.store_id ELSE o.store_id END AS source_origin_store_id,
-               CASE WHEN o.chave = 'categoria:moedas'
-                    THEN NULL ELSE o.supplier_id END AS source_supplier_id,
-               CASE WHEN o.chave = 'categoria:moedas'
-                    THEN NULL ELSE s.name END AS source_supplier_name,
+               a.categoria_artigo,
                a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
         FROM artigos_administrativos a
-        LEFT JOIN compras_origens o ON o.id = a.origem_id
-        LEFT JOIN suppliers s ON s.id = o.supplier_id
         LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
-        LEFT JOIN compras_origens hub
-          ON hub.chave = 'centro:matosinhos'
-         AND hub.tipo = 'centro_interno'
-         AND hub.ativo = TRUE
         WHERE a.id = ANY(%s)
         """,
         (article_ids,),
@@ -253,35 +223,9 @@ def get_available_urgent_articles() -> list[dict]:
             """
             SELECT a.id, a.produto, a.unidade, a.ativo,
                    a.categoria_artigo,
-                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                        THEN hub.id ELSE o.id END
-                       AS origem_id,
-                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                        THEN 'centro_interno'
-                        ELSE COALESCE(o.tipo, 'por_resolver') END AS origem_tipo,
-                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                        THEN hub.nome
-                        ELSE COALESCE(
-                            o.nome, NULLIF(BTRIM(a.origem_original), ''),
-                            NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
-                        ) END AS origem_nome,
-                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                        THEN hub.store_id ELSE o.store_id END AS origem_store_id,
-                   CASE WHEN o.chave = 'categoria:moedas'
-                        THEN NULL ELSE o.supplier_id END AS supplier_id,
-                   CASE WHEN o.chave = 'categoria:moedas'
-                        THEN NULL ELSE s.name END AS supplier_nome,
-                   o.chave AS origem_catalogo_chave,
-                   COALESCE(o.ativo, FALSE) AS origem_ativa,
                    a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
             FROM artigos_administrativos a
-            LEFT JOIN compras_origens o ON o.id = a.origem_id
-            LEFT JOIN suppliers s ON s.id = o.supplier_id
             LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
-            LEFT JOIN compras_origens hub
-              ON hub.chave = 'centro:matosinhos'
-             AND hub.tipo = 'centro_interno'
-             AND hub.ativo = TRUE
             WHERE a.ativo = TRUE
              ORDER BY a.categoria_artigo, a.produto, a.id
             """
@@ -434,12 +378,12 @@ def create_urgent_order(
                         article_id,
                         item["produto"],
                         item["unidade"] or "unidade",
-                        item["source_origin_id"],
-                        item["source_origin_type"],
-                        item["source_origin_name"],
-                        item["source_origin_store_id"],
-                        item["source_supplier_id"],
-                        item["source_supplier_name"],
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
                         item["fornecedor_oficial_id"],
                         item["fornecedor_oficial_nome"],
                         values["quantidade"],
@@ -517,8 +461,20 @@ def list_urgent_orders(
                    COALESCE(SUM(l.quantidade), 0) AS quantidade_total,
                    STRING_AGG(DISTINCT l.produto_snapshot, ', '
                               ORDER BY l.produto_snapshot) AS artigos_resumo,
-                   STRING_AGG(DISTINCT l.origem_nome_snapshot, ', '
-                              ORDER BY l.origem_nome_snapshot) AS origens_resumo
+                    STRING_AGG(
+                        DISTINCT COALESCE(
+                            l.fornecedor_oficial_nome_snapshot,
+                            CASE WHEN l.origem_tipo_snapshot = 'fornecedor_externo'
+                                 THEN l.origem_supplier_nome_snapshot END,
+                            'Fornecedor por confirmar'
+                        ),
+                        ', ' ORDER BY COALESCE(
+                            l.fornecedor_oficial_nome_snapshot,
+                            CASE WHEN l.origem_tipo_snapshot = 'fornecedor_externo'
+                                 THEN l.origem_supplier_nome_snapshot END,
+                            'Fornecedor por confirmar'
+                        )
+                    ) AS fornecedores_resumo
             FROM compras_pedidos_urgentes o
             JOIN stores s ON s.id = o.store_id
             LEFT JOIN compras_pedidos_urgentes_linhas l ON l.pedido_id = o.id

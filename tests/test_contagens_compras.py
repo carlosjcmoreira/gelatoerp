@@ -32,7 +32,11 @@ class TestContagensCompras(unittest.TestCase):
             cursor.execute("SELECT id FROM stores ORDER BY id LIMIT 2")
             cls.store_ids = [row[0] for row in cursor.fetchall()]
         articles = get_available_count_articles()
-        cls.article = articles[0] if articles else None
+        cls.article = next(
+            (article for article in articles
+             if article.get("fornecedor_oficial_id") is not None),
+            articles[0] if articles else None,
+        )
         if not cls.store_ids or not cls.article:
             raise unittest.SkipTest("Lojas ou catálogo de Compras não disponíveis.")
 
@@ -75,6 +79,28 @@ class TestContagensCompras(unittest.TestCase):
         )
         self.assertEqual(quantities[first["contagem_id"]], 3.0)
         self.assertEqual(quantities[second["contagem_id"]], 8.0)
+
+    def test_submitted_snapshot_uses_direct_supplier_and_keeps_store_context(self):
+        submitted = self._submit("3")
+        history = get_count_history(self.store_ids[0])
+        saved = next(
+            row for row in history
+            if row["contagem_id"] == submitted["contagem_id"]
+        )
+        line = saved["linhas"][0]
+
+        self.assertEqual(saved["store_id"], self.store_ids[0])
+        self.assertEqual(
+            line["fornecedor_oficial_id"],
+            self.article.get("fornecedor_oficial_id"),
+        )
+        self.assertEqual(
+            line["fornecedor_oficial_nome"],
+            self.article.get("fornecedor_oficial_nome"),
+        )
+        self.assertIsNone(line["origem_id"])
+        self.assertIsNone(line["origem_tipo"])
+        self.assertIsNone(line["origem_nome"])
 
     def test_repeated_submission_is_idempotent_and_audited_once(self):
         draft = self._draft()

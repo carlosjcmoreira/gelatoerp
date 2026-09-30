@@ -18,10 +18,8 @@ class TestConfirmArticleSupplier(unittest.TestCase):
     def test_confirmation_uses_supplier_id_and_preserves_original_label(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None, None, None),
-            (42, 'Fornecedor Legal, Lda.'),
-            None,
-            (91,),
+            (None, None),
+            ('Fornecedor Legal, Lda.',),
         ]
         conn = _connection(cursor)
 
@@ -32,40 +30,35 @@ class TestConfirmArticleSupplier(unittest.TestCase):
 
         self.assertEqual(
             result,
-            {'changed': True, 'supplier_name': 'Fornecedor Legal, Lda.'},
+            {
+                'found': True, 'changed': True,
+                'supplier_name': 'Fornecedor Legal, Lda.',
+            },
         )
         calls = cursor.execute.call_args_list
         self.assertIn('FOR UPDATE OF a', calls[0].args[0])
-        origin_insert = next(
-            call for call in calls
-            if 'INSERT INTO compras_origens' in call.args[0]
-        )
-        self.assertEqual(
-            origin_insert.args[1],
-            ('fornecedor:42', 'Fornecedor Legal, Lda.',
-             'Fornecedor Legal, Lda.', 42),
-        )
         article_update = next(
             call for call in calls
             if 'UPDATE artigos_administrativos' in call.args[0]
         )
-        self.assertEqual(article_update.args[1], (91, 42, 18))
+        self.assertEqual(article_update.args[1], (42, 18))
         audit_insert = next(
             call for call in calls
-            if 'INSERT INTO artigos_administrativos_origem_audit' in call.args[0]
+            if 'INSERT INTO artigos_administrativos_fornecedor_audit' in call.args[0]
         )
         self.assertEqual(
             audit_insert.args[1],
-            (18, 18, 91, 'CAFÉ ILLY', 'ana',
-             'confirmação de fornecedor no catálogo'),
+            (18, None, None, 42, 'Fornecedor Legal, Lda.', 'ana',
+             'confirmação do fornecedor registado no catálogo'),
         )
+        self.assertFalse(any('compras_origens' in sql for sql in _sql_calls(cursor)))
         conn.commit.assert_called_once()
         invalidate.assert_called_once_with('artigos_administrativos')
 
     def test_unknown_supplier_is_rejected_without_writes(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None, None, None),
+            (None, None),
             None,
         ]
         conn = _connection(cursor)
@@ -86,10 +79,8 @@ class TestConfirmArticleSupplier(unittest.TestCase):
     def test_same_supplier_confirmation_is_idempotent(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (72, 'CAFÉ ILLY', 'CAFÉ ILLY', 'fornecedor_externo', 42, 42,
-             'Fornecedor Legal, Lda.'),
             (42, 'Fornecedor Legal, Lda.'),
-            (72, True),
+            ('Fornecedor Legal, Lda.',),
         ]
         conn = _connection(cursor)
 
@@ -100,7 +91,10 @@ class TestConfirmArticleSupplier(unittest.TestCase):
 
         self.assertEqual(
             result,
-            {'changed': False, 'supplier_name': 'Fornecedor Legal, Lda.'},
+            {
+                'found': True, 'changed': False,
+                'supplier_name': 'Fornecedor Legal, Lda.',
+            },
         )
         sql_calls = _sql_calls(cursor)
         self.assertFalse(any(
@@ -112,42 +106,40 @@ class TestConfirmArticleSupplier(unittest.TestCase):
         conn.commit.assert_not_called()
         invalidate.assert_not_called()
 
-    def test_inactive_supplier_origin_is_not_silently_reactivated(self):
+    def test_supplier_link_does_not_reactivate_or_create_legacy_origin(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
-            (18, 'CAFÉ ILLY', 'CAFÉ ILLY', 'por_resolver', None, None, None),
-            (42, 'Fornecedor Legal, Lda.'),
-            (91, False),
+            (None, None),
+            ('Fornecedor Legal, Lda.',),
         ]
         conn = _connection(cursor)
 
         with patch('db.artigos.db_connection', return_value=conn), \
                 patch('db.artigos.invalidate_prefix') as invalidate:
             from db.artigos import confirm_artigo_fornecedor
-            with self.assertRaisesRegex(ValueError, 'inativa'):
-                confirm_artigo_fornecedor(18, 42, actor='ana')
+            result = confirm_artigo_fornecedor(18, 42, actor='ana')
 
-        self.assertFalse(any(
-            'INSERT INTO' in sql or 'UPDATE artigos_administrativos' in sql
-            for sql in _sql_calls(cursor)
-        ))
-        conn.commit.assert_not_called()
-        invalidate.assert_not_called()
+        self.assertTrue(result['changed'])
+        self.assertFalse(any('compras_origens' in sql for sql in _sql_calls(cursor)))
+        conn.commit.assert_called_once()
+        invalidate.assert_called_once_with('artigos_administrativos')
 
-    def test_supplier_confirmation_cannot_replace_another_confirmed_origin(self):
+    def test_supplier_link_can_differ_from_historical_origin(self):
         cursor = MagicMock()
-        cursor.fetchone.return_value = (
-            72, 'CAFÉ ILLY', 'CAFÉ ILLY', 'centro_interno', None, None, None,
-        )
+        cursor.fetchone.side_effect = [
+            (None, None),
+            ('Fornecedor Legal, Lda.',),
+        ]
         conn = _connection(cursor)
 
-        with patch('db.artigos.db_connection', return_value=conn):
+        with patch('db.artigos.db_connection', return_value=conn), \
+                patch('db.artigos.invalidate_prefix'):
             from db.artigos import confirm_artigo_fornecedor
-            with self.assertRaisesRegex(ValueError, 'outra origem confirmada'):
-                confirm_artigo_fornecedor(18, 42, actor='ana')
+            result = confirm_artigo_fornecedor(18, 42, actor='ana')
 
-        conn.commit.assert_not_called()
-        self.assertEqual(cursor.execute.call_count, 1)
+        self.assertTrue(result['changed'])
+        self.assertFalse(any('compras_origens' in sql for sql in _sql_calls(cursor)))
+        conn.commit.assert_called_once()
 
 
 class TestOfficialArticleSupplier(unittest.TestCase):
@@ -255,26 +247,28 @@ class TestOfficialArticleSupplier(unittest.TestCase):
         conn.commit.assert_called_once()
         invalidate.assert_called_once_with('artigos_administrativos')
 
-    def test_different_confirmed_external_origin_is_rejected(self):
+    def test_direct_supplier_can_differ_from_external_legacy_origin(self):
         cursor = MagicMock()
-        cursor.fetchone.return_value = (
-            42, 'Fornecedor Legal, Lda.', 'fornecedor_externo', 91,
-        )
+        cursor.fetchone.side_effect = [
+            (42, 'Fornecedor histórico'),
+            ('Fornecedor canónico novo',),
+        ]
         conn = _connection(cursor)
 
         with patch('db.artigos.db_connection', return_value=conn), \
                 patch('db.artigos.invalidate_prefix') as invalidate:
             from db.artigos import set_artigo_fornecedor_oficial
-            with self.assertRaisesRegex(ValueError, 'corresponder à origem externa'):
-                set_artigo_fornecedor_oficial(18, 42, actor='ana')
+            result = set_artigo_fornecedor_oficial(18, 73, actor='ana')
 
-        self.assertFalse(any(
-            'UPDATE artigos_administrativos' in sql
-            or 'INSERT INTO artigos_administrativos_fornecedor_audit' in sql
-            for sql in _sql_calls(cursor)
-        ))
-        conn.commit.assert_not_called()
-        invalidate.assert_not_called()
+        self.assertTrue(result['changed'])
+        self.assertEqual(result['supplier_name'], 'Fornecedor canónico novo')
+        update = next(
+            call for call in cursor.execute.call_args_list
+            if 'UPDATE artigos_administrativos' in call.args[0]
+        )
+        self.assertEqual(update.args[1], (73, 18))
+        conn.commit.assert_called_once()
+        invalidate.assert_called_once_with('artigos_administrativos')
 
 
 class TestArticleCatalogueNoopUpdates(unittest.TestCase):
@@ -292,7 +286,7 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
             from db.artigos import update_artigo_administrativo
             result = update_artigo_administrativo(
                 18, 'CAFÉ ILLY', 'Café Clássico',
-                marca=None, unidade=None, origem_id=18, actor='ana',
+                marca=None, unidade=None, origem_id=None, actor='ana',
             )
 
         self.assertEqual(
@@ -321,7 +315,7 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
             from db.artigos import update_artigo_administrativo
             result = update_artigo_administrativo(
                 18, 'CAFÉ ILLY', 'Café Clássico Descafeinado',
-                marca=None, unidade=None, origem_id=18, actor='ana',
+                marca=None, unidade=None, origem_id=None, actor='ana',
             )
 
         self.assertEqual(
@@ -338,9 +332,9 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         )
         self.assertEqual(
             article_update.args[1],
-            ('CAFÉ ILLY', 'Café Clássico Descafeinado', None, None, 18, None,
-             'Por classificar', 'CAFÉ ILLY', 'CAFÉ ILLY',
-             'Café Clássico Descafeinado', None, None, 18, None, 18),
+            ('CAFÉ ILLY', 'Café Clássico Descafeinado', None, None,
+             'Por classificar', 'CAFÉ ILLY', 'Café Clássico Descafeinado',
+             None, None, 18),
         )
         self.assertFalse(any(
             'INSERT INTO artigos_administrativos_origem_audit' in sql
@@ -349,7 +343,7 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         conn.commit.assert_called_once()
         invalidate.assert_called_once_with('artigos_administrativos')
 
-    def test_existing_origin_selector_still_changes_and_audits_origin(self):
+    def test_catalogue_update_rejects_legacy_origin_changes(self):
         cursor = MagicMock()
         cursor.fetchone.side_effect = [
             ('CAFÉ ILLY', 'Café Clássico', None, None, 18,
@@ -360,36 +354,20 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         conn = _connection(cursor)
 
         with patch('db.artigos.db_connection', return_value=conn), \
-                patch('db.artigos.invalidate_prefix'):
+                patch('db.artigos.invalidate_prefix') as invalidate:
             from db.artigos import update_artigo_administrativo
-            result = update_artigo_administrativo(
-                18, 'CAFÉ ILLY', 'Café Clássico',
-                marca=None, unidade=None, origem_id=91, actor='ana',
-            )
+            with self.assertRaisesRegex(ValueError, 'origem histórica'):
+                update_artigo_administrativo(
+                    18, 'CAFÉ ILLY', 'Café Clássico',
+                    marca=None, unidade=None, origem_id=91, actor='ana',
+                )
 
-        self.assertEqual(
-            result,
-            {'found': True, 'changed': True, 'origin_type': 'fornecedor_externo'},
-        )
-        article_update = next(
-            call for call in cursor.execute.call_args_list
-            if 'UPDATE artigos_administrativos' in call.args[0]
-        )
-        self.assertEqual(
-            article_update.args[1],
-            ('CAFÉ ILLY', 'Café Clássico', None, None, 91, 42,
-             'Por classificar', 'CAFÉ ILLY', 'CAFÉ ILLY',
-             'Café Clássico', None, None, 91, 42, 18),
-        )
-        audit_insert = next(
-            call for call in cursor.execute.call_args_list
-            if 'INSERT INTO artigos_administrativos_origem_audit' in call.args[0]
-        )
-        self.assertEqual(
-            audit_insert.args[1],
-            (18, 18, 91, 'CAFÉ ILLY', 'ana', 'edição do catálogo'),
-        )
-        conn.commit.assert_called_once()
+        self.assertFalse(any(
+            'UPDATE artigos_administrativos' in sql or 'INSERT INTO' in sql
+            for sql in _sql_calls(cursor)
+        ))
+        conn.commit.assert_not_called()
+        invalidate.assert_not_called()
 
 
 class TestLegacyOriginReview(unittest.TestCase):

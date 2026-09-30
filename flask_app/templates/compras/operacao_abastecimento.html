@@ -1,21 +1,6 @@
 {% extends "base.html" %}
 {% set back_url = url_for("compras.index") %}
 
-{% macro origin_badge(tipo, nome, supplier) -%}
-    {% if tipo == 'centro_interno' %}
-    <span class="badge text-bg-info">Distribuição interna</span>
-    <span class="small">{{ nome }}</span>
-    {% elif tipo == 'fornecedor_externo' %}
-    <span class="badge text-bg-primary">Fornecedor confirmado</span>
-    <span class="small">{{ supplier or nome }}</span>
-    {% elif tipo == 'por_resolver' %}
-    <span class="badge text-bg-warning">Origem por resolver</span>
-    <span class="small">{{ nome }}</span>
-    {% else %}
-    <span class="badge text-bg-secondary">{{ nome }}</span>
-    {% endif %}
-{%- endmacro %}
-
 {% block content %}
 <div class="container-fluid px-3 py-3">
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
@@ -59,16 +44,6 @@
                        class="form-control form-control-sm" placeholder="Nome ou ID">
             </div>
             <div class="col-12 col-md-2">
-                <label class="form-label small mb-1" for="ops-origin">Tipo de origem</label>
-                <select id="ops-origin" name="tipo_origem" class="form-select form-select-sm">
-                    <option value="">Todas</option>
-                    <option value="fornecedor_externo" {% if origin_type == 'fornecedor_externo' %}selected{% endif %}>Fornecedor confirmado</option>
-                    <option value="centro_interno" {% if origin_type == 'centro_interno' %}selected{% endif %}>Centro interno</option>
-                    <option value="categoria_operacional" {% if origin_type == 'categoria_operacional' %}selected{% endif %}>Categoria operacional</option>
-                    <option value="por_resolver" {% if origin_type == 'por_resolver' %}selected{% endif %}>Por resolver</option>
-                </select>
-            </div>
-            <div class="col-12 col-md-3">
                 <label class="form-label small mb-1" for="ops-supplier">Fornecedor confirmado</label>
                 <select id="ops-supplier" name="fornecedor_id" class="form-select form-select-sm">
                     <option value="">Todos os fornecedores</option>
@@ -109,7 +84,7 @@
             <div class="card border-0 shadow-sm h-100"><div class="card-body">
                 <div class="small text-muted">Volume planeado</div>
                 <div class="fs-4 fw-bold">{{ '%.3f'|format(planned_volume) }}</div>
-                <div class="small text-muted">{{ weekly_consolidation|length }} artigo/origem no ciclo</div>
+                <div class="small text-muted">{{ weekly_consolidation|length }} combinação(ões) artigo/fornecedor</div>
             </div></div>
         </div>
         <div class="col-6 col-lg-3">
@@ -180,17 +155,16 @@
 
             <section class="card shadow-sm border-0 mb-3">
                 <div class="card-header bg-transparent">
-                    <span class="fw-semibold">Consolidação por artigo e origem</span>
-                    <div class="text-muted small">Fornecedores confirmados ficam agrupados pela identidade canónica; origens internas indicam trabalho de distribuição.</div>
+                    <span class="fw-semibold">Consolidação por artigo e fornecedor</span>
+                    <div class="text-muted small">Agrupada pela associação direta ao fornecedor registado; artigos sem associação permanecem por confirmar.</div>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light"><tr><th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th><th>Lojas</th><th class="text-end">Total</th></tr></thead>
+                        <thead class="table-light"><tr><th>Artigo</th><th>Fornecedor</th><th>Lojas</th><th class="text-end">Total</th></tr></thead>
                         <tbody>
                         {% for item in weekly_consolidation %}
                         <tr>
                             <td><div class="fw-semibold">{{ item.produto_snapshot }}</div><div class="text-muted small">ID {{ item.artigo_id }}</div></td>
-                            <td>{{ origin_badge(item.origem_tipo_snapshot, item.origem_nome_snapshot) }}</td>
                             <td class="small">{{ item.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
                             <td class="small">
                                 {% for store in item.lojas %}
@@ -200,7 +174,7 @@
                             <td class="text-end text-nowrap">{{ '%.3f'|format(item.quantidade_total) }} {{ item.unidade_snapshot }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="5" class="text-center text-muted py-4">A consolidação aparece depois das primeiras submissões.</td></tr>
+                        <tr><td colspan="4" class="text-center text-muted py-4">A consolidação aparece depois das primeiras submissões.</td></tr>
                         {% endfor %}
                         </tbody>
                     </table>
@@ -217,7 +191,7 @@
                 </div>
                 <div class="table-responsive">
                     <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light"><tr><th>Prazo / loja</th><th>Motivo</th><th>Artigos e origem</th><th>Estado</th><th></th></tr></thead>
+                        <thead class="table-light"><tr><th>Prazo / loja</th><th>Motivo</th><th>Artigos e fornecedor</th><th>Estado</th><th></th></tr></thead>
                         <tbody>
                         {% for order in urgent_orders %}
                         <tr>
@@ -225,7 +199,7 @@
                             <td>{{ urgent_reason_labels[order.motivo] }}{% if order.motivo_detalhe %}<div class="text-muted small">{{ order.motivo_detalhe }}</div>{% endif %}</td>
                             <td class="small">
                                 {% for line in order.linhas %}
-                                <div>{{ line.produto }} — {{ '%.3f'|format(line.quantidade) }} {{ line.unidade }} · {{ origin_badge(line.origem_tipo, line.origem_nome, line.supplier_nome) }}</div>
+                                <div>{{ line.produto }} — {{ '%.3f'|format(line.quantidade) }} {{ line.unidade }} · {{ line.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}</div>
                                 {% endfor %}
                                 {% if order.observacoes %}<div class="text-muted mt-1">Nota: {{ order.observacoes }}</div>{% endif %}
                             </td>
@@ -264,7 +238,7 @@
                             <td class="text-nowrap">{{ snapshot.data_contagem }}<div class="text-muted">{{ snapshot.loja_nome }}</div></td>
                             <td>{{ snapshot.linhas|length }}</td>
                             <td>{{ snapshot.submitted_by }}</td>
-                            <td class="small">{% for line in snapshot.linhas[:5] %}{{ line.produto }}: {{ line.quantidade }} {{ line.unidade }}{% if not loop.last %}; {% endif %}{% endfor %}{% if snapshot.linhas|length > 5 %}…{% endif %}</td>
+                            <td class="small">{% for line in snapshot.linhas[:5] %}{{ line.produto }}: {{ line.quantidade }} {{ line.unidade }} · {{ line.fornecedor_oficial_nome or (line.supplier_nome if line.origem_tipo == 'fornecedor_externo' else none) or 'Fornecedor por confirmar' }}{% if not loop.last %}; {% endif %}{% endfor %}{% if snapshot.linhas|length > 5 %}…{% endif %}</td>
                         </tr>
                         {% else %}
                         <tr><td colspan="4" class="text-center text-muted py-4">Sem snapshots de contagem para os filtros.</td></tr>

@@ -100,7 +100,7 @@
             <div class="table-responsive border rounded">
                 <table class="table table-sm align-middle mb-0">
                     <thead class="table-light">
-                        <tr><th>Artigo</th><th>Origem operacional</th><th class="text-end">Quantidade</th><th>Unidade</th></tr>
+                        <tr><th>Artigo</th><th>Fornecedor</th><th class="text-end">Quantidade</th><th>Unidade</th></tr>
                     </thead>
                     <tbody>
                     {% for line in weekly_order.linhas %}
@@ -111,10 +111,10 @@
                             <span class="badge text-bg-warning ms-1">Desativado no catálogo</span>
                             {% endif %}
                         </td>
-                        <td class="text-muted small">
-                            {{ line.origem_nome_snapshot or 'Origem por validar' }}
-                            {% if line.origem_tipo_snapshot == 'por_resolver' %}
-                            <span class="badge text-bg-warning">Por validar</span>
+                        <td class="small">
+                            {{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}
+                            {% if line.origem_nome_snapshot %}
+                            <div class="text-muted">Origem histórica: {{ line.origem_nome_snapshot }}</div>
                             {% endif %}
                         </td>
                         <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
@@ -199,13 +199,13 @@
                 {% if urgent_orders %}
                 <div class="table-responsive border rounded">
                     <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light"><tr><th>Data</th><th>Motivo</th><th>Artigos/origem</th><th>Estado</th></tr></thead>
+                        <thead class="table-light"><tr><th>Data</th><th>Motivo</th><th>Artigos/fornecedor</th><th>Estado</th></tr></thead>
                         <tbody>
                         {% for order in urgent_orders %}
                         <tr>
                             <td class="text-nowrap">{{ order.data_pretendida.strftime('%d/%m/%Y') }}</td>
                             <td>{{ urgent_reason_labels[order.motivo] }}</td>
-                            <td><div>{{ order.artigos_resumo }}</div><div class="text-muted small">{{ order.origens_resumo }}</div></td>
+                            <td><div>{{ order.artigos_resumo }}</div><div class="text-muted small">{{ order.fornecedores_resumo or 'Fornecedor por confirmar' }}</div></td>
                             <td><span class="badge text-bg-secondary">{{ order.status|replace('_', ' ')|title }}</span></td>
                         </tr>
                         {% endfor %}
@@ -266,7 +266,7 @@
                             <td>{{ snapshot.linhas|length }}</td>
                             <td>{{ snapshot.submitted_by }}</td>
                             <td class="small text-muted">
-                                {% for line in snapshot.linhas[:4] %}{{ line.produto }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                {% for line in snapshot.linhas[:4] %}{{ line.produto }} · {{ line.fornecedor_oficial_nome or (line.supplier_nome if line.origem_tipo == 'fornecedor_externo' else none) or 'Fornecedor por confirmar' }}{% if not loop.last %}, {% endif %}{% endfor %}
                                 {% if snapshot.linhas|length > 4 %}…{% endif %}
                             </td>
                         </tr>

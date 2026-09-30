@@ -82,7 +82,6 @@ _DB_PATCHES = [
     patch('flask_app.routes.compras.get_cost_centers',          return_value=[]),
     patch('flask_app.routes.compras.get_cost_categories_tree',  return_value=[]),
     patch('flask_app.routes.compras.get_artigos_administrativos', return_value=[]),
-    patch('flask_app.routes.compras.get_compras_origens',        return_value=[]),
     # article-count route
     patch('db.contagens_compras.list_submitted_counts', return_value=[]),
     patch('db.contagens_compras.get_count_origins', return_value=[]),
@@ -228,7 +227,7 @@ class TestComprasAccess(unittest.TestCase):
                 expected_descriptions[item['url']],
             )
 
-    def test_catalogue_explains_direct_supplier_and_legacy_origins(self):
+    def test_catalogue_explains_direct_supplier_and_historical_origin(self):
         with open(
             'flask_app/templates/compras/artigos.html',
             encoding='utf-8',
@@ -239,21 +238,20 @@ class TestComprasAccess(unittest.TestCase):
             'Pesquise, acrescente e corrija artigos disponíveis para encomendas.',
             html,
         )
-        self.assertIn('Origem por resolver:', html)
         self.assertIn(
-            'As etiquetas e origens dos artigos existentes foram preservadas.',
+            'Fornecedor por confirmar:',
             html,
         )
         self.assertIn(
-            'Os artigos ativos continuam disponíveis para contagens e pedidos das lojas enquanto a revisão estiver pendente.',
+            'Artigos sem uma ligação direta a fornecedor continuam disponíveis para contagens e pedidos.',
             html,
         )
         self.assertIn(
-            'Nos artigos novos, escolha diretamente um fornecedor do cadastro único.',
+            'A origem herdada fica apenas como registo histórico.',
             html,
         )
         self.assertIn(
-            'As origens internas e categorias dos artigos existentes ficam preservadas para revisão; não são convertidas em fornecedores.',
+            'Não usamos etiquetas antigas, centros internos ou categorias para deduzir fornecedores.',
             html,
         )
         self.assertIn(
@@ -270,9 +268,9 @@ class TestComprasAccess(unittest.TestCase):
         self.assertIn('name="supplier_id"', add_form)
         self.assertNotIn('name="origem_id"', add_form)
         self.assertNotIn('name="fornecedor"', add_form)
-        self.assertIn('data-bs-target="#confirmarFornecedorModal"', html)
+        self.assertIn('data-bs-target="#fornecedorOficialModal"', html)
         self.assertIn('name="supplier_id"', html)
-        self.assertIn('value="confirm_supplier"', html)
+        self.assertIn('value="set_official_supplier"', html)
         self.assertIn("url_for('faturas.fornecedores', origem='compras')", html)
 
     def test_catalogue_passes_canonical_suppliers_to_resolution_dialog(self):
@@ -349,7 +347,7 @@ class TestComprasAccess(unittest.TestCase):
             flashes,
         )
 
-    def test_catalogue_renders_origin_and_supplier_relationships_by_id(self):
+    def test_catalogue_shows_direct_supplier_and_read_only_history(self):
         self._set_session_user(_user(acesso_compras=True))
         articles = [
             {
@@ -398,15 +396,6 @@ class TestComprasAccess(unittest.TestCase):
                 'fornecedor_oficial_nome': 'GARCIAS, S.A.',
             },
         ]
-        origins = [
-            {'id': 1, 'nome': 'Inocentro', 'tipo': 'fornecedor_externo'},
-            {'id': 2, 'nome': 'Matosinhos', 'tipo': 'centro_interno'},
-            {'id': 3, 'nome': 'Moedas', 'tipo': 'categoria_operacional'},
-            {
-                'id': 4, 'nome': 'Fornecedor coincidente',
-                'tipo': 'fornecedor_externo',
-            },
-        ]
         suppliers = [
             {'id': 10, 'name': 'Inocentro Legal, Lda.'},
             {'id': 20, 'name': 'DEGAR SRL'},
@@ -421,9 +410,6 @@ class TestComprasAccess(unittest.TestCase):
             with patch(
                 'flask_app.routes.compras.get_artigos_administrativos',
                 return_value=articles,
-            ), patch(
-                'flask_app.routes.compras.get_compras_origens',
-                return_value=origins,
             ), patch(
                 'flask_app.routes.compras.get_suppliers',
                 return_value=suppliers,
@@ -441,13 +427,11 @@ class TestComprasAccess(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = ' '.join(response.get_data(as_text=True).split())
         pending_html = ' '.join(pending_response.get_data(as_text=True).split())
-        self.assertEqual(html.count('Mesmo fornecedor da origem'), 1)
         self.assertIn('Inocentro Legal, Lda.', html)
-        self.assertIn('Fornecedor externo', html)
-        self.assertIn('Centro interno', html)
-        self.assertIn('Categoria operacional', html)
-        self.assertIn('Designação original preservada: Matosinhos', html)
-        self.assertIn('Rever origem', html)
+        self.assertIn('Origem histórica', html)
+        self.assertIn('Matosinhos', html)
+        self.assertIn('Moedas', html)
+        self.assertIn('Rever artigo', html)
         self.assertIn('name="review_action" value="pending"', html)
         self.assertIn('name="review_action" value="confirm"', html)
         self.assertIn('DEGAR SRL', html)
@@ -455,18 +439,16 @@ class TestComprasAccess(unittest.TestCase):
         self.assertIn('GARCIAS, S.A.', html)
         self.assertIn('PT501141243', html)
         self.assertIn('Fornecedor por confirmar', html)
-        self.assertIn('Etiqueta da origem', html)
-        self.assertIn(
-            'Texto original preservado: Etiqueta original Inocentro',
-            html,
-        )
-        self.assertIn('name="fornecedor_101" value="Inocentro"', html)
-        self.assertIn('name="fornecedor_102" value="Matosinhos"', html)
+        self.assertIn('data-fornecedor-id="10"', html)
+        self.assertIn('Inocentro', html)
+        self.assertNotIn('Etiqueta original Inocentro', html)
+        self.assertNotIn('name="fornecedor_101"', html)
+        self.assertNotIn('name="origem_id_101"', html)
         self.assertIn('name="categoria_artigo_101"', html)
         self.assertIn('artigo-detalhe-101', html)
         self.assertIn('name="action" value="bulk_edit"', html)
         self.assertIn('Guardar alterações', html)
-        self.assertNotIn('<th>Fornecedor oficial</th>', html)
+        self.assertNotIn('<th>Origem</th>', html)
         self.assertIn('Produto interno', pending_html)
         self.assertIn('Sem fornecedor', pending_html)
         self.assertNotIn('Produto externo', pending_html)
@@ -556,7 +538,7 @@ class TestComprasAccess(unittest.TestCase):
         self.assertEqual(review_origin.call_args.kwargs['actor'], 'testuser')
         with self.client.session_transaction() as sess:
             messages = [message for _, message in sess.get('_flashes', [])]
-        self.assertTrue(any('a origem original foi preservada' in m for m in messages))
+        self.assertTrue(any('a designação histórica foi preservada' in m for m in messages))
 
     def test_catalogue_noop_save_has_accurate_feedback(self):
         self._set_session_user(_user(acesso_compras=True))
@@ -584,7 +566,7 @@ class TestComprasAccess(unittest.TestCase):
             flashes = sess.get('_flashes', [])
         self.assertIn(('info', 'Sem alterações.'), flashes)
 
-    def test_catalogue_edit_submits_the_editable_label(self):
+    def test_catalogue_edit_keeps_historical_label_read_only(self):
         self._set_session_user(_user(acesso_compras=True))
         with patch(
             'flask_app.routes.compras.update_artigo_administrativo',
@@ -608,8 +590,9 @@ class TestComprasAccess(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
             update_article.call_args.args[:3],
-            (18, 'Etiqueta corrigida', 'Produto'),
+            (18, None, 'Produto'),
         )
+        self.assertIsNone(update_article.call_args.kwargs['origem_id'])
         self.assertIsNone(
             update_article.call_args.kwargs['categoria_artigo']
         )
@@ -649,18 +632,14 @@ class TestComprasAccess(unittest.TestCase):
             ('action', 'bulk_edit'),
             ('artigo_id', '18'),
             ('artigo_id', '19'),
-            ('fornecedor_18', 'Etiqueta 18'),
             ('produto_18', 'Produto 18'),
             ('marca_18', ''),
             ('unidade_18', 'un'),
             ('categoria_artigo_18', 'Higiene e limpeza'),
-            ('origem_id_18', ''),
-            ('fornecedor_19', 'Etiqueta 19'),
             ('produto_19', 'Produto 19'),
             ('marca_19', 'Marca 19'),
             ('unidade_19', 'kg'),
             ('categoria_artigo_19', 'Bebidas e café'),
-            ('origem_id_19', '8'),
         ])
         with patch(
             'flask_app.routes.compras.update_artigos_administrativos_bulk',
@@ -674,21 +653,17 @@ class TestComprasAccess(unittest.TestCase):
             [
                 {
                     'artigo_id': 18,
-                    'fornecedor': 'Etiqueta 18',
                     'produto': 'Produto 18',
                     'marca': None,
                     'unidade': 'un',
                     'categoria_artigo': 'Higiene e limpeza',
-                    'origem_id': None,
                 },
                 {
                     'artigo_id': 19,
-                    'fornecedor': 'Etiqueta 19',
                     'produto': 'Produto 19',
                     'marca': 'Marca 19',
                     'unidade': 'kg',
                     'categoria_artigo': 'Bebidas e café',
-                    'origem_id': 8,
                 },
             ],
         )
@@ -715,28 +690,21 @@ class TestComprasAccess(unittest.TestCase):
         form_data = {
             'action': 'bulk_edit',
             'artigo_id': ['18', '19'],
-            'fornecedor_18': 'Etiqueta nova 18',
             'produto_18': 'Produto novo 18',
             'marca_18': '',
             'unidade_18': 'un',
             'categoria_artigo_18': 'Higiene e limpeza',
-            'origem_id_18': '',
-            'fornecedor_19': 'Etiqueta nova 19',
             'produto_19': 'Produto novo 19',
             'marca_19': '',
             'unidade_19': 'un',
             'categoria_artigo_19': 'Bebidas e café',
-            'origem_id_19': '',
         }
         with patch(
             'flask_app.routes.compras.update_artigos_administrativos_bulk',
-            side_effect=ValueError('Artigo #19: origem inválida.'),
+            side_effect=ValueError('Artigo #19: categoria inválida.'),
         ), patch(
             'flask_app.routes.compras.get_artigos_administrativos',
             return_value=articles,
-        ), patch(
-            'flask_app.routes.compras.get_compras_origens',
-            return_value=[],
         ), patch(
             'flask_app.routes.compras.get_suppliers',
             return_value=[],
@@ -750,7 +718,7 @@ class TestComprasAccess(unittest.TestCase):
         kwargs = render_catalogue.call_args.kwargs
         self.assertEqual(
             kwargs['bulk_error_message'],
-            'Artigo #19: origem inválida.',
+            'Artigo #19: categoria inválida.',
         )
         self.assertEqual(
             kwargs['artigos'][0]['_bulk_edit']['categoria_artigo'],
@@ -822,7 +790,7 @@ class TestComprasAccess(unittest.TestCase):
         resp = self.client.get('/compras/operacao-abastecimento')
         self.assertEqual(resp.status_code, 200)
 
-    def test_operational_supplier_filter_lists_canonical_suppliers_for_internal_origins(self):
+    def test_operational_supplier_filter_lists_canonical_suppliers(self):
         from flask_app.routes import compras as compras_routes
 
         self._set_session_user(_user(acesso_compras=True))
@@ -832,19 +800,9 @@ class TestComprasAccess(unittest.TestCase):
             'name': 'Fornecedor Legal, Lda.',
             'common_name': 'Fornecedor Bolhão',
         }]
-        origins = [{
-            'id': 7,
-            'nome': 'Matosinhos',
-            'tipo': 'centro_interno',
-            'supplier_id': None,
-            'supplier_name': None,
-        }]
         with patch(
             'flask_app.routes.compras.get_suppliers',
             return_value=suppliers,
-        ), patch(
-            'flask_app.routes.compras.get_compras_origens',
-            return_value=origins,
         ):
             response = self.client.get(
                 '/compras/operacao-abastecimento?fornecedor_id=42'

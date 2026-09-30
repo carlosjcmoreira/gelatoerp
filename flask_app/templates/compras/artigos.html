@@ -16,15 +16,13 @@
 
     <div class="alert alert-info small py-2 px-3 mb-3" role="note">
         <div>
-            <strong>Origem por resolver:</strong>
-            As etiquetas e origens dos artigos existentes foram preservadas.
-            Os artigos ativos continuam disponíveis para contagens e pedidos das lojas
-            enquanto a revisão estiver pendente.
+            <strong>Fornecedor por confirmar:</strong>
+            Artigos sem uma ligação direta a fornecedor continuam disponíveis para
+            contagens e pedidos. A origem herdada fica apenas como registo histórico.
         </div>
         <div class="mt-1">
-            Nos artigos novos, escolha diretamente um fornecedor do cadastro único.
-            As origens internas e categorias dos artigos existentes ficam preservadas
-            para revisão; não são convertidas em fornecedores.
+            Associe cada artigo ao fornecedor confirmado no cadastro único. Não usamos
+            etiquetas antigas, centros internos ou categorias para deduzir fornecedores.
         </div>
         <div class="mt-1">
             <strong>Campos:</strong> O fornecedor escolhido fica ligado ao artigo pelo
@@ -40,11 +38,11 @@
                 <div class="col-12 col-md">
                     <input type="search" name="q" value="{{ search or '' }}"
                            class="form-control form-control-sm"
-                           placeholder="Pesquisar origem, produto ou marca">
+                            placeholder="Pesquisar produto, marca ou designação histórica">
                 </div>
                 <div class="col-12 col-md-3">
                     <select name="revisao" class="form-select form-select-sm"
-                            aria-label="Filtrar pelo estado da revisão da origem">
+                            aria-label="Filtrar pelo estado da revisão manual">
                         <option value="todos" {% if review_filter == 'todos' %}selected{% endif %}>
                             Todas as revisões
                         </option>
@@ -160,22 +158,6 @@
             {% for a in artigos %}
                 {% set edit = a.get('_bulk_edit', {}) %}
                 {% set selected_category = edit.get('categoria_artigo', a.categoria_artigo or 'Por classificar') %}
-                {% set selected_origin_id = namespace(value='') %}
-                {% if 'origem_id' in edit %}
-                    {% set selected_origin_id.value = edit.get('origem_id', '') %}
-                {% else %}
-                    {% for origem in origens %}
-                        {% if origem.id|string == a.origem_id|string %}
-                            {% set selected_origin_id.value = a.origem_id|string %}
-                        {% endif %}
-                    {% endfor %}
-                {% endif %}
-                {% set origin_is_available = namespace(value=false) %}
-                {% for origem in origens %}
-                    {% if origem.id|string == selected_origin_id.value|string %}
-                        {% set origin_is_available.value = true %}
-                    {% endif %}
-                {% endfor %}
                 <tr class="{% if not a.ativo %}text-muted{% endif %}">
                     <td>
                         <button class="btn btn-link p-0 text-start text-decoration-none fw-semibold"
@@ -259,107 +241,42 @@
                                                value="{{ edit.get('marca', a.marca or '') }}"
                                                class="form-control form-control-sm">
                                     </div>
-                                    <div class="col-12 col-md-5">
-                                        <label for="origem-{{ a.id }}" class="form-label small mb-1">
-                                            Origem de abastecimento
-                                        </label>
-                                        <select id="origem-{{ a.id }}" form="catalogue-bulk-edit"
-                                                name="origem_id_{{ a.id }}"
-                                                class="form-select form-select-sm">
-                                            {% if not origin_is_available.value %}
-                                            <option value="" selected>
-                                                Manter origem atual{% if a.origem_nome %}: {{ a.origem_nome }}{% elif a.fornecedor_oficial_id and not a.origem_id %}: fornecedor ligado diretamente{% elif a.origem_tipo == 'por_resolver' or not a.origem_id %}: por resolver{% else %}: indisponível{% endif %}
-                                            </option>
-                                            {% endif %}
-                                            {% for origem in origens %}
-                                            <option value="{{ origem.id }}"
-                                                    {% if origem.id|string == selected_origin_id.value|string %}selected{% endif %}>
-                                                {{ origem.nome }} · {{ origem.tipo|replace('_', ' ') }}
-                                            </option>
-                                            {% endfor %}
-                                        </select>
-                                    </div>
-                                    <div class="col-12 col-md-4">
-                                        <label for="etiqueta-{{ a.id }}" class="form-label small mb-1">
-                                            Etiqueta da origem
-                                        </label>
-                                        <input id="etiqueta-{{ a.id }}" form="catalogue-bulk-edit"
-                                               type="text" name="fornecedor_{{ a.id }}"
-                                               value="{{ edit.get('fornecedor', a.fornecedor) }}"
-                                               class="form-control form-control-sm">
-                                        {% if a.origem_original and a.origem_original != a.fornecedor %}
-                                        <div class="small text-muted mt-1">
-                                            Texto original preservado: {{ a.origem_original }}
+                                    <div class="col-12 col-md-2">
+                                        <div class="form-label small mb-1">Origem histórica</div>
+                                        <div class="small text-muted">
+                                            {{ a.origem_nome or a.origem_original or a.fornecedor or 'Não registada' }}
                                         </div>
-                                        {% endif %}
-                                        {% if a.origem_revisao_estado %}
-                                        <div class="small text-muted mt-1">
-                                            Designação original preservada:
-                                            {{ a.origem_original or a.fornecedor }}
-                                        </div>
-                                        {% endif %}
                                     </div>
-                                    <div class="col-12 col-md-8">
-                                        <div class="form-label small mb-1">Fornecedor oficial</div>
-                                        {% if a.origem_tipo == 'fornecedor_externo'
-                                              and a.origem_supplier_id is not none
-                                              and a.origem_supplier_id == a.fornecedor_oficial_id %}
-                                        <span class="badge text-bg-success">Mesmo fornecedor da origem</span>
-                                        <span class="small">{{ a.fornecedor_oficial_nome or 'Nome legal indisponível' }}</span>
-                                        {% elif a.fornecedor_oficial_nome %}
+                                    <div class="col-12 col-md-3">
+                                        <div class="form-label small mb-1">Fornecedor registado</div>
+                                        {% if a.fornecedor_oficial_nome %}
                                         <span class="fw-semibold">{{ a.fornecedor_oficial_nome }}</span>
                                         {% else %}
                                         <span class="badge text-bg-warning">Fornecedor por confirmar</span>
                                         {% endif %}
+                                        <button type="button" class="btn btn-outline-primary btn-sm ms-1"
+                                                data-bs-toggle="modal" data-bs-target="#fornecedorOficialModal"
+                                                data-artigo-id="{{ a.id }}"
+                                                data-artigo-produto="{{ a.produto }}"
+                                                data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}">
+                                            {{ 'Alterar' if a.fornecedor_oficial_id else 'Associar' }}
+                                        </button>
+                                    </div>
+                                    <div class="col-12 d-flex flex-wrap align-items-center gap-2">
                                         {% if a.origem_revisao_estado %}
-                                        <button type="button" class="btn btn-outline-warning btn-sm ms-2"
+                                        <span class="small text-muted">Revisão manual:</span>
+                                        <span class="badge {% if a.origem_revisao_estado == 'por_rever' %}text-bg-warning{% else %}text-bg-success{% endif %}">
+                                            {{ 'Por rever' if a.origem_revisao_estado == 'por_rever' else 'Revisto' }}
+                                        </span>
+                                        <button type="button" class="btn btn-outline-warning btn-sm"
                                                 data-bs-toggle="modal" data-bs-target="#revisaoOrigemModal"
                                                 data-artigo-id="{{ a.id }}"
                                                 data-artigo-produto="{{ a.produto }}"
                                                 data-etiqueta-original="{{ a.origem_original or a.fornecedor }}"
                                                 data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}"
                                                 data-fornecedor-nome="{{ a.fornecedor_oficial_nome or '' }}">
-                                            {{ 'Rever origem' if a.origem_revisao_estado == 'por_rever' else 'Alterar revisão' }}
+                                            {{ 'Rever artigo' if a.origem_revisao_estado == 'por_rever' else 'Alterar revisão' }}
                                         </button>
-                                        {% else %}
-                                        <button type="button" class="btn btn-outline-primary btn-sm ms-2"
-                                                data-bs-toggle="modal" data-bs-target="#fornecedorOficialModal"
-                                                data-artigo-id="{{ a.id }}"
-                                                data-artigo-produto="{{ a.produto }}"
-                                                data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}">
-                                            {{ 'Alterar fornecedor oficial' if a.fornecedor_oficial_id else 'Associar fornecedor oficial' }}
-                                        </button>
-                                        {% endif %}
-                                        {% if a.origem_tipo == 'por_resolver'
-                                              or (not a.origem_id and not a.fornecedor_oficial_id) %}
-                                        <button type="button" class="btn btn-outline-warning btn-sm ms-1"
-                                                data-bs-toggle="modal" data-bs-target="#confirmarFornecedorModal"
-                                                data-artigo-id="{{ a.id }}"
-                                                data-artigo-produto="{{ a.produto }}"
-                                                data-etiqueta-original="{{ a.origem_original or a.fornecedor }}">
-                                            Confirmar origem externa
-                                        </button>
-                                        {% endif %}
-                                    </div>
-                                    <div class="col-12 d-flex flex-wrap align-items-center gap-2">
-                                        {% set tipo_origem_label = {
-                                            'fornecedor_externo': 'Fornecedor externo',
-                                            'centro_interno': 'Centro interno',
-                                            'categoria_operacional': 'Categoria operacional',
-                                            'por_resolver': 'Por resolver'
-                                        }.get(a.origem_tipo, 'Por resolver') %}
-                                        {% if not a.origem_id and a.fornecedor_oficial_id %}
-                                            {% set tipo_origem_label = 'Fornecedor ligado diretamente' %}
-                                        {% endif %}
-                                        <span class="small text-muted">Estado da origem:</span>
-                                        <span class="badge {% if tipo_origem_label == 'Por resolver' %}text-bg-warning{% else %}text-bg-light{% endif %}">
-                                            {{ tipo_origem_label }}
-                                        </span>
-                                        {% if a.origem_revisao_estado %}
-                                        <span class="small text-muted">Revisão da origem:</span>
-                                        <span class="badge {% if a.origem_revisao_estado == 'por_rever' %}text-bg-warning{% else %}text-bg-success{% endif %}">
-                                            {{ 'Por rever' if a.origem_revisao_estado == 'por_rever' else 'Revisto' }}
-                                        </span>
                                         {% endif %}
                                         {% if a.source_version %}
                                         <span class="small text-muted">Versão do catálogo: {{ a.source_version }}</span>
@@ -389,18 +306,18 @@
                     <input type="hidden" name="action" value="set_official_supplier">
                     <input type="hidden" name="artigo_id" id="fornecedorOficialArtigoId">
                     <div class="modal-header">
-                        <h5 class="modal-title" id="fornecedorOficialTitulo">Fornecedor oficial</h5>
+                        <h5 class="modal-title" id="fornecedorOficialTitulo">Fornecedor registado</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"
                                 aria-label="Fechar"></button>
                     </div>
                     <div class="modal-body">
                         <p class="mb-2">Artigo: <strong id="fornecedorOficialProduto"></strong></p>
                         <p class="small text-muted">
-                            Esta ligação identifica o fornecedor legal. Não altera a origem
-                            operacional nem os pedidos já registados.
+                            Esta ligação define o fornecedor confirmado do artigo.
+                            Não altera designações históricas nem pedidos já registados.
                         </p>
                         <label for="fornecedorOficialSupplierId" class="form-label">
-                            Escolha um fornecedor existente
+                            Escolha um fornecedor confirmado
                         </label>
                         <select name="supplier_id" id="fornecedorOficialSupplierId"
                                 class="form-select" required>
@@ -435,7 +352,7 @@
                     <input type="hidden" name="q" value="{{ search or '' }}">
                     <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
                     <div class="modal-header">
-                        <h5 class="modal-title" id="revisaoOrigemTitulo">Rever origem herdada</h5>
+                        <h5 class="modal-title" id="revisaoOrigemTitulo">Revisão manual do artigo</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"
                                 aria-label="Fechar"></button>
                     </div>
@@ -444,21 +361,21 @@
                             Artigo: <strong id="revisaoOrigemProduto"></strong>
                         </p>
                         <p class="small text-muted mb-2">
-                            Designação original:
+                            Designação histórica preservada:
                             <span id="revisaoOrigemEtiqueta"></span>
                         </p>
                         <p class="small mb-2">
-                            Fornecedor oficial atual:
+                            Fornecedor registado atual:
                             <strong id="revisaoOrigemFornecedorAtual">Por confirmar</strong>
                         </p>
                         <p class="small text-muted">
-                            A revisão não altera a origem operacional nem documentos
-                            históricos. Manter por rever preserva qualquer ligação a
-                            fornecedor já confirmada.
+                            A revisão não altera as designações ou documentos históricos.
+                            Ao confirmar, apenas liga o artigo ao fornecedor selecionado.
+                            Manter por rever não remove uma ligação existente.
                         </p>
                         {% if suppliers %}
                         <label for="revisaoOrigemSupplierId" class="form-label">
-                            Fornecedor registado confirmado
+                            Fornecedor registado a associar
                         </label>
                         <select name="supplier_id" id="revisaoOrigemSupplierId"
                                 class="form-select">
@@ -496,65 +413,6 @@
         </div>
     </div>
 
-    <div class="modal fade" id="confirmarFornecedorModal" tabindex="-1"
-         aria-labelledby="confirmarFornecedorTitulo" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <form method="post" action="{{ url_for('compras.artigos') }}"
-                      data-unsaved-navigation>
-                    <input type="hidden" name="action" value="confirm_supplier">
-                    <input type="hidden" name="artigo_id" id="confirmFornecedorArtigoId">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="confirmarFornecedorTitulo">Confirmar fornecedor</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"
-                                aria-label="Fechar"></button>
-                    </div>
-                    <div class="modal-body">
-                        <p class="mb-2">
-                            Artigo: <strong id="confirmFornecedorProduto"></strong>
-                        </p>
-                        <p class="small text-muted">
-                            Etiqueta original: <span id="confirmFornecedorEtiqueta"></span>
-                        </p>
-                        {% if suppliers %}
-                        <label for="confirmFornecedorSupplierId" class="form-label">
-                            Escolha o fornecedor confirmado
-                        </label>
-                        <select name="supplier_id" id="confirmFornecedorSupplierId"
-                                class="form-select" required>
-                            <option value="">Selecionar fornecedor...</option>
-                            {% for supplier in suppliers %}
-                            <option value="{{ supplier.id }}">
-                                {{ supplier.common_name or supplier.name }}
-                                {% if supplier.common_name %} — {{ supplier.name }}{% endif %}
-                                {% if supplier.nif %} · NIF {{ supplier.nif }}{% endif %}
-                            </option>
-                            {% endfor %}
-                        </select>
-                        <div class="form-text">
-                            A escolha liga este artigo ao fornecedor pelo registo confirmado.
-                        </div>
-                        {% else %}
-                        <div class="alert alert-warning small mb-2">
-                            Ainda não há fornecedores registados; mantenha o artigo por resolver.
-                        </div>
-                        {% endif %}
-                        <a href="{{ url_for('faturas.fornecedores', origem='compras') }}">
-                            Consultar ou registar fornecedores
-                        </a>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-outline-secondary"
-                                data-bs-dismiss="modal">Cancelar</button>
-                        <button type="submit" class="btn btn-primary"
-                                {% if not suppliers %}disabled{% endif %}>
-                            Confirmar fornecedor
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
 </div>
 {% endblock %}
 
@@ -598,23 +456,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 supplierSelect.value =
                     button.getAttribute('data-fornecedor-id') || '';
             }
-        });
-    }
-
-    const modal = document.getElementById('confirmarFornecedorModal');
-    if (modal) {
-        modal.addEventListener('show.bs.modal', function (event) {
-            const button = event.relatedTarget;
-            if (!button) return;
-            document.getElementById('confirmFornecedorArtigoId').value =
-                button.getAttribute('data-artigo-id') || '';
-            document.getElementById('confirmFornecedorProduto').textContent =
-                button.getAttribute('data-artigo-produto') || '';
-            document.getElementById('confirmFornecedorEtiqueta').textContent =
-                button.getAttribute('data-etiqueta-original') || '';
-            const supplierSelect =
-                document.getElementById('confirmFornecedorSupplierId');
-            if (supplierSelect) supplierSelect.value = '';
         });
     }
 

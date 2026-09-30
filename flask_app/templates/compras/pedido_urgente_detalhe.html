@@ -24,7 +24,7 @@
                     <table class="table table-sm align-middle mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th>
+                                <th>Artigo</th><th>Fornecedor</th>
                                 <th class="text-end">Pedida</th><th>Enviada</th><th>Recebida</th>
                                 <th>Pendente envio</th><th>Observações</th>
                             </tr>
@@ -34,14 +34,9 @@
                         <tr>
                             <td><div class="fw-semibold">{{ line.produto_snapshot }}</div><div class="text-muted small">ID {{ line.artigo_id }}</div></td>
                             <td class="small">
-                                {{ line.origem_nome_snapshot or 'Origem por validar' }}
-                                {% if line.origem_tipo_snapshot == 'centro_interno' %}
-                                <span class="badge text-bg-info">Distribuição interna</span>
-                                {% elif line.origem_tipo_snapshot == 'por_resolver' %}
-                                <span class="badge text-bg-warning">Por validar</span>
-                                {% endif %}
+                                {{ line.fornecedor_oficial_nome_snapshot or (line.origem_supplier_nome_snapshot if line.origem_tipo_snapshot == 'fornecedor_externo' else none) or 'Fornecedor por confirmar' }}
+                                {% if line.origem_nome_snapshot %}<div class="text-muted">Origem histórica: {{ line.origem_nome_snapshot }}</div>{% endif %}
                             </td>
-                            <td class="small">{{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
                             <td class="text-end">{{ '%.3f'|format(line.quantidade) }} {{ line.unidade_snapshot }}</td>
                             <td>{{ '%.3f'|format(line.quantidade_enviada or 0) }}</td>
                             <td>{{ '%.3f'|format(line.quantidade_recebida or 0) }}</td>
@@ -72,14 +67,16 @@
                         <div class="table-responsive border rounded">
                             <table class="table table-sm align-middle mb-0">
                                 <thead class="table-light">
-                                    <tr><th>Artigo</th><th>Origem</th><th>Fornecedor oficial</th><th class="text-end">Pedida</th><th class="text-end">Já enviada</th><th class="text-end">Pendente</th><th>Enviar agora</th></tr>
+                                    <tr><th>Artigo</th><th>Fornecedor</th><th class="text-end">Pedida</th><th class="text-end">Já enviada</th><th class="text-end">Pendente</th><th>Enviar agora</th></tr>
                                 </thead>
                                 <tbody>
                                 {% for line in order.linhas %}
                                 <tr>
                                     <td>{{ line.produto_snapshot }}</td>
-                                    <td class="small">{{ line.origem_nome_snapshot or 'Origem por validar' }}</td>
-                                    <td class="small">{{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
+                                    <td class="small">
+                                        {{ line.fornecedor_oficial_nome_snapshot or (line.origem_supplier_nome_snapshot if line.origem_tipo_snapshot == 'fornecedor_externo' else none) or 'Fornecedor por confirmar' }}
+                                        {% if line.origem_nome_snapshot %}<div class="text-muted">Origem histórica: {{ line.origem_nome_snapshot }}</div>{% endif %}
+                                    </td>
                                     <td class="text-end">{{ '%.3f'|format(line.quantidade) }} {{ line.unidade_snapshot }}</td>
                                     <td class="text-end">{{ '%.3f'|format(line.quantidade_enviada or 0) }}</td>
                                     <td class="text-end">{{ '%.3f'|format(line.quantidade_pendente_envio or 0) }}</td>
@@ -121,7 +118,7 @@
                             enviado {{ '%.3f'|format(line.quantidade_enviada) }},
                             recebido {{ '%.3f'|format(line.quantidade_recebida) }},
                             pendente {{ '%.3f'|format(line.quantidade_pendente) }}
-                            {% if line.origem_nome_snapshot %} · Origem: {{ line.origem_nome_snapshot }}{% else %} · Origem por validar{% endif %}
+                            {% if line.origem_nome_snapshot %} · Origem histórica: {{ line.origem_nome_snapshot }}{% endif %}
                             {% if line.fornecedor_oficial_nome_snapshot %} · {{ line.fornecedor_oficial_nome_snapshot }}{% else %} · Fornecedor por confirmar{% endif %}
                         </div>
                         {% endfor %}

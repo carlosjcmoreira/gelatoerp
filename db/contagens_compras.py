@@ -107,41 +107,9 @@ def _catalogue_rows(cursor, article_ids=None, active_only=True) -> dict[int, dic
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
                a.categoria_artigo,
-               o.id AS catalog_origin_id, o.chave AS catalog_origin_key,
-               COALESCE(o.tipo, 'por_resolver') AS catalog_origin_type,
-               COALESCE(
-                   o.nome, NULLIF(BTRIM(a.origem_original), ''),
-                   NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
-               ) AS catalog_origin_name,
-               o.supplier_id, s.name AS supplier_nome,
-               COALESCE(o.ativo, FALSE) AS origin_active,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN hub.id ELSE o.id END
-                   AS source_origin_id,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN 'centro_interno'
-                    ELSE COALESCE(o.tipo, 'por_resolver') END AS source_origin_type,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN hub.nome
-                    ELSE COALESCE(
-                        o.nome, NULLIF(BTRIM(a.origem_original), ''),
-                        NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
-                    ) END AS source_origin_name,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN hub.store_id ELSE o.store_id END AS source_origin_store_id,
-               CASE WHEN o.chave = 'categoria:moedas'
-                    THEN NULL ELSE o.supplier_id END AS source_supplier_id,
-               CASE WHEN o.chave = 'categoria:moedas'
-                    THEN NULL ELSE s.name END AS source_supplier_name,
                a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
         FROM artigos_administrativos a
-        LEFT JOIN compras_origens o ON o.id = a.origem_id
-        LEFT JOIN suppliers s ON s.id = o.supplier_id
         LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
-        LEFT JOIN compras_origens hub
-          ON hub.chave = 'centro:matosinhos'
-         AND hub.tipo = 'centro_interno'
-         AND hub.ativo = TRUE
         WHERE TRUE
         """ + (" AND " + " AND ".join(clauses) if clauses else ""),
         params,
@@ -301,9 +269,7 @@ def save_count_draft(count_id: int, lines: list[dict], actor: str) -> dict:
                 """,
                 (
                     count_id, article_id, item["produto"], item["unidade"] or "unidade",
-                    item["source_origin_id"], item["source_origin_type"],
-                    item["source_origin_name"], item["source_origin_store_id"],
-                    item["source_supplier_id"], item["source_supplier_name"],
+                    None, None, None, None, None, None,
                     item["fornecedor_oficial_id"],
                     item["fornecedor_oficial_nome"],
                     values["quantidade"], values["observacoes"],
@@ -456,7 +422,9 @@ def list_submitted_counts(
                 SELECT 1
                 FROM jsonb_array_elements(v.snapshot->'linhas') AS line
                 WHERE COALESCE(
-                    line->>'fornecedor_oficial_id', line->>'supplier_id'
+                    NULLIF(line->>'fornecedor_oficial_id', ''),
+                    CASE WHEN line->>'origem_tipo' = 'fornecedor_externo'
+                         THEN NULLIF(line->>'supplier_id', '') END
                 ) = %s
             )
             """
@@ -524,6 +492,40 @@ def get_count_origins() -> list[dict]:
             FROM compras_contagens_artigos_versoes v
             CROSS JOIN LATERAL jsonb_array_elements(v.snapshot->'linhas') AS line
             ORDER BY nome
+            """
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def get_count_suppliers() -> list[dict]:
+    """List suppliers preserved in submitted count snapshots.
+
+    New snapshots use the direct article-to-supplier link. The external-origin
+    fallback is read-only compatibility for historical versions.
+    """
+    with db_connection() as conn:
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        cursor.execute(
+            """
+            SELECT DISTINCT
+                   COALESCE(
+                       NULLIF(line->>'fornecedor_oficial_id', ''),
+                       CASE WHEN line->>'origem_tipo' = 'fornecedor_externo'
+                            THEN NULLIF(line->>'supplier_id', '') END
+                   )::INTEGER AS id,
+                   COALESCE(
+                       NULLIF(line->>'fornecedor_oficial_nome', ''),
+                       CASE WHEN line->>'origem_tipo' = 'fornecedor_externo'
+                            THEN NULLIF(line->>'supplier_nome', '') END
+                   ) AS name
+            FROM compras_contagens_artigos_versoes v
+            CROSS JOIN LATERAL jsonb_array_elements(v.snapshot->'linhas') AS line
+            WHERE COALESCE(
+                      NULLIF(line->>'fornecedor_oficial_id', ''),
+                      CASE WHEN line->>'origem_tipo' = 'fornecedor_externo'
+                           THEN NULLIF(line->>'supplier_id', '') END
+                  ) IS NOT NULL
+            ORDER BY name
             """
         )
         return [dict(row) for row in cursor.fetchall()]

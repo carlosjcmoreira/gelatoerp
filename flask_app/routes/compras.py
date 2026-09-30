@@ -12,7 +12,6 @@ from database import (
     toggle_artigo_administrativo,
     confirm_artigo_fornecedor, set_artigo_fornecedor_oficial,
     delete_artigo_administrativo,
-    get_compras_origens,
     criar_ordem_transferencia,
     create_invoice,
     update_invoice,
@@ -171,7 +170,6 @@ def index():
 def operacao_abastecimento():
     """Single operational read view for weekly, urgent, and count evidence."""
     from db.abastecimento import (
-        ORIGIN_TYPES,
         WEEKLY_OPERATIONAL_STATUSES,
         get_urgent_metrics,
         get_weekly_consolidation,
@@ -202,9 +200,6 @@ def operacao_abastecimento():
     store_id = _int_filter('loja_id')
     supplier_id = _int_filter('fornecedor_id')
     product_query = request.args.get('produto', '').strip() or None
-    origin_type = request.args.get('tipo_origem', '').strip() or None
-    if origin_type not in ORIGIN_TYPES:
-        origin_type = None
 
     weekly_status = request.args.get('estado_semanal', '').strip()
     if weekly_status not in (*WEEKLY_OPERATIONAL_STATUSES, 'rascunho', 'cancelada'):
@@ -221,11 +216,11 @@ def operacao_abastecimento():
     try:
         weekly_orders = list_weekly_orders(
             planning_sunday, store_id, weekly_statuses, product_query,
-            origin_type, supplier_id,
+            supplier_id=supplier_id,
         )
         weekly_consolidation = get_weekly_consolidation(
             planning_sunday, store_id, weekly_statuses, product_query,
-            origin_type, supplier_id,
+            supplier_id=supplier_id,
         )
         urgent_orders = list_urgent_orders(
             store_id=store_id,
@@ -233,7 +228,6 @@ def operacao_abastecimento():
             date_from=date_from,
             date_to=date_to,
             product_query=product_query,
-            origin_type=origin_type,
             supplier_id=supplier_id,
         )
         urgent_metrics = get_urgent_metrics(
@@ -242,7 +236,6 @@ def operacao_abastecimento():
             date_from=date_from,
             date_to=date_to,
             product_query=product_query,
-            origin_type=origin_type,
             supplier_id=supplier_id,
         )
         count_snapshots = list_submitted_counts(
@@ -250,7 +243,6 @@ def operacao_abastecimento():
             date_from=date_from,
             date_to=date_to,
             article_query=product_query,
-            origin_type=origin_type,
             supplier_id=supplier_id,
             limit=200,
         )
@@ -268,7 +260,6 @@ def operacao_abastecimento():
         }
         count_snapshots = []
 
-    origins = get_compras_origens(apenas_ativos=True)
     supplier_options = [
         {
             'id': supplier['id'],
@@ -308,13 +299,10 @@ def operacao_abastecimento():
         urgent_reason_labels=URGENT_REASON_LABELS,
         count_snapshots=count_snapshots,
         stores=get_stores_list(),
-        origins=origins,
         supplier_options=supplier_options,
-        origin_types=ORIGIN_TYPES,
         store_id=store_id,
         supplier_id=supplier_id,
         product_query=product_query or '',
-        origin_type=origin_type or '',
         weekly_status=weekly_status,
         urgent_status=urgent_status,
         date_from=date_from or '',
@@ -1280,13 +1268,10 @@ def artigos():
                 artigo_id = int(request.form.get('artigo_id', 0))
             except (TypeError, ValueError):
                 artigo_id = 0
-            fornecedor = request.form.get('fornecedor', '').strip()
             produto = request.form.get('produto', '').strip()
             marca = request.form.get('marca', '').strip() or None
             unidade = request.form.get('unidade', '').strip() or None
-            origem_raw = request.form.get('origem_id', '').strip()
-            origem_id = int(origem_raw) if origem_raw.isdigit() else None
-            if artigo_id and fornecedor and produto:
+            if artigo_id and produto:
                 try:
                     category_raw = request.form.get('categoria_artigo')
                     categoria_artigo = (
@@ -1294,8 +1279,8 @@ def artigos():
                         else validate_article_category(category_raw)
                     )
                     result = update_artigo_administrativo(
-                        artigo_id, fornecedor, produto, marca=marca,
-                        unidade=unidade, origem_id=origem_id,
+                        artigo_id, None, produto, marca=marca,
+                        unidade=unidade, origem_id=None,
                         actor=_get_username(),
                         categoria_artigo=categoria_artigo,
                     )
@@ -1313,7 +1298,7 @@ def artigos():
                 except ValueError as exc:
                     flash(str(exc), 'danger')
             else:
-                flash('Preencha origem, fornecedor e produto.', 'warning')
+                flash('Indique o produto do artigo.', 'warning')
 
         elif action == 'bulk_edit':
             search_after_save = request.form.get('q', '').strip()
@@ -1329,9 +1314,6 @@ def artigos():
                     article_id = int(raw_id)
                     article_ids.append(article_id)
                     bulk_form_state[article_id] = {
-                        'fornecedor': request.form.get(
-                            f'fornecedor_{article_id}', ''
-                        ).strip(),
                         'produto': request.form.get(
                             f'produto_{article_id}', ''
                         ).strip(),
@@ -1344,9 +1326,6 @@ def artigos():
                         'categoria_artigo': request.form.get(
                             f'categoria_artigo_{article_id}', ''
                         ).strip(),
-                        'origem_id': request.form.get(
-                            f'origem_id_{article_id}', ''
-                        ).strip(),
                     }
                 if len(article_ids) != len(set(article_ids)):
                     raise ValueError('A lista contém artigos repetidos.')
@@ -1354,10 +1333,9 @@ def artigos():
                 changes = []
                 for article_id in article_ids:
                     values = bulk_form_state[article_id]
-                    if not values['fornecedor'] or not values['produto']:
+                    if not values['produto']:
                         raise ValueError(
-                            f'Artigo #{article_id}: preencha o produto e '
-                            'a etiqueta da origem.'
+                            f'Artigo #{article_id}: indique o produto.'
                         )
                     try:
                         category = validate_article_category(
@@ -1368,19 +1346,12 @@ def artigos():
                             f'Artigo #{article_id}: {exc}'
                         ) from exc
 
-                    origin_raw = values['origem_id']
-                    if origin_raw and not origin_raw.isdigit():
-                        raise ValueError(
-                            f'Artigo #{article_id}: origem inválida.'
-                        )
                     changes.append({
                         'artigo_id': article_id,
-                        'fornecedor': values['fornecedor'],
                         'produto': values['produto'],
                         'marca': values['marca'] or None,
                         'unidade': values['unidade'] or None,
                         'categoria_artigo': category,
-                        'origem_id': int(origin_raw) if origin_raw else None,
                     })
 
                 result = update_artigos_administrativos_bulk(
@@ -1463,7 +1434,7 @@ def artigos():
                     elif decision == 'confirm':
                         flash(
                             f'Fornecedor "{result["supplier_name"]}" confirmado; '
-                            'a origem original foi preservada.',
+                            'a designação histórica foi preservada.',
                             'success',
                         )
                     else:
@@ -1506,7 +1477,7 @@ def artigos():
                         flash('Artigo não encontrado.', 'warning')
                     elif result['changed']:
                         flash(
-                            'Fornecedor oficial atualizado sem alterar a origem.',
+                            'Fornecedor registado atualizado; o histórico foi preservado.',
                             'success',
                         )
                     else:
@@ -1573,10 +1544,9 @@ def artigos():
     for article in artigos_list:
         if article['id'] in bulk_form_state:
             article['_bulk_edit'] = bulk_form_state[article['id']]
-    origens = get_compras_origens(apenas_ativos=True)
     suppliers = get_suppliers()
     return render_template('compras/artigos.html',
-                           artigos=artigos_list, origens=origens,
+                           artigos=artigos_list,
                            suppliers=suppliers,
                            article_categories=ARTICLE_CATEGORIES, search=search,
                            review_filter=review_filter,
@@ -2180,14 +2150,14 @@ def pedido_urgente_detalhe(order_id):
 @any_perm_required('acesso_administrativo', 'acesso_compras')
 def contagens_artigos():
     from db.contagens_compras import (
-        get_count_origins,
+        get_count_suppliers,
         list_submitted_counts,
     )
 
     store_raw = request.args.get('loja_id', '').strip()
     store_id = int(store_raw) if store_raw.isdigit() else None
-    origin_raw = request.args.get('origem_id', '').strip()
-    origin_id = int(origin_raw) if origin_raw.isdigit() else None
+    supplier_raw = request.args.get('fornecedor_id', '').strip()
+    supplier_id = int(supplier_raw) if supplier_raw.isdigit() else None
     date_from = request.args.get('data_de', '').strip()
     date_to = request.args.get('data_ate', '').strip()
     article_query = request.args.get('produto', '').strip()
@@ -2197,7 +2167,7 @@ def contagens_artigos():
             date_from=date_from or None,
             date_to=date_to or None,
             article_query=article_query or None,
-            origin_id=origin_id,
+            supplier_id=supplier_id,
         )
     except ValueError as exc:
         flash(str(exc), 'warning')
@@ -2206,9 +2176,9 @@ def contagens_artigos():
         'compras/contagens_artigos.html',
         counts=counts,
         stores=get_stores_list(),
-        origins=get_count_origins(),
+        suppliers=get_count_suppliers(),
         store_id=store_id,
-        origin_id=origin_id,
+        supplier_id=supplier_id,
         date_from=date_from,
         date_to=date_to,
         article_query=article_query,

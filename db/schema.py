@@ -745,10 +745,18 @@ def run_migrations_compras_encomendas_semanais():
             )
             cursor.execute(
                 """
+                ALTER TABLE compras_encomendas_semanais_linhas
+                    ALTER COLUMN origem_tipo_snapshot DROP NOT NULL,
+                    ALTER COLUMN origem_nome_snapshot DROP NOT NULL
+                """
+            )
+            cursor.execute(
+                """
                 UPDATE compras_encomendas_semanais_linhas
                    SET fornecedor_oficial_id_snapshot = origem_supplier_id_snapshot,
                        fornecedor_oficial_nome_snapshot = origem_supplier_nome_snapshot
                  WHERE fornecedor_oficial_id_snapshot IS NULL
+                   AND origem_tipo_snapshot = 'fornecedor_externo'
                    AND origem_supplier_id_snapshot IS NOT NULL
                 """
             )
@@ -911,10 +919,18 @@ def run_migrations_compras_pedidos_urgentes():
             )
             cursor.execute(
                 """
+                ALTER TABLE compras_pedidos_urgentes_linhas
+                    ALTER COLUMN origem_tipo_snapshot DROP NOT NULL,
+                    ALTER COLUMN origem_nome_snapshot DROP NOT NULL
+                """
+            )
+            cursor.execute(
+                """
                 UPDATE compras_pedidos_urgentes_linhas
                    SET fornecedor_oficial_id_snapshot = origem_supplier_id_snapshot,
                        fornecedor_oficial_nome_snapshot = origem_supplier_nome_snapshot
                  WHERE fornecedor_oficial_id_snapshot IS NULL
+                   AND origem_tipo_snapshot = 'fornecedor_externo'
                    AND origem_supplier_id_snapshot IS NOT NULL
                 """
             )
@@ -1048,10 +1064,18 @@ def run_migrations_compras_contagens_artigos():
             )
             cursor.execute(
                 """
+                ALTER TABLE compras_contagens_artigos_linhas
+                    ALTER COLUMN origem_tipo_snapshot DROP NOT NULL,
+                    ALTER COLUMN origem_nome_snapshot DROP NOT NULL
+                """
+            )
+            cursor.execute(
+                """
                 UPDATE compras_contagens_artigos_linhas
                    SET fornecedor_oficial_id_snapshot = origem_supplier_id_snapshot,
                        fornecedor_oficial_nome_snapshot = origem_supplier_nome_snapshot
                  WHERE fornecedor_oficial_id_snapshot IS NULL
+                   AND origem_tipo_snapshot = 'fornecedor_externo'
                    AND origem_supplier_id_snapshot IS NOT NULL
                 """
             )

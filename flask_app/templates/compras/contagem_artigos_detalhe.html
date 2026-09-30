@@ -13,12 +13,15 @@
     <section class="card border-0 shadow-sm">
         <div class="table-responsive">
             <table class="table align-middle mb-0">
-                <thead class="table-light"><tr><th>Artigo</th><th>Origem</th><th class="text-end">Quantidade</th><th>Unidade</th><th>Observações</th></tr></thead>
+                <thead class="table-light"><tr><th>Artigo</th><th>Fornecedor</th><th class="text-end">Quantidade</th><th>Unidade</th><th>Observações</th></tr></thead>
                 <tbody>
                 {% for line in count.linhas %}
                 <tr>
                     <td><div class="fw-semibold">{{ line.produto }}</div><div class="text-muted small">ID {{ line.artigo_id }}</div></td>
-                    <td>{{ line.origem_nome }}{% if line.origem_tipo == 'centro_interno' %} <span class="badge text-bg-info">Centro interno</span>{% endif %}</td>
+                    <td>
+                        {{ line.fornecedor_oficial_nome or (line.supplier_nome if line.origem_tipo == 'fornecedor_externo' else none) or 'Fornecedor por confirmar' }}
+                        {% if line.origem_nome %}<div class="small text-muted">Origem histórica: {{ line.origem_nome }}</div>{% endif %}
+                    </td>
                     <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
                     <td>{{ line.unidade }}</td>
                     <td class="text-muted">{{ line.observacoes or '—' }}</td>

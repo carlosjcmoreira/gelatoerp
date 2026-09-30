@@ -187,31 +187,9 @@ def _article_catalog_rows(cursor, article_ids: list[int]) -> dict[int, dict]:
     cursor.execute(
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN hub.id ELSE o.id END AS origem_id,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN 'centro_interno'
-                    ELSE COALESCE(o.tipo, 'por_resolver') END AS origem_tipo,
-               CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                    THEN hub.nome
-                    ELSE COALESCE(
-                        o.nome, NULLIF(BTRIM(a.origem_original), ''),
-                        NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
-                    ) END AS origem_nome,
-               CASE WHEN o.chave = 'categoria:moedas' THEN NULL
-                    ELSE o.supplier_id END AS supplier_id,
-               CASE WHEN o.chave = 'categoria:moedas' THEN NULL
-                    ELSE origin_s.name END AS supplier_nome,
-               COALESCE(o.ativo, FALSE) AS origem_ativa,
                a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
         FROM artigos_administrativos a
-        LEFT JOIN compras_origens o ON o.id = a.origem_id
-        LEFT JOIN suppliers origin_s ON origin_s.id = o.supplier_id
         LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
-        LEFT JOIN compras_origens hub
-          ON hub.chave = 'centro:matosinhos'
-         AND hub.tipo = 'centro_interno'
-         AND hub.ativo = TRUE
         WHERE a.id = ANY(%s)
         """,
         (article_ids,),
@@ -227,31 +205,9 @@ def get_available_weekly_articles() -> list[dict]:
             """
             SELECT a.id, a.produto, a.unidade, a.fornecedor,
                    a.categoria_artigo,
-                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                        THEN hub.id ELSE o.id END AS origem_id,
-                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                        THEN 'centro_interno'
-                        ELSE COALESCE(o.tipo, 'por_resolver') END AS origem_tipo,
-                   CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
-                        THEN hub.nome
-                        ELSE COALESCE(
-                            o.nome, NULLIF(BTRIM(a.origem_original), ''),
-                            NULLIF(BTRIM(a.fornecedor), ''), 'Origem por validar'
-                        ) END AS origem_nome,
-                   CASE WHEN o.chave = 'categoria:moedas' THEN NULL
-                        ELSE o.supplier_id END AS supplier_id,
-                   CASE WHEN o.chave = 'categoria:moedas' THEN NULL
-                        ELSE origin_s.name END AS supplier_nome,
-                   COALESCE(o.ativo, FALSE) AS origem_ativa,
                    a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
             FROM artigos_administrativos a
-            LEFT JOIN compras_origens o ON o.id = a.origem_id
-            LEFT JOIN suppliers origin_s ON origin_s.id = o.supplier_id
             LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
-            LEFT JOIN compras_origens hub
-              ON hub.chave = 'centro:matosinhos'
-             AND hub.tipo = 'centro_interno'
-             AND hub.ativo = TRUE
             WHERE a.ativo = TRUE
              ORDER BY a.categoria_artigo, a.produto, a.id
             """
@@ -375,11 +331,11 @@ def save_weekly_draft(
                     article_id,
                     article["produto"],
                     article["unidade"] or "unidade",
-                    article["origem_id"],
-                    article["origem_tipo"],
-                    article["origem_nome"],
-                    article["supplier_id"],
-                    article["supplier_nome"],
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
                     article["fornecedor_oficial_id"],
                     article["fornecedor_oficial_nome"],
                     requested_line["quantidade"],
@@ -625,11 +581,11 @@ def amend_weekly_order(
                     article_id,
                     item.get("produto_snapshot", item.get("produto")),
                     item.get("unidade_snapshot", item.get("unidade")) or "unidade",
-                    item.get("origem_id_snapshot", item.get("origem_id")),
-                    item.get("origem_tipo_snapshot", item.get("origem_tipo")),
-                    item.get("origem_nome_snapshot", item.get("origem_nome")),
-                    item.get("origem_supplier_id_snapshot", item.get("supplier_id")),
-                    item.get("origem_supplier_nome_snapshot", item.get("supplier_nome")),
+                    item.get("origem_id_snapshot"),
+                    item.get("origem_tipo_snapshot"),
+                    item.get("origem_nome_snapshot"),
+                    item.get("origem_supplier_id_snapshot"),
+                    item.get("origem_supplier_nome_snapshot"),
                     item.get(
                         "fornecedor_oficial_id_snapshot",
                         item.get("fornecedor_oficial_id"),
@@ -706,11 +662,16 @@ def get_weekly_consolidation(planning_sunday) -> list[dict]:
         cursor.execute(
             """
             SELECT l.artigo_id, l.produto_snapshot, l.unidade_snapshot,
-                   l.origem_id_snapshot, l.origem_tipo_snapshot,
-                   l.origem_nome_snapshot, l.origem_supplier_id_snapshot,
-                   l.origem_supplier_nome_snapshot,
-                   l.fornecedor_oficial_id_snapshot,
-                   l.fornecedor_oficial_nome_snapshot,
+                   COALESCE(
+                       l.fornecedor_oficial_id_snapshot,
+                       CASE WHEN l.origem_tipo_snapshot = 'fornecedor_externo'
+                            THEN l.origem_supplier_id_snapshot END
+                   ) AS fornecedor_oficial_id_snapshot,
+                   COALESCE(
+                       l.fornecedor_oficial_nome_snapshot,
+                       CASE WHEN l.origem_tipo_snapshot = 'fornecedor_externo'
+                            THEN l.origem_supplier_nome_snapshot END
+                   ) AS fornecedor_oficial_nome_snapshot,
                    SUM(l.quantidade) AS quantidade_total,
                    COUNT(DISTINCT o.store_id) AS lojas_count,
                    json_agg(json_build_object(
@@ -726,13 +687,22 @@ def get_weekly_consolidation(planning_sunday) -> list[dict]:
             WHERE o.ciclo_domingo = %s
               AND o.status IN ('submetida', 'em_preparacao', 'concluida')
             GROUP BY l.artigo_id, l.produto_snapshot, l.unidade_snapshot,
-                     l.origem_id_snapshot, l.origem_tipo_snapshot,
-                     l.origem_nome_snapshot, l.origem_supplier_id_snapshot,
-                     l.origem_supplier_nome_snapshot,
-                     l.fornecedor_oficial_id_snapshot,
-                     l.fornecedor_oficial_nome_snapshot
-            ORDER BY l.fornecedor_oficial_nome_snapshot NULLS LAST,
-                     l.origem_nome_snapshot, l.produto_snapshot
+                     COALESCE(
+                         l.fornecedor_oficial_id_snapshot,
+                         CASE WHEN l.origem_tipo_snapshot = 'fornecedor_externo'
+                              THEN l.origem_supplier_id_snapshot END
+                     ),
+                     COALESCE(
+                         l.fornecedor_oficial_nome_snapshot,
+                         CASE WHEN l.origem_tipo_snapshot = 'fornecedor_externo'
+                              THEN l.origem_supplier_nome_snapshot END
+                     )
+             ORDER BY COALESCE(
+                          l.fornecedor_oficial_nome_snapshot,
+                          CASE WHEN l.origem_tipo_snapshot = 'fornecedor_externo'
+                               THEN l.origem_supplier_nome_snapshot END
+                      ) NULLS LAST,
+                      l.produto_snapshot
             """,
             (cycle["ciclo_domingo"],),
         )

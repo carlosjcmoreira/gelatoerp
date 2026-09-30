@@ -36,11 +36,11 @@
                        class="form-control form-control-sm" placeholder="Nome ou ID do artigo">
             </div>
             <div class="col-12 col-md-2">
-                <label class="form-label small mb-1" for="count-origin">Origem</label>
-                <select id="count-origin" name="origem_id" class="form-select form-select-sm">
-                    <option value="">Todas</option>
-                    {% for origin in origins %}
-                    <option value="{{ origin.id }}" {% if origin_id == origin.id %}selected{% endif %}>{{ origin.nome }}</option>
+                <label class="form-label small mb-1" for="count-supplier">Fornecedor</label>
+                <select id="count-supplier" name="fornecedor_id" class="form-select form-select-sm">
+                    <option value="">Todos</option>
+                    {% for supplier in suppliers %}
+                    <option value="{{ supplier.id }}" {% if supplier_id == supplier.id %}selected{% endif %}>{{ supplier.name or supplier.id }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -64,12 +64,15 @@
         </div>
         <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
-                <thead class="table-light"><tr><th>Artigo</th><th>Origem</th><th class="text-end">Quantidade</th><th>Unidade</th><th>Observações</th></tr></thead>
+                <thead class="table-light"><tr><th>Artigo</th><th>Fornecedor</th><th class="text-end">Quantidade</th><th>Unidade</th><th>Observações</th></tr></thead>
                 <tbody>
                 {% for line in count.linhas %}
                 <tr>
                     <td><div class="fw-semibold">{{ line.produto }}</div><div class="text-muted small">ID {{ line.artigo_id }}</div></td>
-                    <td class="small">{{ line.origem_nome }}{% if line.origem_tipo == 'centro_interno' %} <span class="badge text-bg-info">Centro interno</span>{% endif %}</td>
+                    <td class="small">
+                        {{ line.fornecedor_oficial_nome or (line.supplier_nome if line.origem_tipo == 'fornecedor_externo' else none) or 'Fornecedor por confirmar' }}
+                        {% if line.origem_nome %}<div class="text-muted">Origem histórica: {{ line.origem_nome }}</div>{% endif %}
+                    </td>
                     <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
                     <td>{{ line.unidade }}</td>
                     <td class="small text-muted">{{ line.observacoes or '—' }}</td>

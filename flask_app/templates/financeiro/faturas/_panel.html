@@ -473,13 +473,20 @@
                                     <button class="btn btn-outline-primary btn-sm" type="submit">Ligar</button>
                                 </form>
                                 {% endif %}
+                                {% if match.state == 'supplier_unconfirmed' %}
+                                <div class="small text-warning mt-1">
+                                    Confirme a identidade do fornecedor da fatura para criar ou associar artigos.
+                                </div>
+                                {% endif %}
                                 {% if match.state in ('ambiguous', 'unresolved', 'supplier_unconfirmed') %}
                                 <div class="mt-1 d-flex gap-2">
+                                    {% if match.state in ('ambiguous', 'unresolved') %}
                                     <form method="post" action="{{ url_for('faturas.linha_artigo', invoice_id=inv.id) }}" class="d-inline">
                                         <input type="hidden" name="action" value="create">
                                         <input type="hidden" name="linha_id" value="{{ l.id }}">
                                         <button class="btn btn-link btn-sm p-0 text-primary" type="submit">Criar produto</button>
                                     </form>
+                                    {% endif %}
                                     <form method="post" action="{{ url_for('faturas.linha_artigo', invoice_id=inv.id) }}" class="d-inline">
                                         <input type="hidden" name="action" value="resolve">
                                         <input type="hidden" name="linha_id" value="{{ l.id }}">

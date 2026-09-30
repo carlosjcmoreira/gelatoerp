@@ -143,16 +143,13 @@ def get_compras_origens(apenas_ativos: bool = True, tipo: str = None) -> list:
 
 def set_artigo_origem(artigo_id: int, origem_id: int, actor: str = 'sistema',
                       reason: str = None) -> bool:
-    """Change an article origin and append an auditable classification record."""
+    """Update only a legacy origin record; never infer the direct supplier."""
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT a.origem_id, a.origem_original, a.fornecedor_oficial_id,
-                   official_s.name
+            SELECT a.origem_id, a.origem_original
             FROM artigos_administrativos a
-            LEFT JOIN suppliers official_s
-                   ON official_s.id = a.fornecedor_oficial_id
             WHERE a.id = %s FOR UPDATE OF a
             """,
             (artigo_id,),
@@ -168,33 +165,16 @@ def set_artigo_origem(artigo_id: int, origem_id: int, actor: str = 'sistema',
         selected_origin = cursor.fetchone()
         if not selected_origin:
             raise ValueError('A origem selecionada não existe ou está inativa.')
-        next_supplier_id = current[2]
-        next_supplier_name = current[3]
-        if selected_origin[1] == 'fornecedor_externo':
-            if (
-                next_supplier_id is not None
-                and next_supplier_id != selected_origin[2]
-            ):
-                raise ValueError(
-                    'A origem externa e o fornecedor oficial são diferentes. '
-                    'Resolva o fornecedor oficial antes de alterar a origem.'
-                )
-            next_supplier_id = selected_origin[2]
-            cursor.execute("SELECT name FROM suppliers WHERE id = %s", (next_supplier_id,))
-            supplier = cursor.fetchone()
-            next_supplier_name = supplier[0] if supplier else None
         origin_changed = current[0] != origem_id
-        supplier_changed = current[2] != next_supplier_id
-        if not origin_changed and not supplier_changed:
+        if not origin_changed:
             return True
         cursor.execute(
             """
             UPDATE artigos_administrativos
-               SET origem_id = %s, fornecedor_oficial_id = %s,
-                   human_modified_at = NOW(), updated_at = NOW()
+               SET origem_id = %s, human_modified_at = NOW(), updated_at = NOW()
              WHERE id = %s
             """,
-            (origem_id, next_supplier_id, artigo_id),
+            (origem_id, artigo_id),
         )
         if origin_changed:
             cursor.execute(
@@ -205,20 +185,6 @@ def set_artigo_origem(artigo_id: int, origem_id: int, actor: str = 'sistema',
                 VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (artigo_id, current[0], origem_id, current[1], actor, reason),
-            )
-        if supplier_changed:
-            cursor.execute(
-                """
-                INSERT INTO artigos_administrativos_fornecedor_audit
-                    (artigo_id, fornecedor_anterior_id, fornecedor_anterior_nome,
-                     fornecedor_novo_id, fornecedor_novo_nome, actor, reason)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    artigo_id, current[2], current[3], next_supplier_id,
-                    next_supplier_name, actor,
-                    reason or 'associação derivada de origem externa confirmada',
-                ),
             )
         conn.commit()
     invalidate_prefix('artigos_administrativos')
@@ -337,8 +303,8 @@ def _supplier_identity_confirmed(cursor, invoice_id: int) -> tuple[int | None, b
 def get_invoice_linha_artigo_suggestions(invoice_id: int) -> dict:
     """Return exact, supplier-scoped catalogue suggestions for invoice lines.
 
-    Internal, operational, unresolved, inactive, and supplier-conflicting
-    origins deliberately never enter the suggestion set.
+    Only active articles linked to the invoice's confirmed canonical supplier
+    enter the suggestion set.
     """
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -347,10 +313,9 @@ def get_invoice_linha_artigo_suggestions(invoice_id: int) -> dict:
             """
             SELECT il.id, il.artigo_id, il.descricao,
                    a.id, a.fornecedor, a.produto, a.unidade,
-                   o.tipo, o.supplier_id
+                   a.fornecedor_oficial_id
             FROM invoice_linhas il
             LEFT JOIN artigos_administrativos a ON a.id = il.artigo_id
-            LEFT JOIN compras_origens o ON o.id = a.origem_id
             WHERE il.invoice_id = %s
             ORDER BY il.id
             """,
@@ -361,13 +326,12 @@ def get_invoice_linha_artigo_suggestions(invoice_id: int) -> dict:
         if supplier_confirmed:
             cursor.execute(
                 """
-                SELECT a.id, a.fornecedor, a.produto, a.unidade,
-                       o.id, o.nome
+                SELECT a.id, s.name, a.produto, a.unidade,
+                       a.fornecedor_oficial_id
                 FROM artigos_administrativos a
-                JOIN compras_origens o ON o.id = a.origem_id
-                WHERE a.ativo = TRUE AND o.ativo = TRUE
-                  AND o.tipo = 'fornecedor_externo'
-                  AND o.supplier_id = %s
+                JOIN suppliers s ON s.id = a.fornecedor_oficial_id
+                WHERE a.ativo = TRUE
+                  AND a.fornecedor_oficial_id = %s
                 ORDER BY a.produto, a.id
                 """,
                 (supplier_id,),
@@ -383,8 +347,8 @@ def get_invoice_linha_artigo_suggestions(invoice_id: int) -> dict:
                 'fornecedor': candidate[1],
                 'produto': candidate[2],
                 'unidade': candidate[3],
-                'origem_id': candidate[4],
-                'origem_nome': candidate[5],
+                'supplier_id': candidate[4],
+                'supplier_name': candidate[1],
             }
             for candidate in candidates
             if normalise_compras_origin_label(description)
@@ -450,31 +414,37 @@ def _audit_invoice_linha_artigo(cursor, invoice_id, linha_id, old_id, new_id,
 
 def link_invoice_linha_artigo(invoice_id: int, linha_id: int, artigo_id: int,
                               actor: str = 'sistema', reason: str = None) -> bool:
-    """Explicitly link a line to a catalogue article without rewriting snapshots."""
+    """Link a line only when invoice and article share confirmed supplier identity."""
     with db_connection() as conn:
         cursor = conn.cursor()
+        invoice_supplier_id, supplier_confirmed = _supplier_identity_confirmed(
+            cursor, invoice_id
+        )
+        if not supplier_confirmed:
+            raise ValueError(
+                'Confirme a identidade do fornecedor da fatura antes de associar artigos.'
+            )
         cursor.execute(
             """
-            SELECT il.artigo_id, i.supplier_id, a.ativo,
-                   o.tipo, o.supplier_id
+            SELECT il.artigo_id, a.ativo, a.fornecedor_oficial_id
             FROM invoice_linhas il
-            JOIN invoices i ON i.id = il.invoice_id
             JOIN artigos_administrativos a ON a.id = %s
-            LEFT JOIN compras_origens o ON o.id = a.origem_id
             WHERE il.id = %s AND il.invoice_id = %s
-            FOR UPDATE OF il
+            FOR UPDATE OF il, a
             """,
             (artigo_id, linha_id, invoice_id),
         )
         row = cursor.fetchone()
         if not row:
             return False
-        old_id, invoice_supplier_id, active, origin_type, origin_supplier_id = row
+        old_id, active, article_supplier_id = row
         if not active:
             raise ValueError('O produto selecionado está inativo.')
-        if origin_type == 'fornecedor_externo' and (
-            not invoice_supplier_id or origin_supplier_id != invoice_supplier_id
-        ):
+        if not article_supplier_id:
+            raise ValueError(
+                'O produto ainda não tem um fornecedor registado confirmado.'
+            )
+        if article_supplier_id != invoice_supplier_id:
             raise ValueError('O produto pertence a outro fornecedor canónico.')
         cursor.execute(
             "UPDATE invoice_linhas SET artigo_id = %s, updated_at = NOW() "
@@ -515,9 +485,16 @@ def resolve_invoice_linha_artigo(invoice_id: int, linha_id: int,
 
 def create_artigo_from_invoice_linha(invoice_id: int, linha_id: int,
                                      actor: str = 'sistema', reason: str = None) -> int:
-    """Create a human-confirmed catalogue article from a line and link it."""
+    """Create a catalogue article from a line under the confirmed invoice supplier."""
     with db_connection() as conn:
         cursor = conn.cursor()
+        supplier_id, supplier_confirmed = _supplier_identity_confirmed(
+            cursor, invoice_id
+        )
+        if not supplier_confirmed:
+            raise ValueError(
+                'Confirme a identidade do fornecedor da fatura antes de criar o artigo.'
+            )
         cursor.execute(
             """
             SELECT il.artigo_id, il.descricao, il.unidade, i.supplier_id,
@@ -535,55 +512,23 @@ def create_artigo_from_invoice_linha(invoice_id: int, linha_id: int,
             return None
         if row[0]:
             raise ValueError('A linha já está ligada a um produto.')
-        _, description, unit, supplier_id, supplier_label, legal_supplier = row
-        supplier_label = legal_supplier or supplier_label or 'Origem por resolver'
-        if supplier_id:
-            cursor.execute(
-                """
-                SELECT id FROM compras_origens
-                WHERE ativo = TRUE AND tipo = 'fornecedor_externo'
-                  AND supplier_id = %s
-                ORDER BY id LIMIT 1
-                """,
-                (supplier_id,),
+        _, description, unit, line_supplier_id, supplier_label, legal_supplier = row
+        if line_supplier_id != supplier_id:
+            raise ValueError(
+                'A identidade do fornecedor da fatura deixou de estar confirmada.'
             )
-            origin = cursor.fetchone()
-            if origin:
-                origin_id = origin[0]
-            else:
-                cursor.execute(
-                    """
-                    INSERT INTO compras_origens
-                        (chave, tipo, nome, rotulo_original, supplier_id)
-                    VALUES (%s, 'fornecedor_externo', %s, %s, %s)
-                    ON CONFLICT (chave) DO UPDATE SET supplier_id = EXCLUDED.supplier_id
-                    RETURNING id
-                    """,
-                    (f'fornecedor:{supplier_id}', supplier_label, supplier_label, supplier_id),
-                )
-                origin_id = cursor.fetchone()[0]
-        else:
-            origin_data = classify_compras_origin_label(supplier_label)
-            cursor.execute(
-                """
-                INSERT INTO compras_origens (chave, tipo, nome, rotulo_original)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (chave) DO UPDATE SET nome = EXCLUDED.nome
-                RETURNING id
-                """,
-                (origin_data['key'], origin_data['tipo'], origin_data['nome'],
-                 origin_data['rotulo_original']),
-            )
-            origin_id = cursor.fetchone()[0]
+        supplier_label = str(legal_supplier or supplier_label or '').strip()
+        if not supplier_label:
+            raise ValueError('O fornecedor confirmado não tem um nome válido.')
         cursor.execute(
             """
             INSERT INTO artigos_administrativos
-                (fornecedor, produto, unidade, origem_id, origem_original,
-                 human_modified_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, NOW(), NOW())
+                (fornecedor, produto, unidade, fornecedor_oficial_id,
+                 categoria_artigo, human_modified_at, updated_at)
+            VALUES (%s, %s, %s, %s, 'Por classificar', NOW(), NOW())
             RETURNING id
             """,
-            (supplier_label, description, unit, origin_id, supplier_label),
+            (supplier_label, description, unit, supplier_id),
         )
         artigo_id = cursor.fetchone()[0]
         cursor.execute(
@@ -691,7 +636,7 @@ def add_artigo_administrativo(produto: str, supplier_id: int,
 
 
 def _update_artigo_administrativo_in_transaction(
-        cursor, artigo_id: int, fornecedor: str, produto: str,
+        cursor, artigo_id: int, fornecedor: str | None, produto: str,
         marca: str = None, unidade: str = None, origem_id: int = None,
         actor: str = 'sistema', categoria_artigo: str | None = None):
     from db.compras_article_categories import (
@@ -701,6 +646,10 @@ def _update_artigo_administrativo_in_transaction(
 
     if categoria_artigo is not None:
         categoria_artigo = validate_article_category(categoria_artigo)
+    if origem_id is not None:
+        raise ValueError(
+            'A origem histórica não pode ser alterada na edição do catálogo.'
+        )
     cursor.execute(
         """
         SELECT a.fornecedor, a.produto, a.marca, a.unidade,
@@ -719,47 +668,21 @@ def _update_artigo_administrativo_in_transaction(
     current = cursor.fetchone()
     if not current:
         return None
+    next_fornecedor = current[0] if fornecedor is None else str(fornecedor).strip()
+    if not next_fornecedor:
+        raise ValueError('A designação do artigo não pode ficar vazia.')
     current_category = current[10] if len(current) > 10 else UNCATEGORIZED
     next_category = (
         current_category
         if categoria_artigo is None
         else categoria_artigo
     )
-    next_origin_id = current[4] if origem_id is None else origem_id
+    next_origin_id = current[4]
     next_origin_type = current[6]
     next_official_supplier_id = current[8]
-    next_official_supplier_name = current[9]
-    if origem_id is not None:
-        cursor.execute(
-            """
-            SELECT id, tipo, supplier_id
-            FROM compras_origens WHERE id = %s AND ativo = TRUE
-            """,
-            (origem_id,),
-        )
-        selected_origin = cursor.fetchone()
-        if not selected_origin:
-            raise ValueError('A origem selecionada não existe ou está inativa.')
-        next_origin_type = selected_origin[1]
-        if next_origin_type == 'fornecedor_externo':
-            if (
-                next_official_supplier_id is not None
-                and next_official_supplier_id != selected_origin[2]
-            ):
-                raise ValueError(
-                    'A origem externa e o fornecedor oficial são diferentes. '
-                    'Resolva o fornecedor oficial antes de alterar a origem.'
-                )
-            next_official_supplier_id = selected_origin[2]
-            cursor.execute(
-                "SELECT name FROM suppliers WHERE id = %s",
-                (next_official_supplier_id,),
-            )
-            supplier_row = cursor.fetchone()
-            next_official_supplier_name = supplier_row[0] if supplier_row else None
 
     unchanged = (
-        current[0] == fornecedor
+        current[0] == next_fornecedor
         and current[1] == produto
         and (current[2] or None) == (marca or None)
         and (current[3] or None) == (unidade or None)
@@ -778,24 +701,18 @@ def _update_artigo_administrativo_in_transaction(
         """
         UPDATE artigos_administrativos
            SET fornecedor = %s, produto = %s, marca = %s, unidade = %s,
-               origem_id = %s, fornecedor_oficial_id = %s,
                categoria_artigo = %s,
-               origem_original = COALESCE(origem_original, %s),
                human_modified_at = CASE
                    WHEN fornecedor IS DISTINCT FROM %s
                      OR produto IS DISTINCT FROM %s
                      OR marca IS DISTINCT FROM %s
                      OR unidade IS DISTINCT FROM %s
-                     OR origem_id IS DISTINCT FROM %s
-                     OR fornecedor_oficial_id IS DISTINCT FROM %s
                    THEN NOW() ELSE human_modified_at END,
                updated_at = NOW()
          WHERE id = %s
         """,
-        (fornecedor, produto, marca or None, unidade or None, next_origin_id,
-         next_official_supplier_id, next_category, fornecedor,
-         fornecedor, produto, marca or None, unidade or None, next_origin_id,
-         next_official_supplier_id, artigo_id),
+        (next_fornecedor, produto, marca or None, unidade or None, next_category,
+         next_fornecedor, produto, marca or None, unidade or None, artigo_id),
     )
     if current_category != next_category:
         cursor.execute(
@@ -806,33 +723,6 @@ def _update_artigo_administrativo_in_transaction(
             """,
             (artigo_id, current_category, next_category, actor),
         )
-    if next_origin_id is not None and current[4] != next_origin_id:
-        cursor.execute(
-            """
-            INSERT INTO artigos_administrativos_origem_audit
-                (artigo_id, origem_anterior_id, origem_nova_id,
-                 rotulo_original, actor, reason)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            """,
-            (
-                artigo_id, current[4], next_origin_id,
-                current[5] or current[0], actor, 'edição do catálogo',
-            ),
-        )
-    if current[8] != next_official_supplier_id:
-        cursor.execute(
-            """
-            INSERT INTO artigos_administrativos_fornecedor_audit
-                (artigo_id, fornecedor_anterior_id, fornecedor_anterior_nome,
-                 fornecedor_novo_id, fornecedor_novo_nome, actor, reason)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                artigo_id, current[8], current[9],
-                next_official_supplier_id, next_official_supplier_name,
-                actor, 'associação derivada de origem externa confirmada',
-            ),
-        )
     return {
         'found': True,
         'changed': True,
@@ -840,7 +730,7 @@ def _update_artigo_administrativo_in_transaction(
     }
 
 
-def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
+def update_artigo_administrativo(artigo_id: int, fornecedor: str | None, produto: str,
                                  marca: str = None, unidade: str = None,
                                  origem_id: int = None, actor: str = 'sistema',
                                  categoria_artigo: str | None = None):
@@ -880,7 +770,7 @@ def update_artigos_administrativos_bulk(changes: list[dict],
                 result = _update_artigo_administrativo_in_transaction(
                     cursor,
                     change['artigo_id'],
-                    change['fornecedor'],
+                    change.get('fornecedor'),
                     change['produto'],
                     marca=change.get('marca'),
                     unidade=change.get('unidade'),
@@ -916,172 +806,13 @@ def update_artigos_administrativos_bulk(changes: list[dict],
 
 def confirm_artigo_fornecedor(artigo_id: int, supplier_id: int,
                               actor: str = 'sistema') -> dict | None:
-    """Link one article to an existing canonical supplier and audit the change."""
-    if not isinstance(artigo_id, int) or artigo_id <= 0:
-        raise ValueError('Artigo inválido.')
-    if not isinstance(supplier_id, int) or supplier_id <= 0:
-        raise ValueError('Fornecedor inválido.')
-
-    with db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT a.origem_id, a.origem_original, a.fornecedor,
-                   o.tipo, o.supplier_id, a.fornecedor_oficial_id,
-                   official_s.name
-            FROM artigos_administrativos a
-            LEFT JOIN compras_origens o ON o.id = a.origem_id
-            LEFT JOIN suppliers official_s
-                   ON official_s.id = a.fornecedor_oficial_id
-            WHERE a.id = %s
-            FOR UPDATE OF a
-            """,
-            (artigo_id,),
-        )
-        article = cursor.fetchone()
-        if not article:
-            return None
-        already_linked_to_supplier = (
-            article[3] == 'fornecedor_externo'
-            and article[4] == supplier_id
-        )
-        if (
-            article[3] not in (None, 'por_resolver', 'fornecedor_externo')
-            or (
-                article[3] == 'fornecedor_externo'
-                and not already_linked_to_supplier
-            )
-        ):
-            raise ValueError(
-                'Este artigo já tem outra origem confirmada. '
-                'Use o seletor de origem para a alterar.'
-            )
-        if (
-            article[5] is not None
-            and article[5] != supplier_id
-        ):
-            raise ValueError(
-                'O fornecedor oficial selecionado é diferente. '
-                'Corrija a associação antes de confirmar esta origem.'
-            )
-
-        cursor.execute(
-            "SELECT id, name FROM suppliers WHERE id = %s",
-            (supplier_id,),
-        )
-        supplier = cursor.fetchone()
-        if not supplier or not supplier[1]:
-            raise ValueError('O fornecedor selecionado não existe.')
-        supplier_name = supplier[1].strip()
-        if not supplier_name:
-            raise ValueError('O fornecedor selecionado não tem nome válido.')
-        origin_key = f'fornecedor:{supplier_id}'
-
-        cursor.execute(
-            """
-            SELECT id, ativo
-            FROM compras_origens
-            WHERE tipo = 'fornecedor_externo' AND supplier_id = %s
-            ORDER BY ativo DESC, id
-            LIMIT 1
-            FOR UPDATE
-            """,
-            (supplier_id,),
-        )
-        existing_origin = cursor.fetchone()
-        if existing_origin:
-            if not existing_origin[1]:
-                raise ValueError(
-                    'A origem deste fornecedor está inativa; confirme-a antes de a associar.'
-                )
-            origin_id = existing_origin[0]
-        else:
-            cursor.execute(
-                """
-                INSERT INTO compras_origens
-                    (chave, tipo, nome, rotulo_original, supplier_id)
-                VALUES (%s, 'fornecedor_externo', %s, %s, %s)
-                ON CONFLICT (chave) DO NOTHING
-                RETURNING id
-                """,
-                (origin_key, supplier_name, supplier_name, supplier_id),
-            )
-            created_origin = cursor.fetchone()
-            if created_origin:
-                origin_id = created_origin[0]
-            else:
-                cursor.execute(
-                    """
-                    SELECT id, tipo, supplier_id, ativo
-                    FROM compras_origens
-                    WHERE chave = %s
-                    FOR UPDATE
-                    """,
-                    (origin_key,),
-                )
-                raced_origin = cursor.fetchone()
-                if (
-                    not raced_origin
-                    or raced_origin[1] != 'fornecedor_externo'
-                    or raced_origin[2] != supplier_id
-                    or not raced_origin[3]
-                ):
-                    raise ValueError(
-                        'Já existe uma origem incompatível ou inativa para este fornecedor.'
-                    )
-                origin_id = raced_origin[0]
-
-        origin_changed = article[0] != origin_id
-        supplier_changed = article[5] != supplier_id
-        if not origin_changed and not supplier_changed:
-            return {
-                'changed': False,
-                'supplier_name': supplier_name,
-            }
-
-        cursor.execute(
-            """
-            UPDATE artigos_administrativos
-            SET origem_id = %s, fornecedor_oficial_id = %s,
-                human_modified_at = NOW(), updated_at = NOW()
-            WHERE id = %s
-            """,
-            (origin_id, supplier_id, artigo_id),
-        )
-        if origin_changed:
-            cursor.execute(
-                """
-                INSERT INTO artigos_administrativos_origem_audit
-                    (artigo_id, origem_anterior_id, origem_nova_id,
-                     rotulo_original, actor, reason)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    artigo_id, article[0], origin_id,
-                    article[1] or article[2], actor,
-                    'confirmação de fornecedor no catálogo',
-                ),
-            )
-        if supplier_changed:
-            cursor.execute(
-                """
-                INSERT INTO artigos_administrativos_fornecedor_audit
-                    (artigo_id, fornecedor_anterior_id, fornecedor_anterior_nome,
-                     fornecedor_novo_id, fornecedor_novo_nome, actor, reason)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    artigo_id, article[5], article[6], supplier_id, supplier_name,
-                    actor, 'confirmação da origem externa no catálogo',
-                ),
-            )
-        conn.commit()
-
-    invalidate_prefix('artigos_administrativos')
-    return {
-        'changed': True,
-        'supplier_name': supplier_name,
-    }
+    """Confirm the direct supplier link without creating or changing an origin."""
+    return set_artigo_fornecedor_oficial(
+        artigo_id,
+        supplier_id,
+        actor=actor,
+        reason='confirmação do fornecedor registado no catálogo',
+    )
 
 
 def set_artigo_fornecedor_oficial(
@@ -1102,12 +833,10 @@ def set_artigo_fornecedor_oficial(
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT a.fornecedor_oficial_id, official_s.name,
-                   o.tipo, o.supplier_id
+            SELECT a.fornecedor_oficial_id, official_s.name
             FROM artigos_administrativos a
             LEFT JOIN suppliers official_s
                    ON official_s.id = a.fornecedor_oficial_id
-            LEFT JOIN compras_origens o ON o.id = a.origem_id
             WHERE a.id = %s
             FOR UPDATE OF a
             """,
@@ -1116,18 +845,6 @@ def set_artigo_fornecedor_oficial(
         current = cursor.fetchone()
         if not current:
             return None
-
-        origin_type, origin_supplier_id = current[2], current[3]
-        if origin_type == 'fornecedor_externo':
-            if supplier_id is None:
-                raise ValueError(
-                    'Um artigo com origem externa confirmada tem de manter '
-                    'o mesmo fornecedor oficial.'
-                )
-            if supplier_id != origin_supplier_id:
-                raise ValueError(
-                    'O fornecedor oficial tem de corresponder à origem externa.'
-                )
 
         next_supplier_name = None
         if supplier_id is not None:

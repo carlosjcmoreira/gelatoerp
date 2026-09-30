@@ -8,7 +8,7 @@
             <div class="text-muted small">
                 {{ artigo.fornecedor }}
                 {% if artigo.unidade %} · unidade {{ artigo.unidade }}{% endif %}
-                {% if artigo.origem_nome %} · {{ artigo.origem_nome }}{% endif %}
+                {% if artigo.origem_nome %} · Origem histórica: {{ artigo.origem_nome }}{% endif %}
             </div>
         </div>
         <span class="badge {{ 'text-bg-success' if artigo.ativo else 'text-bg-secondary' }}">
@@ -61,7 +61,7 @@
                 <strong>Designação original preservada:</strong>
                 {{ artigo.origem_original or artigo.fornecedor }}
                 {% if artigo.origem_nome %}
-                <span class="text-muted">· Origem operacional: {{ artigo.origem_nome }}</span>
+                <span class="text-muted">· Origem histórica: {{ artigo.origem_nome }}</span>
                 {% endif %}
                 {% if artigo.fornecedor_oficial_nome %}
                 <div class="mt-1">
