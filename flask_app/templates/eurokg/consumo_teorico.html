@@ -256,67 +256,117 @@
         <div class="card-body">
             <p class="small text-muted">Só aparecem artigos selecionados no tile Euro/kg do Gestor. A primeira configuração usa a data da primeira venda registada do artigo (ou hoje, se ainda não houver vendas) e recalcula o histórico disponível. Se já existir uma dose, indique em “Nova data” quando o novo valor deve começar; o valor anterior mantém-se antes dessa data.</p>
             {% if dose_products %}
-            <form method="POST" action="{{ url_for('eurokg.configurar_produto_dose') }}">
+            {% set pending_dose_products = dose_products|selectattr('dose_config_pendente')|list %}
+            {% set configured_dose_products = dose_products|rejectattr('dose_config_pendente')|list %}
+            {% set configured_dose_ids = configured_dose_products|map(attribute='id')|list %}
+            {% set focus_is_configured = focus_product_id in configured_dose_ids %}
+            <form method="POST" action="{{ url_for('eurokg.configurar_produto_dose') }}" data-dose-config-form>
                 <input type="hidden" name="loja_filter" value="{{ loja_filter }}">
                 <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
                 <input type="hidden" name="data_fim" value="{{ data_fim }}">
                 {% if focus_product_id %}<input type="hidden" name="produto_id" value="{{ focus_product_id }}">{% endif %}
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle mb-3">
-                        <thead>
-                            <tr>
-                                <th scope="col">Família canónica</th>
-                                <th scope="col" style="width:20%">Tipo</th>
-                                <th scope="col" style="width:25%">Gramas por unidade</th>
-                                <th scope="col" style="width:20%">Nova data</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        {% for product in dose_products %}
-                            <tr id="dose-product-{{ product.id }}"
-                                {% if focus_product_id == product.id %}class="table-warning" tabindex="-1" data-dose-focus-target{% endif %}>
-                                <td>
-                                    <input type="hidden" name="product_id" value="{{ product.id }}">
-                                    <div>
-                                        <strong class="small">{{ product.canonical_product.produto if product.canonical_product else product.produto }}</strong>
-                                        <span class="text-muted small">ID {{ product.canonical_product.id if product.canonical_product else product.id }}</span>
-                                    </div>
-                                    {% if focus_product_id == product.id %}<span class="badge text-bg-warning">Artigo do aviso</span>{% endif %}
-                                    <span class="badge {{ 'text-bg-warning' if product.dose_config_pendente else 'text-bg-success' }}">{{ 'Faltam gramas' if product.dose_config_pendente else 'Configurado' }}</span>
-                                    {% if product.valid_from %}<div class="text-muted small">Valor atual desde {{ product.valid_from.strftime('%d/%m/%Y') }}</div>{% elif product.first_sale %}<div class="text-muted small">Primeira venda em {{ product.first_sale.strftime('%d/%m/%Y') }}</div>{% endif %}
-                                    <details class="mt-1" data-dose-family>
-                                        <summary class="small">
-                                            Origem histórica: {{ product.aliases|length }} alias{% if product.aliases|length != 1 %}es{% endif %}
-                                        </summary>
-                                        {% if product.aliases %}
-                                        <ul class="small text-muted mb-0 mt-1 ps-3">
-                                            {% for alias in product.aliases %}
-                                            <li>{{ alias.produto }} <span class="text-nowrap">(ID {{ alias.id }})</span></li>
-                                            {% endfor %}
-                                        </ul>
-                                        {% else %}
-                                        <div class="small text-muted mt-1">Sem nomes históricos associados.</div>
+                {% macro dose_product_rows(products, focus_product_id) %}
+                    <tbody>
+                    {% for product in products %}
+                        {% set display_name = product.canonical_product.produto if product.canonical_product else product.produto %}
+                        <tr id="dose-product-{{ product.id }}"
+                            {% if focus_product_id == product.id %}class="table-warning" tabindex="-1" data-dose-focus-target{% endif %}>
+                            <th scope="row" class="fw-normal">
+                                <input type="hidden" name="product_id" value="{{ product.id }}">
+                                <details data-dose-product-details data-dose-family {% if focus_product_id == product.id %}open{% endif %}>
+                                    <summary class="small text-nowrap">
+                                        <strong>{{ display_name }}</strong>
+                                        <span class="text-muted">ID {{ product.canonical_product.id if product.canonical_product else product.id }}</span>
+                                        {% if focus_product_id == product.id %}<span class="badge text-bg-warning">Artigo do aviso</span>{% endif %}
+                                    </summary>
+                                    <div class="small text-muted mt-2">
+                                        {% if product.valid_from %}
+                                        <div>Valor atual desde {{ product.valid_from.strftime('%d/%m/%Y') }}</div>
+                                        {% elif product.first_sale %}
+                                        <div>Primeira venda em {{ product.first_sale.strftime('%d/%m/%Y') }}</div>
                                         {% endif %}
-                                    </details>
-                                </td>
-                                <td>
-                                    <select id="type-{{ product.id }}" class="form-select form-select-sm" name="tipo_dose">
-                                        <option value="fixa" {% if product.tipo_dose != 'peso' %}selected{% endif %}>Dose fixa</option>
-                                        <option value="peso" {% if product.tipo_dose == 'peso' %}selected{% endif %}>Ao peso</option>
-                                    </select>
-                                </td>
-                                <td>
-                                    <input id="grams-{{ product.id }}" class="form-control form-control-sm" type="number" min="0.001" step="0.001" inputmode="decimal" name="gramas" value="{{ product.gramas or '' }}">
-                                </td>
-                                <td>
-                                    <input class="form-control form-control-sm" type="date" name="data_efetiva" aria-label="Nova data de entrada em vigor para {{ product.produto }}">
-                                    {% if product.dose_history_exists %}<small class="text-muted">Obrigatória se alterar</small>{% else %}<small class="text-muted">Primeira configuração: histórico</small>{% endif %}
-                                </td>
-                            </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                                        <div class="mt-1">
+                                            Origem histórica: {{ product.aliases|length }} alias{% if product.aliases|length != 1 %}es{% endif %}
+                                            {% if product.aliases %}
+                                            <ul class="mb-0 mt-1 ps-3">
+                                                {% for alias in product.aliases %}
+                                                <li>{{ alias.produto }} <span class="text-nowrap">(ID {{ alias.id }})</span></li>
+                                                {% endfor %}
+                                            </ul>
+                                            {% else %}
+                                            <div class="mt-1">Sem nomes históricos associados.</div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="mt-1">
+                                            {% if product.dose_history_exists %}Nova data: obrigatória se alterar{% else %}Primeira configuração: usa o histórico disponível{% endif %}
+                                        </div>
+                                    </div>
+                                </details>
+                            </th>
+                            <td>
+                                <select id="type-{{ product.id }}" class="form-select form-select-sm" name="tipo_dose" aria-label="Tipo de dose para {{ display_name }}">
+                                    <option value="fixa" {% if product.tipo_dose != 'peso' %}selected{% endif %}>Dose fixa</option>
+                                    <option value="peso" {% if product.tipo_dose == 'peso' %}selected{% endif %}>Ao peso</option>
+                                </select>
+                            </td>
+                            <td>
+                                <input id="grams-{{ product.id }}" class="form-control form-control-sm" type="number" min="0.001" step="0.001" inputmode="decimal" name="gramas" value="{{ product.gramas or '' }}" aria-label="Gramas por unidade para {{ display_name }}">
+                            </td>
+                            <td>
+                                <input class="form-control form-control-sm" type="date" name="data_efetiva" aria-label="Nova data de entrada em vigor para {{ display_name }}{% if product.dose_history_exists %} (obrigatória se alterar){% endif %}">
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                {% endmacro %}
+
+                <details class="mb-3" data-dose-group="pending" open>
+                    <summary class="d-flex align-items-center gap-2">
+                        <span class="fw-semibold">Faltam gramas</span>
+                        <span class="badge text-bg-warning">{{ pending_dose_products|length }}</span>
+                    </summary>
+                    {% if pending_dose_products %}
+                    <div class="table-responsive mt-2">
+                        <table class="table table-sm align-middle mb-0" style="min-width:720px">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Família canónica</th>
+                                    <th scope="col" style="width:20%">Tipo</th>
+                                    <th scope="col" style="width:25%">Gramas por unidade</th>
+                                    <th scope="col" style="width:20%">Nova data</th>
+                                </tr>
+                            </thead>
+                            {{ dose_product_rows(pending_dose_products, focus_product_id) }}
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="small text-muted mb-0 mt-2">Não há artigos pendentes de configuração.</p>
+                    {% endif %}
+                </details>
+
+                <details class="mb-3" data-dose-group="configured"{% if focus_is_configured %} open{% endif %}>
+                    <summary class="d-flex align-items-center gap-2">
+                        <span class="fw-semibold">Configurado</span>
+                        <span class="badge text-bg-success">{{ configured_dose_products|length }}</span>
+                    </summary>
+                    {% if configured_dose_products %}
+                    <div class="table-responsive mt-2">
+                        <table class="table table-sm align-middle mb-0" style="min-width:720px">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Família canónica</th>
+                                    <th scope="col" style="width:20%">Tipo</th>
+                                    <th scope="col" style="width:25%">Gramas por unidade</th>
+                                    <th scope="col" style="width:20%">Nova data</th>
+                                </tr>
+                            </thead>
+                            {{ dose_product_rows(configured_dose_products, focus_product_id) }}
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="small text-muted mb-0 mt-2">Não há artigos configurados.</p>
+                    {% endif %}
+                </details>
                 <button class="btn btn-primary btn-sm" type="submit">Guardar configurações</button>
             </form>
             {% else %}
@@ -426,6 +476,10 @@
 
     var doseFocusTarget = document.querySelector('[data-dose-focus-target]');
     if (doseFocusTarget) {
+        var doseGroup = doseFocusTarget.closest('[data-dose-group]');
+        if (doseGroup) doseGroup.open = true;
+        var doseProductDetails = doseFocusTarget.querySelector('[data-dose-product-details]');
+        if (doseProductDetails) doseProductDetails.open = true;
         doseFocusTarget.scrollIntoView({behavior: 'smooth', block: 'center'});
         doseFocusTarget.focus({preventScroll: true});
     }

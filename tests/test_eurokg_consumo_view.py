@@ -1,5 +1,6 @@
 import unittest
 from contextlib import ExitStack
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -47,7 +48,23 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
     def setUp(self):
         self.app = _make_eurokg_test_app()
 
-    def _patch_consumo_page(self):
+    def _patch_consumo_page(self, dose_products=None):
+        if dose_products is None:
+            dose_products = [{
+                "id": 42,
+                "produto": "Cone de Baunilha",
+                "canonical_product": {
+                    "id": 42,
+                    "produto": "Cone de Baunilha",
+                },
+                "aliases": [],
+                "dose_config_pendente": True,
+                "tipo_dose": "fixa",
+                "gramas": None,
+                "valid_from": None,
+                "first_sale": None,
+                "dose_history_exists": False,
+            }]
         patches = [
             patch(
                 "flask_app.routes.eurokg._store_context",
@@ -79,21 +96,7 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
             ),
             patch(
                 "flask_app.routes.eurokg.get_dose_product_configuration_queue",
-                return_value=([{
-                    "id": 42,
-                    "produto": "Cone de Baunilha",
-                    "canonical_product": {
-                        "id": 42,
-                        "produto": "Cone de Baunilha",
-                    },
-                    "aliases": [],
-                    "dose_config_pendente": True,
-                    "tipo_dose": "fixa",
-                    "gramas": None,
-                    "valid_from": None,
-                    "first_sale": None,
-                    "dose_history_exists": False,
-                }], []),
+                return_value=(dose_products, []),
             ),
             patch(
                 "flask_app.routes.eurokg.get_vendas_ao_peso_sem_peso_calculavel",
@@ -135,7 +138,115 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         self.assertIn('name="produto_id" value="42"', html)
         self.assertIn('name="data_inicio" value="2026-08-01"', html)
         self.assertIn('name="data_fim" value="2026-08-31"', html)
+        self.assertIn('<details data-dose-product-details data-dose-family open>', html)
+        self.assertIn('data-dose-group="pending" open', html)
+        self.assertIn("Não há artigos configurados.", html)
         self.assertIn("scrollIntoView", html)
+
+    def test_dose_configuration_groups_keep_compact_rows_and_all_form_fields(self):
+        products = [
+            {
+                "id": 42,
+                "produto": "Cone de Baunilha",
+                "canonical_product": {"id": 42, "produto": "Cone de Baunilha"},
+                "aliases": [],
+                "dose_config_pendente": True,
+                "tipo_dose": "fixa",
+                "gramas": None,
+                "valid_from": None,
+                "first_sale": date(2026, 2, 11),
+                "dose_history_exists": False,
+            },
+            {
+                "id": 43,
+                "produto": "Taça Chocolate",
+                "canonical_product": {"id": 43, "produto": "Taça Chocolate"},
+                "aliases": [{"id": 84, "produto": "Taça Choc."}],
+                "dose_config_pendente": False,
+                "tipo_dose": "peso",
+                "gramas": None,
+                "valid_from": date(2026, 3, 10),
+                "first_sale": date(2025, 9, 1),
+                "dose_history_exists": True,
+            },
+        ]
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "test-manager",
+                    "acesso_gestor": True,
+                    "acesso_eurokg": True,
+                }
+
+            with ExitStack() as stack:
+                for patcher in self._patch_consumo_page(products):
+                    stack.enter_context(patcher)
+                response = client.get("/eurokg/consumo")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        editor = html.split("data-dose-config-form", 1)[1].split("</form>", 1)[0]
+        self.assertIn('<details class="mb-3" data-dose-group="pending" open>', editor)
+        self.assertIn('<details class="mb-3" data-dose-group="configured">', editor)
+        self.assertEqual(editor.count('class="table-responsive mt-2"'), 2)
+        self.assertEqual(editor.count('style="min-width:720px"'), 2)
+        self.assertEqual(editor.count("Faltam gramas"), 1)
+        self.assertEqual(editor.count(">Configurado</span>"), 1)
+        for field_name in ("product_id", "tipo_dose", "gramas", "data_efetiva"):
+            self.assertEqual(editor.count(f'name="{field_name}"'), 2)
+        self.assertNotIn('disabled', editor)
+        self.assertIn('id="dose-product-42"', editor)
+        self.assertIn('id="dose-product-43"', editor)
+        self.assertIn('<option value="peso" selected>', editor)
+        self.assertEqual(editor.count('name="gramas" value=""'), 2)
+        self.assertIn("Primeira venda em 11/02/2026", editor)
+        self.assertIn("Valor atual desde 10/03/2026", editor)
+        self.assertIn("Origem histórica: 1 alias", editor)
+        self.assertIn("obrigatória se alterar", editor)
+        for product_id in (42, 43):
+            row = editor.split(f'id="dose-product-{product_id}"', 1)[1].split("</tr>", 1)[0]
+            self.assertIn("data-dose-product-details data-dose-family", row)
+            self.assertNotIn("data-dose-product-details data-dose-family open", row)
+            self.assertLess(
+                row.index("data-dose-product-details"),
+                row.index("Origem histórica:"),
+            )
+            self.assertLess(row.index("Origem histórica:"), row.index("</details>"))
+
+    def test_warning_focus_opens_configured_group_and_product_details(self):
+        product = {
+            "id": 43,
+            "produto": "Taça Chocolate",
+            "canonical_product": {"id": 43, "produto": "Taça Chocolate"},
+            "aliases": [],
+            "dose_config_pendente": False,
+            "tipo_dose": "peso",
+            "gramas": None,
+            "valid_from": date(2026, 3, 10),
+            "first_sale": date(2025, 9, 1),
+            "dose_history_exists": True,
+        }
+        with self.app.test_client() as client:
+            with client.session_transaction() as session:
+                session["user"] = {
+                    "username": "test-manager",
+                    "acesso_gestor": True,
+                    "acesso_eurokg": True,
+                }
+
+            with ExitStack() as stack:
+                for patcher in self._patch_consumo_page([product]):
+                    stack.enter_context(patcher)
+                response = client.get("/eurokg/consumo?produto_id=43")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        editor = html.split("data-dose-config-form", 1)[1].split("</form>", 1)[0]
+        self.assertIn('id="dose-product-43"', editor)
+        self.assertIn('<details data-dose-product-details data-dose-family open>', editor)
+        self.assertIn('<details class="mb-3" data-dose-group="configured" open>', editor)
+        self.assertIn('data-dose-focus-target', editor)
+        self.assertIn("Não há artigos pendentes de configuração.", editor)
 
     def test_non_manager_cannot_open_a_manager_product_focus(self):
         with self.app.test_client() as client:
@@ -420,6 +531,11 @@ class ConsumoTeoricoViewTests(unittest.TestCase):
         self.assertIn("Guardar configurações", template)
         self.assertIn("Origem histórica:", template)
         self.assertIn("data-dose-family", template)
+        self.assertIn("data-dose-group=\"pending\"", template)
+        self.assertIn("data-dose-group=\"configured\"", template)
+        self.assertIn("data-dose-product-details", template)
+        self.assertEqual(template.count("Faltam gramas"), 1)
+        self.assertEqual(template.count(">Configurado</span>"), 1)
         self.assertIn("(ID {{ alias.id }})", template)
         self.assertNotIn('name="alias_id"', template)
         self.assertNotIn('for="type-{{ product.id }}"', template)
