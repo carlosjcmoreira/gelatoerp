@@ -35,7 +35,8 @@
 
     <div class="card mb-3">
         <div class="card-body p-2">
-            <form method="get" class="row g-2 align-items-center">
+            <form method="get" class="row g-2 align-items-center"
+                  data-unsaved-navigation>
                 <div class="col">
                     <input type="search" name="q" value="{{ search or '' }}"
                            class="form-control form-control-sm"
@@ -56,7 +57,8 @@
     <div class="card mb-3">
         <div class="card-header py-2"><strong class="small">Adicionar artigo</strong></div>
         <div class="card-body p-2">
-            <form method="post" class="row g-2 align-items-end">
+            <form method="post" class="row g-2 align-items-end"
+                  data-unsaved-navigation>
                 <input type="hidden" name="action" value="add">
                 <div class="col-12 col-md-2">
                     <label class="form-label small mb-1">Origem de abastecimento</label>
@@ -111,145 +113,219 @@
         </div>
     </div>
 
+    <form id="catalogue-bulk-edit" method="post"
+          action="{{ url_for('compras.artigos') }}">
+        <input type="hidden" name="action" value="bulk_edit">
+        <input type="hidden" name="q" value="{{ search or '' }}">
+    </form>
+
+    {% if bulk_error_message %}
+    <div class="alert alert-danger" role="alert" aria-live="assertive">
+        {{ bulk_error_message }}
+        As alterações introduzidas continuam no formulário; corrija o artigo indicado e tente novamente.
+    </div>
+    {% endif %}
+
     {% if artigos %}
+    <div class="d-flex justify-content-end mb-2">
+        <button class="btn btn-primary btn-sm" type="submit"
+                form="catalogue-bulk-edit">
+            Guardar alterações
+        </button>
+    </div>
     <div class="table-responsive">
-        <table class="table table-sm table-hover align-middle" style="font-size:0.82rem;">
+        <table class="table table-sm table-hover align-middle" style="font-size:0.86rem;">
             <thead>
                 <tr>
-                    <th>Origem de abastecimento</th>
-                    <th>Fornecedor oficial</th>
-                    <th>Produto</th>
-                    <th>Categoria de utilização</th>
-                    <th>Marca (opcional)</th>
-                    <th>Un.</th>
-                    <th>Estado</th>
+                    <th style="min-width:220px;">Produto</th>
+                    <th style="min-width:190px;">Categoria de utilização</th>
+                    <th style="min-width:90px;">Unidade</th>
                     <th class="text-end">Ações</th>
                 </tr>
             </thead>
             <tbody>
             {% for a in artigos %}
-            <tr class="{% if not a.ativo %}text-muted{% endif %}">
-                    <td style="min-width:210px;">
-                        <form id="edit-artigo-{{ a.id }}" method="post">
-                            <input type="hidden" name="action" value="edit">
-                            <input type="hidden" name="artigo_id" value="{{ a.id }}">
-                            <select name="origem_id" class="form-select form-select-sm" required>
-                            {% for origem in origens %}
-                            <option value="{{ origem.id }}" {% if origem.id == a.origem_id %}selected{% endif %}>
-                                {{ origem.nome }} · {{ origem.tipo|replace('_', ' ') }}
-                            </option>
-                            {% endfor %}
-                            </select>
-                            {% set tipo_origem_label = {
-                                'fornecedor_externo': 'Fornecedor externo',
-                                'centro_interno': 'Centro interno',
-                                'categoria_operacional': 'Categoria operacional',
-                                'por_resolver': 'Por resolver'
-                            }.get(a.origem_tipo, 'Por resolver') %}
-                            <div class="mt-1">
-                                <span class="badge {% if tipo_origem_label == 'Por resolver' %}text-bg-warning{% else %}text-bg-light{% endif %}">
-                                    {{ tipo_origem_label }}
-                                </span>
-                            </div>
-                            <details class="mt-1">
-                                <summary class="small">Texto do ficheiro / editar etiqueta</summary>
-                                <div class="pt-1">
-                                    <label for="etiqueta-artigo-{{ a.id }}" class="form-label small mb-1">
-                                        Etiqueta do artigo
-                                    </label>
-                                    <input id="etiqueta-artigo-{{ a.id }}" type="text"
-                                           name="fornecedor" value="{{ a.fornecedor }}"
-                                           class="form-control form-control-sm"
-                                           aria-label="Etiqueta do artigo {{ a.produto }}">
-                                    {% if a.origem_original and a.origem_original != a.fornecedor %}
-                                    <div class="small text-muted mt-1">
-                                        Texto original preservado: {{ a.origem_original }}
-                                    </div>
-                                    {% endif %}
-                                </div>
-                            </details>
-                        </form>
-                    </td>
-                    <td style="min-width:220px;">
-                        {% if a.origem_tipo == 'fornecedor_externo'
-                              and a.origem_supplier_id is not none
-                              and a.origem_supplier_id == a.fornecedor_oficial_id %}
-                        <span class="badge text-bg-success">Mesmo fornecedor da origem</span>
-                        <details class="small mt-1">
-                            <summary>Ver nome legal</summary>
-                            <div class="pt-1">{{ a.fornecedor_oficial_nome or 'Nome legal indisponível' }}</div>
-                        </details>
-                        {% elif a.fornecedor_oficial_nome %}
-                        <div class="fw-semibold">{{ a.fornecedor_oficial_nome }}</div>
-                        {% else %}
-                        <span class="badge text-bg-warning">Fornecedor por confirmar</span>
+                {% set edit = a.get('_bulk_edit', {}) %}
+                {% set selected_category = edit.get('categoria_artigo', a.categoria_artigo or 'Por classificar') %}
+                {% set selected_origin_id = namespace(value='') %}
+                {% if 'origem_id' in edit %}
+                    {% set selected_origin_id.value = edit.get('origem_id', '') %}
+                {% else %}
+                    {% for origem in origens %}
+                        {% if origem.id|string == a.origem_id|string %}
+                            {% set selected_origin_id.value = a.origem_id|string %}
                         {% endif %}
-                        <div class="mt-1">
-                            <button type="button" class="btn btn-outline-primary btn-sm"
-                                    data-bs-toggle="modal" data-bs-target="#fornecedorOficialModal"
-                                    data-artigo-id="{{ a.id }}"
-                                    data-artigo-produto="{{ a.produto }}"
-                                    data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}">
-                                {{ 'Alterar fornecedor oficial' if a.fornecedor_oficial_id else 'Associar fornecedor oficial' }}
-                            </button>
-                        </div>
+                    {% endfor %}
+                {% endif %}
+                {% set origin_is_available = namespace(value=false) %}
+                {% for origem in origens %}
+                    {% if origem.id|string == selected_origin_id.value|string %}
+                        {% set origin_is_available.value = true %}
+                    {% endif %}
+                {% endfor %}
+                <tr class="{% if not a.ativo %}text-muted{% endif %}">
+                    <td>
+                        <button class="btn btn-link p-0 text-start text-decoration-none fw-semibold"
+                                type="button" data-bs-toggle="collapse"
+                                data-bs-target="#artigo-detalhe-{{ a.id }}"
+                                aria-expanded="false"
+                                aria-controls="artigo-detalhe-{{ a.id }}">
+                            {{ edit.get('produto', a.produto) }}
+                            <span class="visually-hidden"> — abrir detalhes do artigo</span>
+                        </button>
                     </td>
-                    <td style="min-width:240px;">
-                        <input form="edit-artigo-{{ a.id }}" type="text" name="produto" value="{{ a.produto }}"
-                               class="form-control form-control-sm" required>
-                    </td>
-                    <td style="min-width:190px;">
-                        <select form="edit-artigo-{{ a.id }}" name="categoria_artigo"
-                                class="form-select form-select-sm" required>
+                    <td>
+                        <input form="catalogue-bulk-edit" type="hidden"
+                               name="artigo_id" value="{{ a.id }}">
+                        <select form="catalogue-bulk-edit"
+                                name="categoria_artigo_{{ a.id }}"
+                                class="form-select form-select-sm"
+                                aria-label="Categoria — {{ a.produto }}">
+                            {% if selected_category not in article_categories %}
+                            <option value="{{ selected_category }}" selected>
+                                {{ selected_category }} (inválida)
+                            </option>
+                            {% endif %}
                             {% for category in article_categories %}
                             <option value="{{ category }}"
-                                    {% if category == (a.categoria_artigo or 'Por classificar') %}selected{% endif %}>
+                                    {% if category == selected_category %}selected{% endif %}>
                                 {{ category }}
                             </option>
                             {% endfor %}
                         </select>
                     </td>
-                    <td style="min-width:120px;">
-                        <input form="edit-artigo-{{ a.id }}" type="text" name="marca" value="{{ a.marca or '' }}"
-                               class="form-control form-control-sm">
-                    </td>
-                    <td style="width:90px;">
-                        <input form="edit-artigo-{{ a.id }}" type="text" name="unidade" value="{{ a.unidade or '' }}"
-                               class="form-control form-control-sm">
-                    </td>
                     <td>
-                        {% if a.ativo %}
-                        <span class="badge text-bg-success">Ativo</span>
-                        {% else %}
-                        <span class="badge text-bg-secondary">Inativo</span>
-                        {% endif %}
-                        {% if a.source_version %}
-                        <div class="small text-muted mt-1">{{ a.source_version }}</div>
-                        {% endif %}
+                        <input form="catalogue-bulk-edit" type="text"
+                               name="unidade_{{ a.id }}"
+                               value="{{ edit.get('unidade', a.unidade or '') }}"
+                               class="form-control form-control-sm"
+                               aria-label="Unidade — {{ a.produto }}">
                     </td>
                     <td class="text-end text-nowrap">
-                        {% if a.origem_tipo == 'por_resolver' or not a.origem_id %}
-                        <button type="button" class="btn btn-outline-warning btn-sm"
-                                data-bs-toggle="modal" data-bs-target="#confirmarFornecedorModal"
-                                data-artigo-id="{{ a.id }}"
-                                data-artigo-produto="{{ a.produto }}"
-                                data-etiqueta-original="{{ a.origem_original or a.fornecedor }}">
-                            Confirmar origem externa
-                        </button>
-                        {% endif %}
                         <a href="{{ url_for('compras.artigo_detalhe', artigo_id=a.id) }}"
                            class="btn btn-outline-info btn-sm">Histórico</a>
-                        <button form="edit-artigo-{{ a.id }}" type="submit" class="btn btn-outline-primary btn-sm">Guardar</button>
-                        <form method="post" class="d-inline">
+                        <span class="badge {% if a.ativo %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+                            {{ 'Ativo' if a.ativo else 'Inativo' }}
+                        </span>
+                        <form method="post" class="d-inline" data-unsaved-navigation>
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="artigo_id" value="{{ a.id }}">
                             <input type="hidden" name="ativo" value="{{ '0' if a.ativo else '1' }}">
-                            <button type="submit" class="btn btn-sm {% if a.ativo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">
+                            <button type="submit"
+                                    class="btn btn-sm {% if a.ativo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">
                                 {{ 'Desativar' if a.ativo else 'Ativar' }}
                             </button>
                         </form>
                     </td>
             </tr>
+                <tr class="{% if not a.ativo %}text-muted{% endif %}">
+                    <td colspan="4" class="p-0 border-0">
+                        <div class="collapse" id="artigo-detalhe-{{ a.id }}">
+                            <div class="border rounded bg-light p-3 mb-2">
+                                <div class="row g-2">
+                                    <div class="col-12 col-md-4">
+                                        <label for="produto-{{ a.id }}" class="form-label small mb-1">
+                                            Nome do produto
+                                        </label>
+                                        <input id="produto-{{ a.id }}" form="catalogue-bulk-edit"
+                                               type="text" name="produto_{{ a.id }}"
+                                               value="{{ edit.get('produto', a.produto) }}"
+                                               class="form-control form-control-sm">
+                                    </div>
+                                    <div class="col-12 col-md-3">
+                                        <label for="marca-{{ a.id }}" class="form-label small mb-1">
+                                            Marca (opcional)
+                                        </label>
+                                        <input id="marca-{{ a.id }}" form="catalogue-bulk-edit"
+                                               type="text" name="marca_{{ a.id }}"
+                                               value="{{ edit.get('marca', a.marca or '') }}"
+                                               class="form-control form-control-sm">
+                                    </div>
+                                    <div class="col-12 col-md-5">
+                                        <label for="origem-{{ a.id }}" class="form-label small mb-1">
+                                            Origem de abastecimento
+                                        </label>
+                                        <select id="origem-{{ a.id }}" form="catalogue-bulk-edit"
+                                                name="origem_id_{{ a.id }}"
+                                                class="form-select form-select-sm">
+                                            {% if not origin_is_available.value %}
+                                            <option value="" selected>
+                                                Manter origem atual{% if a.origem_nome %}: {{ a.origem_nome }}{% elif a.origem_tipo == 'por_resolver' or not a.origem_id %}: por resolver{% else %}: indisponível{% endif %}
+                                            </option>
+                                            {% endif %}
+                                            {% for origem in origens %}
+                                            <option value="{{ origem.id }}"
+                                                    {% if origem.id|string == selected_origin_id.value|string %}selected{% endif %}>
+                                                {{ origem.nome }} · {{ origem.tipo|replace('_', ' ') }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-12 col-md-4">
+                                        <label for="etiqueta-{{ a.id }}" class="form-label small mb-1">
+                                            Etiqueta da origem
+                                        </label>
+                                        <input id="etiqueta-{{ a.id }}" form="catalogue-bulk-edit"
+                                               type="text" name="fornecedor_{{ a.id }}"
+                                               value="{{ edit.get('fornecedor', a.fornecedor) }}"
+                                               class="form-control form-control-sm">
+                                        {% if a.origem_original and a.origem_original != a.fornecedor %}
+                                        <div class="small text-muted mt-1">
+                                            Texto original preservado: {{ a.origem_original }}
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                    <div class="col-12 col-md-8">
+                                        <div class="form-label small mb-1">Fornecedor oficial</div>
+                                        {% if a.origem_tipo == 'fornecedor_externo'
+                                              and a.origem_supplier_id is not none
+                                              and a.origem_supplier_id == a.fornecedor_oficial_id %}
+                                        <span class="badge text-bg-success">Mesmo fornecedor da origem</span>
+                                        <span class="small">{{ a.fornecedor_oficial_nome or 'Nome legal indisponível' }}</span>
+                                        {% elif a.fornecedor_oficial_nome %}
+                                        <span class="fw-semibold">{{ a.fornecedor_oficial_nome }}</span>
+                                        {% else %}
+                                        <span class="badge text-bg-warning">Fornecedor por confirmar</span>
+                                        {% endif %}
+                                        <button type="button" class="btn btn-outline-primary btn-sm ms-2"
+                                                data-bs-toggle="modal" data-bs-target="#fornecedorOficialModal"
+                                                data-artigo-id="{{ a.id }}"
+                                                data-artigo-produto="{{ a.produto }}"
+                                                data-fornecedor-id="{{ a.fornecedor_oficial_id or '' }}">
+                                            {{ 'Alterar fornecedor oficial' if a.fornecedor_oficial_id else 'Associar fornecedor oficial' }}
+                                        </button>
+                                        {% if a.origem_tipo == 'por_resolver' or not a.origem_id %}
+                                        <button type="button" class="btn btn-outline-warning btn-sm ms-1"
+                                                data-bs-toggle="modal" data-bs-target="#confirmarFornecedorModal"
+                                                data-artigo-id="{{ a.id }}"
+                                                data-artigo-produto="{{ a.produto }}"
+                                                data-etiqueta-original="{{ a.origem_original or a.fornecedor }}">
+                                            Confirmar origem externa
+                                        </button>
+                                        {% endif %}
+                                    </div>
+                                    <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+                                        {% set tipo_origem_label = {
+                                            'fornecedor_externo': 'Fornecedor externo',
+                                            'centro_interno': 'Centro interno',
+                                            'categoria_operacional': 'Categoria operacional',
+                                            'por_resolver': 'Por resolver'
+                                        }.get(a.origem_tipo, 'Por resolver') %}
+                                        <span class="small text-muted">Estado da origem:</span>
+                                        <span class="badge {% if tipo_origem_label == 'Por resolver' %}text-bg-warning{% else %}text-bg-light{% endif %}">
+                                            {{ tipo_origem_label }}
+                                        </span>
+                                        {% if a.source_version %}
+                                        <span class="small text-muted">Versão do catálogo: {{ a.source_version }}</span>
+                                        {% endif %}
+                                        <a href="{{ url_for('compras.artigo_detalhe', artigo_id=a.id) }}"
+                                           class="btn btn-outline-info btn-sm ms-auto">Ver histórico</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
             {% endfor %}
             </tbody>
         </table>
@@ -262,7 +338,8 @@
          aria-labelledby="fornecedorOficialTitulo" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
-                <form method="post" action="{{ url_for('compras.artigos') }}">
+                <form method="post" action="{{ url_for('compras.artigos') }}"
+                      data-unsaved-navigation>
                     <input type="hidden" name="action" value="set_official_supplier">
                     <input type="hidden" name="artigo_id" id="fornecedorOficialArtigoId">
                     <div class="modal-header">
@@ -305,7 +382,8 @@
          aria-labelledby="confirmarFornecedorTitulo" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
-                <form method="post" action="{{ url_for('compras.artigos') }}">
+                <form method="post" action="{{ url_for('compras.artigos') }}"
+                      data-unsaved-navigation>
                     <input type="hidden" name="action" value="confirm_supplier">
                     <input type="hidden" name="artigo_id" id="confirmFornecedorArtigoId">
                     <div class="modal-header">
@@ -384,20 +462,68 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     const modal = document.getElementById('confirmarFornecedorModal');
-    if (!modal) return;
+    if (modal) {
+        modal.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            if (!button) return;
+            document.getElementById('confirmFornecedorArtigoId').value =
+                button.getAttribute('data-artigo-id') || '';
+            document.getElementById('confirmFornecedorProduto').textContent =
+                button.getAttribute('data-artigo-produto') || '';
+            document.getElementById('confirmFornecedorEtiqueta').textContent =
+                button.getAttribute('data-etiqueta-original') || '';
+            const supplierSelect =
+                document.getElementById('confirmFornecedorSupplierId');
+            if (supplierSelect) supplierSelect.value = '';
+        });
+    }
 
-    modal.addEventListener('show.bs.modal', function (event) {
-        const button = event.relatedTarget;
-        if (!button) return;
-        document.getElementById('confirmFornecedorArtigoId').value =
-            button.getAttribute('data-artigo-id') || '';
-        document.getElementById('confirmFornecedorProduto').textContent =
-            button.getAttribute('data-artigo-produto') || '';
-        document.getElementById('confirmFornecedorEtiqueta').textContent =
-            button.getAttribute('data-etiqueta-original') || '';
-        const supplierSelect =
-            document.getElementById('confirmFornecedorSupplierId');
-        if (supplierSelect) supplierSelect.value = '';
+    const bulkForm = document.getElementById('catalogue-bulk-edit');
+    let hasUnsavedChanges = false;
+    let allowNavigation = false;
+
+    const markBulkFormDirty = (event) => {
+        if (bulkForm && event.target.form === bulkForm) {
+            hasUnsavedChanges = true;
+        }
+    };
+    document.addEventListener('input', markBulkFormDirty);
+    document.addEventListener('change', markBulkFormDirty);
+
+    bulkForm?.addEventListener('submit', () => {
+        allowNavigation = true;
+    });
+
+    document.querySelectorAll('[data-unsaved-navigation]').forEach((form) => {
+        form.addEventListener('submit', (event) => {
+            if (!hasUnsavedChanges) return;
+            const shouldLeave = window.confirm(
+                'Há alterações por guardar. Se continuar, serão descartadas. Quer continuar?'
+            );
+            if (!shouldLeave) {
+                event.preventDefault();
+                return;
+            }
+            allowNavigation = true;
+        });
+    });
+
+    window.addEventListener('beforeunload', (event) => {
+        if (!hasUnsavedChanges || allowNavigation) return;
+        event.preventDefault();
+        event.returnValue = '';
+    });
+
+    document.querySelectorAll('[data-bs-target^="#artigo-detalhe-"]').forEach((button) => {
+        const selector = button.getAttribute('data-bs-target');
+        const detail = selector ? document.querySelector(selector) : null;
+        if (!detail) return;
+        detail.addEventListener('shown.bs.collapse', () => {
+            button.setAttribute('aria-expanded', 'true');
+        });
+        detail.addEventListener('hidden.bs.collapse', () => {
+            button.setAttribute('aria-expanded', 'false');
+        });
     });
 });
 </script>

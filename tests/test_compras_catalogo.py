@@ -1,11 +1,14 @@
 """Focused checks for the versioned Compras catalogue seed and identity rules."""
 
 import unittest
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
 from db.artigos import (
     catalog_key_for,
     classify_compras_origin_label,
     infer_artigo_unidade,
+    update_artigos_administrativos_bulk,
 )
 from db.compras_catalog_seed import CATALOG_ROWS, CATALOG_SOURCE, CATALOG_VERSION
 from db.compras_article_categories import (
@@ -57,6 +60,81 @@ class TestComprasCatalogSeed(unittest.TestCase):
             'Escritório e identificação',
         )
         self.assertEqual(category_for_product('Artigo novo sem classificação'), UNCATEGORIZED)
+
+
+class TestComprasCatalogBulkEdit(unittest.TestCase):
+    @staticmethod
+    def _connection_context(connection):
+        @contextmanager
+        def context():
+            try:
+                yield connection
+            except Exception:
+                connection.rollback()
+                raise
+        return context
+
+    @staticmethod
+    def _change(article_id):
+        return {
+            'artigo_id': article_id,
+            'fornecedor': f'Etiqueta {article_id}',
+            'produto': f'Produto {article_id}',
+            'marca': None,
+            'unidade': 'un',
+            'categoria_artigo': 'Higiene e limpeza',
+            'origem_id': None,
+        }
+
+    def test_bulk_edit_saves_only_changed_rows_in_one_commit(self):
+        connection = MagicMock()
+        changes = [self._change(12), self._change(4)]
+        with patch(
+            'db.artigos.db_connection',
+            side_effect=self._connection_context(connection),
+        ), patch(
+            'db.artigos._update_artigo_administrativo_in_transaction',
+            side_effect=[
+                {'found': True, 'changed': True, 'origin_type': 'centro_interno'},
+                {'found': True, 'changed': False, 'origin_type': 'por_resolver'},
+            ],
+        ) as update_row, patch(
+            'db.artigos.invalidate_prefix',
+        ) as invalidate:
+            result = update_artigos_administrativos_bulk(changes, actor='gestor')
+
+        self.assertEqual(result, {
+            'updated': 1, 'unchanged': 1, 'unresolved': 1,
+        })
+        self.assertEqual(
+            [call.args[1] for call in update_row.call_args_list],
+            [4, 12],
+        )
+        connection.commit.assert_called_once()
+        connection.rollback.assert_not_called()
+        invalidate.assert_called_once_with('artigos_administrativos')
+
+    def test_bulk_edit_rolls_back_every_row_if_one_row_fails(self):
+        connection = MagicMock()
+        changes = [self._change(4), self._change(12)]
+        with patch(
+            'db.artigos.db_connection',
+            side_effect=self._connection_context(connection),
+        ), patch(
+            'db.artigos._update_artigo_administrativo_in_transaction',
+            side_effect=[
+                {'found': True, 'changed': True, 'origin_type': 'centro_interno'},
+                ValueError('A origem selecionada não existe ou está inativa.'),
+            ],
+        ), patch(
+            'db.artigos.invalidate_prefix',
+        ) as invalidate:
+            with self.assertRaisesRegex(ValueError, r'Artigo #12'):
+                update_artigos_administrativos_bulk(changes, actor='gestor')
+
+        connection.commit.assert_not_called()
+        connection.rollback.assert_called_once()
+        invalidate.assert_not_called()
 
 
 if __name__ == '__main__':

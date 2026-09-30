@@ -370,24 +370,25 @@ class TestComprasAccess(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         html = ' '.join(response.get_data(as_text=True).split())
         self.assertEqual(html.count('Mesmo fornecedor da origem'), 1)
-        self.assertIn(
-            '<details class="small mt-1"> <summary>Ver nome legal</summary> '
-            '<div class="pt-1">Inocentro Legal, Lda.</div> </details>',
-            html,
-        )
+        self.assertIn('Inocentro Legal, Lda.', html)
         self.assertIn('Fornecedor externo', html)
         self.assertIn('Centro interno', html)
         self.assertIn('Categoria operacional', html)
         self.assertIn('DEGAR SRL', html)
         self.assertIn('Fornecedor coincidente', html)
         self.assertIn('Fornecedor por confirmar', html)
-        self.assertIn('Texto do ficheiro / editar etiqueta', html)
+        self.assertIn('Etiqueta da origem', html)
         self.assertIn(
             'Texto original preservado: Etiqueta original Inocentro',
             html,
         )
-        self.assertIn('name="fornecedor" value="Inocentro"', html)
-        self.assertIn('name="fornecedor" value="Matosinhos"', html)
+        self.assertIn('name="fornecedor_101" value="Inocentro"', html)
+        self.assertIn('name="fornecedor_102" value="Matosinhos"', html)
+        self.assertIn('name="categoria_artigo_101"', html)
+        self.assertIn('artigo-detalhe-101', html)
+        self.assertIn('name="action" value="bulk_edit"', html)
+        self.assertIn('Guardar alterações', html)
+        self.assertNotIn('<th>Fornecedor oficial</th>', html)
 
     def test_catalogue_confirms_supplier_using_submitted_id(self):
         self._set_session_user(_user(acesso_compras=True))
@@ -502,6 +503,125 @@ class TestComprasAccess(unittest.TestCase):
         self.assertEqual(
             update_article.call_args.kwargs['categoria_artigo'],
             'Bebidas e café',
+        )
+
+    def test_catalogue_bulk_save_submits_multiple_rows_once(self):
+        self._set_session_user(_user(acesso_compras=True))
+        from werkzeug.datastructures import MultiDict
+        form_data = MultiDict([
+            ('action', 'bulk_edit'),
+            ('artigo_id', '18'),
+            ('artigo_id', '19'),
+            ('fornecedor_18', 'Etiqueta 18'),
+            ('produto_18', 'Produto 18'),
+            ('marca_18', ''),
+            ('unidade_18', 'un'),
+            ('categoria_artigo_18', 'Higiene e limpeza'),
+            ('origem_id_18', ''),
+            ('fornecedor_19', 'Etiqueta 19'),
+            ('produto_19', 'Produto 19'),
+            ('marca_19', 'Marca 19'),
+            ('unidade_19', 'kg'),
+            ('categoria_artigo_19', 'Bebidas e café'),
+            ('origem_id_19', '8'),
+        ])
+        with patch(
+            'flask_app.routes.compras.update_artigos_administrativos_bulk',
+            return_value={'updated': 2, 'unchanged': 0, 'unresolved': 1},
+        ) as bulk_update:
+            response = self.client.post('/compras/artigos', data=form_data)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            bulk_update.call_args.args[0],
+            [
+                {
+                    'artigo_id': 18,
+                    'fornecedor': 'Etiqueta 18',
+                    'produto': 'Produto 18',
+                    'marca': None,
+                    'unidade': 'un',
+                    'categoria_artigo': 'Higiene e limpeza',
+                    'origem_id': None,
+                },
+                {
+                    'artigo_id': 19,
+                    'fornecedor': 'Etiqueta 19',
+                    'produto': 'Produto 19',
+                    'marca': 'Marca 19',
+                    'unidade': 'kg',
+                    'categoria_artigo': 'Bebidas e café',
+                    'origem_id': 8,
+                },
+            ],
+        )
+        self.assertEqual(bulk_update.call_args.kwargs['actor'], 'testuser')
+
+    def test_catalogue_bulk_validation_error_keeps_all_submitted_values(self):
+        self._set_session_user(_user(acesso_compras=True))
+        articles = [
+            {
+                'id': 18, 'fornecedor': 'Etiqueta antiga 18',
+                'produto': 'Produto antigo 18', 'marca': None,
+                'unidade': 'un', 'categoria_artigo': 'Por classificar',
+                'origem_id': None, 'origem_nome': None,
+                'origem_tipo': 'por_resolver', 'ativo': True,
+            },
+            {
+                'id': 19, 'fornecedor': 'Etiqueta antiga 19',
+                'produto': 'Produto antigo 19', 'marca': None,
+                'unidade': 'un', 'categoria_artigo': 'Por classificar',
+                'origem_id': None, 'origem_nome': None,
+                'origem_tipo': 'por_resolver', 'ativo': True,
+            },
+        ]
+        form_data = {
+            'action': 'bulk_edit',
+            'artigo_id': ['18', '19'],
+            'fornecedor_18': 'Etiqueta nova 18',
+            'produto_18': 'Produto novo 18',
+            'marca_18': '',
+            'unidade_18': 'un',
+            'categoria_artigo_18': 'Higiene e limpeza',
+            'origem_id_18': '',
+            'fornecedor_19': 'Etiqueta nova 19',
+            'produto_19': 'Produto novo 19',
+            'marca_19': '',
+            'unidade_19': 'un',
+            'categoria_artigo_19': 'Bebidas e café',
+            'origem_id_19': '',
+        }
+        with patch(
+            'flask_app.routes.compras.update_artigos_administrativos_bulk',
+            side_effect=ValueError('Artigo #19: origem inválida.'),
+        ), patch(
+            'flask_app.routes.compras.get_artigos_administrativos',
+            return_value=articles,
+        ), patch(
+            'flask_app.routes.compras.get_compras_origens',
+            return_value=[],
+        ), patch(
+            'flask_app.routes.compras.get_suppliers',
+            return_value=[],
+        ), patch(
+            'flask_app.routes.compras.render_template',
+            return_value='catalogue',
+        ) as render_catalogue:
+            response = self.client.post('/compras/artigos', data=form_data)
+
+        self.assertEqual(response.status_code, 200)
+        kwargs = render_catalogue.call_args.kwargs
+        self.assertEqual(
+            kwargs['bulk_error_message'],
+            'Artigo #19: origem inválida.',
+        )
+        self.assertEqual(
+            kwargs['artigos'][0]['_bulk_edit']['categoria_artigo'],
+            'Higiene e limpeza',
+        )
+        self.assertEqual(
+            kwargs['artigos'][1]['_bulk_edit']['produto'],
+            'Produto novo 19',
         )
 
     def test_catalogue_edit_keeps_unresolved_status_in_feedback(self):

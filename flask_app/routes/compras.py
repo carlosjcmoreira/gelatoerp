@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from database import (
     get_artigos_administrativos, add_artigo_administrativo,
     get_artigo_administrativo, get_artigo_comercial_history,
-    update_artigo_administrativo, toggle_artigo_administrativo,
+    update_artigo_administrativo, update_artigos_administrativos_bulk,
+    toggle_artigo_administrativo,
     confirm_artigo_fornecedor, set_artigo_fornecedor_oficial,
     delete_artigo_administrativo,
     get_compras_origens,
@@ -1233,6 +1234,9 @@ def artigos():
         validate_article_category,
     )
 
+    bulk_form_state = {}
+    bulk_error_message = None
+    bulk_edit_failed = False
     if request.method == 'POST':
         action = request.form.get('action')
 
@@ -1303,6 +1307,99 @@ def artigos():
                     flash(str(exc), 'danger')
             else:
                 flash('Preencha origem, fornecedor e produto.', 'warning')
+
+        elif action == 'bulk_edit':
+            search_after_save = request.form.get('q', '').strip()
+            raw_article_ids = request.form.getlist('artigo_id')
+            article_ids = []
+            try:
+                if not raw_article_ids:
+                    raise ValueError('Não foram encontrados artigos para guardar.')
+                for raw_id in raw_article_ids:
+                    if not raw_id.isdigit() or int(raw_id) <= 0:
+                        raise ValueError('Um dos artigos selecionados é inválido.')
+                    article_id = int(raw_id)
+                    article_ids.append(article_id)
+                    bulk_form_state[article_id] = {
+                        'fornecedor': request.form.get(
+                            f'fornecedor_{article_id}', ''
+                        ).strip(),
+                        'produto': request.form.get(
+                            f'produto_{article_id}', ''
+                        ).strip(),
+                        'marca': request.form.get(
+                            f'marca_{article_id}', ''
+                        ).strip(),
+                        'unidade': request.form.get(
+                            f'unidade_{article_id}', ''
+                        ).strip(),
+                        'categoria_artigo': request.form.get(
+                            f'categoria_artigo_{article_id}', ''
+                        ).strip(),
+                        'origem_id': request.form.get(
+                            f'origem_id_{article_id}', ''
+                        ).strip(),
+                    }
+                if len(article_ids) != len(set(article_ids)):
+                    raise ValueError('A lista contém artigos repetidos.')
+
+                changes = []
+                for article_id in article_ids:
+                    values = bulk_form_state[article_id]
+                    if not values['fornecedor'] or not values['produto']:
+                        raise ValueError(
+                            f'Artigo #{article_id}: preencha o produto e '
+                            'a etiqueta da origem.'
+                        )
+                    try:
+                        category = validate_article_category(
+                            values['categoria_artigo']
+                        )
+                    except ValueError as exc:
+                        raise ValueError(
+                            f'Artigo #{article_id}: {exc}'
+                        ) from exc
+
+                    origin_raw = values['origem_id']
+                    if origin_raw and not origin_raw.isdigit():
+                        raise ValueError(
+                            f'Artigo #{article_id}: origem inválida.'
+                        )
+                    changes.append({
+                        'artigo_id': article_id,
+                        'fornecedor': values['fornecedor'],
+                        'produto': values['produto'],
+                        'marca': values['marca'] or None,
+                        'unidade': values['unidade'] or None,
+                        'categoria_artigo': category,
+                        'origem_id': int(origin_raw) if origin_raw else None,
+                    })
+
+                result = update_artigos_administrativos_bulk(
+                    changes, actor=_get_username()
+                )
+            except ValueError as exc:
+                bulk_edit_failed = True
+                bulk_error_message = str(exc)
+            else:
+                if result['updated']:
+                    flash(
+                        f'{result["updated"]} artigo(s) atualizado(s); '
+                        f'{result["unchanged"]} sem alterações.',
+                        'success',
+                    )
+                else:
+                    flash('Sem alterações.', 'info')
+                if result['unresolved']:
+                    flash(
+                        f'{result["unresolved"]} artigo(s) continuam com '
+                        'a origem por resolver.',
+                        'warning',
+                    )
+                return redirect(
+                    url_for('compras.artigos', q=search_after_save)
+                    if search_after_save else url_for('compras.artigos')
+                )
 
         elif action == 'confirm_supplier':
             article_raw = request.form.get('artigo_id', '').strip()
@@ -1377,9 +1474,15 @@ def artigos():
                 delete_artigo_administrativo(artigo_id)
                 flash('Artigo desativado para preservar o histórico.', 'success')
 
-        return redirect(url_for('compras.artigos'))
+        if not bulk_edit_failed:
+            return redirect(url_for('compras.artigos'))
 
-    search = request.args.get('q', '').strip().casefold()
+    search_raw = (
+        request.form.get('q', '')
+        if bulk_edit_failed
+        else request.args.get('q', '')
+    )
+    search = search_raw.strip().casefold()
     artigos_list = get_artigos_administrativos(apenas_ativos=False)
     if search:
         artigos_list = [
@@ -1393,12 +1496,16 @@ def artigos():
             ).casefold()
         ]
     fornecedores = sorted(set(a['fornecedor'] for a in artigos_list))
+    for article in artigos_list:
+        if article['id'] in bulk_form_state:
+            article['_bulk_edit'] = bulk_form_state[article['id']]
     origens = get_compras_origens(apenas_ativos=True)
     suppliers = get_suppliers()
     return render_template('compras/artigos.html',
                            artigos=artigos_list, fornecedores=fornecedores,
                            origens=origens, suppliers=suppliers,
-                           article_categories=ARTICLE_CATEGORIES, search=search)
+                           article_categories=ARTICLE_CATEGORIES, search=search,
+                           bulk_error_message=bulk_error_message)
 
 
 @compras_bp.route('/artigos/<int:artigo_id>')

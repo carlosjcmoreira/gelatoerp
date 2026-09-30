@@ -719,10 +719,10 @@ def add_artigo_administrativo(fornecedor: str, produto: str, marca: str = None,
     return success
 
 
-def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
-                                 marca: str = None, unidade: str = None,
-                                 origem_id: int = None, actor: str = 'sistema',
-                                 categoria_artigo: str | None = None):
+def _update_artigo_administrativo_in_transaction(
+        cursor, artigo_id: int, fornecedor: str, produto: str,
+        marca: str = None, unidade: str = None, origem_id: int = None,
+        actor: str = 'sistema', categoria_artigo: str | None = None):
     from db.compras_article_categories import (
         UNCATEGORIZED,
         validate_article_category,
@@ -730,146 +730,216 @@ def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
 
     if categoria_artigo is not None:
         categoria_artigo = validate_article_category(categoria_artigo)
-    with db_connection() as conn:
-        cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT a.fornecedor, a.produto, a.marca, a.unidade,
+               a.origem_id, a.origem_original, o.tipo, o.supplier_id,
+                a.fornecedor_oficial_id, official_s.name,
+                a.categoria_artigo
+        FROM artigos_administrativos a
+        LEFT JOIN compras_origens o ON o.id = a.origem_id
+        LEFT JOIN suppliers official_s
+               ON official_s.id = a.fornecedor_oficial_id
+        WHERE a.id = %s
+        FOR UPDATE OF a
+        """,
+        (artigo_id,),
+    )
+    current = cursor.fetchone()
+    if not current:
+        return None
+    current_category = current[10] if len(current) > 10 else UNCATEGORIZED
+    next_category = (
+        current_category
+        if categoria_artigo is None
+        else categoria_artigo
+    )
+    next_origin_id = current[4] if origem_id is None else origem_id
+    next_origin_type = current[6]
+    next_official_supplier_id = current[8]
+    next_official_supplier_name = current[9]
+    if origem_id is not None:
         cursor.execute(
             """
-            SELECT a.fornecedor, a.produto, a.marca, a.unidade,
-                   a.origem_id, a.origem_original, o.tipo, o.supplier_id,
-                    a.fornecedor_oficial_id, official_s.name,
-                    a.categoria_artigo
-            FROM artigos_administrativos a
-            LEFT JOIN compras_origens o ON o.id = a.origem_id
-            LEFT JOIN suppliers official_s
-                   ON official_s.id = a.fornecedor_oficial_id
-            WHERE a.id = %s
-            FOR UPDATE OF a
+            SELECT id, tipo, supplier_id
+            FROM compras_origens WHERE id = %s AND ativo = TRUE
             """,
-            (artigo_id,),
+            (origem_id,),
         )
-        current = cursor.fetchone()
-        if not current:
-            return None
-        current_category = current[10] if len(current) > 10 else UNCATEGORIZED
-        next_category = (
-            current_category
-            if categoria_artigo is None
-            else categoria_artigo
-        )
-        next_origin_id = current[4] if origem_id is None else origem_id
-        next_origin_type = current[6]
-        next_official_supplier_id = current[8]
-        next_official_supplier_name = current[9]
-        if origem_id is not None:
-            cursor.execute(
-                """
-                SELECT id, tipo, supplier_id
-                FROM compras_origens WHERE id = %s AND ativo = TRUE
-                """,
-                (origem_id,),
-            )
-            selected_origin = cursor.fetchone()
-            if not selected_origin:
-                raise ValueError('A origem selecionada não existe ou está inativa.')
-            next_origin_type = selected_origin[1]
-            if next_origin_type == 'fornecedor_externo':
-                if (
-                    next_official_supplier_id is not None
-                    and next_official_supplier_id != selected_origin[2]
-                ):
-                    raise ValueError(
-                        'A origem externa e o fornecedor oficial são diferentes. '
-                        'Resolva o fornecedor oficial antes de alterar a origem.'
-                    )
-                next_official_supplier_id = selected_origin[2]
-                cursor.execute(
-                    "SELECT name FROM suppliers WHERE id = %s",
-                    (next_official_supplier_id,),
+        selected_origin = cursor.fetchone()
+        if not selected_origin:
+            raise ValueError('A origem selecionada não existe ou está inativa.')
+        next_origin_type = selected_origin[1]
+        if next_origin_type == 'fornecedor_externo':
+            if (
+                next_official_supplier_id is not None
+                and next_official_supplier_id != selected_origin[2]
+            ):
+                raise ValueError(
+                    'A origem externa e o fornecedor oficial são diferentes. '
+                    'Resolva o fornecedor oficial antes de alterar a origem.'
                 )
-                supplier_row = cursor.fetchone()
-                next_official_supplier_name = supplier_row[0] if supplier_row else None
+            next_official_supplier_id = selected_origin[2]
+            cursor.execute(
+                "SELECT name FROM suppliers WHERE id = %s",
+                (next_official_supplier_id,),
+            )
+            supplier_row = cursor.fetchone()
+            next_official_supplier_name = supplier_row[0] if supplier_row else None
 
-        unchanged = (
-            current[0] == fornecedor
-            and current[1] == produto
-            and (current[2] or None) == (marca or None)
-            and (current[3] or None) == (unidade or None)
-            and current[4] == next_origin_id
-            and current[8] == next_official_supplier_id
-            and current_category == next_category
-        )
-        if unchanged:
-            return {
-                'found': True,
-                'changed': False,
-                'origin_type': next_origin_type,
-            }
+    unchanged = (
+        current[0] == fornecedor
+        and current[1] == produto
+        and (current[2] or None) == (marca or None)
+        and (current[3] or None) == (unidade or None)
+        and current[4] == next_origin_id
+        and current[8] == next_official_supplier_id
+        and current_category == next_category
+    )
+    if unchanged:
+        return {
+            'found': True,
+            'changed': False,
+            'origin_type': next_origin_type,
+        }
 
+    cursor.execute(
+        """
+        UPDATE artigos_administrativos
+           SET fornecedor = %s, produto = %s, marca = %s, unidade = %s,
+               origem_id = %s, fornecedor_oficial_id = %s,
+               categoria_artigo = %s,
+               origem_original = COALESCE(origem_original, %s),
+               human_modified_at = CASE
+                   WHEN fornecedor IS DISTINCT FROM %s
+                     OR produto IS DISTINCT FROM %s
+                     OR marca IS DISTINCT FROM %s
+                     OR unidade IS DISTINCT FROM %s
+                     OR origem_id IS DISTINCT FROM %s
+                     OR fornecedor_oficial_id IS DISTINCT FROM %s
+                   THEN NOW() ELSE human_modified_at END,
+               updated_at = NOW()
+         WHERE id = %s
+        """,
+        (fornecedor, produto, marca or None, unidade or None, next_origin_id,
+         next_official_supplier_id, next_category, fornecedor,
+         fornecedor, produto, marca or None, unidade or None, next_origin_id,
+         next_official_supplier_id, artigo_id),
+    )
+    if current_category != next_category:
         cursor.execute(
             """
-            UPDATE artigos_administrativos
-               SET fornecedor = %s, produto = %s, marca = %s, unidade = %s,
-                   origem_id = %s, fornecedor_oficial_id = %s,
-                   categoria_artigo = %s,
-                   origem_original = COALESCE(origem_original, %s),
-                   human_modified_at = CASE
-                       WHEN fornecedor IS DISTINCT FROM %s
-                         OR produto IS DISTINCT FROM %s
-                         OR marca IS DISTINCT FROM %s
-                         OR unidade IS DISTINCT FROM %s
-                         OR origem_id IS DISTINCT FROM %s
-                         OR fornecedor_oficial_id IS DISTINCT FROM %s
-                       THEN NOW() ELSE human_modified_at END,
-                   updated_at = NOW()
-             WHERE id = %s
+            INSERT INTO artigos_administrativos_categoria_audit
+                (artigo_id, categoria_anterior, categoria_nova, actor)
+            VALUES (%s, %s, %s, %s)
             """,
-            (fornecedor, produto, marca or None, unidade or None, next_origin_id,
-             next_official_supplier_id, next_category, fornecedor,
-             fornecedor, produto, marca or None, unidade or None, next_origin_id,
-             next_official_supplier_id, artigo_id),
+            (artigo_id, current_category, next_category, actor),
         )
-        if current_category != next_category:
-            cursor.execute(
-                """
-                INSERT INTO artigos_administrativos_categoria_audit
-                    (artigo_id, categoria_anterior, categoria_nova, actor)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (artigo_id, current_category, next_category, actor),
-            )
-        if next_origin_id is not None and current[4] != next_origin_id:
-            cursor.execute(
-                """
-                INSERT INTO artigos_administrativos_origem_audit
-                    (artigo_id, origem_anterior_id, origem_nova_id,
-                     rotulo_original, actor, reason)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    artigo_id, current[4], next_origin_id,
-                    current[5] or current[0], actor, 'edição do catálogo',
-                ),
-            )
-        if current[8] != next_official_supplier_id:
-            cursor.execute(
-                """
-                INSERT INTO artigos_administrativos_fornecedor_audit
-                    (artigo_id, fornecedor_anterior_id, fornecedor_anterior_nome,
-                     fornecedor_novo_id, fornecedor_novo_nome, actor, reason)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    artigo_id, current[8], current[9],
-                    next_official_supplier_id, next_official_supplier_name,
-                    actor, 'associação derivada de origem externa confirmada',
-                ),
-            )
-        conn.commit()
-    invalidate_prefix('artigos_administrativos')
+    if next_origin_id is not None and current[4] != next_origin_id:
+        cursor.execute(
+            """
+            INSERT INTO artigos_administrativos_origem_audit
+                (artigo_id, origem_anterior_id, origem_nova_id,
+                 rotulo_original, actor, reason)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                artigo_id, current[4], next_origin_id,
+                current[5] or current[0], actor, 'edição do catálogo',
+            ),
+        )
+    if current[8] != next_official_supplier_id:
+        cursor.execute(
+            """
+            INSERT INTO artigos_administrativos_fornecedor_audit
+                (artigo_id, fornecedor_anterior_id, fornecedor_anterior_nome,
+                 fornecedor_novo_id, fornecedor_novo_nome, actor, reason)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                artigo_id, current[8], current[9],
+                next_official_supplier_id, next_official_supplier_name,
+                actor, 'associação derivada de origem externa confirmada',
+            ),
+        )
     return {
         'found': True,
         'changed': True,
         'origin_type': next_origin_type,
+    }
+
+
+def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
+                                 marca: str = None, unidade: str = None,
+                                 origem_id: int = None, actor: str = 'sistema',
+                                 categoria_artigo: str | None = None):
+    with db_connection() as conn:
+        result = _update_artigo_administrativo_in_transaction(
+            conn.cursor(), artigo_id, fornecedor, produto, marca, unidade,
+            origem_id, actor, categoria_artigo,
+        )
+        if result and result['changed']:
+            conn.commit()
+    if result and result['changed']:
+        invalidate_prefix('artigos_administrativos')
+    return result
+
+
+def update_artigos_administrativos_bulk(changes: list[dict],
+                                        actor: str = 'sistema') -> dict:
+    """Validate and save multiple catalogue rows in one transaction."""
+    if not isinstance(changes, list) or not changes:
+        raise ValueError('Selecione pelo menos um artigo para guardar.')
+
+    article_ids = []
+    for change in changes:
+        article_id = change.get('artigo_id') if isinstance(change, dict) else None
+        if not isinstance(article_id, int) or article_id <= 0:
+            raise ValueError('Um dos artigos selecionados é inválido.')
+        article_ids.append(article_id)
+    if len(article_ids) != len(set(article_ids)):
+        raise ValueError('A lista contém artigos repetidos.')
+
+    ordered_changes = sorted(changes, key=lambda change: change['artigo_id'])
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        results = []
+        for change in ordered_changes:
+            try:
+                result = _update_artigo_administrativo_in_transaction(
+                    cursor,
+                    change['artigo_id'],
+                    change['fornecedor'],
+                    change['produto'],
+                    marca=change.get('marca'),
+                    unidade=change.get('unidade'),
+                    origem_id=change.get('origem_id'),
+                    actor=actor,
+                    categoria_artigo=change.get('categoria_artigo'),
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f'Artigo #{change["artigo_id"]}: {exc}'
+                ) from exc
+            if result is None:
+                raise ValueError(
+                    f'Artigo #{change["artigo_id"]} não encontrado. '
+                    'Nenhuma alteração foi guardada.'
+                )
+            results.append(result)
+        changed_count = sum(result['changed'] for result in results)
+        if changed_count:
+            conn.commit()
+
+    if changed_count:
+        invalidate_prefix('artigos_administrativos')
+    return {
+        'updated': changed_count,
+        'unchanged': len(results) - changed_count,
+        'unresolved': sum(
+            result['origin_type'] in (None, 'por_resolver')
+            for result in results
+        ),
     }
 
 
