@@ -252,6 +252,7 @@ def get_available_urgent_articles() -> list[dict]:
         cursor.execute(
             """
             SELECT a.id, a.produto, a.unidade, a.ativo,
+                   a.categoria_artigo,
                    CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
                         THEN hub.id ELSE o.id END
                        AS origem_id,
@@ -282,8 +283,7 @@ def get_available_urgent_articles() -> list[dict]:
              AND hub.tipo = 'centro_interno'
              AND hub.ativo = TRUE
             WHERE a.ativo = TRUE
-            ORDER BY CASE WHEN o.chave = 'categoria:moedas' THEN 0 ELSE 1 END,
-                     origem_nome, a.produto, a.id
+             ORDER BY a.categoria_artigo, a.produto, a.id
             """
         )
         return [dict(row) for row in cursor.fetchall()]

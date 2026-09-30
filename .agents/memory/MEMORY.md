@@ -38,3 +38,4 @@
 - [Urgent store requests](compras-urgent-orders.md) — urgent exceptions stay separate from weekly planning and deduplicate by request content.
 - [Purchase count snapshots](compras-count-snapshots.md) — physical catalogue counts are immutable evidence, never live stock or automatic order quantities.
 - [Confeitaria audited stock boundary](confeitaria-stock-ledger.md) — keep legacy totals separate until production and transfer writes are reconciled and switched together.
+- [Compras article-use categories](compras-article-categories.md) — classify from reviewed product names, keep unknowns selectable, and never infer or refresh category from supplier/origin.

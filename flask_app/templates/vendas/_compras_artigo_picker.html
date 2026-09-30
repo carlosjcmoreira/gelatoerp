@@ -1,0 +1,136 @@
+{% macro article_picker(articles, categories, picker_id, quantity_label,
+                        quantity_min='0.001', quantity_max='1000000',
+                        saved_lines=[], form_lines=none) %}
+{% set rows = form_lines if form_lines is not none else saved_lines %}
+<div class="article-picker mb-3" id="{{ picker_id }}" data-article-picker
+     data-quantity-min="{{ quantity_min }}" data-quantity-max="{{ quantity_max }}">
+    <div class="row g-2 align-items-end border rounded bg-light p-2">
+        <div class="col-12 col-md-4">
+            <label class="form-label small fw-semibold" for="{{ picker_id }}-category">Categoria</label>
+            <select class="form-select form-select-sm" id="{{ picker_id }}-category"
+                    data-category-select>
+                <option value="">Escolha a categoria</option>
+                {% for category in categories %}
+                <option value="{{ category }}">{{ category }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-12 col-md-4">
+            <label class="form-label small fw-semibold" for="{{ picker_id }}-article">Artigo</label>
+            <select class="form-select form-select-sm" id="{{ picker_id }}-article"
+                    data-article-select disabled>
+                <option value="">Escolha primeiro uma categoria</option>
+                {% for article in articles %}
+                <option value="{{ article.id }}"
+                        data-category="{{ article.categoria_artigo or 'Por classificar' }}"
+                        data-product="{{ article.produto }}"
+                        data-unit="{{ article.unidade or 'unidade' }}">
+                    {{ article.produto }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small fw-semibold" for="{{ picker_id }}-quantity">{{ quantity_label }}</label>
+            <input class="form-control form-control-sm" id="{{ picker_id }}-quantity"
+                   type="number" min="{{ quantity_min }}" max="{{ quantity_max }}"
+                   step="0.001" inputmode="decimal" data-quantity-input disabled>
+            <div class="form-text small" data-current-unit aria-live="polite"></div>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small fw-semibold" for="{{ picker_id }}-note">Nota (opcional)</label>
+            <input class="form-control form-control-sm" id="{{ picker_id }}-note"
+                   type="text" maxlength="1000" data-note-input disabled>
+        </div>
+        <div class="col-12 d-flex align-items-center gap-2">
+            <button class="btn btn-outline-primary btn-sm" type="button" data-add-article disabled>
+                Adicionar artigo
+            </button>
+            <span class="small text-muted" role="status" aria-live="polite" data-picker-status></span>
+        </div>
+    </div>
+
+    <div class="table-responsive border rounded mt-2">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Artigo</th>
+                    <th style="min-width:145px">{{ quantity_label }}</th>
+                    <th style="min-width:190px">Nota (opcional)</th>
+                    <th class="text-end">Ação</th>
+                </tr>
+            </thead>
+            <tbody data-selected-articles>
+                {% for row in rows %}
+                    {% set article_match = namespace(value=none) %}
+                    {% for article in articles %}
+                        {% if article.id|string == row.artigo_id|string %}
+                            {% set article_match.value = article %}
+                        {% endif %}
+                    {% endfor %}
+                    {% if article_match.value %}
+                    <tr data-selected-row data-article-id="{{ row.artigo_id }}">
+                        <td>
+                            <div class="fw-semibold">{{ article_match.value.produto }}</div>
+                            <div class="text-muted small">
+                                {{ article_match.value.categoria_artigo or 'Por classificar' }}
+                                · {{ article_match.value.unidade or 'unidade' }}
+                            </div>
+                        </td>
+                        <td>
+                            <input type="hidden" name="quantidade_{{ row.artigo_id }}"
+                                   value="{{ row.quantidade }}">
+                            <input type="number" class="form-control form-control-sm"
+                                   data-row-quantity value="{{ row.quantidade }}"
+                                   min="{{ quantity_min }}" max="{{ quantity_max }}"
+                                   step="0.001" inputmode="decimal" required
+                                   aria-label="{{ quantity_label }} — {{ article_match.value.produto }}">
+                        </td>
+                        <td>
+                            <input type="hidden" name="observacoes_{{ row.artigo_id }}"
+                                   value="{{ row.observacoes or '' }}">
+                            <input type="text" class="form-control form-control-sm"
+                                   data-row-note value="{{ row.observacoes or '' }}"
+                                   maxlength="1000"
+                                   aria-label="Nota opcional — {{ article_match.value.produto }}">
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-outline-danger btn-sm" type="button"
+                                    data-remove-article>Remover</button>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr data-selected-row data-article-id="{{ row.artigo_id }}">
+                        <td>
+                            <div class="fw-semibold">Artigo indisponível #{{ row.artigo_id }}</div>
+                            <div class="text-muted small">Remova esta linha para continuar a editar.</div>
+                        </td>
+                        <td>
+                            <input type="hidden" name="quantidade_{{ row.artigo_id }}"
+                                   value="{{ row.quantidade }}">
+                            <input type="number" class="form-control form-control-sm"
+                                   data-row-quantity value="{{ row.quantidade }}"
+                                   min="{{ quantity_min }}" max="{{ quantity_max }}"
+                                   step="0.001" inputmode="decimal" required>
+                        </td>
+                        <td>
+                            <input type="hidden" name="observacoes_{{ row.artigo_id }}"
+                                   value="{{ row.observacoes or '' }}">
+                            <input type="text" class="form-control form-control-sm"
+                                   data-row-note value="{{ row.observacoes or '' }}"
+                                   maxlength="1000">
+                        </td>
+                        <td class="text-end">
+                            <button class="btn btn-outline-danger btn-sm" type="button"
+                                    data-remove-article>Remover</button>
+                        </td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="text-muted small px-3 py-2 {% if rows %}d-none{% endif %}"
+             data-empty-articles>Nenhum artigo adicionado.</div>
+    </div>
+</div>
+{% endmacro %}

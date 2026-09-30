@@ -226,6 +226,7 @@ def get_available_weekly_articles() -> list[dict]:
         cursor.execute(
             """
             SELECT a.id, a.produto, a.unidade, a.fornecedor,
+                   a.categoria_artigo,
                    CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
                         THEN hub.id ELSE o.id END AS origem_id,
                    CASE WHEN o.chave = 'categoria:moedas' AND hub.id IS NOT NULL
@@ -252,7 +253,7 @@ def get_available_weekly_articles() -> list[dict]:
              AND hub.tipo = 'centro_interno'
              AND hub.ativo = TRUE
             WHERE a.ativo = TRUE
-            ORDER BY origem_nome, a.produto, a.id
+             ORDER BY a.categoria_artigo, a.produto, a.id
             """
         )
         return [dict(row) for row in cursor.fetchall()]

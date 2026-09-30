@@ -106,6 +106,7 @@ def _catalogue_rows(cursor, article_ids=None, active_only=True) -> dict[int, dic
     cursor.execute(
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
+               a.categoria_artigo,
                o.id AS catalog_origin_id, o.chave AS catalog_origin_key,
                COALESCE(o.tipo, 'por_resolver') AS catalog_origin_type,
                COALESCE(
@@ -155,7 +156,7 @@ def get_available_count_articles() -> list[dict]:
     return sorted(
         rows.values(),
         key=lambda row: (
-            row["source_origin_name"] or "",
+            row.get("categoria_artigo") or "Por classificar",
             row["produto"] or "",
             row["id"],
         ),

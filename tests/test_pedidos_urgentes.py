@@ -1,7 +1,7 @@
 import unittest
-import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
+from uuid import uuid4
 
 from db.connection import db_connection
 from db.pedidos_urgentes import (
@@ -18,7 +18,7 @@ from db.pedidos_urgentes import (
 
 
 class TestPedidosUrgentes(unittest.TestCase):
-    actor = f"test-pedidos-urgentes-{os.getpid()}"
+    actor = f"test-pedidos-urgentes-{uuid4().hex}"
 
     @classmethod
     def setUpClass(cls):
@@ -28,6 +28,7 @@ class TestPedidosUrgentes(unittest.TestCase):
                 "DELETE FROM compras_pedidos_urgentes WHERE submitted_by = %s",
                 (cls.actor,),
             )
+            conn.commit()
             cursor.execute("SELECT id FROM stores ORDER BY id LIMIT 2")
             cls.store_ids = [row[0] for row in cursor.fetchall()]
         articles = get_available_urgent_articles()
@@ -46,6 +47,7 @@ class TestPedidosUrgentes(unittest.TestCase):
                 "DELETE FROM compras_pedidos_urgentes WHERE submitted_by = %s",
                 (cls.actor,),
             )
+            conn.commit()
 
     def _create(self, store_id=None, note="teste pedido urgente"):
         return create_urgent_order(

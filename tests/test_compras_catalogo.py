@@ -8,6 +8,11 @@ from db.artigos import (
     infer_artigo_unidade,
 )
 from db.compras_catalog_seed import CATALOG_ROWS, CATALOG_SOURCE, CATALOG_VERSION
+from db.compras_article_categories import (
+    ARTICLE_CATEGORIES,
+    UNCATEGORIZED,
+    category_for_product,
+)
 
 
 class TestComprasCatalogSeed(unittest.TestCase):
@@ -37,6 +42,21 @@ class TestComprasCatalogSeed(unittest.TestCase):
             classification = classify_compras_origin_label(origin)
             if classification['tipo'] == 'por_resolver':
                 self.assertNotIn('supplier_id', classification)
+
+    def test_store_categories_are_explicit_and_cover_the_seed(self):
+        self.assertTrue(
+            all(category_for_product(product) in ARTICLE_CATEGORIES
+                for _, _, product, _ in CATALOG_ROWS)
+        )
+        self.assertEqual(
+            category_for_product('Bolacha Maria (pacote com 800g)'),
+            'Ingredientes e alimentos',
+        )
+        self.assertEqual(
+            category_for_product('Caneta permanente preta (und)'),
+            'Escritório e identificação',
+        )
+        self.assertEqual(category_for_product('Artigo novo sem classificação'), UNCATEGORIZED)
 
 
 if __name__ == '__main__':

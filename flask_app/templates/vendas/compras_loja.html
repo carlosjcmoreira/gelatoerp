@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% set back_url = url_for("vendas.index", loja_id=loja_id) %}
+{% from "vendas/_compras_artigo_picker.html" import article_picker %}
 
 {% block content %}
 <div class="container-fluid px-3 py-3">
@@ -68,63 +69,16 @@
             <form method="post" action="{{ url_for('vendas.compras_loja', loja_id=loja_id, secao='semanal', ciclo=weekly_cycle.ciclo_domingo.isoformat()) }}">
                 <input type="hidden" name="loja_id" value="{{ loja_id }}">
                 <input type="hidden" name="ciclo" value="{{ weekly_cycle.ciclo_domingo.isoformat() }}">
-                <div class="table-responsive border rounded mb-3">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Artigo</th>
-                                <th>Origem operacional</th>
-                                <th>Fornecedor oficial</th>
-                                <th style="min-width: 145px;">Quantidade</th>
-                                <th>Unidade</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        {% for artigo in weekly_articles %}
-                            {% set saved = namespace(quantity='', note='') %}
-                            {% for line in weekly_order.linhas %}
-                                {% if line.artigo_id == artigo.id %}
-                                    {% set saved.quantity = line.quantidade %}
-                                    {% set saved.note = line.observacoes or '' %}
-                                {% endif %}
-                            {% endfor %}
-                            <tr>
-                                <td>
-                                    <div class="fw-semibold">{{ artigo.produto }}</div>
-                                </td>
-                                <td class="text-muted small">
-                                    {{ artigo.origem_nome or 'Origem por validar' }}
-                                    {% if artigo.origem_tipo == 'por_resolver' or not artigo.origem_id %}
-                                    <span class="badge text-bg-warning">Por validar</span>
-                                    {% elif artigo.origem_ativa is false %}
-                                    <span class="badge text-bg-warning">Origem inativa</span>
-                                    {% endif %}
-                                </td>
-                                <td class="small">
-                                    {{ artigo.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}
-                                </td>
-                                <td>
-                                    <input class="form-control form-control-sm" type="number"
-                                           name="quantidade_{{ artigo.id }}" value="{{ saved.quantity }}"
-                                           min="0.001" max="1000000" step="0.001"
-                                           inputmode="decimal">
-                                    <input class="form-control form-control-sm mt-1" type="text"
-                                           name="observacoes_{{ artigo.id }}" value="{{ saved.note }}"
-                                           maxlength="1000" placeholder="Nota (opcional)">
-                                </td>
-                                <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
-                            </tr>
-                        {% else %}
-                                <tr><td colspan="5" class="text-muted text-center py-3">
-                                Não existem artigos ativos no catálogo.
-                            </td></tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                {{ article_picker(
+                    weekly_articles, article_categories, 'weekly-articles',
+                    'Quantidade pedida', '0.001', '1000000',
+                    saved_lines=weekly_order.linhas,
+                    form_lines=form_state.get('lines') if form_state else none
+                ) }}
                 <label class="form-label small fw-semibold" for="weekly-notes">Observações para Compras</label>
+                {% set weekly_notes = form_state.get('observacoes', weekly_order.observacoes or '') if form_state else (weekly_order.observacoes or '') %}
                 <textarea id="weekly-notes" name="observacoes" class="form-control mb-3" rows="2"
-                          maxlength="4000" placeholder="Observações gerais (opcional)">{{ weekly_order.observacoes or '' }}</textarea>
+                          maxlength="4000" placeholder="Observações gerais (opcional)">{{ weekly_notes }}</textarea>
                 <div class="d-flex flex-wrap gap-2">
                     <button class="btn btn-outline-primary" type="submit" name="action" value="guardar_rascunho">
                         Guardar rascunho
@@ -146,7 +100,7 @@
             <div class="table-responsive border rounded">
                 <table class="table table-sm align-middle mb-0">
                     <thead class="table-light">
-                        <tr><th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th><th class="text-end">Quantidade</th><th>Unidade</th></tr>
+                        <tr><th>Artigo</th><th>Origem operacional</th><th class="text-end">Quantidade</th><th>Unidade</th></tr>
                     </thead>
                     <tbody>
                     {% for line in weekly_order.linhas %}
@@ -163,7 +117,6 @@
                             <span class="badge text-bg-warning">Por validar</span>
                             {% endif %}
                         </td>
-                        <td class="small">{{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
                         <td class="text-end">{{ '%.3f'|format(line.quantidade) }}</td>
                         <td>{{ line.unidade_snapshot }}</td>
                     </tr>
@@ -195,23 +148,24 @@
                         <label class="form-label small fw-semibold" for="urgent-date">Data pretendida</label>
                         <input id="urgent-date" type="date" name="data_pretendida" class="form-control"
                                min="{{ urgent_default_date.isoformat() }}"
-                               value="{{ urgent_default_date.isoformat() }}" required>
+                               value="{{ form_state.get('data_pretendida', urgent_default_date.isoformat()) if form_state else urgent_default_date.isoformat() }}" required>
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label small fw-semibold" for="urgent-reason">Motivo</label>
                         <select id="urgent-reason" name="motivo" class="form-select" required>
                             <option value="">Escolha o motivo</option>
                             {% for reason, label in urgent_reason_labels.items() %}
-                            <option value="{{ reason }}">{{ label }}</option>
+                            <option value="{{ reason }}" {% if form_state and form_state.get('motivo') == reason %}selected{% endif %}>{{ label }}</option>
                             {% endfor %}
                         </select>
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label small fw-semibold" for="urgent-weekly">Ciclo semanal relacionado</label>
                         <select id="urgent-weekly" name="encomenda_semanal_id" class="form-select">
-                            <option value="">Sem ciclo relacionado</option>
+                            <option value="" {% if not form_state or not form_state.get('encomenda_semanal_id') %}selected{% endif %}>Sem ciclo relacionado</option>
                             {% if urgent_weekly_order %}
-                            <option value="{{ urgent_weekly_order.id }}" selected>
+                            <option value="{{ urgent_weekly_order.id }}"
+                                    {% if form_state and form_state.get('encomenda_semanal_id') == urgent_weekly_order.id|string %}selected{% elif not form_state %}selected{% endif %}>
                                 #{{ urgent_weekly_order.id }} · {{ urgent_weekly_order.ciclo_domingo.strftime('%d/%m/%Y') }}
                             </option>
                             {% endif %}
@@ -221,54 +175,20 @@
                         <label class="form-label small fw-semibold" for="urgent-reason-detail">Detalhe do motivo (obrigatório em “Outro”)</label>
                         <input id="urgent-reason-detail" type="text" name="motivo_detalhe"
                                class="form-control" maxlength="1000"
+                               value="{{ form_state.get('motivo_detalhe', '') if form_state else '' }}"
                                placeholder="Explique a exceção quando escolher Outro">
                     </div>
                 </div>
 
-                <div class="table-responsive border rounded mb-3">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light">
-                            <tr><th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th><th style="min-width:145px">Quantidade</th><th>Unidade</th></tr>
-                        </thead>
-                        <tbody>
-                        {% for artigo in urgent_articles %}
-                            <tr>
-                                <td>
-                                    <div class="fw-semibold">{{ artigo.produto }}</div>
-                                </td>
-                                <td class="small">
-                                    {{ artigo.origem_nome or 'Origem por validar' }}
-                                    {% if artigo.origem_tipo == 'centro_interno' %}
-                                    <span class="badge text-bg-info ms-1">Centro interno</span>
-                                    {% elif artigo.origem_tipo == 'por_resolver' or not artigo.origem_id %}
-                                    <span class="badge text-bg-warning ms-1">Por validar</span>
-                                    {% elif artigo.origem_ativa is false %}
-                                    <span class="badge text-bg-warning ms-1">Origem inativa</span>
-                                    {% endif %}
-                                </td>
-                                <td class="small">{{ artigo.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}</td>
-                                <td>
-                                    <input class="form-control form-control-sm" type="number"
-                                           name="quantidade_{{ artigo.id }}" min="0.001" max="1000000"
-                                           step="0.001" inputmode="decimal">
-                                    <input class="form-control form-control-sm mt-1" type="text"
-                                           name="observacoes_{{ artigo.id }}" maxlength="1000"
-                                           placeholder="Nota (opcional)">
-                                </td>
-                                <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
-                            </tr>
-                        {% else %}
-                            <tr><td colspan="5" class="text-muted text-center py-3">
-                                Não existem artigos ativos no catálogo.
-                            </td></tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                {{ article_picker(
+                    urgent_articles, article_categories, 'urgent-articles',
+                    'Quantidade', '0.001', '1000000',
+                    form_lines=form_state.get('lines') if form_state else none
+                ) }}
                 <label class="form-label small fw-semibold" for="urgent-notes">Observação obrigatória</label>
                 <textarea id="urgent-notes" name="observacoes" class="form-control mb-3" rows="2"
                           maxlength="4000" required
-                          placeholder="Explique o que faltou e o que Compras deve preparar"></textarea>
+                          placeholder="Explique o que faltou e o que Compras deve preparar">{{ form_state.get('observacoes', '') if form_state else '' }}</textarea>
                 <button class="btn btn-warning" type="submit" {% if not urgent_articles %}disabled{% endif %}>
                     Submeter pedido urgente
                 </button>
@@ -309,55 +229,16 @@
 
             <form method="post" action="{{ url_for('vendas.compras_loja', loja_id=loja_id, secao='contagem', data_contagem=count_date.isoformat()) }}">
                 <input type="hidden" name="loja_id" value="{{ loja_id }}">
-                <input type="hidden" name="contagem_id" value="{{ count_draft.id }}">
-                <input type="hidden" name="data_contagem" value="{{ count_date.isoformat() }}">
-                <div class="table-responsive border rounded mb-3">
-                    <table class="table table-sm align-middle mb-0">
-                        <thead class="table-light">
-                            <tr><th>Artigo</th><th>Origem operacional</th><th>Fornecedor oficial</th><th style="min-width:145px">Quantidade contada</th><th>Unidade</th></tr>
-                        </thead>
-                        <tbody>
-                        {% for artigo in count_articles %}
-                            {% set saved = namespace(quantity='', note='') %}
-                            {% for line in count_draft.linhas %}
-                                {% if line.artigo_id == artigo.id %}
-                                    {% set saved.quantity = line.quantidade %}
-                                    {% set saved.note = line.observacoes or '' %}
-                                {% endif %}
-                            {% endfor %}
-                            <tr>
-                                <td>
-                                    <div class="fw-semibold">{{ artigo.produto }}</div>
-                                </td>
-                                <td class="small">
-                                    {{ artigo.source_origin_name or 'Origem por validar' }}
-                                    {% if artigo.source_origin_type == 'centro_interno' %}
-                                    <span class="badge text-bg-info ms-1">Centro interno</span>
-                                    {% elif artigo.source_origin_type == 'por_resolver' or not artigo.source_origin_id %}
-                                    <span class="badge text-bg-warning ms-1">Por validar</span>
-                                    {% elif artigo.origin_active is false %}
-                                    <span class="badge text-bg-warning ms-1">Origem inativa</span>
-                                    {% endif %}
-                                </td>
-                                <td class="small">{{ artigo.fornecedor_oficial_nome or 'Fornecedor por confirmar' }}</td>
-                                <td>
-                                    <input class="form-control form-control-sm" type="number"
-                                           name="quantidade_{{ artigo.id }}" value="{{ saved.quantity }}"
-                                           min="0" max="100000000" step="0.001" inputmode="decimal">
-                                    <input class="form-control form-control-sm mt-1" type="text"
-                                           name="observacoes_{{ artigo.id }}" value="{{ saved.note }}"
-                                           maxlength="1000" placeholder="Nota (opcional)">
-                                </td>
-                                <td class="text-muted">{{ artigo.unidade or 'unidade' }}</td>
-                            </tr>
-                        {% else %}
-                            <tr><td colspan="5" class="text-muted text-center py-3">
-                                Não existem artigos ativos no catálogo.
-                            </td></tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                <input type="hidden" name="contagem_id"
+                       value="{{ form_state.get('contagem_id', count_draft.id) if form_state else count_draft.id }}">
+                <input type="hidden" name="data_contagem"
+                       value="{{ form_state.get('data_contagem', count_date.isoformat()) if form_state else count_date.isoformat() }}">
+                {{ article_picker(
+                    count_articles, article_categories, 'count-articles',
+                    'Quantidade contada', '0', '100000000',
+                    saved_lines=count_draft.linhas,
+                    form_lines=form_state.get('lines') if form_state else none
+                ) }}
                 <div class="d-flex flex-wrap gap-2">
                     <button class="btn btn-outline-primary" type="submit" name="action" value="guardar_rascunho">
                         Guardar rascunho
@@ -443,7 +324,6 @@
                                     <tr>
                                         <th>Artigo</th>
                                         <th>Origem</th>
-                                        <th>Fornecedor oficial</th>
                                         <th class="text-end">Pedida</th>
                                         <th class="text-end">Enviado</th>
                                         <th class="text-end">Já recebido</th>
@@ -457,7 +337,6 @@
                                 <tr>
                                     <td>{{ line.produto_snapshot }} <span class="text-muted small">{{ line.unidade_snapshot }}</span></td>
                                     <td class="small">{{ line.origem_nome_snapshot or 'Origem por validar' }}</td>
-                                    <td class="small">{{ line.fornecedor_oficial_nome_snapshot or 'Fornecedor por confirmar' }}</td>
                                     <td class="text-end">
                                         {% if line.quantidade_pedida_snapshot is not none %}
                                         {{ '%.3f'|format(line.quantidade_pedida_snapshot) }}
@@ -546,7 +425,6 @@
                             <div class="fw-semibold text-truncate" title="{{ artigo.produto }}">{{ artigo.produto }}</div>
                             <div class="text-muted small">
                                 {{ artigo.unidade or 'Unidade não definida' }}
-                                {% if artigo.fornecedor %} · {{ artigo.fornecedor }}{% endif %}
                             </div>
                         </div>
                     </div>
@@ -563,4 +441,157 @@
         </div>
     </section>
 </div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-article-picker]').forEach((picker) => {
+        const categorySelect = picker.querySelector('[data-category-select]');
+        const articleSelect = picker.querySelector('[data-article-select]');
+        const quantityInput = picker.querySelector('[data-quantity-input]');
+        const currentUnit = picker.querySelector('[data-current-unit]');
+        const noteInput = picker.querySelector('[data-note-input]');
+        const addButton = picker.querySelector('[data-add-article]');
+        const rows = picker.querySelector('[data-selected-articles]');
+        const emptyState = picker.querySelector('[data-empty-articles]');
+        const status = picker.querySelector('[data-picker-status]');
+        const sourceOptions = Array.from(articleSelect.options).slice(1);
+
+        const updateEmptyState = () => {
+            emptyState.classList.toggle('d-none', rows.querySelectorAll('[data-selected-row]').length > 0);
+        };
+
+        const syncRow = (row) => {
+            const quantity = row.querySelector('[data-row-quantity]');
+            const note = row.querySelector('[data-row-note]');
+            const hiddenQuantity = row.querySelector('input[type="hidden"][name^="quantidade_"]');
+            const hiddenNote = row.querySelector('input[type="hidden"][name^="observacoes_"]');
+            if (quantity && hiddenQuantity) hiddenQuantity.value = quantity.value;
+            if (note && hiddenNote) hiddenNote.value = note.value;
+        };
+
+        const bindRow = (row) => {
+            row.querySelector('[data-row-quantity]')?.addEventListener('input', () => syncRow(row));
+            row.querySelector('[data-row-note]')?.addEventListener('input', () => syncRow(row));
+            row.querySelector('[data-remove-article]')?.addEventListener('click', () => {
+                row.remove();
+                updateEmptyState();
+                status.textContent = 'Artigo removido.';
+            });
+            syncRow(row);
+        };
+
+        const setSelectionControls = () => {
+            const article = articleSelect.selectedOptions[0];
+            const selected = Boolean(article && article.value);
+            quantityInput.disabled = !selected;
+            noteInput.disabled = !selected;
+            addButton.disabled = !selected;
+            currentUnit.textContent = selected
+                ? `Unidade: ${article.dataset.unit || 'unidade'}`
+                : '';
+            if (!selected) {
+                quantityInput.value = '';
+                noteInput.value = '';
+            }
+        };
+
+        const rebuildArticleOptions = () => {
+            articleSelect.replaceChildren(new Option(
+                categorySelect.value ? 'Escolha um artigo' : 'Escolha primeiro uma categoria',
+                ''
+            ));
+            sourceOptions.forEach((option) => {
+                if (option.dataset.category === categorySelect.value) {
+                    articleSelect.add(new Option(option.textContent, option.value));
+                    articleSelect.lastElementChild.dataset.category = option.dataset.category;
+                    articleSelect.lastElementChild.dataset.product = option.dataset.product;
+                    articleSelect.lastElementChild.dataset.unit = option.dataset.unit;
+                }
+            });
+            articleSelect.disabled = !categorySelect.value;
+            setSelectionControls();
+            status.textContent = '';
+        };
+
+        const addSelectedArticle = () => {
+            const option = articleSelect.selectedOptions[0];
+            if (!option || !option.value) return;
+            const duplicate = rows.querySelector(`[data-article-id="${CSS.escape(option.value)}"]`);
+            if (duplicate) {
+                status.textContent = 'Este artigo já está na lista.';
+                duplicate.querySelector('[data-row-quantity]')?.focus();
+                return;
+            }
+            if (!quantityInput.reportValidity()) return;
+
+            const articleId = option.value;
+            const product = option.dataset.product || option.textContent;
+            const unit = option.dataset.unit || 'unidade';
+            const category = option.dataset.category || 'Por classificar';
+            const row = document.createElement('tr');
+            row.dataset.selectedRow = '';
+            row.dataset.articleId = articleId;
+
+            const articleCell = document.createElement('td');
+            const productName = document.createElement('div');
+            productName.className = 'fw-semibold';
+            productName.textContent = product;
+            const articleDetails = document.createElement('div');
+            articleDetails.className = 'text-muted small';
+            articleDetails.textContent = `${category} · ${unit}`;
+            articleCell.append(productName, articleDetails);
+
+            const quantityCell = document.createElement('td');
+            const hiddenQuantity = document.createElement('input');
+            hiddenQuantity.type = 'hidden';
+            hiddenQuantity.name = `quantidade_${articleId}`;
+            const rowQuantity = document.createElement('input');
+            rowQuantity.type = 'number';
+            rowQuantity.className = 'form-control form-control-sm';
+            rowQuantity.dataset.rowQuantity = '';
+            rowQuantity.value = quantityInput.value;
+            rowQuantity.min = picker.dataset.quantityMin;
+            rowQuantity.max = picker.dataset.quantityMax;
+            rowQuantity.step = '0.001';
+            rowQuantity.required = true;
+            rowQuantity.inputMode = 'decimal';
+            quantityCell.append(hiddenQuantity, rowQuantity);
+
+            const noteCell = document.createElement('td');
+            const hiddenNote = document.createElement('input');
+            hiddenNote.type = 'hidden';
+            hiddenNote.name = `observacoes_${articleId}`;
+            const rowNote = document.createElement('input');
+            rowNote.type = 'text';
+            rowNote.className = 'form-control form-control-sm';
+            rowNote.dataset.rowNote = '';
+            rowNote.value = noteInput.value;
+            rowNote.maxLength = 1000;
+            noteCell.append(hiddenNote, rowNote);
+
+            const actionCell = document.createElement('td');
+            actionCell.className = 'text-end';
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'btn btn-outline-danger btn-sm';
+            removeButton.dataset.removeArticle = '';
+            removeButton.textContent = 'Remover';
+            actionCell.append(removeButton);
+
+            row.append(articleCell, quantityCell, noteCell, actionCell);
+            rows.append(row);
+            bindRow(row);
+            updateEmptyState();
+            status.textContent = 'Artigo adicionado.';
+            articleSelect.value = '';
+            setSelectionControls();
+        };
+
+        rows.querySelectorAll('[data-selected-row]').forEach(bindRow);
+        updateEmptyState();
+        categorySelect.addEventListener('change', rebuildArticleOptions);
+        articleSelect.addEventListener('change', setSelectionControls);
+        addButton.addEventListener('click', addSelectedArticle);
+    });
+});
+</script>
 {% endblock %}

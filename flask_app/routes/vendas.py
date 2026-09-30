@@ -288,6 +288,21 @@ def _get_compras_loja_articles():
     ]
 
 
+def _compras_loja_submitted_lines():
+    """Keep the same sparse article-ID form contract used by store services."""
+    lines = []
+    for key, value in request.form.items():
+        if not key.startswith('quantidade_') or not value.strip():
+            continue
+        article_id = key.removeprefix('quantidade_')
+        lines.append({
+            'artigo_id': article_id,
+            'quantidade': value,
+            'observacoes': request.form.get(f'observacoes_{article_id}', ''),
+        })
+    return lines
+
+
 def _build_tabs(active_id, loja_id=None):
     from db.tiles import get_tile_visibility, get_tile_labels, get_tile_icons
     visibility = get_tile_visibility('vendas', store_id=loja_id)
@@ -582,6 +597,7 @@ def compras_loja():
         save_count_draft,
         submit_count,
     )
+    from db.compras_article_categories import ARTICLE_CATEGORIES
 
     cycle_raw = (
         request.args.get('ciclo')
@@ -605,6 +621,7 @@ def compras_loja():
     count_history = []
     shipments = []
     receipt_request_keys = {}
+    form_state = None
     if active_section == 'semanal':
         weekly_order = get_or_create_weekly_order(
             store['id'], planning_sunday, actor=username
@@ -673,18 +690,7 @@ def compras_loja():
 
     if request.method == 'POST' and active_section == 'semanal':
         action = request.form.get('action', 'guardar_rascunho').strip()
-        submitted_lines = []
-        for key, value in request.form.items():
-            if not key.startswith('quantidade_') or not value.strip():
-                continue
-            article_id = key.removeprefix('quantidade_')
-            submitted_lines.append({
-                'artigo_id': article_id,
-                'quantidade': value,
-                'observacoes': request.form.get(
-                    f'observacoes_{article_id}', ''
-                ),
-            })
+        submitted_lines = _compras_loja_submitted_lines()
         try:
             if action == 'guardar_rascunho':
                 weekly_order = save_weekly_draft(
@@ -710,26 +716,18 @@ def compras_loja():
                 raise ValueError('Acção da encomenda semanal inválida.')
         except ValueError as exc:
             flash(str(exc), 'warning')
-        return redirect(url_for(
-            'vendas.compras_loja',
-            loja_id=store['id'],
-            secao='semanal',
-            ciclo=planning_sunday.isoformat(),
-        ))
+            form_state = request.form.to_dict()
+            form_state['lines'] = submitted_lines
+        if form_state is None:
+            return redirect(url_for(
+                'vendas.compras_loja',
+                loja_id=store['id'],
+                secao='semanal',
+                ciclo=planning_sunday.isoformat(),
+            ))
 
     if request.method == 'POST' and active_section == 'urgente':
-        urgent_lines = []
-        for key, value in request.form.items():
-            if not key.startswith('quantidade_') or not value.strip():
-                continue
-            article_id = key.removeprefix('quantidade_')
-            urgent_lines.append({
-                'artigo_id': article_id,
-                'quantidade': value,
-                'observacoes': request.form.get(
-                    f'observacoes_{article_id}', ''
-                ),
-            })
+        urgent_lines = _compras_loja_submitted_lines()
         try:
             create_urgent_order(
                 store_id=store['id'],
@@ -746,26 +744,18 @@ def compras_loja():
             flash('Pedido urgente submetido para Compras.', 'success')
         except (TypeError, ValueError) as exc:
             flash(str(exc), 'warning')
-        return redirect(url_for(
-            'vendas.compras_loja',
-            loja_id=store['id'],
-            secao='urgente',
-            ciclo=planning_sunday.isoformat(),
-        ))
+            form_state = request.form.to_dict()
+            form_state['lines'] = urgent_lines
+        if form_state is None:
+            return redirect(url_for(
+                'vendas.compras_loja',
+                loja_id=store['id'],
+                secao='urgente',
+                ciclo=planning_sunday.isoformat(),
+            ))
 
     if request.method == 'POST' and active_section == 'contagem':
-        count_lines = []
-        for key, value in request.form.items():
-            if not key.startswith('quantidade_') or not value.strip():
-                continue
-            article_id = key.removeprefix('quantidade_')
-            count_lines.append({
-                'artigo_id': article_id,
-                'quantidade': value,
-                'observacoes': request.form.get(
-                    f'observacoes_{article_id}', ''
-                ),
-            })
+        count_lines = _compras_loja_submitted_lines()
         try:
             count_id = int(request.form.get('contagem_id', ''))
             draft = get_count_draft(count_id)
@@ -784,12 +774,15 @@ def compras_loja():
                 raise ValueError('Acção da contagem inválida.')
         except (TypeError, ValueError) as exc:
             flash(str(exc), 'warning')
-        return redirect(url_for(
-            'vendas.compras_loja',
-            loja_id=store['id'],
-            secao='contagem',
-            data_contagem=count_date.isoformat(),
-        ))
+            form_state = request.form.to_dict()
+            form_state['lines'] = count_lines
+        if form_state is None:
+            return redirect(url_for(
+                'vendas.compras_loja',
+                loja_id=store['id'],
+                secao='contagem',
+                data_contagem=count_date.isoformat(),
+            ))
 
     if request.method == 'POST' and active_section == 'rececao':
         from db.compras_envios import create_receipt
@@ -836,6 +829,8 @@ def compras_loja():
         store=store,
         sections=sections,
         active_section=active_section,
+        article_categories=ARTICLE_CATEGORIES,
+        form_state=form_state,
         artigos_disponiveis=_get_compras_loja_articles(),
         weekly_order=weekly_order,
         weekly_articles=weekly_articles,

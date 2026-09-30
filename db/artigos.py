@@ -269,7 +269,8 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
                    o.supplier_id, o.store_id, a.origem_original,
                    a.marca, a.unidade, a.catalog_key, a.source_dataset,
                    a.source_version, a.source_row, o.ativo,
-                   a.fornecedor_oficial_id, official_s.name
+                    a.fornecedor_oficial_id, official_s.name,
+                    a.categoria_artigo
             FROM artigos_administrativos a
             LEFT JOIN compras_origens o ON o.id = a.origem_id
             LEFT JOIN suppliers official_s
@@ -292,6 +293,7 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
             'origem_ativa': r[17],
             'fornecedor_oficial_id': r[18],
             'fornecedor_oficial_nome': r[19],
+            'categoria_artigo': r[20],
         }
         for r in rows
     ]
@@ -644,7 +646,11 @@ def get_artigo_comercial_history(artigo_id: int) -> dict:
 
 def add_artigo_administrativo(fornecedor: str, produto: str, marca: str = None,
                               unidade: str = None, origem_id: int = None,
-                              actor: str = 'sistema') -> bool:
+                              actor: str = 'sistema',
+                              categoria_artigo: str = 'Por classificar') -> bool:
+    from db.compras_article_categories import validate_article_category
+
+    categoria_artigo = validate_article_category(categoria_artigo)
     with db_connection() as conn:
         cursor = conn.cursor()
         try:
@@ -697,12 +703,12 @@ def add_artigo_administrativo(fornecedor: str, produto: str, marca: str = None,
                 """
                 INSERT INTO artigos_administrativos
                     (fornecedor, produto, marca, unidade, origem_id,
-                     fornecedor_oficial_id,
+                     fornecedor_oficial_id, categoria_artigo,
                      origem_original, human_modified_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 """,
                 (fornecedor, produto, marca or None, unidade or None,
-                 origem_id, official_supplier_id, fornecedor),
+                 origem_id, official_supplier_id, categoria_artigo, fornecedor),
             )
             conn.commit()
             success = True
@@ -715,14 +721,23 @@ def add_artigo_administrativo(fornecedor: str, produto: str, marca: str = None,
 
 def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
                                  marca: str = None, unidade: str = None,
-                                 origem_id: int = None, actor: str = 'sistema'):
+                                 origem_id: int = None, actor: str = 'sistema',
+                                 categoria_artigo: str | None = None):
+    from db.compras_article_categories import (
+        UNCATEGORIZED,
+        validate_article_category,
+    )
+
+    if categoria_artigo is not None:
+        categoria_artigo = validate_article_category(categoria_artigo)
     with db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             SELECT a.fornecedor, a.produto, a.marca, a.unidade,
                    a.origem_id, a.origem_original, o.tipo, o.supplier_id,
-                   a.fornecedor_oficial_id, official_s.name
+                    a.fornecedor_oficial_id, official_s.name,
+                    a.categoria_artigo
             FROM artigos_administrativos a
             LEFT JOIN compras_origens o ON o.id = a.origem_id
             LEFT JOIN suppliers official_s
@@ -735,6 +750,12 @@ def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
         current = cursor.fetchone()
         if not current:
             return None
+        current_category = current[10] if len(current) > 10 else UNCATEGORIZED
+        next_category = (
+            current_category
+            if categoria_artigo is None
+            else categoria_artigo
+        )
         next_origin_id = current[4] if origem_id is None else origem_id
         next_origin_type = current[6]
         next_official_supplier_id = current[8]
@@ -775,6 +796,7 @@ def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
             and (current[3] or None) == (unidade or None)
             and current[4] == next_origin_id
             and current[8] == next_official_supplier_id
+            and current_category == next_category
         )
         if unchanged:
             return {
@@ -788,13 +810,33 @@ def update_artigo_administrativo(artigo_id: int, fornecedor: str, produto: str,
             UPDATE artigos_administrativos
                SET fornecedor = %s, produto = %s, marca = %s, unidade = %s,
                    origem_id = %s, fornecedor_oficial_id = %s,
+                   categoria_artigo = %s,
                    origem_original = COALESCE(origem_original, %s),
-                   human_modified_at = NOW(), updated_at = NOW()
+                   human_modified_at = CASE
+                       WHEN fornecedor IS DISTINCT FROM %s
+                         OR produto IS DISTINCT FROM %s
+                         OR marca IS DISTINCT FROM %s
+                         OR unidade IS DISTINCT FROM %s
+                         OR origem_id IS DISTINCT FROM %s
+                         OR fornecedor_oficial_id IS DISTINCT FROM %s
+                       THEN NOW() ELSE human_modified_at END,
+                   updated_at = NOW()
              WHERE id = %s
             """,
             (fornecedor, produto, marca or None, unidade or None, next_origin_id,
-             next_official_supplier_id, fornecedor, artigo_id),
+             next_official_supplier_id, next_category, fornecedor,
+             fornecedor, produto, marca or None, unidade or None, next_origin_id,
+             next_official_supplier_id, artigo_id),
         )
+        if current_category != next_category:
+            cursor.execute(
+                """
+                INSERT INTO artigos_administrativos_categoria_audit
+                    (artigo_id, categoria_anterior, categoria_nova, actor)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (artigo_id, current_category, next_category, actor),
+            )
         if next_origin_id is not None and current[4] != next_origin_id:
             cursor.execute(
                 """

@@ -472,6 +472,37 @@ class TestComprasAccess(unittest.TestCase):
             update_article.call_args.args[:3],
             (18, 'Etiqueta corrigida', 'Produto'),
         )
+        self.assertIsNone(
+            update_article.call_args.kwargs['categoria_artigo']
+        )
+
+    def test_catalogue_edit_submits_selected_article_category(self):
+        self._set_session_user(_user(acesso_compras=True))
+        with patch(
+            'flask_app.routes.compras.update_artigo_administrativo',
+            return_value={
+                'found': True,
+                'changed': True,
+                'origin_type': 'centro_interno',
+            },
+        ) as update_article:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'edit',
+                    'artigo_id': '18',
+                    'origem_id': '8',
+                    'fornecedor': 'Etiqueta corrigida',
+                    'produto': 'Produto',
+                    'categoria_artigo': 'Bebidas e café',
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            update_article.call_args.kwargs['categoria_artigo'],
+            'Bebidas e café',
+        )
 
     def test_catalogue_edit_keeps_unresolved_status_in_feedback(self):
         self._set_session_user(_user(acesso_compras=True))

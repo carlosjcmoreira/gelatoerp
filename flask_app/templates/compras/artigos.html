@@ -58,7 +58,7 @@
         <div class="card-body p-2">
             <form method="post" class="row g-2 align-items-end">
                 <input type="hidden" name="action" value="add">
-                <div class="col-12 col-md-3">
+                <div class="col-12 col-md-2">
                     <label class="form-label small mb-1">Origem de abastecimento</label>
                     <select name="origem_id" class="form-select form-select-sm" required>
                         <option value="">Selecionar origem...</option>
@@ -69,7 +69,7 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-12 col-md-3">
+                <div class="col-12 col-md-2">
                     <label class="form-label small mb-1">Etiqueta da origem</label>
                     <input type="text" name="fornecedor" class="form-control form-control-sm"
                            placeholder="Texto original" required list="fornecedores-list"
@@ -84,6 +84,16 @@
                 <div class="col-12 col-md-3">
                     <label class="form-label small mb-1">Produto</label>
                     <input type="text" name="produto" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-12 col-md-2">
+                    <label class="form-label small mb-1">Categoria de utilização</label>
+                    <select name="categoria_artigo" class="form-select form-select-sm" required>
+                        {% for category in article_categories %}
+                        <option value="{{ category }}" {% if category == 'Por classificar' %}selected{% endif %}>
+                            {{ category }}
+                        </option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="col-6 col-md-1">
                     <label class="form-label small mb-1">Marca (opcional)</label>
@@ -109,6 +119,7 @@
                     <th>Origem de abastecimento</th>
                     <th>Fornecedor oficial</th>
                     <th>Produto</th>
+                    <th>Categoria de utilização</th>
                     <th>Marca (opcional)</th>
                     <th>Un.</th>
                     <th>Estado</th>
@@ -186,6 +197,17 @@
                     <td style="min-width:240px;">
                         <input form="edit-artigo-{{ a.id }}" type="text" name="produto" value="{{ a.produto }}"
                                class="form-control form-control-sm" required>
+                    </td>
+                    <td style="min-width:190px;">
+                        <select form="edit-artigo-{{ a.id }}" name="categoria_artigo"
+                                class="form-select form-select-sm" required>
+                            {% for category in article_categories %}
+                            <option value="{{ category }}"
+                                    {% if category == (a.categoria_artigo or 'Por classificar') %}selected{% endif %}>
+                                {{ category }}
+                            </option>
+                            {% endfor %}
+                        </select>
                     </td>
                     <td style="min-width:120px;">
                         <input form="edit-artigo-{{ a.id }}" type="text" name="marca" value="{{ a.marca or '' }}"

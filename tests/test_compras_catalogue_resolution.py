@@ -339,7 +339,8 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         self.assertEqual(
             article_update.args[1],
             ('CAFÉ ILLY', 'Café Clássico Descafeinado', None, None, 18, None,
-             'CAFÉ ILLY', 18),
+             'Por classificar', 'CAFÉ ILLY', 'CAFÉ ILLY',
+             'Café Clássico Descafeinado', None, None, 18, None, 18),
         )
         self.assertFalse(any(
             'INSERT INTO artigos_administrativos_origem_audit' in sql
@@ -377,7 +378,8 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         self.assertEqual(
             article_update.args[1],
             ('CAFÉ ILLY', 'Café Clássico', None, None, 91, 42,
-             'CAFÉ ILLY', 18),
+             'Por classificar', 'CAFÉ ILLY', 'CAFÉ ILLY',
+             'Café Clássico', None, None, 91, 42, 18),
         )
         audit_insert = next(
             call for call in cursor.execute.call_args_list

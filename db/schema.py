@@ -250,6 +250,10 @@ def run_migrations_compras_catalogo():
         CATALOG_SOURCE,
         CATALOG_VERSION,
     )
+    from db.compras_article_categories import (
+        CATEGORY_BY_PRODUCT,
+        UNCATEGORIZED,
+    )
 
     with db_connection() as conn:
         cursor = conn.cursor()
@@ -273,8 +277,40 @@ def run_migrations_compras_catalogo():
                     ADD COLUMN IF NOT EXISTS imported_at TIMESTAMP,
                     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
                         NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    ADD COLUMN IF NOT EXISTS human_modified_at TIMESTAMP
+                    ADD COLUMN IF NOT EXISTS human_modified_at TIMESTAMP,
+                    ADD COLUMN IF NOT EXISTS categoria_artigo VARCHAR(100)
                 """
+            )
+            category_rows = [
+                (product, category)
+                for product, category in CATEGORY_BY_PRODUCT.items()
+            ]
+            if category_rows:
+                execute_values(
+                    cursor,
+                    """
+                    UPDATE artigos_administrativos AS a
+                       SET categoria_artigo = seed.category
+                      FROM (VALUES %s) AS seed(product_name, category)
+                     WHERE a.categoria_artigo IS NULL
+                       AND LOWER(BTRIM(a.produto)) = seed.product_name
+                    """,
+                    category_rows,
+                )
+            cursor.execute(
+                """
+                UPDATE artigos_administrativos
+                   SET categoria_artigo = %s
+                 WHERE categoria_artigo IS NULL
+                """,
+                (UNCATEGORIZED,),
+            )
+            cursor.execute(
+                """
+                ALTER TABLE artigos_administrativos
+                    ALTER COLUMN categoria_artigo SET DEFAULT 'Por classificar',
+                    ALTER COLUMN categoria_artigo SET NOT NULL
+                """,
             )
             cursor.execute(
                 """
@@ -327,6 +363,25 @@ def run_migrations_compras_catalogo():
                 """
                 CREATE INDEX IF NOT EXISTS idx_invoice_linha_artigo_audit_line
                     ON invoice_linha_artigo_audit(invoice_linha_id, alterado_em DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS artigos_administrativos_categoria_audit (
+                    id SERIAL PRIMARY KEY,
+                    artigo_id INTEGER NOT NULL
+                        REFERENCES artigos_administrativos(id) ON DELETE CASCADE,
+                    categoria_anterior VARCHAR(100),
+                    categoria_nova VARCHAR(100) NOT NULL,
+                    actor VARCHAR(100) NOT NULL,
+                    alterado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_artigos_categoria_audit_article
+                    ON artigos_administrativos_categoria_audit(artigo_id, alterado_em DESC)
                 """
             )
 

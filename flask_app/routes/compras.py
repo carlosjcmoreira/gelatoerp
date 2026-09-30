@@ -1227,6 +1227,12 @@ def finalize_upload(invoice_id: int):
 @compras_bp.route('/artigos', methods=['GET', 'POST'])
 @any_perm_required('acesso_administrativo', 'acesso_compras')
 def artigos():
+    from db.compras_article_categories import (
+        ARTICLE_CATEGORIES,
+        UNCATEGORIZED,
+        validate_article_category,
+    )
+
     if request.method == 'POST':
         action = request.form.get('action')
 
@@ -1238,14 +1244,23 @@ def artigos():
             origem_raw = request.form.get('origem_id', '').strip()
             origem_id = int(origem_raw) if origem_raw.isdigit() else None
             if fornecedor and produto:
-                success = add_artigo_administrativo(
-                    fornecedor, produto, marca=marca, unidade=unidade,
-                    origem_id=origem_id, actor=_get_username(),
-                )
-                if success:
-                    flash(f'Artigo "{produto}" adicionado!', 'success')
-                else:
-                    flash('Artigo já existe.', 'warning')
+                try:
+                    categoria_artigo = validate_article_category(
+                        request.form.get(
+                            'categoria_artigo', UNCATEGORIZED
+                        )
+                    )
+                    success = add_artigo_administrativo(
+                        fornecedor, produto, marca=marca, unidade=unidade,
+                        origem_id=origem_id, actor=_get_username(),
+                        categoria_artigo=categoria_artigo,
+                    )
+                    if success:
+                        flash(f'Artigo "{produto}" adicionado!', 'success')
+                    else:
+                        flash('Artigo já existe.', 'warning')
+                except ValueError as exc:
+                    flash(str(exc), 'warning')
             else:
                 flash('Preencha fornecedor e produto.', 'warning')
 
@@ -1262,10 +1277,16 @@ def artigos():
             origem_id = int(origem_raw) if origem_raw.isdigit() else None
             if artigo_id and fornecedor and produto:
                 try:
+                    category_raw = request.form.get('categoria_artigo')
+                    categoria_artigo = (
+                        None if category_raw is None
+                        else validate_article_category(category_raw)
+                    )
                     result = update_artigo_administrativo(
                         artigo_id, fornecedor, produto, marca=marca,
                         unidade=unidade, origem_id=origem_id,
                         actor=_get_username(),
+                        categoria_artigo=categoria_artigo,
                     )
                     if not result:
                         flash('Artigo não encontrado.', 'warning')
@@ -1367,7 +1388,7 @@ def artigos():
                 str(a.get(key) or '') for key in
                 (
                     'fornecedor', 'produto', 'marca', 'origem_nome',
-                    'fornecedor_oficial_nome',
+                    'fornecedor_oficial_nome', 'categoria_artigo',
                 )
             ).casefold()
         ]
@@ -1376,7 +1397,8 @@ def artigos():
     suppliers = get_suppliers()
     return render_template('compras/artigos.html',
                            artigos=artigos_list, fornecedores=fornecedores,
-                           origens=origens, suppliers=suppliers, search=search)
+                           origens=origens, suppliers=suppliers,
+                           article_categories=ARTICLE_CATEGORIES, search=search)
 
 
 @compras_bp.route('/artigos/<int:artigo_id>')

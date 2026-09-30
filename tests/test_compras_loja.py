@@ -172,26 +172,30 @@ class TestComprasLoja(unittest.TestCase):
         ]
 
     def _render_store_section(
-        self, client, section, weekly_status='rascunho', store_id=2
+        self, client, section, weekly_status='rascunho', store_id=2,
+        weekly_lines=None, count_lines=None, shipments=None,
     ):
         articles = self._active_articles()
         active_articles = [article for article in articles if article['ativo']]
         order_lines = []
         if weekly_status == 'submetida':
-            order_lines = [{
+            order_lines = weekly_lines if weekly_lines is not None else [{
                 'id': 501, 'artigo_id': 10,
                 'produto_snapshot': 'Farinha histórica',
                 'unidade_snapshot': 'kg', 'quantidade': 3,
                 'observacoes': None, 'origem_nome_snapshot': 'Fornecedor A',
                 'origem_tipo_snapshot': 'fornecedor_externo',
-                'fornecedor_oficial_nome_snapshot': 'Fornecedor A',
+                'fornecedor_oficial_nome_snapshot': 'Fornecedor legal a ocultar',
             }]
+        elif weekly_lines is not None:
+            order_lines = weekly_lines
         weekly_order = {
             'id': 50, 'status': weekly_status, 'linhas': order_lines,
             'observacoes': None,
         }
         count_draft = {
-            'id': 70, 'status': 'rascunho', 'store_id': store_id, 'linhas': []
+            'id': 70, 'status': 'rascunho', 'store_id': store_id,
+            'linhas': count_lines or [],
         }
         with ExitStack() as stack:
             stack.enter_context(patch(
@@ -219,6 +223,10 @@ class TestComprasLoja(unittest.TestCase):
             stack.enter_context(patch(
                 'db.compras_envios.list_shipments_for_order',
                 return_value=[],
+            ))
+            stack.enter_context(patch(
+                'db.compras_envios.list_shipments_for_store',
+                return_value=shipments or [],
             ))
             stack.enter_context(patch(
                 'db.pedidos_urgentes.get_available_urgent_articles',
@@ -262,10 +270,13 @@ class TestComprasLoja(unittest.TestCase):
         html = self._render_store_section(client, 'semanal')
         self.assertIn('Encomenda para a semana seguinte', html)
         self.assertIn('Submeter no domingo', html)
-        self.assertIn('quantidade_11', html)
-        self.assertIn('quantidade_12', html)
-        self.assertIn('quantidade_13', html)
-        self.assertIn('Fornecedor por confirmar', html)
+        self.assertIn('data-article-select', html)
+        self.assertIn('value="11"', html)
+        self.assertIn('value="12"', html)
+        self.assertIn('value="13"', html)
+        self.assertIn('Adicionar artigo', html)
+        self.assertNotIn('Fornecedor por confirmar', html)
+        self.assertNotIn('Fornecedor oficial', html)
         self.assertNotIn('Artigo inativo', html)
 
     def test_user_assigned_both_stores_can_open_each_store_page(self):
@@ -286,8 +297,66 @@ class TestComprasLoja(unittest.TestCase):
         self.assertIn('Pedido urgente — exceção de abastecimento', html)
         self.assertIn('name="data_pretendida"', html)
         self.assertIn('name="motivo"', html)
-        self.assertIn('name="quantidade_12"', html)
+        self.assertIn('value="12"', html)
+        self.assertIn('data-category-select', html)
         self.assertNotIn('Em preparação</span>', html)
+
+    def test_failed_urgent_submission_preserves_form_and_selected_articles(self):
+        client = self._login({
+            'acesso_vendas': True, 'acesso_gestor': False,
+            'vendas_store_ids': [2],
+        })
+        with ExitStack() as stack:
+            stack.enter_context(patch(
+                'flask_app.routes.vendas.get_store_by_id',
+                return_value=self._store(2),
+            ))
+            stack.enter_context(patch(
+                'flask_app.routes.vendas._build_tabs', return_value=[]
+            ))
+            stack.enter_context(patch(
+                'db.artigos.get_artigos_administrativos',
+                return_value=self._active_articles(),
+            ))
+            stack.enter_context(patch(
+                'db.pedidos_urgentes.get_available_urgent_articles',
+                return_value=self._active_articles(),
+            ))
+            stack.enter_context(patch(
+                'db.pedidos_urgentes.list_urgent_orders',
+                return_value=[],
+            ))
+            stack.enter_context(patch(
+                'db.encomendas_semanais.get_weekly_order_for_store',
+                return_value=None,
+            ))
+            stack.enter_context(patch(
+                'db.pedidos_urgentes.create_urgent_order',
+                side_effect=ValueError('Pedido rejeitado para teste.'),
+            ))
+            response = client.post(
+                '/vendas/compras-loja?loja_id=2&secao=urgente',
+                data={
+                    'loja_id': '2',
+                    'data_pretendida': '2099-12-31',
+                    'motivo': 'outro',
+                    'motivo_detalhe': 'Produto em falta',
+                    'observacoes': 'Preparar antes do almoço',
+                    'quantidade_10': '2.5',
+                    'observacoes_10': 'Sem substituição',
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('value="2099-12-31"', html)
+        self.assertIn('value="Produto em falta"', html)
+        self.assertIn('Preparar antes do almoço', html)
+        self.assertIn('name="quantidade_10"', html)
+        self.assertIn('value="2.5"', html)
+        self.assertIn('name="observacoes_10"', html)
+        self.assertIn('value="Sem substituição"', html)
+        self.assertIn('Pedido rejeitado para teste.', html)
 
     def test_real_count_html_renders_form_and_preserves_zero_rule(self):
         client = self._login({
@@ -296,12 +365,32 @@ class TestComprasLoja(unittest.TestCase):
         })
         html = self._render_store_section(client, 'contagem')
         self.assertIn('Contagem de artigos de Compras', html)
-        self.assertIn('name="contagem_id" value="70"', html)
-        self.assertIn('name="quantidade_13"', html)
+        self.assertIn('name="contagem_id"', html)
+        self.assertIn('value="70"', html)
+        self.assertIn('value="13"', html)
+        self.assertIn('data-category-select', html)
         self.assertIn('O valor zero é uma contagem válida.', html)
         self.assertNotIn('Artigo inativo', html)
 
-    def test_submitted_weekly_html_shows_immutable_snapshot_and_supplier(self):
+    def test_count_draft_preloads_zero_quantity_and_note(self):
+        client = self._login({
+            'acesso_vendas': True, 'acesso_gestor': False,
+            'vendas_store_ids': [2],
+        })
+        html = self._render_store_section(
+            client,
+            'contagem',
+            count_lines=[{
+                'artigo_id': 13, 'quantidade': 0,
+                'observacoes': 'Contagem física zero',
+            }],
+        )
+        self.assertIn('name="quantidade_13"', html)
+        self.assertIn('value="0"', html)
+        self.assertIn('name="observacoes_13"', html)
+        self.assertIn('Contagem física zero', html)
+
+    def test_submitted_weekly_html_hides_official_supplier_snapshot(self):
         client = self._login({
             'acesso_vendas': True, 'acesso_gestor': False,
             'vendas_store_ids': [2],
@@ -311,7 +400,45 @@ class TestComprasLoja(unittest.TestCase):
         )
         self.assertIn('Farinha histórica', html)
         self.assertIn('Fornecedor A', html)
+        self.assertNotIn('Fornecedor oficial', html)
         self.assertNotIn('name="quantidade_10"', html)
+
+    def test_receipt_table_hides_official_supplier_snapshot(self):
+        client = self._login({
+            'acesso_vendas': True, 'acesso_gestor': False,
+            'vendas_store_ids': [2],
+        })
+        html = self._render_store_section(
+            client,
+            'rececao',
+            shipments=[{
+                'id': 901,
+                'tipo_pedido': 'semanal',
+                'pedido_id': 50,
+                'created_by': 'Compras',
+                'created_at': None,
+                'versao_pedido': 1,
+                'quantidade_enviada_total': 1,
+                'quantidade_recebida_total': 0,
+                'quantidade_pendente_total': 1,
+                'observacoes': '',
+                'linhas': [{
+                    'id': 902,
+                    'produto_snapshot': 'Farinha histórica',
+                    'unidade_snapshot': 'kg',
+                    'origem_nome_snapshot': 'Origem antiga',
+                    'fornecedor_oficial_nome_snapshot': 'Fornecedor oficial oculto',
+                    'quantidade_pedida_snapshot': 1,
+                    'quantidade_enviada': 1,
+                    'quantidade_recebida': 0,
+                    'quantidade_pendente': 1,
+                }],
+            }],
+        )
+        self.assertIn('Farinha histórica', html)
+        self.assertIn('Origem antiga', html)
+        self.assertNotIn('Fornecedor oficial oculto', html)
+        self.assertNotIn('<th>Fornecedor oficial</th>', html)
 
     def test_user_without_vendas_store_access_is_redirected(self):
         client = self._login({
