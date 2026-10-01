@@ -1,0 +1,3501 @@
+{
+  "as_of": "2026-10-01",
+  "environment": "production",
+  "articles": [
+    {
+      "id": 1,
+      "ativo": true,
+      "marca": null,
+      "produto": "Canela em pó 500g",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 8,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 2,
+      "ativo": true,
+      "marca": null,
+      "produto": "Mel (kg)",
+      "unidade": "kg",
+      "fornecedor": "Makro",
+      "source_row": 9,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 3,
+      "ativo": true,
+      "marca": null,
+      "produto": "Granola (pacote com 800g",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": null,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Makro",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 4,
+      "ativo": true,
+      "marca": null,
+      "produto": "Bolacha Maria (pacote com 800g)",
+      "unidade": "pct",
+      "fornecedor": "Makro",
+      "source_row": 11,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 5,
+      "ativo": false,
+      "marca": null,
+      "produto": "Açúcar para Café",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": null,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Makro",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 6,
+      "ativo": false,
+      "marca": null,
+      "produto": "Adoçante Café",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": null,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Makro",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 7,
+      "ativo": true,
+      "marca": null,
+      "produto": "Álcool 96% 100ml",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 14,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 8,
+      "ativo": true,
+      "marca": null,
+      "produto": "Esponja und.",
+      "unidade": "und",
+      "fornecedor": "Makro",
+      "source_row": 15,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 9,
+      "ativo": true,
+      "marca": null,
+      "produto": "Papel vegetal",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 16,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 10,
+      "ativo": true,
+      "marca": null,
+      "produto": "Saco congelação 1 l",
+      "unidade": "l",
+      "fornecedor": "Makro",
+      "source_row": 17,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 11,
+      "ativo": true,
+      "marca": null,
+      "produto": "Saco congelação 3l",
+      "unidade": "l",
+      "fornecedor": "Makro",
+      "source_row": 18,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 12,
+      "ativo": true,
+      "marca": null,
+      "produto": "Cheirinho casa de banho Spray",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 19,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 13,
+      "ativo": true,
+      "marca": null,
+      "produto": "Lixívia Spray",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 20,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 14,
+      "ativo": true,
+      "marca": null,
+      "produto": "Detergente louça 4l",
+      "unidade": "l",
+      "fornecedor": "Makro",
+      "source_row": 21,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 15,
+      "ativo": true,
+      "marca": null,
+      "produto": "Caixa Kraft pequena (pacote 50und.)",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": null,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Makro",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 16,
+      "ativo": true,
+      "marca": null,
+      "produto": "Caixa Kraft grande (und)",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": null,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Makro",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 17,
+      "ativo": true,
+      "marca": null,
+      "produto": "Caneta permanente preta (und)",
+      "unidade": "und",
+      "fornecedor": "Makro",
+      "source_row": 22,
+      "origem_nome": "Amazon EU S.à r.l., Sucursal en España",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Escritório e identificação",
+      "fornecedor_oficial_id": 209,
+      "fornecedor_oficial_nome": "Amazon EU S.à r.l., Sucursal en España"
+    },
+    {
+      "id": 18,
+      "ativo": true,
+      "marca": null,
+      "produto": "Neoblanc - Tira manchas (2l)",
+      "unidade": "l",
+      "fornecedor": "Makro",
+      "source_row": 26,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 19,
+      "ativo": true,
+      "marca": null,
+      "produto": "Rolo de papel térmico 80x60x11 (caixa - 10 und.)",
+      "unidade": "rolo",
+      "fornecedor": "Porto Higiene",
+      "source_row": 27,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Escritório e identificação",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 20,
+      "ativo": true,
+      "marca": null,
+      "produto": "Rolo de papel térmico 57x40x11 (cartão - 10 und.)",
+      "unidade": null,
+      "fornecedor": "Porto Higiene",
+      "source_row": null,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Escritório e identificação",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 21,
+      "ativo": true,
+      "marca": null,
+      "produto": "Luva S (caixa)",
+      "unidade": "cx",
+      "fornecedor": "Porto Higiene",
+      "source_row": 29,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 22,
+      "ativo": true,
+      "marca": null,
+      "produto": "Luva M (caixa)",
+      "unidade": "cx",
+      "fornecedor": "Porto Higiene",
+      "source_row": 30,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 23,
+      "ativo": true,
+      "marca": null,
+      "produto": "Luva L (caixa)",
+      "unidade": "cx",
+      "fornecedor": "Porto Higiene",
+      "source_row": 31,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 24,
+      "ativo": true,
+      "marca": null,
+      "produto": "Saco de lixo 5l (pct - 10und)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 32,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 25,
+      "ativo": true,
+      "marca": null,
+      "produto": "Saco de lixo 50l (pct -10 und)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 33,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 26,
+      "ativo": true,
+      "marca": null,
+      "produto": "Saco de lixo 100l (pct - 10Und.)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 34,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 27,
+      "ativo": true,
+      "marca": null,
+      "produto": "Película Aderente",
+      "unidade": null,
+      "fornecedor": "Porto Higiene",
+      "source_row": 35,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 28,
+      "ativo": true,
+      "marca": null,
+      "produto": "Pezinhos/Protetor de calçados",
+      "unidade": null,
+      "fornecedor": "Porto Higiene",
+      "source_row": 36,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 29,
+      "ativo": true,
+      "marca": null,
+      "produto": "Desengordurante (und - 5l)",
+      "unidade": null,
+      "fornecedor": "Porto Higiene",
+      "source_row": null,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 30,
+      "ativo": true,
+      "marca": null,
+      "produto": "Sabonete WC (und - 5l)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 37,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 31,
+      "ativo": true,
+      "marca": null,
+      "produto": "Abrilhantador máquina de louça (und - 5l)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 38,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 32,
+      "ativo": true,
+      "marca": "Ecomix",
+      "produto": "Desinfetante para superfícies Ecomix",
+      "unidade": null,
+      "fornecedor": "Porto Higiene",
+      "source_row": 39,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 33,
+      "ativo": true,
+      "marca": null,
+      "produto": "Detergente máquina de lavar louça (und - 5l)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 40,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 34,
+      "ativo": true,
+      "marca": null,
+      "produto": "Desinfetante VT 10 - Álcool 70% (und - 5l)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 41,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 35,
+      "ativo": true,
+      "marca": null,
+      "produto": "Desinfetante WC chão (und - 5l)",
+      "unidade": null,
+      "fornecedor": "Porto Higiene",
+      "source_row": null,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 36,
+      "ativo": true,
+      "marca": null,
+      "produto": "Desinfetante chão - Bioalcool (und - 5l)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 43,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 37,
+      "ativo": true,
+      "marca": null,
+      "produto": "Descalcificador (und - 5l)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 44,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 38,
+      "ativo": true,
+      "marca": null,
+      "produto": "Guardanapos tipo L caixa",
+      "unidade": "cx",
+      "fornecedor": "Porto Higiene",
+      "source_row": 45,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 39,
+      "ativo": true,
+      "marca": null,
+      "produto": "Papel Autocorte (6 und)",
+      "unidade": "und",
+      "fornecedor": "Porto Higiene",
+      "source_row": 46,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 40,
+      "ativo": true,
+      "marca": null,
+      "produto": "Papel Zigzag",
+      "unidade": null,
+      "fornecedor": "Porto Higiene",
+      "source_row": 47,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 41,
+      "ativo": true,
+      "marca": null,
+      "produto": "Papel Higiênico (12 und)",
+      "unidade": "und",
+      "fornecedor": "Porto Higiene",
+      "source_row": 48,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 42,
+      "ativo": true,
+      "marca": null,
+      "produto": "Líquido de limpeza WC - (und - 5l)",
+      "unidade": null,
+      "fornecedor": "Porto Higiene",
+      "source_row": null,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 43,
+      "ativo": true,
+      "marca": null,
+      "produto": "Touca preta redinha - (100 und)",
+      "unidade": "und",
+      "fornecedor": "Porto Higiene",
+      "source_row": 49,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 44,
+      "ativo": true,
+      "marca": null,
+      "produto": "Tampas capuccino",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": 50,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 45,
+      "ativo": true,
+      "marca": null,
+      "produto": "Tampa Milkshake",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": 51,
+      "origem_nome": "PROGELCONE - COMÉRCIO INDÚSTRIA, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 156,
+      "fornecedor_oficial_nome": "PROGELCONE - COMÉRCIO INDÚSTRIA, SA"
+    },
+    {
+      "id": 46,
+      "ativo": true,
+      "marca": null,
+      "produto": "Saco de papel kraft para cones",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": 52,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 47,
+      "ativo": true,
+      "marca": null,
+      "produto": "Sacos de cookies",
+      "unidade": null,
+      "fornecedor": "Inocentro",
+      "source_row": 53,
+      "origem_nome": "INOCENTRO - INOVAÇÕES E REPRESENTAÇÕES",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 228,
+      "fornecedor_oficial_nome": "INOCENTRO - INOVAÇÕES E REPRESENTAÇÕES"
+    },
+    {
+      "id": 48,
+      "ativo": true,
+      "marca": null,
+      "produto": "Saco plástico para pastelaria",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": 54,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 49,
+      "ativo": true,
+      "marca": null,
+      "produto": "Pratinho para Nivottos",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": 55,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 50,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo para Água",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": 56,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 51,
+      "ativo": false,
+      "marca": null,
+      "produto": "Copos takeway kraft",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": null,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 52,
+      "ativo": true,
+      "marca": null,
+      "produto": "Colheres Café embalada indivialmente 9cm",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": null,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 53,
+      "ativo": false,
+      "marca": null,
+      "produto": "Água sem gás 330ml",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 54,
+      "ativo": false,
+      "marca": null,
+      "produto": "Água com gás frize",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 55,
+      "ativo": false,
+      "marca": null,
+      "produto": "Frizze limão",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 56,
+      "ativo": true,
+      "marca": null,
+      "produto": "Frizze maracujá",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 57,
+      "ativo": false,
+      "marca": null,
+      "produto": "Frizze laranja",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 58,
+      "ativo": true,
+      "marca": null,
+      "produto": "Pepsi",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 59,
+      "ativo": true,
+      "marca": null,
+      "produto": "Pepsi zero",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 60,
+      "ativo": true,
+      "marca": null,
+      "produto": "Compal maga/laranja",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 61,
+      "ativo": true,
+      "marca": null,
+      "produto": "Compal pêssego",
+      "unidade": null,
+      "fornecedor": "Sumol Compal",
+      "source_row": null,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 62,
+      "ativo": true,
+      "marca": null,
+      "produto": "Caixa Take Away 500g",
+      "unidade": "cx",
+      "fornecedor": "SUVITA",
+      "source_row": 70,
+      "origem_nome": "Suvita - Produtos Alimentares, LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "SUVITA",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 13,
+      "fornecedor_oficial_nome": "Suvita - Produtos Alimentares, LDA"
+    },
+    {
+      "id": 63,
+      "ativo": true,
+      "marca": null,
+      "produto": "Caixa Take Away 1000g",
+      "unidade": "cx",
+      "fornecedor": "SUVITA",
+      "source_row": 71,
+      "origem_nome": "Suvita - Produtos Alimentares, LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "SUVITA",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 13,
+      "fornecedor_oficial_nome": "Suvita - Produtos Alimentares, LDA"
+    },
+    {
+      "id": 64,
+      "ativo": true,
+      "marca": null,
+      "produto": "Caixa Take Away 1500g",
+      "unidade": "cx",
+      "fornecedor": "SUVITA",
+      "source_row": 72,
+      "origem_nome": "Suvita - Produtos Alimentares, LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "SUVITA",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 13,
+      "fornecedor_oficial_nome": "Suvita - Produtos Alimentares, LDA"
+    },
+    {
+      "id": 65,
+      "ativo": true,
+      "marca": null,
+      "produto": "Pistacchio em pedaços",
+      "unidade": null,
+      "fornecedor": "SUVITA",
+      "source_row": 73,
+      "origem_nome": "Suvita - Produtos Alimentares, LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "SUVITA",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 13,
+      "fornecedor_oficial_nome": "Suvita - Produtos Alimentares, LDA"
+    },
+    {
+      "id": 66,
+      "ativo": true,
+      "marca": null,
+      "produto": "Colheres para gelado",
+      "unidade": null,
+      "fornecedor": "SUVITA",
+      "source_row": 74,
+      "origem_nome": "Suvita - Produtos Alimentares, LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "SUVITA",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 13,
+      "fornecedor_oficial_nome": "Suvita - Produtos Alimentares, LDA"
+    },
+    {
+      "id": 67,
+      "ativo": true,
+      "marca": null,
+      "produto": "Cone pequeno 40\" (caixa 480 und)",
+      "unidade": "cx",
+      "fornecedor": "SUVITA",
+      "source_row": 75,
+      "origem_nome": "Suvita - Produtos Alimentares, LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "SUVITA",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 13,
+      "fornecedor_oficial_nome": "Suvita - Produtos Alimentares, LDA"
+    },
+    {
+      "id": 68,
+      "ativo": true,
+      "marca": null,
+      "produto": "Cone Médio 45\" (caixa 420 und.)",
+      "unidade": "cx",
+      "fornecedor": "SUVITA",
+      "source_row": 76,
+      "origem_nome": "Suvita - Produtos Alimentares, LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "SUVITA",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 13,
+      "fornecedor_oficial_nome": "Suvita - Produtos Alimentares, LDA"
+    },
+    {
+      "id": 69,
+      "ativo": true,
+      "marca": null,
+      "produto": "Leite inteiro Gresso (l)",
+      "unidade": "l",
+      "fornecedor": "LACTOGAL",
+      "source_row": 77,
+      "origem_nome": "Lactogal-Produtos Alimentares, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "LACTOGAL",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 125,
+      "fornecedor_oficial_nome": "Lactogal-Produtos Alimentares, S.A."
+    },
+    {
+      "id": 70,
+      "ativo": true,
+      "marca": null,
+      "produto": "Manteiga com sal Gresso (kg)",
+      "unidade": "kg",
+      "fornecedor": "LACTOGAL",
+      "source_row": 78,
+      "origem_nome": "Bidfood Portugal, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "LACTOGAL",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 48,
+      "fornecedor_oficial_nome": "Bidfood Portugal, SA"
+    },
+    {
+      "id": 71,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo mini (manga- 50und)",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": null,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 72,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo pequeno (manga- 50und)",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": null,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 73,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo médio (manga- 50und)",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": null,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 74,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo grande (manga- 50und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 81,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 75,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo max (manga- 50und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 82,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 76,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo Café (manga- 50und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 84,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 77,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo Cappucino/Branco Nivà (manga- 50und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 85,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 78,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo Milkshake (manga- 50und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 86,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 79,
+      "ativo": true,
+      "marca": null,
+      "produto": "Colheres brancas cartão Açaí",
+      "unidade": "cx",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 87,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 80,
+      "ativo": true,
+      "marca": null,
+      "produto": "Guardanapos Nivà",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 88,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 81,
+      "ativo": true,
+      "marca": null,
+      "produto": "Ricotta (kg)",
+      "unidade": "kg",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 89,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 82,
+      "ativo": true,
+      "marca": null,
+      "produto": "Cannolo (und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 90,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 224,
+      "fornecedor_oficial_nome": "Il Bocconino Norte - Distribuição Alimentar Lda"
+    },
+    {
+      "id": 83,
+      "ativo": true,
+      "marca": null,
+      "produto": "Chocolate 64% (Cannolo) - (und)",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": null,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 84,
+      "ativo": true,
+      "marca": null,
+      "produto": "Brioche (und.)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 92,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 85,
+      "ativo": true,
+      "marca": null,
+      "produto": "Saco Nivà (und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 93,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 86,
+      "ativo": true,
+      "marca": null,
+      "produto": "Fita Niva caixas Take away (rolo)",
+      "unidade": "rolo",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 94,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 87,
+      "ativo": true,
+      "marca": null,
+      "produto": "Capa para cone/Porta cones roxo",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 95,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 88,
+      "ativo": true,
+      "marca": null,
+      "produto": "Base Branca Nivà",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": null,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 89,
+      "ativo": true,
+      "marca": null,
+      "produto": "Cerejas em calda",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 96,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 90,
+      "ativo": true,
+      "marca": null,
+      "produto": "Esfregona",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 97,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 91,
+      "ativo": true,
+      "marca": null,
+      "produto": "Palhinha milkshake",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 98,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 92,
+      "ativo": true,
+      "marca": null,
+      "produto": "Pote takeway p/ amarena",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 99,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 93,
+      "ativo": true,
+      "marca": null,
+      "produto": "Mini Cone",
+      "unidade": null,
+      "fornecedor": "Progelcone",
+      "source_row": 106,
+      "origem_nome": "PROGELCONE - COMÉRCIO INDÚSTRIA E SERVIÇOS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Progelcone",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 72,
+      "fornecedor_oficial_nome": "PROGELCONE - COMÉRCIO INDÚSTRIA E SERVIÇOS LDA"
+    },
+    {
+      "id": 94,
+      "ativo": true,
+      "marca": null,
+      "produto": "Café Classico",
+      "unidade": null,
+      "fornecedor": "CAFÉ ILLY",
+      "source_row": 107,
+      "origem_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "CAFÉ ILLY",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 60,
+      "fornecedor_oficial_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA."
+    },
+    {
+      "id": 95,
+      "ativo": true,
+      "marca": null,
+      "produto": "Descafeinado",
+      "unidade": null,
+      "fornecedor": "CAFÉ ILLY",
+      "source_row": 108,
+      "origem_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "CAFÉ ILLY",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 60,
+      "fornecedor_oficial_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA."
+    },
+    {
+      "id": 96,
+      "ativo": true,
+      "marca": null,
+      "produto": "Chá black",
+      "unidade": null,
+      "fornecedor": "CAFÉ ILLY",
+      "source_row": null,
+      "origem_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "CAFÉ ILLY",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 60,
+      "fornecedor_oficial_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA."
+    },
+    {
+      "id": 97,
+      "ativo": true,
+      "marca": null,
+      "produto": "Chá lime",
+      "unidade": null,
+      "fornecedor": "CAFÉ ILLY",
+      "source_row": null,
+      "origem_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "CAFÉ ILLY",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 60,
+      "fornecedor_oficial_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA."
+    },
+    {
+      "id": 98,
+      "ativo": true,
+      "marca": null,
+      "produto": "Chá citrus",
+      "unidade": null,
+      "fornecedor": "CAFÉ ILLY",
+      "source_row": null,
+      "origem_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "CAFÉ ILLY",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 60,
+      "fornecedor_oficial_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA."
+    },
+    {
+      "id": 99,
+      "ativo": true,
+      "marca": null,
+      "produto": "Chá Red fruits",
+      "unidade": null,
+      "fornecedor": "CAFÉ ILLY",
+      "source_row": null,
+      "origem_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "CAFÉ ILLY",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 60,
+      "fornecedor_oficial_nome": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA."
+    },
+    {
+      "id": 100,
+      "ativo": true,
+      "marca": null,
+      "produto": "Registro de temperaturas",
+      "unidade": null,
+      "fornecedor": "GRÁFICA",
+      "source_row": null,
+      "origem_nome": "Gráfica",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": null,
+      "source_version": null,
+      "origem_original": "GRÁFICA",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 101,
+      "ativo": true,
+      "marca": null,
+      "produto": "Limpeza WC",
+      "unidade": null,
+      "fornecedor": "GRÁFICA",
+      "source_row": 110,
+      "origem_nome": "Gráfica",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "GRÁFICA",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 102,
+      "ativo": true,
+      "marca": null,
+      "produto": "Limpeza área clientes",
+      "unidade": null,
+      "fornecedor": "GRÁFICA",
+      "source_row": 111,
+      "origem_nome": "Gráfica",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "GRÁFICA",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 103,
+      "ativo": true,
+      "marca": null,
+      "produto": "Limpeza zona de produção",
+      "unidade": null,
+      "fornecedor": "GRÁFICA",
+      "source_row": 112,
+      "origem_nome": "Gráfica",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "GRÁFICA",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 104,
+      "ativo": true,
+      "marca": null,
+      "produto": "Rastreabilidade",
+      "unidade": null,
+      "fornecedor": "GRÁFICA",
+      "source_row": 113,
+      "origem_nome": "Gráfica",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "GRÁFICA",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 105,
+      "ativo": true,
+      "marca": null,
+      "produto": "Entrada de mercadorias",
+      "unidade": null,
+      "fornecedor": "GRÁFICA",
+      "source_row": 114,
+      "origem_nome": "Gráfica",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "GRÁFICA",
+      "categoria_artigo": "Por classificar",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 106,
+      "ativo": true,
+      "marca": null,
+      "produto": "Fecho de caixa",
+      "unidade": "cx",
+      "fornecedor": "GRÁFICA",
+      "source_row": 115,
+      "origem_nome": "Gráfica",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "GRÁFICA",
+      "categoria_artigo": "Moedas e caixa",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 204,
+      "ativo": true,
+      "marca": null,
+      "produto": "Granola (pacote com 800g)",
+      "unidade": "pct",
+      "fornecedor": "Makro",
+      "source_row": 10,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 206,
+      "ativo": true,
+      "marca": null,
+      "produto": "Açúcar para Café sachê",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 12,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 207,
+      "ativo": true,
+      "marca": null,
+      "produto": "Adoçante para Café sachê",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 13,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 217,
+      "ativo": true,
+      "marca": null,
+      "produto": "Espatula para fazer bola",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 23,
+      "origem_nome": "Suvita - Produtos Alimentares, LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 13,
+      "fornecedor_oficial_nome": "Suvita - Produtos Alimentares, LDA"
+    },
+    {
+      "id": 218,
+      "ativo": true,
+      "marca": null,
+      "produto": "Recipiente de inox para aquecer leite",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 24,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 219,
+      "ativo": true,
+      "marca": null,
+      "produto": "Recipiente de inox para crumble",
+      "unidade": null,
+      "fornecedor": "Makro",
+      "source_row": 25,
+      "origem_nome": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Makro",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 96,
+      "fornecedor_oficial_nome": "MAKRO CASH & CARRY PORTUGAL, S.A."
+    },
+    {
+      "id": 222,
+      "ativo": true,
+      "marca": null,
+      "produto": "Rolo de papel térmico 57x40x11 (cartão - 10 und. )",
+      "unidade": "rolo",
+      "fornecedor": "Porto Higiene",
+      "source_row": 28,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Escritório e identificação",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 236,
+      "ativo": true,
+      "marca": null,
+      "produto": "Desinfetante WC - Solim  (und - 5l)",
+      "unidade": "l",
+      "fornecedor": "Porto Higiene",
+      "source_row": 42,
+      "origem_nome": "Porto Higiene group",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Porto Higiene",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": 12,
+      "fornecedor_oficial_nome": "PAULO VERMELHO SOC. UNIP. LDA"
+    },
+    {
+      "id": 251,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copos takeway kraft com tampa",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": 57,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 252,
+      "ativo": true,
+      "marca": null,
+      "produto": "Agitador Café embalada indivialmente 9cm",
+      "unidade": null,
+      "fornecedor": "Greenpack",
+      "source_row": 58,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Equipamento e utensílios",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 253,
+      "ativo": true,
+      "marca": null,
+      "produto": "Caixa Kraft 12x10x4,5 500ml",
+      "unidade": "cx",
+      "fornecedor": "Greenpack",
+      "source_row": 59,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 254,
+      "ativo": true,
+      "marca": null,
+      "produto": "Caixa Kraft 12x10x4,5 1050ml",
+      "unidade": "cx",
+      "fornecedor": "Greenpack",
+      "source_row": 60,
+      "origem_nome": "GREENPACK - DESCARTAVEIS LDA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Greenpack",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 113,
+      "fornecedor_oficial_nome": "GREENPACK - DESCARTAVEIS LDA"
+    },
+    {
+      "id": 255,
+      "ativo": true,
+      "marca": null,
+      "produto": "Água sem gás 330ml (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 61,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 256,
+      "ativo": true,
+      "marca": null,
+      "produto": "Água com gás frize (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 62,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 257,
+      "ativo": true,
+      "marca": null,
+      "produto": "Frizze limão (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 63,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 258,
+      "ativo": true,
+      "marca": null,
+      "produto": "Frizze maracujá (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 64,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 259,
+      "ativo": true,
+      "marca": null,
+      "produto": "Frizze laranja (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 65,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 260,
+      "ativo": false,
+      "marca": null,
+      "produto": "Pepsi (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 66,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 261,
+      "ativo": true,
+      "marca": null,
+      "produto": "Pepsi zero (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 67,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 262,
+      "ativo": true,
+      "marca": null,
+      "produto": "Compal maga/laranja (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 68,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 263,
+      "ativo": true,
+      "marca": null,
+      "produto": "Compal pêssego (Unidade)",
+      "unidade": "und",
+      "fornecedor": "Sumol Compal",
+      "source_row": 69,
+      "origem_nome": "Sumol Compal Marcas, SA",
+      "origem_tipo": "fornecedor_externo",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "Sumol Compal",
+      "categoria_artigo": "Bebidas e café",
+      "fornecedor_oficial_id": 84,
+      "fornecedor_oficial_nome": "Sumol Compal Marcas, SA"
+    },
+    {
+      "id": 273,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo piccolo (manga- 50und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 79,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 274,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo classico (manga- 50und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 80,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 277,
+      "ativo": true,
+      "marca": null,
+      "produto": "Copo peso (manga- 50und)",
+      "unidade": "und",
+      "fornecedor": "MATOSINHOS",
+      "source_row": 83,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Embalagens e serviço",
+      "fornecedor_oficial_id": 30,
+      "fornecedor_oficial_nome": "DEGAR SRL"
+    },
+    {
+      "id": 285,
+      "ativo": true,
+      "marca": null,
+      "produto": "Chocolate 64% (Cannolo)",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 91,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 294,
+      "ativo": true,
+      "marca": null,
+      "produto": "Envelope branco 110x220mm",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 100,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Escritório e identificação",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 295,
+      "ativo": true,
+      "marca": null,
+      "produto": "Cacau em pó",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 101,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 296,
+      "ativo": true,
+      "marca": null,
+      "produto": "Adesivo Nivá redondo Pequeno",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 102,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Por classificar",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 297,
+      "ativo": true,
+      "marca": null,
+      "produto": "Post it",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 103,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Escritório e identificação",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 298,
+      "ativo": true,
+      "marca": null,
+      "produto": "Açúcar de Confeiteiro",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 104,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Ingredientes e alimentos",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 299,
+      "ativo": true,
+      "marca": null,
+      "produto": "Band-aid/Penso",
+      "unidade": null,
+      "fornecedor": "MATOSINHOS",
+      "source_row": 105,
+      "origem_nome": "Matosinhos",
+      "origem_tipo": "centro_interno",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MATOSINHOS",
+      "categoria_artigo": "Segurança e proteção",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 303,
+      "ativo": true,
+      "marca": null,
+      "produto": "Higienização Armazém",
+      "unidade": null,
+      "fornecedor": "GRÁFICA",
+      "source_row": 109,
+      "origem_nome": "Gráfica",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "GRÁFICA",
+      "categoria_artigo": "Higiene e limpeza",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 310,
+      "ativo": true,
+      "marca": null,
+      "produto": "0,10€",
+      "unidade": null,
+      "fornecedor": "MOEDAS",
+      "source_row": 116,
+      "origem_nome": "Moedas",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MOEDAS",
+      "categoria_artigo": "Moedas e caixa",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 311,
+      "ativo": true,
+      "marca": null,
+      "produto": "0,20€",
+      "unidade": null,
+      "fornecedor": "MOEDAS",
+      "source_row": 117,
+      "origem_nome": "Moedas",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MOEDAS",
+      "categoria_artigo": "Moedas e caixa",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 312,
+      "ativo": true,
+      "marca": null,
+      "produto": "0,50€",
+      "unidade": null,
+      "fornecedor": "MOEDAS",
+      "source_row": 118,
+      "origem_nome": "Moedas",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MOEDAS",
+      "categoria_artigo": "Moedas e caixa",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 313,
+      "ativo": true,
+      "marca": null,
+      "produto": "1,0€",
+      "unidade": null,
+      "fornecedor": "MOEDAS",
+      "source_row": 119,
+      "origem_nome": "Moedas",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MOEDAS",
+      "categoria_artigo": "Moedas e caixa",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    },
+    {
+      "id": 314,
+      "ativo": true,
+      "marca": null,
+      "produto": "2,0€",
+      "unidade": null,
+      "fornecedor": "MOEDAS",
+      "source_row": 120,
+      "origem_nome": "Moedas",
+      "origem_tipo": "categoria_operacional",
+      "source_dataset": "bolhao_lista_compras",
+      "source_version": "bolhao-initial-v1",
+      "origem_original": "MOEDAS",
+      "categoria_artigo": "Moedas e caixa",
+      "fornecedor_oficial_id": null,
+      "fornecedor_oficial_nome": null
+    }
+  ],
+  "suppliers": [
+    {
+      "id": 1,
+      "name": "NOS Comunicações, S.A.",
+      "common_name": null
+    },
+    {
+      "id": 12,
+      "name": "PAULO VERMELHO SOC. UNIP. LDA",
+      "common_name": "Porto Higiene group"
+    },
+    {
+      "id": 13,
+      "name": "Suvita - Produtos Alimentares, LDA",
+      "common_name": null
+    },
+    {
+      "id": 20,
+      "name": "CREDIBOM",
+      "common_name": null
+    },
+    {
+      "id": 25,
+      "name": "RISQUINHA - VESTUÁRIO PROFISSIONAL, LDA",
+      "common_name": null
+    },
+    {
+      "id": 26,
+      "name": "PINGO DOCE - DISTRIBUIÇÃO ALIMENTAR, SA",
+      "common_name": null
+    },
+    {
+      "id": 30,
+      "name": "DEGAR SRL",
+      "common_name": null
+    },
+    {
+      "id": 31,
+      "name": "BTOCONCEPT NET, LDA",
+      "common_name": null
+    },
+    {
+      "id": 35,
+      "name": "FUNDO PROPERTY CORE REAL ESTATE FUND",
+      "common_name": null
+    },
+    {
+      "id": 37,
+      "name": "UP WE GO (THIS IS ENTERTAINMENT, LDA)",
+      "common_name": null
+    },
+    {
+      "id": 38,
+      "name": "PENTÁGONO EMERGENTE LDA",
+      "common_name": null
+    },
+    {
+      "id": 41,
+      "name": "GELSO S.R.L.",
+      "common_name": null
+    },
+    {
+      "id": 43,
+      "name": "Dias Cardoso & Associados, RL - Soc. Advogados",
+      "common_name": null
+    },
+    {
+      "id": 44,
+      "name": "LA MAISON DE L'ARMORINE",
+      "common_name": null
+    },
+    {
+      "id": 45,
+      "name": "ANTONIO JORGE ARAUJO MACHADO FILHO",
+      "common_name": null
+    },
+    {
+      "id": 46,
+      "name": "Autoridade Tributária e Aduaneira",
+      "common_name": null
+    },
+    {
+      "id": 48,
+      "name": "Bidfood Portugal, SA",
+      "common_name": null
+    },
+    {
+      "id": 49,
+      "name": "Bpref",
+      "common_name": null
+    },
+    {
+      "id": 51,
+      "name": "DC Advogados",
+      "common_name": null
+    },
+    {
+      "id": 54,
+      "name": "Desentop Ambiente, Lda.",
+      "common_name": null
+    },
+    {
+      "id": 55,
+      "name": "ERN - CONSTRUÇÕES, LDA.",
+      "common_name": null
+    },
+    {
+      "id": 56,
+      "name": "FPHS Lda. - Fiscalização Preventiva Higiene e Segurança",
+      "common_name": null
+    },
+    {
+      "id": 57,
+      "name": "GINA JOSSANA DIAS DA SILVA",
+      "common_name": null
+    },
+    {
+      "id": 59,
+      "name": "Gelso",
+      "common_name": null
+    },
+    {
+      "id": 60,
+      "name": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA.",
+      "common_name": null
+    },
+    {
+      "id": 65,
+      "name": "MAP - Mercado Abastecedor do Porto, S.A",
+      "common_name": null
+    },
+    {
+      "id": 66,
+      "name": "MERCADONA",
+      "common_name": null
+    },
+    {
+      "id": 69,
+      "name": "Mares do Aterro Hotelaria e Servicos Lda",
+      "common_name": null
+    },
+    {
+      "id": 70,
+      "name": "Metro Markets GmbH",
+      "common_name": null
+    },
+    {
+      "id": 72,
+      "name": "PROGELCONE - COMÉRCIO INDÚSTRIA E SERVIÇOS LDA",
+      "common_name": null
+    },
+    {
+      "id": 75,
+      "name": "Prime Table Gourmet, Lda",
+      "common_name": null
+    },
+    {
+      "id": 76,
+      "name": "Recheio Cash e Carey, SA",
+      "common_name": null
+    },
+    {
+      "id": 77,
+      "name": "Segurança Social / IGFSS",
+      "common_name": null
+    },
+    {
+      "id": 78,
+      "name": "Staples",
+      "common_name": null
+    },
+    {
+      "id": 84,
+      "name": "Sumol Compal Marcas, SA",
+      "common_name": null
+    },
+    {
+      "id": 86,
+      "name": "IKEA",
+      "common_name": null
+    },
+    {
+      "id": 87,
+      "name": "Moeve 11-Operacoes e Retalho, Lda",
+      "common_name": null
+    },
+    {
+      "id": 88,
+      "name": "COPINOW LDA",
+      "common_name": null
+    },
+    {
+      "id": 89,
+      "name": "Ervanário Portuense",
+      "common_name": null
+    },
+    {
+      "id": 91,
+      "name": "Auchan Gondomar",
+      "common_name": null
+    },
+    {
+      "id": 96,
+      "name": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "common_name": null
+    },
+    {
+      "id": 100,
+      "name": "Simbolo Versátil Lda.",
+      "common_name": null
+    },
+    {
+      "id": 101,
+      "name": "CMPEAE - Empresa de Águas e Energia do Município do Porto, EM",
+      "common_name": null
+    },
+    {
+      "id": 103,
+      "name": "ÁLVARO & MAGDA LDA",
+      "common_name": "Alma Cook"
+    },
+    {
+      "id": 105,
+      "name": "CARLOS EDUARDO PEREIRA LDA",
+      "common_name": "CESPAN"
+    },
+    {
+      "id": 109,
+      "name": "FLIXBUS PORTUGAL UNIPESSOAL Lda.",
+      "common_name": null
+    },
+    {
+      "id": 110,
+      "name": "Ayopa, Limitada",
+      "common_name": null
+    },
+    {
+      "id": 111,
+      "name": "Coopérnico - Cooperativa de Desenvolvimento Sustentável, CRL",
+      "common_name": null
+    },
+    {
+      "id": 113,
+      "name": "GREENPACK - DESCARTAVEIS LDA",
+      "common_name": null
+    },
+    {
+      "id": 115,
+      "name": "MAR A VISTA",
+      "common_name": null
+    },
+    {
+      "id": 116,
+      "name": "La Ruda - LX Factory",
+      "common_name": null
+    },
+    {
+      "id": 117,
+      "name": "PRIO energy",
+      "common_name": null
+    },
+    {
+      "id": 118,
+      "name": "TEIXEIRA & MARTINS, AUTOMOVEIS, LDA",
+      "common_name": null
+    },
+    {
+      "id": 119,
+      "name": "Galp",
+      "common_name": null
+    },
+    {
+      "id": 121,
+      "name": "Magofri - Comércio Alimentar Lda",
+      "common_name": null
+    },
+    {
+      "id": 125,
+      "name": "Lactogal-Produtos Alimentares, S.A.",
+      "common_name": null
+    },
+    {
+      "id": 132,
+      "name": "SP&F S.R.L.",
+      "common_name": null
+    },
+    {
+      "id": 133,
+      "name": "MEGAPOSITIVO - MÁQUINAS E EQUIPAMENTOS UNIPESSOAL, LDA.",
+      "common_name": null
+    },
+    {
+      "id": 134,
+      "name": "Fábio Lopes Ribeiro, Unipessoal Lda",
+      "common_name": null
+    },
+    {
+      "id": 135,
+      "name": "Factorzag Desinfecções Lda.",
+      "common_name": null
+    },
+    {
+      "id": 136,
+      "name": "Moove e Operações e Retalho, Lda",
+      "common_name": null
+    },
+    {
+      "id": 137,
+      "name": "Modelo Continente Hipermercados Sa",
+      "common_name": null
+    },
+    {
+      "id": 138,
+      "name": "FNAC PORTUGAL",
+      "common_name": null
+    },
+    {
+      "id": 140,
+      "name": "Sklum Home and Deco, SLU",
+      "common_name": null
+    },
+    {
+      "id": 141,
+      "name": "PCDIGA Lda.",
+      "common_name": null
+    },
+    {
+      "id": 149,
+      "name": "PROTAME Representações Técnicas, Lda",
+      "common_name": null
+    },
+    {
+      "id": 150,
+      "name": "INDAQUA Matosinhos – Gestão de Águas de Matosinhos, S.A.",
+      "common_name": null
+    },
+    {
+      "id": 151,
+      "name": "ELENCO ROBUSTO - UNIPESSOAL LDA",
+      "common_name": null
+    },
+    {
+      "id": 152,
+      "name": "Via Verde Portugal",
+      "common_name": null
+    },
+    {
+      "id": 153,
+      "name": "Factor de Segurança - C.S.H.S.T. Lda.",
+      "common_name": null
+    },
+    {
+      "id": 155,
+      "name": "SOLVEMAN UNIPESSOAL LDA",
+      "common_name": null
+    },
+    {
+      "id": 156,
+      "name": "PROGELCONE - COMÉRCIO INDÚSTRIA, SA",
+      "common_name": null
+    },
+    {
+      "id": 157,
+      "name": "GARCIAS, S.A.",
+      "common_name": null
+    },
+    {
+      "id": 160,
+      "name": "Pingo Doce - Matosínhos - Brito Cunha",
+      "common_name": null
+    },
+    {
+      "id": 161,
+      "name": "BRINCADEIRAS COM SABOR",
+      "common_name": null
+    },
+    {
+      "id": 165,
+      "name": "FRANCISCO E DIANA COSTA SISTEMAS DE SEGURANÇA, LDA.",
+      "common_name": null
+    },
+    {
+      "id": 177,
+      "name": "Ye JianRong",
+      "common_name": null
+    },
+    {
+      "id": 178,
+      "name": "MAREC ESPAÇO CASA SA",
+      "common_name": null
+    },
+    {
+      "id": 180,
+      "name": "Mode",
+      "common_name": null
+    },
+    {
+      "id": 181,
+      "name": "GGM Gastro International GmbH",
+      "common_name": null
+    },
+    {
+      "id": 182,
+      "name": "BRAULIOINVEST, SOCIEDAD LIMITADA",
+      "common_name": null
+    },
+    {
+      "id": 189,
+      "name": "CONTINENTE",
+      "common_name": null
+    },
+    {
+      "id": 191,
+      "name": "Estudio Plast, Lda",
+      "common_name": null
+    },
+    {
+      "id": 192,
+      "name": "A Prestigiosa P.Alim., Lda",
+      "common_name": null
+    },
+    {
+      "id": 197,
+      "name": "FCC - MAQUINAS, EQUIPAMENTOS HOTELEIROS, LDA",
+      "common_name": null
+    },
+    {
+      "id": 209,
+      "name": "Amazon EU S.à r.l., Sucursal en España",
+      "common_name": null
+    },
+    {
+      "id": 216,
+      "name": "MAREC ESPAÇO CASA MATOSINHOS",
+      "common_name": null
+    },
+    {
+      "id": 217,
+      "name": "Darty Portugal Lda",
+      "common_name": null
+    },
+    {
+      "id": 218,
+      "name": "GESPOST GESTAO E ADMINISTRACAO DE POSTOS DE ABASTECIMENTO UNIPESSOAL LDA",
+      "common_name": null
+    },
+    {
+      "id": 219,
+      "name": "Maxmat",
+      "common_name": null
+    },
+    {
+      "id": 220,
+      "name": "ALSICELOS - UNIPESSOAL, LDA",
+      "common_name": null
+    },
+    {
+      "id": 223,
+      "name": "J.O.M, LDA",
+      "common_name": null
+    },
+    {
+      "id": 224,
+      "name": "Il Bocconino Norte - Distribuição Alimentar Lda",
+      "common_name": null
+    },
+    {
+      "id": 226,
+      "name": "SOS Consertos",
+      "common_name": null
+    },
+    {
+      "id": 227,
+      "name": "Wera Store, LDA",
+      "common_name": null
+    },
+    {
+      "id": 228,
+      "name": "INOCENTRO - INOVAÇÕES E REPRESENTAÇÕES",
+      "common_name": null
+    },
+    {
+      "id": 231,
+      "name": "Ritmos Virtuais Unipessoal Lda",
+      "common_name": null
+    },
+    {
+      "id": 232,
+      "name": "PEPCO PORTUGAL, UNIPESSOAL LDA",
+      "common_name": null
+    },
+    {
+      "id": 233,
+      "name": "IBERICA DE DISTRIBUCIONES ONLINE DEL HOGAR, S.L.U.",
+      "common_name": null
+    },
+    {
+      "id": 234,
+      "name": "SERRO ANDRADE LDA.",
+      "common_name": null
+    },
+    {
+      "id": 235,
+      "name": "Yogufruta SCP",
+      "common_name": null
+    },
+    {
+      "id": 236,
+      "name": "NORDMANN PORTUGAL, S.A.",
+      "common_name": null
+    },
+    {
+      "id": 237,
+      "name": "BCM BRICOLAGE S.A",
+      "common_name": null
+    }
+  ],
+  "confirmed_merge_aliases": [
+    {
+      "source": "merge",
+      "alias_name": "NOS Comunicações",
+      "supplier_id": 1
+    },
+    {
+      "source": "merge",
+      "alias_name": "NOS Comunicações, S.A.",
+      "supplier_id": 1
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT502604751__154",
+      "supplier_id": 1
+    },
+    {
+      "source": "merge",
+      "alias_name": "Porto Higiene",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "Porto Higiene - Paulo Vermelho soc. unip. Lda",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "Porto Higiene Group",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "Porto Higiene group",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "PortoHigiene group",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501368216__186",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT505052216__187",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT505522416__175",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT508522416__203",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT509352416__174",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT509522416__107",
+      "supplier_id": 12
+    },
+    {
+      "source": "merge",
+      "alias_name": "SUVITA-Produtos Alimentares, Lda",
+      "supplier_id": 13
+    },
+    {
+      "source": "merge",
+      "alias_name": "Suvita",
+      "supplier_id": 13
+    },
+    {
+      "source": "merge",
+      "alias_name": "Pingo Doce",
+      "supplier_id": 26
+    },
+    {
+      "source": "merge",
+      "alias_name": "Pingo Doce - Distribuição Alimentar, S.A.",
+      "supplier_id": 26
+    },
+    {
+      "source": "merge",
+      "alias_name": "Pingo Doce Distribuição Alimentar, S.A.",
+      "supplier_id": 26
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__500679993__163",
+      "supplier_id": 26
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT500229993__190",
+      "supplier_id": 26
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT500829993__162",
+      "supplier_id": 26
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501875993__208",
+      "supplier_id": 26
+    },
+    {
+      "source": "merge",
+      "alias_name": "Degar",
+      "supplier_id": 30
+    },
+    {
+      "source": "merge",
+      "alias_name": "Upwego",
+      "supplier_id": 37
+    },
+    {
+      "source": "merge",
+      "alias_name": "LA MAISON D'ARMORINE",
+      "supplier_id": 44
+    },
+    {
+      "source": "merge",
+      "alias_name": "LA MAISON DE L'ARMORINE",
+      "supplier_id": 44
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__B321485179__205",
+      "supplier_id": 44
+    },
+    {
+      "source": "merge",
+      "alias_name": "Bidfood Portugal, SA",
+      "supplier_id": 48
+    },
+    {
+      "source": "merge",
+      "alias_name": "Desentop",
+      "supplier_id": 54
+    },
+    {
+      "source": "merge",
+      "alias_name": "GRASUMOS, COMÉRCIO DE BEBIDAS, LDA",
+      "supplier_id": 60
+    },
+    {
+      "source": "merge",
+      "alias_name": "GRASUMOS, COMÉRCIO DE BEBIDAS, LDA.",
+      "supplier_id": 60
+    },
+    {
+      "source": "merge",
+      "alias_name": "GRASUMOS, COMÉRCIO DE BEBIDAS,LDA.",
+      "supplier_id": 60
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__0033000045341729__202",
+      "supplier_id": 60
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__506454223__120",
+      "supplier_id": 60
+    },
+    {
+      "source": "merge",
+      "alias_name": "MERCADONA",
+      "supplier_id": 66
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT514036942__179",
+      "supplier_id": 66
+    },
+    {
+      "source": "merge",
+      "alias_name": "PROGELCONE",
+      "supplier_id": 72
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__275543543__173",
+      "supplier_id": 72
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__501300552__206",
+      "supplier_id": 72
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__501380552__207",
+      "supplier_id": 72
+    },
+    {
+      "source": "merge",
+      "alias_name": "Recheio Cash & Carry, SA",
+      "supplier_id": 76
+    },
+    {
+      "source": "merge",
+      "alias_name": "Recheio Cash e Carey, SA",
+      "supplier_id": 76
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT500145415__176",
+      "supplier_id": 76
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT500314545__94",
+      "supplier_id": 76
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501568126__188",
+      "supplier_id": 76
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT505145145__95",
+      "supplier_id": 76
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT505681263__97",
+      "supplier_id": 76
+    },
+    {
+      "source": "merge",
+      "alias_name": "Staples Portugal",
+      "supplier_id": 78
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__505789372__79",
+      "supplier_id": 78
+    },
+    {
+      "source": "merge",
+      "alias_name": "Sumol Compal",
+      "supplier_id": 84
+    },
+    {
+      "source": "merge",
+      "alias_name": "Sumol Compal Marcas, SA",
+      "supplier_id": 84
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT505042037__215",
+      "supplier_id": 84
+    },
+    {
+      "source": "merge",
+      "alias_name": "Moeve 11 operacoes e Retalho, Lda",
+      "supplier_id": 87
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__500223840__71",
+      "supplier_id": 87
+    },
+    {
+      "source": "merge",
+      "alias_name": "Auchan",
+      "supplier_id": 91
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__503300808__143",
+      "supplier_id": 91
+    },
+    {
+      "source": "merge",
+      "alias_name": "MAKRO CASH & CARRY PORTUGAL, S.A.",
+      "supplier_id": 96
+    },
+    {
+      "source": "merge",
+      "alias_name": "MAKRO MATOSHINHOS DA AAROTEIA",
+      "supplier_id": 96
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__501234567__92",
+      "supplier_id": 96
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__502030712__229",
+      "supplier_id": 96
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__502030712__64",
+      "supplier_id": 96
+    },
+    {
+      "source": "merge",
+      "alias_name": "ALVARO & MAGDA LDA",
+      "supplier_id": 103
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501893581__204",
+      "supplier_id": 103
+    },
+    {
+      "source": "merge",
+      "alias_name": "ÁLVARO & MAGDA LDA",
+      "supplier_id": 103
+    },
+    {
+      "source": "merge",
+      "alias_name": "CARLOS EDUARDO PEREIRA LDA",
+      "supplier_id": 105
+    },
+    {
+      "source": "merge",
+      "alias_name": "CARLOS EDUARDO PEREIRA LDA - CESPAN",
+      "supplier_id": 105
+    },
+    {
+      "source": "merge",
+      "alias_name": "CESPAN",
+      "supplier_id": 105
+    },
+    {
+      "source": "merge",
+      "alias_name": "CESPAN - CARLOS EDUARDO PEREIRA LDA",
+      "supplier_id": 105
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT500001500__199",
+      "supplier_id": 105
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT502899553__198",
+      "supplier_id": 105
+    },
+    {
+      "source": "merge",
+      "alias_name": "GREENPACK - DESCARTAVEIS LDA",
+      "supplier_id": 113
+    },
+    {
+      "source": "merge",
+      "alias_name": "Greenpack",
+      "supplier_id": 113
+    },
+    {
+      "source": "merge",
+      "alias_name": "GALP",
+      "supplier_id": 119
+    },
+    {
+      "source": "merge",
+      "alias_name": "MAGORI - Comércio Alimentar Lda",
+      "supplier_id": 121
+    },
+    {
+      "source": "merge",
+      "alias_name": "Magofri",
+      "supplier_id": 121
+    },
+    {
+      "source": "merge",
+      "alias_name": "Magofri - Comércio Alimentar Lda",
+      "supplier_id": 121
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501645084__123",
+      "supplier_id": 121
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501645384__122",
+      "supplier_id": 121
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT504538411__85",
+      "supplier_id": 121
+    },
+    {
+      "source": "merge",
+      "alias_name": "LACTOGAL - PRODUTOS ALIMENTARES, S.A",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "LACTOGAL - PRODUTOS ALIMENTARES, SA",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "Lactogal - Produtos Alimentares, S.A.",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "Lactogal-Produtos Alimentares, S.A.",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "Lactogalactos Alimentares, S.A.",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__503183997__230",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501102288__201",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501102568__158",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501102588__128",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501331087__126",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501633987__200",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT501935887__127",
+      "supplier_id": 125
+    },
+    {
+      "source": "merge",
+      "alias_name": "Moeve II Operações e Retalho, Lda",
+      "supplier_id": 136
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__224499051__194",
+      "supplier_id": 136
+    },
+    {
+      "source": "merge",
+      "alias_name": "MODELO CONTINENTE HIPERMERCADOS SA",
+      "supplier_id": 137
+    },
+    {
+      "source": "merge",
+      "alias_name": "Modelo Continente Hipermercados Sa",
+      "supplier_id": 137
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__502011475__142",
+      "supplier_id": 137
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__502011475__225",
+      "supplier_id": 137
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT502011475__139",
+      "supplier_id": 137
+    },
+    {
+      "source": "merge",
+      "alias_name": "PROTAME Representações Técnicas, Lda",
+      "supplier_id": 149
+    },
+    {
+      "source": "merge",
+      "alias_name": "Protame",
+      "supplier_id": 149
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__502370386__73",
+      "supplier_id": 149
+    },
+    {
+      "source": "merge",
+      "alias_name": "BRAULIOINVEST, SOCIEDAD LIMITADA",
+      "supplier_id": 182
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__980609992__2",
+      "supplier_id": 182
+    },
+    {
+      "source": "merge",
+      "alias_name": "Continente Bom Dia Matosínhos",
+      "supplier_id": 189
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__PT500211475__159",
+      "supplier_id": 189
+    },
+    {
+      "source": "merge",
+      "alias_name": "BCM BRICOLAGE S.A.",
+      "supplier_id": 237
+    },
+    {
+      "source": "merge",
+      "alias_name": "PCM BRICOLAGE S.A.",
+      "supplier_id": 237
+    },
+    {
+      "source": "merge",
+      "alias_name": "__nif__506948558__90",
+      "supplier_id": 237
+    }
+  ]
+}
