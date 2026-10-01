@@ -41,3 +41,4 @@
 - [Confeitaria audited stock boundary](confeitaria-stock-ledger.md) — keep legacy totals separate until production and transfer writes are reconciled and switched together.
 - [Compras article-use categories](compras-article-categories.md) — classify from reviewed product names, keep unknowns selectable, and never infer or refresh category from supplier/origin.
 - [Table-specific layout classes](table-layout-class-scope.md) — keep flex/grid layout styles off shared classes that may be applied to table rows.
+- [Cancellable form loading](cancellable-form-loading.md) — forms that can be stopped by confirmation must start the loading overlay only after submission is approved.

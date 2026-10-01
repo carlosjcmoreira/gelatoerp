@@ -34,7 +34,7 @@
     <div class="card mb-3">
         <div class="card-body p-2">
             <form method="get" class="row g-2 align-items-center"
-                  data-unsaved-navigation>
+                  data-unsaved-navigation data-no-loading>
                 <div class="col-12 col-md">
                     <input type="search" name="q" value="{{ search or '' }}"
                            class="form-control form-control-sm"
@@ -70,7 +70,7 @@
         <div class="card-header py-2"><strong class="small">Adicionar artigo</strong></div>
         <div class="card-body p-2">
             <form method="post" class="row g-2 align-items-end"
-                  data-unsaved-navigation>
+                  data-unsaved-navigation data-no-loading>
                 <input type="hidden" name="action" value="add">
                 <input type="hidden" name="q" value="{{ search or '' }}">
                 <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
@@ -211,7 +211,8 @@
                             {{ 'Por rever' if a.origem_revisao_estado == 'por_rever' else 'Revisto' }}
                         </span>
                         {% endif %}
-                        <form method="post" class="d-inline" data-unsaved-navigation>
+                        <form method="post" class="d-inline"
+                              data-unsaved-navigation data-no-loading>
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="artigo_id" value="{{ a.id }}">
                             <input type="hidden" name="ativo" value="{{ '0' if a.ativo else '1' }}">
@@ -309,7 +310,7 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <form method="post" action="{{ url_for('compras.artigos') }}"
-                      data-unsaved-navigation>
+                      data-unsaved-navigation data-no-loading>
                     <input type="hidden" name="action" value="set_official_supplier">
                     <input type="hidden" name="artigo_id" id="fornecedorOficialArtigoId">
                     <input type="hidden" name="q" value="{{ search or '' }}">
@@ -356,7 +357,7 @@
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <form method="post" action="{{ url_for('compras.artigos') }}"
-                      data-unsaved-navigation>
+                      data-unsaved-navigation data-no-loading>
                     <input type="hidden" name="action" value="review_origin">
                     <input type="hidden" name="artigo_id" id="revisaoOrigemArtigoId">
                     <input type="hidden" name="q" value="{{ search or '' }}">
@@ -621,6 +622,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     form,
                     modalScrollContext || readCatalogueContext()
                 );
+            }
+            if (window.ScoopyLoading) {
+                window.ScoopyLoading.showEstimated('A carregar…');
             }
         });
     });

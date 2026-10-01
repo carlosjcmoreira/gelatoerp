@@ -268,6 +268,16 @@ class TestComprasAccess(unittest.TestCase):
         self.assertIn('name="supplier_id"', add_form)
         self.assertNotIn('name="origem_id"', add_form)
         self.assertNotIn('name="fornecedor"', add_form)
+        self.assertIn('name="q"', add_form)
+        self.assertIn('name="revisao"', add_form)
+        self.assertIn('name="scroll_context"', add_form)
+        toggle_form = html.split(
+            '<form method="post" class="d-inline" data-unsaved-navigation',
+            1,
+        )[1].split('</form>', 1)[0]
+        self.assertIn('name="q"', toggle_form)
+        self.assertIn('name="revisao"', toggle_form)
+        self.assertIn('name="scroll_context"', toggle_form)
         self.assertIn('data-bs-target="#fornecedorOficialModal"', html)
         self.assertIn('name="supplier_id"', html)
         self.assertIn('value="set_official_supplier"', html)
@@ -339,7 +349,7 @@ class TestComprasAccess(unittest.TestCase):
                 data={
                     'action': 'add',
                     'supplier_id': '42',
-                    'produto': 'Farinha de trigo',
+                    'produto': 'Feijão manteiga',
                     'q': 'Farinha',
                     'revisao': 'revisto',
                     'scroll_context': token,
@@ -412,6 +422,7 @@ class TestComprasAccess(unittest.TestCase):
 
     def test_new_article_rejects_missing_or_malformed_supplier_selection(self):
         self._set_session_user(_user(acesso_compras=True))
+        token = 'feedcafe' * 4
         with patch(
             'flask_app.routes.compras.add_artigo_administrativo',
         ) as add_article:
@@ -421,10 +432,16 @@ class TestComprasAccess(unittest.TestCase):
                     'action': 'add',
                     'supplier_id': '²',
                     'produto': 'Café em grão',
+                    'q': 'Café',
+                    'revisao': 'por_rever',
+                    'scroll_context': token,
                 },
             )
 
         self.assertEqual(response.status_code, 302)
+        self.assertIn('q=Caf%C3%A9', response.location)
+        self.assertIn('revisao=por_rever', response.location)
+        self.assertIn(f'scroll_context={token}', response.location)
         add_article.assert_not_called()
         with self.client.session_transaction() as sess:
             flashes = sess.get('_flashes', [])
@@ -653,8 +670,35 @@ class TestComprasAccess(unittest.TestCase):
         self.assertIn('revisao=revisto', response.location)
         self.assertIn(f'scroll_context={token}', response.location)
 
+    def test_catalogue_supplier_removal_preserves_filters_and_scroll_context(self):
+        self._set_session_user(_user(acesso_compras=True))
+        token = 'badc0ffe' * 4
+        with patch(
+            'flask_app.routes.compras.set_artigo_fornecedor_oficial',
+            return_value={'changed': True},
+        ) as set_supplier:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'set_official_supplier',
+                    'artigo_id': '18',
+                    'supplier_id': 'none',
+                    'q': 'Café',
+                    'revisao': 'revisto',
+                    'scroll_context': token,
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(set_supplier.call_args.args, (18, None))
+        self.assertEqual(set_supplier.call_args.kwargs['actor'], 'testuser')
+        self.assertIn('q=Caf%C3%A9', response.location)
+        self.assertIn('revisao=revisto', response.location)
+        self.assertIn(f'scroll_context={token}', response.location)
+
     def test_catalogue_noop_save_has_accurate_feedback(self):
         self._set_session_user(_user(acesso_compras=True))
+        token = 'dead10cc' * 4
         with patch(
             'flask_app.routes.compras.update_artigo_administrativo',
             return_value={
@@ -671,10 +715,16 @@ class TestComprasAccess(unittest.TestCase):
                     'origem_id': '8',
                     'fornecedor': 'CAFÉ ILLY',
                     'produto': 'Café Clássico',
+                    'q': 'Café',
+                    'revisao': 'revisto',
+                    'scroll_context': token,
                 },
             )
 
         self.assertEqual(response.status_code, 302)
+        self.assertIn('q=Caf%C3%A9', response.location)
+        self.assertIn('revisao=revisto', response.location)
+        self.assertIn(f'scroll_context={token}', response.location)
         with self.client.session_transaction() as sess:
             flashes = sess.get('_flashes', [])
         self.assertIn(('info', 'Sem alterações.'), flashes)
