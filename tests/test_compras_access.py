@@ -327,6 +327,89 @@ class TestComprasAccess(unittest.TestCase):
             categoria_artigo='Bebidas e café',
         )
 
+    def test_new_article_preserves_catalogue_filters_and_scroll_context(self):
+        self._set_session_user(_user(acesso_compras=True))
+        token = 'abc123ef' * 4
+        with patch(
+            'flask_app.routes.compras.add_artigo_administrativo',
+            return_value=True,
+        ):
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'add',
+                    'supplier_id': '42',
+                    'produto': 'Farinha de trigo',
+                    'q': 'Farinha',
+                    'revisao': 'revisto',
+                    'scroll_context': token,
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('q=Farinha', response.location)
+        self.assertIn('revisao=revisto', response.location)
+        self.assertIn(f'scroll_context={token}', response.location)
+
+    def test_catalogue_toggle_preserves_filters_and_scroll_context(self):
+        self._set_session_user(_user(acesso_compras=True))
+        token = '123abcde' * 4
+        with patch(
+            'flask_app.routes.compras.toggle_artigo_administrativo',
+        ) as toggle_article:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'toggle',
+                    'artigo_id': '18',
+                    'ativo': '0',
+                    'q': 'Farinha',
+                    'revisao': 'por_rever',
+                    'scroll_context': token,
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        toggle_article.assert_called_once_with(18, False)
+        self.assertIn('q=Farinha', response.location)
+        self.assertIn('revisao=por_rever', response.location)
+        self.assertIn(f'scroll_context={token}', response.location)
+
+    def test_legacy_catalogue_edits_keep_query_context_on_return(self):
+        self._set_session_user(_user(acesso_compras=True))
+        token = 'deafbeef' * 4
+        return_context = (
+            f'/compras/artigos?q=Farinha&revisao=revisto'
+            f'&scroll_context={token}'
+        )
+        with patch(
+            'flask_app.routes.compras.update_artigo_administrativo',
+            return_value={
+                'found': True, 'changed': True, 'origin_type': 'por_resolver',
+            },
+        ), patch(
+            'flask_app.routes.compras.delete_artigo_administrativo',
+        ) as delete_article:
+            edit_response = self.client.post(
+                return_context,
+                data={
+                    'action': 'edit',
+                    'artigo_id': '18',
+                    'produto': 'Farinha',
+                },
+            )
+            delete_response = self.client.post(
+                return_context,
+                data={'action': 'delete', 'artigo_id': '18'},
+            )
+
+        for response in (edit_response, delete_response):
+            self.assertEqual(response.status_code, 302)
+            self.assertIn('q=Farinha', response.location)
+            self.assertIn('revisao=revisto', response.location)
+            self.assertIn(f'scroll_context={token}', response.location)
+        delete_article.assert_called_once_with(18)
+
     def test_new_article_rejects_missing_or_malformed_supplier_selection(self):
         self._set_session_user(_user(acesso_compras=True))
         with patch(

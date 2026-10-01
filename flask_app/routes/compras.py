@@ -1228,9 +1228,15 @@ def artigos():
 
     def redirect_to_catalogue():
         redirect_args = {}
-        search_after_save = request.form.get('q', '').strip()
-        review_filter_after_save = request.form.get('revisao', '').strip()
-        scroll_context = request.form.get('scroll_context', '').strip()
+        search_after_save = request.form.get(
+            'q', request.args.get('q', '')
+        ).strip()
+        review_filter_after_save = request.form.get(
+            'revisao', request.args.get('revisao', '')
+        ).strip()
+        scroll_context = request.form.get(
+            'scroll_context', request.args.get('scroll_context', '')
+        ).strip()
         if search_after_save:
             redirect_args['q'] = search_after_save
         if review_filter_after_save in ('por_rever', 'revisto'):
@@ -1512,7 +1518,7 @@ def artigos():
                 flash('Artigo desativado para preservar o histórico.', 'success')
 
         if not bulk_edit_failed:
-            return redirect(url_for('compras.artigos'))
+            return redirect_to_catalogue()
 
     search_raw = (
         request.form.get('q', '')

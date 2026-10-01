@@ -72,6 +72,9 @@
             <form method="post" class="row g-2 align-items-end"
                   data-unsaved-navigation>
                 <input type="hidden" name="action" value="add">
+                <input type="hidden" name="q" value="{{ search or '' }}">
+                <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
+                <input type="hidden" name="scroll_context" value="">
                 <div class="col-12 col-md-2">
                     <label class="form-label small mb-1">Fornecedor</label>
                     <select name="supplier_id" class="form-select form-select-sm" required
@@ -212,6 +215,9 @@
                             <input type="hidden" name="action" value="toggle">
                             <input type="hidden" name="artigo_id" value="{{ a.id }}">
                             <input type="hidden" name="ativo" value="{{ '0' if a.ativo else '1' }}">
+                            <input type="hidden" name="q" value="{{ search or '' }}">
+                            <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
+                            <input type="hidden" name="scroll_context" value="">
                             <button type="submit"
                                     class="btn btn-sm {% if a.ativo %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">
                                 {{ 'Desativar' if a.ativo else 'Ativar' }}
@@ -607,11 +613,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 allowNavigation = true;
             }
 
-            const action = form.querySelector('[name="action"]')?.value;
             if (
-                action === 'review_origin' ||
-                action === 'set_official_supplier' ||
-                action === 'confirm_supplier'
+                form.method.toLowerCase() === 'post' &&
+                form.querySelector('[name="scroll_context"]')
             ) {
                 saveCatalogueContext(
                     form,
