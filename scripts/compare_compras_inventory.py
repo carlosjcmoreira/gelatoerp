@@ -147,6 +147,11 @@ def compare_inventory_row(
     reasons: list[str] = []
     if not normalize_exact(supplier_label):
         reasons.append("O fornecedor está vazio na linha do inventário.")
+    elif "/" in str(supplier_label):
+        reasons.append(
+            f"A indicação «{supplier_label}» combina mais de um fornecedor ou "
+            "texto; confirme manualmente qual é o fornecedor correto."
+        )
     elif not supplier_ids:
         reasons.append(
             "O texto do fornecedor não coincide exatamente com nome, nome "
@@ -289,14 +294,7 @@ def _prepare_inventory_rows(
             snapshot["suppliers"],
             snapshot.get("confirmed_merge_aliases", []),
         )
-        raw_values = []
-        for header in headers:
-            output_header = (
-                f"{header} [valor histórico do ficheiro]"
-                if header in HISTORICAL_HEADERS
-                else header
-            )
-            raw_values.append(source.get(header))
+        raw_values = [source.get(header) for header in headers]
         output.append(
             {
                 "source_row": source["__source_row"],
@@ -475,11 +473,11 @@ def create_workbook(
         ],
         [
             "Revisão necessária",
-            "Falta informação, existe ambiguidade, a unidade não coincide ou o produto existe ligado a outro fornecedor.",
+            "Falta informação, existe ambiguidade, a unidade não coincide ou o produto existe ligado a outro fornecedor. Diferenças de marca ou apresentação não são equiparadas automaticamente.",
         ],
         [
             "Sem correspondência exata",
-            "Nenhum produto com nome normalizado exatamente igual foi encontrado; isto não confirma que seja um artigo novo.",
+            "Nenhum produto com nome normalizado exatamente igual foi encontrado; diferenças de marca ou apresentação continuam por validar e isto não confirma que o artigo seja necessariamente novo.",
         ],
         [
             "Normalização",
@@ -502,6 +500,10 @@ def create_workbook(
         [
             "Transição recomendada",
             "Manter a disponibilidade atual dos artigos existentes; artigos novos só ficam elegíveis para encomenda depois de validados.",
+        ],
+        [
+            "Sequência para próxima fase",
+            "Aprovar as correspondências; separar elegibilidade para encomenda do estado ativo; importar apenas os artigos aprovados.",
         ],
         [
             "Fornecedores alternativos",
@@ -529,7 +531,24 @@ def create_workbook(
             "Não alterado",
             "Este ficheiro não importa artigos nem altera fornecedores, artigos, categorias, encomendas, contagens, stocks ou documentos históricos.",
         ],
+        ["", ""],
+        ["Linhas que precisam de validação", ""],
     ]
+    for item in prepared:
+        comparison = item["comparison"]
+        if comparison["status"] == STATUS_EXACT:
+            continue
+        original = dict(zip(source_headers, item["raw_values"]))
+        details = (
+            f"Fornecedor: {original.get('Fornecedor') or 'não indicado'} | "
+            f"Produto: {original.get('Produto') or ''} | "
+            f"Unidade: {original.get('Un') or 'não indicada'} | "
+            f"Artigos candidatos: {_display_join(comparison['article_ids']) or 'nenhum'} | "
+            f"Motivo: {comparison['reason']}"
+        )
+        summary_rows.append(
+            [f"Linha {item['source_row']} — {comparison['status']}", details]
+        )
     for row in summary_rows:
         summary.append(row)
     summary.column_dimensions["A"].width = 37
@@ -541,10 +560,18 @@ def create_workbook(
     for row in summary.iter_rows():
         for cell in row:
             cell.alignment = Alignment(vertical="top", wrap_text=True)
-    for row in (10, 15, 23, 30):
-        for cell in summary[row]:
-            cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill("solid", fgColor="23405D")
+    section_titles = {
+        "Estado da comparação",
+        "Como ler os resultados",
+        "Decisões de master data para validar",
+        "Fontes e limites",
+        "Linhas que precisam de validação",
+    }
+    for row in summary.iter_rows():
+        if row[0].value in section_titles and row[1].value in (None, ""):
+            for cell in row:
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill("solid", fgColor="23405D")
     summary.row_dimensions[1].height = 26
     for row_num in range(2, summary.max_row + 1):
         summary.row_dimensions[row_num].height = 34

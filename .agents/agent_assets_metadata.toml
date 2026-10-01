@@ -14,3 +14,17 @@ mtime_ms = 1790615005616
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:93e1c805-9bb1-46a0-853e-48fde7f7f7ad/e42999fc-4b7e-4772-8599-bcc7dd86bc04/3aa176f2-6277-4908-b464-af5324d79ae5"
 storage_version_token = "1790615105780650"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "6C3vwvfE5HNy5IBqvenWk"
+uri = "file://outputs/compras_reconciliacao_2026-10-01.xlsx"
+type = "table"
+title = "Reconciliação do inventário com o Catálogo de Compras"
+description = "Excel com as 256 linhas do inventário, os 143 artigos publicados, totais por estado e casos pendentes de validação. A comparação não altera dados operacionais."
+logical_id = "fa50f11a-aa17-4d85-994f-aca02766f2d2"
+content_hash = "sha256:0baab5c16fda24be6fc29bb2667cd387fbf13938dc73fc744f9825af697f68f2"
+size = 62492
+mtime_ms = 1790872726831
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:93e1c805-9bb1-46a0-853e-48fde7f7f7ad/fa50f11a-aa17-4d85-994f-aca02766f2d2/b0b4169f-c2d6-4541-8907-659a41caf7d3"
+storage_version_token = "1790872731100363"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
