@@ -1226,6 +1226,24 @@ def artigos():
         validate_article_category,
     )
 
+    def redirect_to_catalogue():
+        redirect_args = {}
+        search_after_save = request.form.get('q', '').strip()
+        review_filter_after_save = request.form.get('revisao', '').strip()
+        scroll_context = request.form.get('scroll_context', '').strip()
+        if search_after_save:
+            redirect_args['q'] = search_after_save
+        if review_filter_after_save in ('por_rever', 'revisto'):
+            redirect_args['revisao'] = review_filter_after_save
+        if (
+            scroll_context
+            and len(scroll_context) <= 64
+            and scroll_context.isascii()
+            and scroll_context.isalnum()
+        ):
+            redirect_args['scroll_context'] = scroll_context
+        return redirect(url_for('compras.artigos', **redirect_args))
+
     bulk_form_state = {}
     bulk_error_message = None
     bulk_edit_failed = False
@@ -1375,12 +1393,7 @@ def artigos():
                         'a origem por resolver.',
                         'warning',
                     )
-                redirect_args = {}
-                if search_after_save:
-                    redirect_args['q'] = search_after_save
-                if review_filter_after_save in ('por_rever', 'revisto'):
-                    redirect_args['revisao'] = review_filter_after_save
-                return redirect(url_for('compras.artigos', **redirect_args))
+                return redirect_to_catalogue()
 
         elif action == 'confirm_supplier':
             article_raw = request.form.get('artigo_id', '').strip()
@@ -1408,6 +1421,7 @@ def artigos():
                         )
                 except ValueError as exc:
                     flash(str(exc), 'danger')
+            return redirect_to_catalogue()
 
         elif action == 'review_origin':
             article_raw = request.form.get('artigo_id', '').strip()
@@ -1448,14 +1462,7 @@ def artigos():
                 except (TypeError, ValueError) as exc:
                     flash(str(exc), 'danger')
 
-            redirect_args = {}
-            return_q = request.form.get('q', '').strip()
-            return_filter = request.form.get('revisao', '').strip()
-            if return_q:
-                redirect_args['q'] = return_q
-            if return_filter in ('por_rever', 'revisto'):
-                redirect_args['revisao'] = return_filter
-            return redirect(url_for('compras.artigos', **redirect_args))
+            return redirect_to_catalogue()
 
         elif action == 'set_official_supplier':
             article_raw = request.form.get('artigo_id', '').strip()
@@ -1484,6 +1491,7 @@ def artigos():
                         flash('O fornecedor oficial já estava atualizado.', 'info')
                 except (TypeError, ValueError) as exc:
                     flash(str(exc), 'danger')
+            return redirect_to_catalogue()
 
         elif action == 'toggle':
             try:
@@ -1545,12 +1553,18 @@ def artigos():
         if article['id'] in bulk_form_state:
             article['_bulk_edit'] = bulk_form_state[article['id']]
     suppliers = get_suppliers()
+    scroll_restore_token = (
+        request.form.get('scroll_context', '')
+        if bulk_edit_failed
+        else request.args.get('scroll_context', '')
+    )
     return render_template('compras/artigos.html',
                            artigos=artigos_list,
                            suppliers=suppliers,
                            article_categories=ARTICLE_CATEGORIES, search=search,
                            review_filter=review_filter,
-                           bulk_error_message=bulk_error_message)
+                           bulk_error_message=bulk_error_message,
+                           scroll_restore_token=scroll_restore_token)
 
 
 @compras_bp.route('/artigos/<int:artigo_id>')

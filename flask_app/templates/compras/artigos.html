@@ -128,6 +128,7 @@
         <input type="hidden" name="action" value="bulk_edit">
         <input type="hidden" name="q" value="{{ search or '' }}">
         <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
+        <input type="hidden" name="scroll_context" value="">
     </form>
 
     {% if bulk_error_message %}
@@ -305,6 +306,9 @@
                       data-unsaved-navigation>
                     <input type="hidden" name="action" value="set_official_supplier">
                     <input type="hidden" name="artigo_id" id="fornecedorOficialArtigoId">
+                    <input type="hidden" name="q" value="{{ search or '' }}">
+                    <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
+                    <input type="hidden" name="scroll_context" value="">
                     <div class="modal-header">
                         <h5 class="modal-title" id="fornecedorOficialTitulo">Fornecedor registado</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"
@@ -351,6 +355,7 @@
                     <input type="hidden" name="artigo_id" id="revisaoOrigemArtigoId">
                     <input type="hidden" name="q" value="{{ search or '' }}">
                     <input type="hidden" name="revisao" value="{{ review_filter or 'todos' }}">
+                    <input type="hidden" name="scroll_context" value="">
                     <div class="modal-header">
                         <h5 class="modal-title" id="revisaoOrigemTitulo">Revisão manual do artigo</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"
@@ -418,9 +423,110 @@
 
 {% block scripts %}
 <script>
+const catalogueScrollContextPrefix = 'compras-artigos-scroll:';
+const catalogueRestoreToken = {{ scroll_restore_token|tojson }};
+
 document.addEventListener('DOMContentLoaded', function () {
+    let modalScrollContext = null;
+
+    function readCatalogueContext() {
+        const bulkForm = document.getElementById('catalogue-bulk-edit');
+        const table = document.querySelector('.table-responsive');
+        return {
+            path: window.location.pathname,
+            x: window.scrollX,
+            y: window.scrollY,
+            openDetails: Array.from(
+                document.querySelectorAll('.collapse.show[id^="artigo-detalhe-"]')
+            ).map((detail) => detail.id),
+            tableScrollLeft: table ? table.scrollLeft : 0,
+            q: bulkForm?.querySelector('[name="q"]')?.value || '',
+            review: bulkForm?.querySelector('[name="revisao"]')?.value || 'todos',
+        };
+    }
+
+    function saveCatalogueContext(form, context) {
+        const tokenInput = form.querySelector('[name="scroll_context"]');
+        if (!tokenInput) return;
+
+        tokenInput.value = '';
+        try {
+            const token = window.crypto?.randomUUID
+                ? window.crypto.randomUUID().replace(/-/g, '')
+                : `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+            sessionStorage.setItem(
+                catalogueScrollContextPrefix + token,
+                JSON.stringify(context)
+            );
+            tokenInput.value = token;
+        } catch (error) {
+            // Scroll recovery is optional when browser storage is unavailable.
+        }
+    }
+
+    function clearRestoreTokenFromUrl() {
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has('scroll_context')) return;
+        url.searchParams.delete('scroll_context');
+        window.history.replaceState(
+            window.history.state,
+            '',
+            `${url.pathname}${url.search}${url.hash}`
+        );
+    }
+
+    function restoreCatalogueContext() {
+        if (!catalogueRestoreToken) return;
+
+        let context = null;
+        try {
+            const key = catalogueScrollContextPrefix + catalogueRestoreToken;
+            const saved = sessionStorage.getItem(key);
+            sessionStorage.removeItem(key);
+            context = saved ? JSON.parse(saved) : null;
+        } catch (error) {
+            context = null;
+        }
+        clearRestoreTokenFromUrl();
+
+        if (
+            !context ||
+            context.path !== window.location.pathname ||
+            !Number.isFinite(context.x) ||
+            !Number.isFinite(context.y)
+        ) {
+            return;
+        }
+
+        (Array.isArray(context.openDetails) ? context.openDetails : []).forEach((id) => {
+            if (!/^artigo-detalhe-\d+$/.test(id)) return;
+            const detail = document.getElementById(id);
+            if (!detail?.classList.contains('collapse')) return;
+            detail.classList.add('show');
+            document.querySelector(`[data-bs-target="#${id}"]`)
+                ?.setAttribute('aria-expanded', 'true');
+        });
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                const table = document.querySelector('.table-responsive');
+                if (table && Number.isFinite(context.tableScrollLeft)) {
+                    table.scrollLeft = context.tableScrollLeft;
+                }
+                const root = document.documentElement;
+                const previousScrollBehavior = root.style.scrollBehavior;
+                root.style.scrollBehavior = 'auto';
+                window.scrollTo(context.x, context.y);
+                root.style.scrollBehavior = previousScrollBehavior;
+            });
+        });
+    }
+
     const officialModal = document.getElementById('fornecedorOficialModal');
     if (officialModal) {
+        officialModal.addEventListener('hidden.bs.modal', function () {
+            modalScrollContext = null;
+        });
         officialModal.addEventListener('show.bs.modal', function (event) {
             const button = event.relatedTarget;
             if (!button) return;
@@ -439,6 +545,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const reviewModal = document.getElementById('revisaoOrigemModal');
     if (reviewModal) {
+        reviewModal.addEventListener('hidden.bs.modal', function () {
+            modalScrollContext = null;
+        });
         reviewModal.addEventListener('show.bs.modal', function (event) {
             const button = event.relatedTarget;
             if (!button) return;
@@ -463,6 +572,15 @@ document.addEventListener('DOMContentLoaded', function () {
     let hasUnsavedChanges = false;
     let allowNavigation = false;
 
+    document.querySelectorAll(
+        '[data-bs-target="#fornecedorOficialModal"], ' +
+        '[data-bs-target="#revisaoOrigemModal"]'
+    ).forEach((button) => {
+        button.addEventListener('click', () => {
+            modalScrollContext = readCatalogueContext();
+        });
+    });
+
     const markBulkFormDirty = (event) => {
         if (bulkForm && event.target.form === bulkForm) {
             hasUnsavedChanges = true;
@@ -473,19 +591,33 @@ document.addEventListener('DOMContentLoaded', function () {
 
     bulkForm?.addEventListener('submit', () => {
         allowNavigation = true;
+        saveCatalogueContext(bulkForm, readCatalogueContext());
     });
 
     document.querySelectorAll('[data-unsaved-navigation]').forEach((form) => {
         form.addEventListener('submit', (event) => {
-            if (!hasUnsavedChanges) return;
-            const shouldLeave = window.confirm(
-                'Há alterações por guardar. Se continuar, serão descartadas. Quer continuar?'
-            );
-            if (!shouldLeave) {
-                event.preventDefault();
-                return;
+            if (hasUnsavedChanges) {
+                const shouldLeave = window.confirm(
+                    'Há alterações por guardar. Se continuar, serão descartadas. Quer continuar?'
+                );
+                if (!shouldLeave) {
+                    event.preventDefault();
+                    return;
+                }
+                allowNavigation = true;
             }
-            allowNavigation = true;
+
+            const action = form.querySelector('[name="action"]')?.value;
+            if (
+                action === 'review_origin' ||
+                action === 'set_official_supplier' ||
+                action === 'confirm_supplier'
+            ) {
+                saveCatalogueContext(
+                    form,
+                    modalScrollContext || readCatalogueContext()
+                );
+            }
         });
     });
 
@@ -506,6 +638,8 @@ document.addEventListener('DOMContentLoaded', function () {
             button.setAttribute('aria-expanded', 'false');
         });
     });
+
+    restoreCatalogueContext();
 });
 </script>
 {% endblock %}
