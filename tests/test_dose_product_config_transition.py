@@ -573,7 +573,8 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
         product_name = "__COVERAGE_PRODUCT_" + suffix + "__"
         store = "__COVERAGE_STORE_" + suffix + "__"
         product_id = None
-        yesterday = date.today() - timedelta(days=1)
+        coverage_date = date.today().replace(day=1)
+        unmapped_date = coverage_date + timedelta(days=1)
         try:
             with db_connection() as conn:
                 cur = conn.cursor()
@@ -581,7 +582,7 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
                     INSERT INTO gramas_gelado_historico (
                         artigo, gramas, tipo_dose, valid_from
                     ) VALUES (%s, 100, 'fixa', %s) RETURNING id
-                """, (article, yesterday))
+                """, (article, coverage_date))
                 rule_id = cur.fetchone()[0]
                 cur.execute("""
                     INSERT INTO produtos_vendas_config (produto)
@@ -594,7 +595,7 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
                         valid_from, valid_to, created_by
                     ) VALUES (%s, %s, %s, NULL, 'sistema:test')
                     RETURNING id
-                """, (product_id, rule_id, yesterday))
+                """, (product_id, rule_id, coverage_date))
                 association_id = cur.fetchone()[0]
                 cur.execute("""
                     UPDATE produtos_vendas_config SET gelado_kpi=TRUE
@@ -603,24 +604,26 @@ class DoseProductConfigIntegrationTests(unittest.TestCase):
                 cur.execute("""
                     UPDATE produto_regra_dose_historico SET valid_to=%s
                     WHERE id=%s
-                """, (yesterday, association_id))
+                """, (coverage_date, association_id))
                 cur.execute("""
                     INSERT INTO vendas_detalhe (
                         data, loja, produto, quantidade,
                         produto_vendas_config_id
                     ) VALUES
                         (%s, %s, %s, 1, %s),
-                        (CURRENT_DATE, %s, %s, 1, %s)
+                        (%s, %s, %s, 1, %s)
                 """, (
-                    yesterday, store, product_name, product_id,
-                    store, product_name, product_id,
+                    coverage_date, store, product_name, product_id,
+                    unmapped_date, store, product_name, product_id,
                 ))
                 conn.commit()
 
-            coverage, _audits = get_historical_dose_coverage(store)
+            coverage, _audits = get_historical_dose_coverage(
+                store, data_inicio=coverage_date, data_fim=unmapped_date
+            )
             current = next(
                 row for row in coverage
-                if row["month"] == date.today().strftime("%Y-%m")
+                if row["month"] == coverage_date.strftime("%Y-%m")
             )
             self.assertEqual(current["total"], 2)
             self.assertEqual(current["covered"], 1)

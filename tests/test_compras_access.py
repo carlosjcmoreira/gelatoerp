@@ -271,6 +271,9 @@ class TestComprasAccess(unittest.TestCase):
         self.assertIn('data-bs-target="#fornecedorOficialModal"', html)
         self.assertIn('name="supplier_id"', html)
         self.assertIn('value="set_official_supplier"', html)
+        self.assertIn('name="scroll_context"', html)
+        self.assertIn('catalogueScrollContextPrefix', html)
+        self.assertIn('scrollTo(context.x, context.y)', html)
         self.assertIn("url_for('faturas.fornecedores', origem='compras')", html)
 
     def test_catalogue_passes_canonical_suppliers_to_resolution_dialog(self):
@@ -502,12 +505,14 @@ class TestComprasAccess(unittest.TestCase):
                     'supplier_id': '',
                     'q': 'Matosinhos',
                     'revisao': 'por_rever',
+                    'scroll_context': 'a1b2c3d4' * 4,
                 },
             )
 
         self.assertEqual(response.status_code, 302)
         self.assertIn('q=Matosinhos', response.location)
         self.assertIn('revisao=por_rever', response.location)
+        self.assertIn(f'scroll_context={"a1b2c3d4" * 4}', response.location)
         self.assertEqual(review_origin.call_args.args, (18, None))
         self.assertEqual(review_origin.call_args.kwargs['actor'], 'testuser')
         with self.client.session_transaction() as sess:
@@ -539,6 +544,31 @@ class TestComprasAccess(unittest.TestCase):
         with self.client.session_transaction() as sess:
             messages = [message for _, message in sess.get('_flashes', [])]
         self.assertTrue(any('a designação histórica foi preservada' in m for m in messages))
+
+    def test_catalogue_supplier_link_preserves_filters_and_scroll_context(self):
+        self._set_session_user(_user(acesso_compras=True))
+        token = 'c0ffee42' * 4
+        with patch(
+            'flask_app.routes.compras.set_artigo_fornecedor_oficial',
+            return_value={'changed': True},
+        ) as set_supplier:
+            response = self.client.post(
+                '/compras/artigos',
+                data={
+                    'action': 'set_official_supplier',
+                    'artigo_id': '18',
+                    'supplier_id': '42',
+                    'q': 'Café',
+                    'revisao': 'revisto',
+                    'scroll_context': token,
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(set_supplier.call_args.args, (18, 42))
+        self.assertIn('q=Caf%C3%A9', response.location)
+        self.assertIn('revisao=revisto', response.location)
+        self.assertIn(f'scroll_context={token}', response.location)
 
     def test_catalogue_noop_save_has_accurate_feedback(self):
         self._set_session_user(_user(acesso_compras=True))
@@ -630,6 +660,9 @@ class TestComprasAccess(unittest.TestCase):
         from werkzeug.datastructures import MultiDict
         form_data = MultiDict([
             ('action', 'bulk_edit'),
+            ('q', 'Café'),
+            ('revisao', 'por_rever'),
+            ('scroll_context', 'deadbeef' * 4),
             ('artigo_id', '18'),
             ('artigo_id', '19'),
             ('produto_18', 'Produto 18'),
@@ -648,6 +681,9 @@ class TestComprasAccess(unittest.TestCase):
             response = self.client.post('/compras/artigos', data=form_data)
 
         self.assertEqual(response.status_code, 302)
+        self.assertIn('q=Caf%C3%A9', response.location)
+        self.assertIn('revisao=por_rever', response.location)
+        self.assertIn(f'scroll_context={"deadbeef" * 4}', response.location)
         self.assertEqual(
             bulk_update.call_args.args[0],
             [
@@ -673,22 +709,27 @@ class TestComprasAccess(unittest.TestCase):
         self._set_session_user(_user(acesso_compras=True))
         articles = [
             {
-                'id': 18, 'fornecedor': 'Etiqueta antiga 18',
+                'id': 18, 'fornecedor': 'Etiqueta antiga Café 18',
                 'produto': 'Produto antigo 18', 'marca': None,
                 'unidade': 'un', 'categoria_artigo': 'Por classificar',
                 'origem_id': None, 'origem_nome': None,
-                'origem_tipo': 'por_resolver', 'ativo': True,
+                'origem_tipo': 'por_resolver',
+                'origem_revisao_estado': 'por_rever', 'ativo': True,
             },
             {
-                'id': 19, 'fornecedor': 'Etiqueta antiga 19',
+                'id': 19, 'fornecedor': 'Etiqueta antiga Café 19',
                 'produto': 'Produto antigo 19', 'marca': None,
                 'unidade': 'un', 'categoria_artigo': 'Por classificar',
                 'origem_id': None, 'origem_nome': None,
-                'origem_tipo': 'por_resolver', 'ativo': True,
+                'origem_tipo': 'por_resolver',
+                'origem_revisao_estado': 'por_rever', 'ativo': True,
             },
         ]
         form_data = {
             'action': 'bulk_edit',
+            'q': 'Café',
+            'revisao': 'por_rever',
+            'scroll_context': 'deadbeef' * 4,
             'artigo_id': ['18', '19'],
             'produto_18': 'Produto novo 18',
             'marca_18': '',
@@ -716,6 +757,9 @@ class TestComprasAccess(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         kwargs = render_catalogue.call_args.kwargs
+        self.assertEqual(kwargs['search'], 'café')
+        self.assertEqual(kwargs['review_filter'], 'por_rever')
+        self.assertEqual(kwargs['scroll_restore_token'], 'deadbeef' * 4)
         self.assertEqual(
             kwargs['bulk_error_message'],
             'Artigo #19: categoria inválida.',
