@@ -2,38 +2,13 @@ import os
 import sys
 import threading
 import logging
-import time
-import uuid
-from flask import Flask, session, redirect, url_for, g, request, render_template
+from flask import Flask, session, redirect, url_for, g, request
 from functools import wraps
 
 logger = logging.getLogger(__name__)
-STARTUP_SLOW_STEP_SECONDS = 0.05
-
-
-def _load_session_user():
-    """Load an authenticated user from the server-side session record."""
-    token = session.get('token')
-    if token:
-        from db.auth import get_session_user
-        fresh = get_session_user(token)
-        if fresh:
-            # Keep permission changes in sync with the database on each request.
-            session['user'] = fresh
-            g.user = fresh
-        else:
-            # Token expired or user deactivated — clear the stale session.
-            session.clear()
-            g.user = None
-    else:
-        # A signed cookie alone is not proof of an active account session.
-        # Remove legacy user data without discarding unrelated anonymous state.
-        session.pop('user', None)
-        g.user = None
-
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, run_migrations_wind_config, sync_produtos_vendas_config, authenticate_user, create_session
+from database import init_database, run_migrations, run_faturas_migrations, run_migrations_m0, run_migrations_forecast, sync_produtos_vendas_config, seed_artigos_administrativos, authenticate_user, create_session
 from db.cashflow import run_migrations_cashflow
 from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_data_fix_pesagem_april2026, run_migrations_centros_custo,
@@ -41,109 +16,40 @@ from db.schema import (run_migrations_credito, run_data_fix_quebras_march2026,
                         run_data_fix_pesagem_matosinhos_backfill,
                         run_data_fix_march1_dedup,
                         run_data_fix_gelado_kpi_classification,
-                        run_data_fix_normalise_sabor_names,
-                        run_data_fix_cremino_stock_producao,
-                        run_data_fix_stock_gelado_march2026_dedup,
-                        run_data_fix_stock_gelado_dedup_and_unique,
                         run_migrations_caixa_loja,
                         run_migrations_preco_caixa_kg,
                         run_migrations_stock_producao_lojas,
                         run_migrations_colaboradores_smart,
                         run_migrations_transferencias_motivo,
                         run_migrations_transferencias_eventos,
-                         run_migrations_transferencias_aceitacao_opcional,
-                        run_backfill_transferencias_eventos,
-                        run_migrations_batch_id,
-                        run_migrations_agente,
-                        run_migrations_conta_vendas_diarias,
-                        run_migrations_b2b_vendas_diarias,
-                        run_migrations_stock_gelado_carapinas)
+                        run_backfill_transferencias_eventos)
 from db.tiles import run_migrations_tile_config
-from db.pagamentos import run_migrations_tesouraria_manuais
-from db.schema import run_migrations_custos_recorrentes
+from db.avencas import run_migrations_avencas
 from db.schema import run_migrations_tarefas, run_migrations_tarefas_v2, run_migrations_tarefas_v3
-from db.schema import run_migrations_fecho_caixa_audit
-from db.schema import run_migrations_pesagem_draft_batches
-from db.schema import run_migrations_pesagem_day_justifications
-from db.schema import run_migrations_pesagem_audit
-from db.schema import run_migrations_user_audit_log
-from db.schema import run_migrations_cost_center_allocation
-from db.schema import run_migrations_suppliers_nullable_nif, run_migrations_normalise_supplier_nifs
-from db.schema import run_migrations_onedrive_retry
-from db.schema import run_migrations_invoice_centros_custo, run_migrations_invoice_installments
-from db.schema import run_migrations_supplier_aliases
-from db.schema import run_migrations_normalise_producao_sabores
-from db.schema import run_migrations_quantidade_kg_to_numeric
-from db.schema import run_migrations_loja_origem, run_migrations_transferencias_destino
-from db.schema import run_migrations_invoice_status_config, run_migrations_produto_aliases
-from db.schema import run_migrations_pdf_filename_backfill
-from db.schema import run_migrations_b2b, run_migrations_faturas_clientes_status
-from db.schema import (
-    run_migrations_faturas_clientes_data_pagamento,
-    run_migrations_faturas_clientes_document_type,
-)
-from db.schema import run_migrations_contabilidade, run_migrations_invoice_payment_audit
-from db.schema import (run_migrations_supplier_entidade_governamental,
-                       run_migrations_cost_category_is_cmvmc,
-                       run_migrations_supplier_categoria_custo)
-from db.orcamento import run_migrations_orcamento
-from db.faturas import run_migrations_saved_invoice_views, run_migrations_invoice_audit_complete
-from db.faturas_clientes import promote_overdue as _promote_overdue_faturas_clientes
-from db.schema import run_migrations_supplier_centro_custo, run_backfill_invoice_categoria_custo
-from db.schema import run_migrations_drop_supplier_category, run_migrations_acesso_compras
-from db.schema import run_migrations_cost_centers_store_id
-from db.schema import (
-    run_migrations_compras_origens,
-    run_migrations_compras_catalogo,
-    run_migrations_compras_encomendas_semanais,
-    run_migrations_compras_pedidos_urgentes,
-    run_migrations_compras_contagens_artigos,
-    run_migrations_compras_pedidos_envios,
-)
-from db.schema import run_migrations_doseamento_gelado
-from db.schema import run_migrations_gelado_producao_envios
-from db.schema import (
-    run_migrations_pastelaria_plano,
-    run_migrations_pastelaria_count_product_id,
-    run_migrations_pastelaria_count_submission,
-    run_migrations_confeitaria_count_product_id,
-    run_migrations_confeitaria_stock_ledger,
-    run_migrations_confeitaria_stock_production,
-    run_migrations_confeitaria_stock_transfers,
-    run_migrations_pastelaria_product_state_audit,
-    run_migrations_pastelaria_production_stock,
-)
-from db.schema import run_migrations_eventos_v2_foundation, run_migrations_eventos_customer_portal
-from db.schema import run_backfill_contagem_stock_transfer_origin
 
 
 def _start_sheets_sync_scheduler():
-    """Start the durable Sheets job worker and its daily 08:00 enqueue."""
-    from flask_app.google_sheets_sync import start_sheet_sync_worker
-    start_sheet_sync_worker(schedule_daily=True)
-
-
-def _start_event_portal_cleanup_scheduler():
-    """Remove expired private proof files once a day in the single scheduler worker."""
+    """Background thread that syncs leads from Google Sheets daily at 08:00."""
     def _worker():
         import time
-        from flask_app.services.event_portal import cleanup_expired_portal_proofs
-
-        upload_root = os.path.join(
-            os.path.dirname(__file__), '..', 'private_uploads', 'event_proofs'
-        )
+        from datetime import datetime, timedelta
         while True:
+            now = datetime.now()
+            target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+            wait_seconds = (target - now).total_seconds()
+            logger.info("Next Google Sheets sync scheduled at %s (in %.0f s)", target.strftime('%Y-%m-%d %H:%M'), wait_seconds)
+            time.sleep(wait_seconds)
             try:
-                removed = cleanup_expired_portal_proofs(upload_root)
-                if removed:
-                    logger.info("Removed %d expired event portal proof file(s)", removed)
-            except Exception as exc:
-                logger.warning("Event portal proof cleanup failed: %s", exc)
-            time.sleep(24 * 60 * 60)
+                from flask_app.google_sheets_sync import sync_leads_from_sheet
+                inserted, updated, errors = sync_leads_from_sheet()
+                logger.info("Auto sync Google Sheets: %d new, %d updated, %d errors", inserted, updated, errors)
+            except Exception as e:
+                logger.warning("Auto sync Google Sheets failed: %s", e)
 
-    threading.Thread(
-        target=_worker, daemon=True, name="event-portal-proof-cleanup"
-    ).start()
+    t = threading.Thread(target=_worker, daemon=True, name="sheets-sync")
+    t.start()
 
 
 def _seed_all_tiles():
@@ -154,7 +60,7 @@ def _seed_all_tiles():
     the user has visited each module.
     """
     try:
-        from db.tiles import seed_tile_config, seed_store_tile_config
+        from db.tiles import seed_tile_config
 
         from flask_app.routes.producao import TABS as PRODUCAO_TABS
         seed_tile_config('producao', [{'id': t['id'], 'label': t['label']} for t in PRODUCAO_TABS])
@@ -162,24 +68,8 @@ def _seed_all_tiles():
         from flask_app.routes.pastelaria import TABS as PASTELARIA_TABS
         seed_tile_config('pastelaria', [{'id': t['id'], 'label': t['label']} for t in PASTELARIA_TABS])
 
-        from flask_app.routes.confeitaria import TABS as CONFEITARIA_TABS
-        seed_tile_config('confeitaria', [
-            {'id': t['id'], 'label': t['label']} for t in CONFEITARIA_TABS
-        ])
-
-        from flask_app.routes.vendas import (
-            TAB_DEFS as VENDAS_TABS,
-            get_supported_vendas_tile_ids,
-        )
+        from flask_app.routes.vendas import TAB_DEFS as VENDAS_TABS
         seed_tile_config('vendas', [{'id': t['id'], 'label': t['label']} for t in VENDAS_TABS])
-        from database import get_vendas_module_stores
-        vendas_tiles = [{'id': t['id'], 'label': t['label']} for t in VENDAS_TABS]
-        for store in get_vendas_module_stores():
-            supported = set(get_supported_vendas_tile_ids(store))
-            seed_store_tile_config(
-                store['id'],
-                [tile for tile in vendas_tiles if tile['id'] in supported],
-            )
 
         from flask_app.routes.gestor import TABS as GESTOR_TABS
         seed_tile_config('gestor', [{'id': t['id'], 'label': t['label']} for t in GESTOR_TABS])
@@ -188,237 +78,52 @@ def _seed_all_tiles():
         fin_tiles = [{'id': m['key'], 'label': m['label']} for g in FINANCEIRO_GROUPS for m in g['modules']]
         seed_tile_config('financeiro', fin_tiles)
 
-        from db.connection import db_connection as _dbc
-        with _dbc() as _conn:
-            _conn.cursor().execute(
-                "DELETE FROM tile_config WHERE module = 'financeiro' AND tile_id = 'cashflow'"
-            )
-            # Remove retired producao tiles (merged into sabores_receitas in task #612)
-            _conn.cursor().execute(
-                "DELETE FROM tile_config WHERE module = 'producao' AND tile_id IN ('receitas', 'sabores_ativos')"
-            )
-            # Pastelaria now works from the weekly manual plan; production
-            # registration is retained only as a legacy-compatible route.
-            _conn.cursor().execute(
-                "DELETE FROM tile_config WHERE module = 'pastelaria' AND tile_id = 'produzir'"
-            )
-            _conn.commit()
-
         logger.info("_seed_all_tiles: all module tiles seeded")
     except Exception as exc:
         logger.error("_seed_all_tiles failed: %s", exc)
 
 
-def run_deferred_startup_maintenance(app):
-    """Run non-schema corrections after Gunicorn is ready to serve."""
-    logger.info("Starting deferred startup maintenance")
-    with app.app_context():
-        try:
-            run_backfill_contagem_stock_transfer_origin()
-        except Exception:
-            logger.exception(
-                "Transfer-generated stock-count backfill failed; will retry next startup"
-            )
-
-        # Legacy corrections swallow/log their own failures, so they remain
-        # retryable on every boot rather than being marked complete.
-        run_data_fix_delete_auto_quebras()
-        run_data_fix_quebras_march2026()
-        run_data_fix_pesagem_april2026()
-        run_data_fix_march1_dedup()
-        run_data_fix_gelado_kpi_classification()
-        run_data_fix_normalise_sabor_names()
-        run_data_fix_cremino_stock_producao()
-        run_data_fix_stock_gelado_march2026_dedup()
-        run_data_fix_pesagem_matosinhos_backfill()
-        run_backfill_transferencias_eventos()
-        from db.custos_recorrentes import run_backfill_custos_recorrentes
-        run_backfill_custos_recorrentes()
-        try:
-            from db.faturas import backfill_supplier_ids as _backfill_suppliers
-            _backfill_suppliers()
-        except Exception as exc:
-            logger.warning('backfill_supplier_ids startup failed: %s', exc)
-        try:
-            run_backfill_invoice_categoria_custo()
-        except Exception as exc:
-            logger.warning('run_backfill_invoice_categoria_custo startup failed: %s', exc)
-        # This is a retryable data-only backfill. The invoice schema is ready
-        # before this point, and missing filenames are not required to serve
-        # requests, so do not make the pre-fork startup wait on PDF payloads.
-        try:
-            run_migrations_pdf_filename_backfill()
-        except Exception as exc:
-            logger.warning('run_migrations_pdf_filename_backfill startup failed: %s', exc)
-
-        # These are recurring reconciliations, not historical one-off fixes.
-        _seed_all_tiles()
-        sync_produtos_vendas_config()
-        run_migrations_compras_origens()
-        run_migrations_compras_catalogo()
-        try:
-            _promote_overdue_faturas_clientes()
-        except Exception as exc:
-            logger.warning('promote_overdue (faturas_clientes) startup failed: %s', exc)
-    logger.info("Deferred startup maintenance completed")
-
-
 def create_app():
-    startup_started = time.monotonic()
-    startup_logger = logging.getLogger('gunicorn.error')
-    startup_logger.info("Application startup initialization started")
     app = Flask(__name__, static_folder='static', template_folder='templates')
     app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
     app.config['SESSION_COOKIE_HTTPONLY'] = True
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 30
-    app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024  # 4 MB — max single chunk for chunked PDF upload
+    app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024  # 20 MB for PDF uploads
 
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-    @app.before_request
-    def start_request_metrics():
-        from performance_metrics import begin_request
-        g._performance_token = begin_request()
-        g.request_id = uuid.uuid4().hex
-
-    @app.after_request
-    def log_request_metrics(response):
-        from performance_metrics import snapshot
-        metrics = snapshot()
-        response_bytes = response.calculate_content_length()
-        route = request.url_rule.rule if request.url_rule else '<unmatched>'
-        request_logger = logging.getLogger('gunicorn.error')
-        if not request_logger.handlers:
-            request_logger = logger
-        request_logger.info(
-            'request_metrics request_id=%s method=%s route=%s status=%d '
-            'duration_ms=%.1f db_duration_ms=%.1f query_count=%d response_bytes=%s',
-            g.get('request_id', '-'), request.method, route, response.status_code,
-            metrics['duration_ms'], metrics['db_duration_ms'],
-            metrics['query_count'],
-            response_bytes if response_bytes is not None else 'unknown',
-        )
-        response.headers['X-Request-ID'] = g.get('request_id', '-')
-        return response
-
-    @app.teardown_request
-    def finish_request_metrics(_error):
-        from performance_metrics import end_request
-        end_request(g.pop('_performance_token', None))
-
-    startup_steps = (
-        ('init_database', init_database),
-        ('run_migrations', run_migrations),
-        ('run_migrations_m0', run_migrations_m0),
-        ('run_faturas_migrations', run_faturas_migrations),
-        ('run_migrations_forecast', run_migrations_forecast),
-        ('run_migrations_wind_config', run_migrations_wind_config),
-        ('run_migrations_cashflow', run_migrations_cashflow),
-        ('run_migrations_credito', run_migrations_credito),
-        ('run_migrations_eventos_v2_foundation', run_migrations_eventos_v2_foundation),
-        ('run_migrations_eventos_customer_portal', run_migrations_eventos_customer_portal),
-        ('run_data_fix_stock_gelado_dedup_and_unique', run_data_fix_stock_gelado_dedup_and_unique),
-        ('run_migrations_caixa_loja', run_migrations_caixa_loja),
-        ('run_migrations_preco_caixa_kg', run_migrations_preco_caixa_kg),
-        ('run_migrations_centros_custo', run_migrations_centros_custo),
-        ('run_migrations_cost_centers_store_id', run_migrations_cost_centers_store_id),
-        ('run_migrations_pastelaria_plano', run_migrations_pastelaria_plano),
-        ('run_migrations_pastelaria_count_product_id', run_migrations_pastelaria_count_product_id),
-        ('run_migrations_pastelaria_count_submission', run_migrations_pastelaria_count_submission),
-        ('run_migrations_confeitaria_count_product_id', run_migrations_confeitaria_count_product_id),
-        ('run_migrations_confeitaria_stock_ledger', run_migrations_confeitaria_stock_ledger),
-        ('run_migrations_confeitaria_stock_production', run_migrations_confeitaria_stock_production),
-        ('run_migrations_pastelaria_product_state_audit', run_migrations_pastelaria_product_state_audit),
-        ('run_migrations_colaboradores_smart', run_migrations_colaboradores_smart),
-        ('run_migrations_transferencias_motivo', run_migrations_transferencias_motivo),
-        ('run_migrations_transferencias_eventos', run_migrations_transferencias_eventos),
-        ('run_migrations_pastelaria_production_stock', run_migrations_pastelaria_production_stock),
-        ('run_migrations_batch_id', run_migrations_batch_id),
-        ('run_migrations_confeitaria_stock_transfers', run_migrations_confeitaria_stock_transfers),
-        ('run_migrations_stock_producao_lojas', run_migrations_stock_producao_lojas),
-        ('run_migrations_tarefas', run_migrations_tarefas),
-        ('run_migrations_tarefas_v2', run_migrations_tarefas_v2),
-        ('run_migrations_tarefas_v3', run_migrations_tarefas_v3),
-        ('run_migrations_tile_config', run_migrations_tile_config),
-        ('run_migrations_agente', run_migrations_agente),
-        ('run_migrations_fecho_caixa_audit', run_migrations_fecho_caixa_audit),
-        ('run_migrations_pesagem_draft_batches', run_migrations_pesagem_draft_batches),
-        ('run_migrations_pesagem_day_justifications', run_migrations_pesagem_day_justifications),
-        ('run_migrations_pesagem_audit', run_migrations_pesagem_audit),
-        ('run_migrations_conta_vendas_diarias', run_migrations_conta_vendas_diarias),
-        ('run_migrations_b2b_vendas_diarias', run_migrations_b2b_vendas_diarias),
-        ('run_migrations_tesouraria_manuais', run_migrations_tesouraria_manuais),
-        ('run_migrations_user_audit_log', run_migrations_user_audit_log),
-        ('run_migrations_cost_center_allocation', run_migrations_cost_center_allocation),
-        ('run_migrations_stock_gelado_carapinas', run_migrations_stock_gelado_carapinas),
-        ('run_migrations_suppliers_nullable_nif', run_migrations_suppliers_nullable_nif),
-        ('run_migrations_normalise_supplier_nifs', run_migrations_normalise_supplier_nifs),
-        ('run_migrations_onedrive_retry', run_migrations_onedrive_retry),
-        ('run_migrations_invoice_centros_custo', run_migrations_invoice_centros_custo),
-        ('run_migrations_invoice_installments', run_migrations_invoice_installments),
-        ('run_migrations_supplier_aliases', run_migrations_supplier_aliases),
-        ('run_migrations_supplier_centro_custo', run_migrations_supplier_centro_custo),
-        ('run_migrations_custos_recorrentes', run_migrations_custos_recorrentes),
-        ('run_migrations_normalise_producao_sabores', run_migrations_normalise_producao_sabores),
-        ('run_migrations_quantidade_kg_to_numeric', run_migrations_quantidade_kg_to_numeric),
-        ('run_migrations_loja_origem', run_migrations_loja_origem),
-        ('run_migrations_transferencias_destino', run_migrations_transferencias_destino),
-        ('run_migrations_gelado_producao_envios', run_migrations_gelado_producao_envios),
-        ('run_migrations_doseamento_gelado', run_migrations_doseamento_gelado),
-        ('run_migrations_invoice_status_config', run_migrations_invoice_status_config),
-        ('run_migrations_produto_aliases', run_migrations_produto_aliases),
-        ('run_migrations_b2b', run_migrations_b2b),
-        ('run_migrations_faturas_clientes_status', run_migrations_faturas_clientes_status),
-        ('run_migrations_faturas_clientes_data_pagamento', run_migrations_faturas_clientes_data_pagamento),
-        ('run_migrations_faturas_clientes_document_type', run_migrations_faturas_clientes_document_type),
-        ('run_migrations_contabilidade', run_migrations_contabilidade),
-        ('run_migrations_invoice_payment_audit', run_migrations_invoice_payment_audit),
-        ('run_migrations_saved_invoice_views', run_migrations_saved_invoice_views),
-        ('run_migrations_invoice_audit_complete', run_migrations_invoice_audit_complete),
-        ('run_migrations_supplier_entidade_governamental', run_migrations_supplier_entidade_governamental),
-        ('run_migrations_orcamento', run_migrations_orcamento),
-        ('run_migrations_cost_category_is_cmvmc', run_migrations_cost_category_is_cmvmc),
-        ('run_migrations_supplier_categoria_custo', run_migrations_supplier_categoria_custo),
-        ('run_migrations_drop_supplier_category', run_migrations_drop_supplier_category),
-        ('run_migrations_acesso_compras', run_migrations_acesso_compras),
-        ('run_migrations_compras_origens', run_migrations_compras_origens),
-        ('run_migrations_compras_catalogo', run_migrations_compras_catalogo),
-         ('run_migrations_compras_encomendas_semanais', run_migrations_compras_encomendas_semanais),
-        ('run_migrations_compras_pedidos_urgentes', run_migrations_compras_pedidos_urgentes),
-        ('run_migrations_compras_contagens_artigos', run_migrations_compras_contagens_artigos),
-        ('run_migrations_compras_pedidos_envios', run_migrations_compras_pedidos_envios),
-    )
-    startup_slow_steps = []
-    schema_started = time.monotonic()
-    try:
-        with app.app_context():
-            for step_name, step in startup_steps:
-                step_started = time.monotonic()
-                try:
-                    step()
-                finally:
-                    step_duration = time.monotonic() - step_started
-                    if step_duration >= STARTUP_SLOW_STEP_SECONDS:
-                        startup_slow_steps.append((step_name, step_duration))
-                        startup_logger.info(
-                            "startup_step name=%s duration_ms=%.1f",
-                            step_name,
-                            step_duration * 1000,
-                        )
-    finally:
-        schema_duration = time.monotonic() - schema_started
-        slow_summary = ','.join(
-            f'{name}:{duration * 1000:.1f}ms'
-            for name, duration in startup_slow_steps
-        ) or 'none'
-        startup_logger.info(
-            "startup_schema_phase duration_ms=%.1f steps=%d slow_steps=%s",
-            schema_duration * 1000,
-            len(startup_steps),
-            slow_summary,
-        )
+    with app.app_context():
+        init_database()
+        run_migrations()
+        run_faturas_migrations()
+        run_data_fix_delete_auto_quebras()
+        run_migrations_m0()
+        run_migrations_forecast()
+        run_migrations_cashflow()
+        run_migrations_credito()
+        run_data_fix_quebras_march2026()
+        run_data_fix_pesagem_april2026()
+        run_data_fix_pesagem_matosinhos_backfill()
+        run_data_fix_march1_dedup()
+        run_data_fix_gelado_kpi_classification()
+        run_migrations_caixa_loja()
+        run_migrations_preco_caixa_kg()
+        run_migrations_centros_custo()
+        run_migrations_colaboradores_smart()
+        run_migrations_transferencias_motivo()
+        run_migrations_transferencias_eventos()
+        run_backfill_transferencias_eventos()
+        run_migrations_stock_producao_lojas()
+        run_migrations_avencas()
+        run_migrations_tarefas()
+        run_migrations_tarefas_v2()
+        run_migrations_tarefas_v3()
+        run_migrations_tile_config()
+        _seed_all_tiles()
+        sync_produtos_vendas_config()
+        seed_artigos_administrativos()
 
     from flask_app.routes.auth import auth_bp
     from flask_app.routes.home import home_bp
@@ -436,14 +141,14 @@ def create_app():
     from flask_app.routes.faturas import faturas_bp
     from flask_app.routes.pagamentos import pagamentos_bp
     from flask_app.routes.store_placeholder import store_placeholder_bp
+    from flask_app.routes.meteorologia import meteorologia_bp
     from flask_app.routes.forecast import forecast_bp
     from flask_app.routes.cashflow import cashflow_bp
     from flask_app.routes.centros_custo import centros_custo_bp
     from flask_app.routes.categorias_custo import categorias_custo_bp
+    from flask_app.routes.avencas import avencas_bp
     from flask_app.routes.tarefas import tarefas_bp
-    from flask_app.routes.agente import agente_bp
-    from flask_app.routes.admin import admin_bp
-    from flask_app.routes.contabilidade import contabilidade_bp
+    from flask_app.routes.admin_export import admin_export_bp  # TEMPORÁRIO — remover após migração
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(home_bp)
@@ -461,29 +166,21 @@ def create_app():
     app.register_blueprint(faturas_bp, url_prefix='/financeiro/faturas')
     app.register_blueprint(pagamentos_bp, url_prefix='/financeiro/pagamentos')
     app.register_blueprint(store_placeholder_bp, url_prefix='/loja')
+    app.register_blueprint(meteorologia_bp, url_prefix='/meteorologia')
     app.register_blueprint(forecast_bp, url_prefix='/forecast')
     app.register_blueprint(cashflow_bp, url_prefix='/financeiro/cashflow')
     app.register_blueprint(centros_custo_bp, url_prefix='/financeiro/centros-custo')
     app.register_blueprint(categorias_custo_bp, url_prefix='/financeiro/categorias')
+    app.register_blueprint(avencas_bp, url_prefix='/financeiro/avencas')
     app.register_blueprint(tarefas_bp, url_prefix='/tarefas')
-    app.register_blueprint(agente_bp, url_prefix='/agente')
-    app.register_blueprint(admin_bp, url_prefix='/admin')
-    app.register_blueprint(contabilidade_bp, url_prefix='/contabilidade')
+    app.register_blueprint(admin_export_bp)  # TEMPORÁRIO — remover após migração
 
-    @app.errorhandler(413)
-    def request_entity_too_large(e):
-        from flask import flash, redirect, request as _req
-        flash('Ficheiro demasiado grande (máximo 5 MB). Escolhe um PDF mais pequeno ou comprime-o primeiro.', 'warning')
-        referrer = _req.referrer or url_for('home.index')
-        return redirect(referrer), 303
+    import weather_scheduler
+    weather_scheduler.start_weather_scheduler()
 
     @app.route('/healthcheck')
     def healthcheck():
         return 'OK', 200
-
-    @app.route('/favicon.ico')
-    def favicon():
-        return redirect(url_for('static', filename='favicon.svg'), code=302)
 
     DEV_TOKEN = os.environ.get('DEV_AUTO_LOGIN_TOKEN', '')
 
@@ -501,23 +198,10 @@ def create_app():
 
     @app.before_request
     def load_user():
-        _load_session_user()
-
-    @app.template_global()
-    def badge_attrs(bg_class_val):
-        """Return dict(css_class, inline_style) for a status badge bg_class value.
-
-        If bg_class_val starts with '#', it is treated as a hex color and rendered
-        via inline style.  Otherwise it is used as Bootstrap badge class(es).
-        """
-        val = (bg_class_val or 'bg-secondary').strip()
-        if val.startswith('#'):
-            return {'css_class': 'badge', 'inline_style': f'background-color:{val};color:#fff'}
-        return {'css_class': f'badge {val}', 'inline_style': ''}
+        g.user = session.get('user')
 
     @app.context_processor
     def inject_globals():
-        from flask_app.analytics import consume_analytics_events
         time_slots = ['%02d:%02d' % (h, m) for h in range(6, 24) for m in [0, 15, 30, 45]]
         event_type_options = [
             ('Corporativo', 'Corporativo/ Corporate'),
@@ -535,48 +219,16 @@ def create_app():
                 mobile_nav_primary_count = MOBILE_NAV_PRIMARY_COUNT
             except Exception as exc:
                 logger.warning("inject_globals: failed to compute nav_pages: %s", exc)
-        status_colors = {}
-        status_labels = {}
-        status_bulk_allowed = ['pending_review', 'scheduled', 'paid', 'cancelled']
-        try:
-            from db.faturas import (get_invoice_status_colors_map, get_invoice_status_labels_map,
-                                    get_invoice_status_bulk_allowed)
-            status_colors = get_invoice_status_colors_map()
-            status_labels = get_invoice_status_labels_map()
-            status_bulk_allowed = get_invoice_status_bulk_allowed()
-        except Exception as exc:
-            logger.debug("inject_globals: could not load status maps: %s", exc)
         return dict(user=user, time_slots=time_slots, event_type_options=event_type_options,
-                    nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count,
-                    status_colors=status_colors, status_labels=status_labels,
-                    status_bulk_allowed=status_bulk_allowed,
-                    pop_analytics_events=consume_analytics_events)
+                    nav_pages=nav_pages, mobile_nav_primary_count=mobile_nav_primary_count)
 
-    import psycopg2
-
-    @app.errorhandler(psycopg2.OperationalError)
-    @app.errorhandler(psycopg2.DatabaseError)
-    def handle_db_error(exc):
-        logger.error("DB error (503): %s", exc, exc_info=True)
-        return render_template('errors/503.html'), 503
-
-    @app.errorhandler(500)
-    def handle_500(exc):
-        logger.error("Unhandled 500: %s", exc, exc_info=True)
-        return render_template('errors/500.html'), 500
-
-    startup_logger.info(
-        "application_startup duration_ms=%.1f schema_phase_duration_ms=%.1f",
-        (time.monotonic() - startup_started) * 1000,
-        schema_duration * 1000,
-    )
     return app
+
+
 
 
 if __name__ == '__main__':
     app = create_app()
     if os.environ.get('EVENTOS_SYNC_ENABLED', '1') == '1':
         _start_sheets_sync_scheduler()
-    from flask_app.onedrive_scheduler import start_onedrive_scheduler
-    start_onedrive_scheduler()
     app.run(host='0.0.0.0', port=5000, debug=False)
