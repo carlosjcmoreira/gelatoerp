@@ -10,10 +10,7 @@ logger = logging.getLogger(__name__)
 def _get_openai_client():
     try:
         from openai import OpenAI
-        return OpenAI(
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
-        )
+        return OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     except Exception:
         return None
 

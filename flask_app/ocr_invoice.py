@@ -6,21 +6,13 @@ from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
-# Canonical set of valid document_type values — kept in sync with DOCUMENT_TYPE_LABELS in db/faturas.py
-_VALID_DOC_TYPES = frozenset({'fatura', 'nota_credito', 'nota_debito', 'nota_pagamento_imposto', 'outro'})
-
-# Uses Replit AI Integrations (Anthropic) — no personal API key required
-AI_INTEGRATIONS_ANTHROPIC_API_KEY = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
-AI_INTEGRATIONS_ANTHROPIC_BASE_URL = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 
 def _get_anthropic_client():
     try:
         from anthropic import Anthropic
-        return Anthropic(
-            api_key=AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-            base_url=AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
-        )
+        return Anthropic(api_key=ANTHROPIC_API_KEY)
     except ImportError:
         return None
 
@@ -61,26 +53,20 @@ def extract_invoice_fields(pdf_bytes: bytes, pdf_filename: str = '') -> dict:
     if not client:
         return _empty_extraction("Anthropic client not available")
 
-    if not AI_INTEGRATIONS_ANTHROPIC_BASE_URL:
-        return _empty_extraction("OCR service not configured")
+    if not ANTHROPIC_API_KEY:
+        return _empty_extraction("OCR service not configured (ANTHROPIC_API_KEY missing)")
 
     try:
         # Claude natively reads PDFs via base64
         pdf_b64 = base64.standard_b64encode(pdf_bytes).decode('utf-8')
 
-        prompt = """Analisa este documento PDF. Pode ser uma fatura de fornecedor privado OU um documento de pagamento emitido por uma entidade pública portuguesa (AT, Segurança Social, etc.).
-
-PASSO 1 — Identifica o tipo:
-- Se contém termos como "Declaração Mensal de Remunerações", "Retenções na Fonte", "Contribuições", "Segurança Social", "IRS", "IRC", "Imposto do Selo", "Importância a pagar", "Referência para pagamento" como guia estatal, "DGSS", "Autoridade Tributária" → é um documento governamental.
-- Caso contrário → é uma fatura de fornecedor privado.
-
-PASSO 2 — Devolve APENAS um objeto JSON válido (sem markdown, sem texto extra):
+        prompt = """Analisa este documento PDF que é uma fatura de fornecedor.
+Extrai os seguintes campos e devolve APENAS um objeto JSON válido (sem markdown, sem texto extra):
 
 {
-  "document_type_hint": "nota_pagamento_imposto",
-  "supplier_name": "nome do emitente",
-  "supplier_nif": null,
-  "invoice_number": "referência de pagamento ou número da fatura",
+  "supplier_name": "nome do fornecedor",
+  "supplier_nif": "NIF/NIPC do fornecedor (apenas dígitos, sem espaços ou pontos)",
+  "invoice_number": "número da fatura",
   "amount_eur": 0.00,
   "vat_amount_eur": 0.00,
   "issue_date": "YYYY-MM-DD",
@@ -99,35 +85,17 @@ PASSO 2 — Devolve APENAS um objeto JSON válido (sem markdown, sem texto extra
   }
 }
 
-Regras gerais:
+Regras:
 - Se um campo não for encontrado, usa null.
-- Para datas, usa formato YYYY-MM-DD.
+- Para datas, usa formato YYYY-MM-DD. Se apenas ano/mês visível, tenta inferir ou devolve null.
+- amount_eur é o total a pagar (incluindo IVA).
+- vat_amount_eur é apenas o valor de IVA.
 - confidence é um valor entre 0 e 1 por campo (1 = certeza absoluta).
-- Devolve APENAS o JSON, sem qualquer texto adicional.
-
-Regras para documentos GOVERNAMENTAIS (AT, Segurança Social, etc.):
-- document_type_hint = "nota_pagamento_imposto"
-- supplier_name = nome da entidade emissora (ex: "Autoridade Tributária e Aduaneira", "Segurança Social / IGFSS")
-- supplier_nif = null (o NIF visível no documento é da empresa que paga, não do emitente estatal)
-- invoice_number = a "Referência para pagamento" Multibanco (ex: "156490263043606") — só dígitos, sem pontos ou espaços
-- amount_eur = "Importância a pagar" ou "Valor a pagar" ou soma total de contribuições
-- vat_amount_eur = 0.00 (documentos estatais não têm IVA separado)
-- issue_date = data de receção da declaração ou data do documento
-- due_date = "Data limite de pagamento" se indicada, caso contrário null
-- payment_method_hint = null
-- payment_terms_hint = null
-- supplier_iban = null
-
-Regras para FATURAS de fornecedor privado:
-- document_type_hint = "fatura" (ou "nota_credito" se for nota de crédito, "nota_debito" se for nota de débito, "outro" nos restantes casos)
-- supplier_name = nome do fornecedor
-- supplier_nif = NIF/NIPC do fornecedor, sem pontos, espaços ou traços. Para Portugal, devolve os nove dígitos ou "PT" + nove dígitos. Para fornecedor estrangeiro, inclui o indicativo fiscal de país que esteja visível (ex.: "ESB12345678"); não infiras o país. Se o indicativo ou a identidade do NIF não forem claros, usa null. NUNCA colocar o NIF do comprador/destinatário (ex: 516388819) — se o único NIF visível for esse, supplier_nif = null
-- invoice_number = número da fatura
-- amount_eur = total a pagar incluindo IVA
-- vat_amount_eur = valor do IVA
-- payment_method_hint: "transferencia", "debito_direto", "confirming" ou "numerario" se detetado, null caso contrário
-- payment_terms_hint: "a_pronto", "15_dias", "30_dias", "60_dias" ou "final_mes" se detetado, null caso contrário
-- supplier_iban: IBAN do fornecedor se visível (ex: "PT50..."), null caso contrário"""
+- NIF deve ter apenas dígitos, sem pontos ou espaços.
+- payment_method_hint: se detetares menção a método de pagamento (transferência, débito direto, confirming, numerário), devolve um dos valores: "transferencia", "debito_direto", "confirming", "numerario". Caso contrário null.
+- payment_terms_hint: se detetares prazo de pagamento (ex: "a pronto", "30 dias", "60 dias", "final do mês"), devolve um dos valores: "a_pronto", "15_dias", "30_dias", "60_dias", "final_mes". Caso contrário null.
+- supplier_iban: se encontrares um IBAN do fornecedor no documento, extrai-o (ex: "PT50..."). Caso contrário null.
+- Devolve APENAS o JSON, sem qualquer texto adicional."""
 
         message = client.messages.create(
             model="claude-haiku-4-5",
@@ -162,13 +130,7 @@ Regras para FATURAS de fornecedor privado:
         confidences = parsed.get('confidence', {})
         avg_confidence = sum(v for v in confidences.values() if v is not None) / max(len(confidences), 1)
 
-        raw_doc_type = parsed.get('document_type_hint')
-        document_type_hint = raw_doc_type if raw_doc_type in _VALID_DOC_TYPES else 'fatura'
-        logger.info("OCR PDF classification: document_type_hint=%r (raw=%r) confidence=%.2f",
-                    document_type_hint, raw_doc_type, avg_confidence)
-
         return {
-            'document_type_hint': document_type_hint,
             'supplier_name': parsed.get('supplier_name'),
             'supplier_nif': _clean_nif(parsed.get('supplier_nif')),
             'invoice_number': parsed.get('invoice_number'),
@@ -191,7 +153,6 @@ Regras para FATURAS de fornecedor privado:
 
 def _empty_extraction(error: str) -> dict:
     return {
-        'document_type_hint': None,
         'supplier_name': None,
         'supplier_nif': None,
         'invoice_number': None,
@@ -218,8 +179,8 @@ def extract_invoice_fields_from_image(image_bytes: bytes, filename: str = '') ->
     if not client:
         return _empty_extraction("Anthropic client not available")
 
-    if not AI_INTEGRATIONS_ANTHROPIC_BASE_URL:
-        return _empty_extraction("OCR service not configured")
+    if not ANTHROPIC_API_KEY:
+        return _empty_extraction("OCR service not configured (ANTHROPIC_API_KEY missing)")
 
     try:
         # Determine media type from filename
@@ -248,19 +209,13 @@ def extract_invoice_fields_from_image(image_bytes: bytes, filename: str = '') ->
 
         image_b64 = base64.standard_b64encode(image_bytes).decode('utf-8')
 
-        prompt = """Analisa esta imagem. Pode ser uma fatura de fornecedor privado, guia de entrega, ou um documento de pagamento emitido por uma entidade pública portuguesa (AT, Segurança Social, etc.).
-
-PASSO 1 — Identifica o tipo:
-- Se contém termos como "Declaração Mensal de Remunerações", "Retenções na Fonte", "Contribuições", "Segurança Social", "IRS", "IRC", "Importância a pagar", "Referência para pagamento" como guia estatal, "Autoridade Tributária" → é um documento governamental.
-- Caso contrário → é uma fatura ou guia de fornecedor privado.
-
-PASSO 2 — Devolve APENAS um objeto JSON válido (sem markdown, sem texto extra):
+        prompt = """Analisa esta imagem que pode ser uma fatura, guia de entrega ou documento de compra.
+Extrai os seguintes campos e devolve APENAS um objeto JSON válido (sem markdown, sem texto extra):
 
 {
-  "document_type_hint": "fatura",
-  "supplier_name": "nome do emitente",
-  "supplier_nif": null,
-  "invoice_number": "referência de pagamento ou número da fatura/guia",
+  "supplier_name": "nome do fornecedor",
+  "supplier_nif": "NIF/NIPC do fornecedor (apenas dígitos, sem espaços ou pontos)",
+  "invoice_number": "número da fatura ou guia",
   "amount_eur": 0.00,
   "vat_amount_eur": 0.00,
   "issue_date": "YYYY-MM-DD",
@@ -279,31 +234,17 @@ PASSO 2 — Devolve APENAS um objeto JSON válido (sem markdown, sem texto extra
   }
 }
 
-Regras gerais:
+Regras:
 - Se um campo não for encontrado, usa null.
 - Para datas, usa formato YYYY-MM-DD.
+- amount_eur é o total a pagar (incluindo IVA).
+- vat_amount_eur é apenas o valor de IVA.
 - confidence é um valor entre 0 e 1 por campo.
-- Devolve APENAS o JSON, sem qualquer texto adicional.
-
-Regras para documentos GOVERNAMENTAIS:
-- document_type_hint = "nota_pagamento_imposto"
-- supplier_name = nome da entidade emissora (ex: "Autoridade Tributária e Aduaneira", "Segurança Social")
-- supplier_nif = null
-- invoice_number = a "Referência para pagamento" (só dígitos)
-- amount_eur = "Importância a pagar" ou total de contribuições
-- vat_amount_eur = 0.00
-- due_date = "Data limite de pagamento" se indicada
-
-Regras para FATURAS/GUIAS de fornecedor privado:
-- document_type_hint = "fatura" (ou "nota_credito", "nota_debito", "outro" conforme o documento)
-- supplier_name = nome do fornecedor
-- supplier_nif = NIF do fornecedor, sem pontos, espaços ou traços. Para Portugal, devolve os nove dígitos ou "PT" + nove dígitos. Para fornecedor estrangeiro, inclui o indicativo fiscal de país que esteja visível (ex.: "ESB12345678"); não infiras o país. Se o indicativo ou a identidade do NIF não forem claros, usa null. NUNCA colocar o NIF do comprador/destinatário (ex: 516388819) — se o único NIF visível for esse, supplier_nif = null
-- invoice_number = número da fatura ou guia
-- amount_eur = total a pagar incluindo IVA
-- vat_amount_eur = valor do IVA
-- payment_method_hint: "transferencia", "debito_direto", "confirming" ou "numerario" se detetado, null caso contrário
-- payment_terms_hint: "a_pronto", "15_dias", "30_dias", "60_dias" ou "final_mes" se detetado, null caso contrário
-- supplier_iban: IBAN do fornecedor se visível, null caso contrário"""
+- NIF deve ter apenas dígitos, sem pontos ou espaços.
+- payment_method_hint: se detetares método de pagamento, devolve um de: "transferencia", "debito_direto", "confirming", "numerario". Caso contrário null.
+- payment_terms_hint: se detetares prazo, devolve um de: "a_pronto", "15_dias", "30_dias", "60_dias", "final_mes". Caso contrário null.
+- supplier_iban: extrai o IBAN do fornecedor se visível. Caso contrário null.
+- Devolve APENAS o JSON, sem qualquer texto adicional."""
 
         message = client.messages.create(
             model="claude-haiku-4-5",
@@ -338,13 +279,7 @@ Regras para FATURAS/GUIAS de fornecedor privado:
         confidences = parsed.get('confidence', {})
         avg_confidence = sum(v for v in confidences.values() if v is not None) / max(len(confidences), 1)
 
-        raw_doc_type = parsed.get('document_type_hint')
-        document_type_hint = raw_doc_type if raw_doc_type in _VALID_DOC_TYPES else 'fatura'
-        logger.info("OCR image classification: document_type_hint=%r (raw=%r) confidence=%.2f",
-                    document_type_hint, raw_doc_type, avg_confidence)
-
         return {
-            'document_type_hint': document_type_hint,
             'supplier_name': parsed.get('supplier_name'),
             'supplier_nif': _clean_nif(parsed.get('supplier_nif')),
             'invoice_number': parsed.get('invoice_number'),
@@ -368,8 +303,7 @@ Regras para FATURAS/GUIAS de fornecedor privado:
 def _clean_nif(val) -> str:
     if not val:
         return None
-    cleaned = str(val).strip().replace(' ', '').replace('-', '')
-    return cleaned.upper() or None
+    return ''.join(c for c in str(val) if c.isdigit())
 
 
 def _parse_float(val) -> float:

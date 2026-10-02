@@ -4,7 +4,7 @@ Uses Claude claude-sonnet-4-5 via the Anthropic API.  Each row of the first tabl
 (Gelado) is extracted with three fields:
   • nome_produto   — product / flavour name as written on the sheet
   • peso_remanescente — remaining weight (kg, decimal comma notation)
-  • peso_acrescido    — added weight (kg, or null if blank / zero / "Ø")
+  • peso_acrescido    — added weight (kg, or null if blank / zero / \"Ø\")
 
 The total_kg per row is always   peso_remanescente + (peso_acrescido or 0).
 The Granite/Altro section at the bottom of the form is ignored.
@@ -18,8 +18,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-_API_KEY = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
-_BASE_URL = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
+_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 _PROMPT = r"""Analisa esta fotografia de uma folha de rastreabilidade NIVA' intitulada
 "RASTREABILIDADE DO PRODUTO PRONTO: GELADO/OUTRO".
@@ -77,7 +76,7 @@ Devolve APENAS o JSON, sem qualquer texto adicional."""
 def _get_client():
     try:
         from anthropic import Anthropic
-        return Anthropic(api_key=_API_KEY, base_url=_BASE_URL)
+        return Anthropic(api_key=_API_KEY)
     except ImportError:
         return None
 
@@ -101,8 +100,8 @@ def ocr_pesagem(image_bytes: bytes, filename: str = '') -> dict:
     client = _get_client()
     if not client:
         return _err("Serviço OCR Anthropic não disponível")
-    if not _BASE_URL:
-        return _err("Serviço OCR não configurado (BASE_URL em falta)")
+    if not _API_KEY:
+        return _err("Serviço OCR não configurado (ANTHROPIC_API_KEY em falta)")
 
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpeg'
     media_map = {
