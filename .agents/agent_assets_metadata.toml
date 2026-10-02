@@ -42,3 +42,17 @@ mtime_ms = 1790929099465
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:93e1c805-9bb1-46a0-853e-48fde7f7f7ad/35d97ead-f431-49da-b98e-466a39b14138/8ada460b-2b9f-4471-945a-07e23444b334"
 storage_version_token = "1790929171924778"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "Ecrll6Ib85YRKnrOLdugU"
+uri = "file://outputs/decisao_encomenda_contagem.pdf"
+type = "pdf"
+title = "Encomendas e contagens — opções para decisão"
+description = "Nota de uma página com a regra atual, matriz dos cinco cenários, duas opções futuras, recomendação e pergunta para aprovação. O Markdown editável está em outputs/decisao_encomenda_contagem.md."
+logical_id = "de83519c-43bc-46b9-a2a8-f53faaebe756"
+content_hash = "sha256:37dba5faaeeda3f75df6de44ff84403aad56becaf414edc99915ce99f731c2c8"
+size = 4546
+mtime_ms = 1790929356423
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:93e1c805-9bb1-46a0-853e-48fde7f7f7ad/de83519c-43bc-46b9-a2a8-f53faaebe756/65c6fc17-0f9b-4d9d-bf98-2016cc204234"
+storage_version_token = "1790929455978512"
+content_type = "application/pdf"
