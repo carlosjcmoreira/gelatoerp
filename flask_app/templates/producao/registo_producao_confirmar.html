@@ -32,6 +32,7 @@
 {% endif %}
 
 <form method="post" action="{{ url_for('producao.registo_producao_guardar') }}">
+    <input type="hidden" name="submission_id" value="{{ submission_id }}">
     <div class="d-flex gap-2 mb-3">
         <a href="{{ url_for('producao.registo_producao') }}" class="btn btn-outline-secondary flex-fill">Cancelar</a>
         <button type="submit" class="btn btn-success flex-fill">Guardar produção</button>
@@ -73,32 +74,32 @@
                     </td>
                     <td class="text-center px-1">
                         <input type="number" name="pesagem_mat_{{ r.sabor }}" class="form-control form-control-sm text-center p-1"
-                               value="{{ '%.3f'|format(r.pesagem_mat) if r.pesagem_mat else '' }}"
-                               step="0.001" min="0" style="width:75px;margin:auto;">
+                                value="{{ r.pesagem_mat if r.pesagem_mat else '' }}"
+                                step="0.0001" min="0" style="width:75px;margin:auto;">
                     </td>
                     <td class="text-center px-1 border-start">
                         <input type="number" name="prod_bolhao_{{ r.sabor }}" class="form-control form-control-sm text-center p-1
                                {% if r.prod_bolhao > 0 %}border-success{% endif %}"
-                               value="{{ '%.3f'|format(r.prod_bolhao) if r.prod_bolhao else '' }}"
-                               step="0.001" min="0" style="width:75px;margin:auto;">
+                                value="{{ r.prod_bolhao if r.prod_bolhao else '' }}"
+                                step="0.0001" min="0" style="width:75px;margin:auto;">
                     </td>
                     <td class="text-center px-1">
                         <input type="number" name="prod_matosinhos_{{ r.sabor }}" class="form-control form-control-sm text-center p-1
                                {% if r.prod_matosinhos > 0 %}border-success{% endif %}"
-                               value="{{ '%.3f'|format(r.prod_matosinhos) if r.prod_matosinhos else '' }}"
-                               step="0.001" min="0" style="width:75px;margin:auto;">
+                                value="{{ r.prod_matosinhos if r.prod_matosinhos else '' }}"
+                                step="0.0001" min="0" style="width:75px;margin:auto;">
                     </td>
                     <td class="text-center px-1">
                         <input type="number" name="prod_mouzinho_{{ r.sabor }}" class="form-control form-control-sm text-center p-1
                                {% if r.prod_mouzinho > 0 %}border-success{% endif %}"
-                               value="{{ '%.3f'|format(r.prod_mouzinho) if r.prod_mouzinho else '' }}"
-                               step="0.001" min="0" style="width:75px;margin:auto;">
+                                value="{{ r.prod_mouzinho if r.prod_mouzinho else '' }}"
+                                step="0.0001" min="0" style="width:75px;margin:auto;">
                     </td>
                     <td class="text-center px-1">
                         <input type="number" name="prod_b2b_{{ r.sabor }}" class="form-control form-control-sm text-center p-1
                                {% if r.prod_b2b > 0 %}border-success{% endif %}"
-                               value="{{ '%.3f'|format(r.prod_b2b) if r.prod_b2b else '' }}"
-                               step="0.001" min="0" style="width:75px;margin:auto;">
+                                value="{{ r.prod_b2b if r.prod_b2b else '' }}"
+                                step="0.0001" min="0" style="width:75px;margin:auto;">
                     </td>
                 </tr>
                 {% endfor %}

@@ -193,6 +193,9 @@ class TransferenciasB2BTests(unittest.TestCase):
             None,
             None,
             None,
+            "nao_identificada",
+            None,
+            False,
         )
         cursor = FakeCursor(fetchall_value=[row])
         connection = FakeConnection(cursor)

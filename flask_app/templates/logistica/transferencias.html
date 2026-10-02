@@ -61,7 +61,16 @@
                     <tr>
                         <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}"
                                   style="font-size:0.65rem;">{{ o.area_origem }}</span></td>
-                        <td>{{ o.produto }}</td>
+                        <td>
+                            {{ o.produto }}
+                            {% if o.origem_registo == 'producao_dia' %}
+                            <span class="badge bg-success-subtle text-success-emphasis ms-1">Produção do dia · reg. #{{ o.producao_origem_id }}</span>
+                            {% elif o.origem_registo == 'stock_existente' %}
+                            <span class="badge bg-info-subtle text-info-emphasis ms-1">Stock existente</span>
+                            {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary-emphasis ms-1">Origem não identificada</span>
+                            {% endif %}
+                        </td>
                         <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
                         <td class="text-center">
                             {% if o.status == 'pendente' %}
@@ -135,6 +144,15 @@
             </select>
         </div>
         <div class="col-6 col-md-2">
+            <label class="form-label mb-1 small fw-semibold">Origem</label>
+            <select name="origem_registo" class="form-select form-select-sm">
+                <option value="">Todas</option>
+                <option value="producao_dia" {% if filtro_origem == 'producao_dia' %}selected{% endif %}>Produção do dia</option>
+                <option value="stock_existente" {% if filtro_origem == 'stock_existente' %}selected{% endif %}>Stock existente</option>
+                <option value="nao_identificada" {% if filtro_origem == 'nao_identificada' %}selected{% endif %}>Não identificada</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
             <label class="form-label mb-1 small fw-semibold">Destino</label>
             <select name="loja_destino" class="form-select form-select-sm">
                 <option value="">Todas</option>
@@ -176,6 +194,7 @@
         <tr>
             <th style="width:36px;">#</th>
             <th>Área</th>
+            <th>Origem</th>
             <th>Produto</th>
             <th class="text-center">Qty</th>
             <th class="text-center">Destino</th>
@@ -194,6 +213,16 @@
     <tr class="transfer-history-order-row" style="cursor:pointer;" onclick="toggleEventos({{ o.id }})">
         <td class="text-muted">{{ o.id }}</td>
         <td><span class="badge bg-{{ area_color }}" style="font-size:0.7rem;">{{ o.area_origem }}</span></td>
+        <td>
+            {% if o.origem_registo == 'producao_dia' %}
+            <span class="badge bg-success-subtle text-success-emphasis">Produção do dia</span>
+            <div class="small text-muted">Registo #{{ o.producao_origem_id }}</div>
+            {% elif o.origem_registo == 'stock_existente' %}
+            <span class="badge bg-info-subtle text-info-emphasis">Stock existente</span>
+            {% else %}
+            <span class="badge bg-secondary-subtle text-secondary-emphasis">Não identificada</span>
+            {% endif %}
+        </td>
         <td>{{ o.produto }}{% if o.sabor and o.sabor != o.produto %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
         <td class="text-center">{{ "%.1f"|format(o.quantidade) }} {{ o.unidade }}</td>
         <td class="text-center">
@@ -219,7 +248,7 @@
         <td class="text-center text-muted" id="chevron-{{ o.id }}">▶</td>
     </tr>
     <tr id="eventos-{{ o.id }}" style="display:none;">
-        <td colspan="10" class="p-0">
+        <td colspan="11" class="p-0">
             <div class="px-3 py-2 bg-light border-bottom">
                 {% if o.rececao_estado == 'problema' and o.motivo_problema %}
                 <div class="alert alert-danger py-1 px-2 mb-2" style="font-size:0.8rem;">
@@ -270,6 +299,15 @@
                 <span class="badge bg-{{ area_color }}" style="font-size:0.65rem;">{{ o.area_origem }}</span>
                 <span class="fw-semibold ms-1">{{ o.produto }}</span>
                 {% if o.sabor and o.sabor != o.produto %}<span class="text-muted"> ({{ o.sabor }})</span>{% endif %}
+                <div class="small mt-1">
+                    {% if o.origem_registo == 'producao_dia' %}
+                    <span class="badge bg-success-subtle text-success-emphasis">Produção do dia · reg. #{{ o.producao_origem_id }}</span>
+                    {% elif o.origem_registo == 'stock_existente' %}
+                    <span class="badge bg-info-subtle text-info-emphasis">Stock existente</span>
+                    {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis">Origem não identificada</span>
+                    {% endif %}
+                </div>
             </div>
             <span class="badge bg-{{ status_color }} ms-2 flex-shrink-0" style="font-size:0.65rem;">{{ status_label }}</span>
         </div>
@@ -319,19 +357,19 @@
 <nav class="mt-3">
     <ul class="pagination pagination-sm justify-content-center flex-wrap">
         <li class="page-item {% if page <= 1 %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=page - 1) }}">‹</a>
+            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, origem_registo=filtro_origem, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=page - 1) }}">‹</a>
         </li>
         {% for p in range(1, total_pages + 1) %}
         {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
         <li class="page-item {% if p == page %}active{% endif %}">
-            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=p) }}">{{ p }}</a>
+            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, origem_registo=filtro_origem, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=p) }}">{{ p }}</a>
         </li>
         {% elif p == page - 3 or p == page + 3 %}
         <li class="page-item disabled"><span class="page-link">…</span></li>
         {% endif %}
         {% endfor %}
         <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=page + 1) }}">›</a>
+            <a class="page-link" href="{{ url_for('logistica.transferencias', tab='historico', area_origem=filtro_area, status=filtro_status, loja_destino=filtro_loja, rececao_estado=filtro_rececao, origem_registo=filtro_origem, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, page=page + 1) }}">›</a>
         </li>
     </ul>
 </nav>

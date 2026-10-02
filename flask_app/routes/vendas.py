@@ -1900,10 +1900,14 @@ def transferencias():
 
     batch_map = {}
     for o in pendentes:
-        batch_key = o.get('batch_id') or f'_solo_{o["id"]}'
+        batch_key = (
+            o.get('batch_id') or f'_solo_{o["id"]}',
+            o.get('origem_registo', 'nao_identificada'),
+        )
         if batch_key not in batch_map:
             batch_map[batch_key] = {
                 'batch_id': o.get('batch_id'),
+                'origem_registo': o.get('origem_registo', 'nao_identificada'),
                 'areas_origem': set(),
                 'datas_previstas': set(),
                 'datas': set(),

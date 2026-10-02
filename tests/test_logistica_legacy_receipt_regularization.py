@@ -125,6 +125,7 @@ class LogisticaLegacyReceiptRegularizationTests(unittest.TestCase):
             status="confirmada",
             loja_destino="B2B",
             area_origem="Gelado",
+            origem_registo=None,
             rececao_estado="nao_aplicavel",
             data_inicio=date(2026, 9, 9),
             data_fim=date(2026, 9, 15),

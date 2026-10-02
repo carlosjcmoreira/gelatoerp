@@ -1,4 +1,6 @@
 import logging
+import uuid
+from decimal import Decimal, InvalidOperation
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_app.auth import perm_required
 from flask_app.analytics import queue_analytics_event
@@ -95,6 +97,23 @@ def _parse_decimal(s):
         return float(str(s).replace(',', '.').strip())
     except (ValueError, AttributeError):
         return 0.0
+
+
+def _parse_submission_decimal(value, sabor, field):
+    text = str(value or '').strip().replace(',', '.')
+    if not text:
+        return Decimal('0')
+    try:
+        number = Decimal(text)
+    except InvalidOperation:
+        raise ValueError(f'Valor inválido para {sabor} ({field}).')
+    if not number.is_finite() or number < 0:
+        raise ValueError(f'Use uma quantidade válida e não negativa para {sabor} ({field}).')
+    if max(0, -number.as_tuple().exponent) > 4:
+        raise ValueError(f'A quantidade de {sabor} ({field}) pode ter no máximo quatro casas decimais.')
+    if number > Decimal('999999.9999'):
+        raise ValueError(f'A quantidade de {sabor} ({field}) excede o limite permitido.')
+    return number
 
 
 def _format_date(val):
@@ -694,7 +713,11 @@ def registo_producao_eliminar():
     except (KeyError, ValueError):
         flash("ID inválido.", "danger")
         return redirect(url_for('producao.registo_producao'))
-    deleted = delete_producao_record(record_id)
+    try:
+        deleted = delete_producao_record(record_id)
+    except ValueError as exc:
+        flash(str(exc), "warning")
+        return redirect(url_for('producao.registo_producao'))
     if deleted:
         flash("Registo eliminado com sucesso.", "success")
     else:
@@ -804,6 +827,7 @@ def registo_producao_confirmar():
                            confidence=confidence, ocr_error=ocr_error,
                            manual_entry=manual_entry,
                            no_ocr_values=no_ocr_values,
+                           submission_id=str(uuid.uuid4()),
                            today=str(date.today()))
 
 
@@ -811,11 +835,12 @@ def registo_producao_confirmar():
 @perm_required('acesso_producao')
 def registo_producao_guardar():
     username = session.get('user', {}).get('username', 'system')
-    data_str = request.form.get('data', str(date.today()))
+    data_str = request.form.get('data', '').strip()
     try:
         data_prod = date.fromisoformat(data_str)
-    except ValueError:
-        data_prod = date.today()
+    except (ValueError, TypeError):
+        flash("Data de produção inválida. Verifique a data e tente novamente.", "warning")
+        return redirect(url_for('producao.registo_producao_confirmar'))
 
     sabores_form = {}
     for key, val in request.form.items():
@@ -828,7 +853,15 @@ def registo_producao_guardar():
         ):
             if key.startswith(prefix):
                 sabor = key[len(prefix):]
-                sabores_form.setdefault(sabor, {})[field] = _parse_decimal(val)
+                if not sabor:
+                    flash("O formulário contém um sabor inválido.", "warning")
+                    return redirect(url_for('producao.registo_producao_confirmar'))
+                try:
+                    number = _parse_submission_decimal(val, sabor, field)
+                except ValueError as exc:
+                    flash(str(exc), "warning")
+                    return redirect(url_for('producao.registo_producao_confirmar'))
+                sabores_form.setdefault(sabor, {})[field] = number
                 if field == 'pesagem_mat':
                     sabores_form[sabor]['pesagem_mat_explicit'] = val.strip() != ''
                 break
@@ -836,53 +869,88 @@ def registo_producao_guardar():
     ocr_session = session.get('ocr_producao_data', {})
     manual_entry = ocr_session.get('manual_entry', True)
     tipo_registo = 'manual' if manual_entry else 'ocr'
+    allowed_flavours = set(get_sabores_list())
+    allowed_flavours.update((ocr_session.get('sabores') or {}).keys())
+    prior_form = session.get('producao_last_submission') or {}
+    token = request.form.get('submission_id', '').strip()
+    if prior_form.get('id') == token:
+        allowed_flavours.update(prior_form.get('sabores') or [])
+    unknown = sorted(set(sabores_form) - allowed_flavours)
+    if unknown:
+        flash(f"Sabor(es) inválido(s): {', '.join(unknown)}.", "warning")
+        return redirect(url_for('producao.registo_producao_confirmar'))
 
-    saved = 0
-    sabores_para_ordens = {}
+    clean_rows = []
     for sabor, vals in sabores_form.items():
-        pesagem_mat = vals.get('pesagem_mat', 0.0)
-        prod_bol = vals.get('prod_bolhao', 0.0)
-        prod_mat = vals.get('prod_matosinhos', 0.0)
-        prod_mou = vals.get('prod_mouzinho', 0.0)
-        prod_b2b = vals.get('prod_b2b', 0.0)
-        pesagem_mat_explicit = vals.get('pesagem_mat_explicit', False)
-
-        if all(v == 0 for v in [pesagem_mat, prod_bol, prod_mat, prod_mou, prod_b2b]):
-            if not pesagem_mat_explicit:
-                continue
-
-        upsert_plano_producao(
-            data_prod, sabor,
-            pesagem_matosinhos=pesagem_mat,
-            producao_estimada_bolhao=prod_bol,
-            producao_estimada_matosinhos=prod_mat,
-            producao_estimada_outros=prod_b2b,
-            producao_estimada_mouzinho=prod_mou,
+        clean_rows.append({
+            'sabor': sabor,
+            'pesagem_mat': vals.get('pesagem_mat', Decimal('0')),
+            'pesagem_mat_explicit': vals.get('pesagem_mat_explicit', False),
+            'prod_bolhao': vals.get('prod_bolhao', Decimal('0')),
+            'prod_matosinhos': vals.get('prod_matosinhos', Decimal('0')),
+            'prod_mouzinho': vals.get('prod_mouzinho', Decimal('0')),
+            'prod_b2b': vals.get('prod_b2b', Decimal('0')),
+        })
+    try:
+        from db.gelado_producao_envios import guardar_submissao_producao
+        result = guardar_submissao_producao(
+            token, data_prod, clean_rows, tipo_registo, username,
         )
+    except ValueError as exc:
+        # Keep the user's values on the confirmation page; an invalid or stale
+        # identity is replaced there with a fresh form identity.
+        session['ocr_producao_data'] = {
+            'date': data_str,
+            'sabores': {
+                row['sabor']: {
+                    'pesagem_mat': float(row['pesagem_mat']),
+                    'prod_bolhao': float(row['prod_bolhao']),
+                    'prod_matosinhos': float(row['prod_matosinhos']),
+                    'prod_mouzinho': float(row['prod_mouzinho']),
+                    'prod_b2b': float(row['prod_b2b']),
+                }
+                for row in clean_rows
+            },
+            'confidence': 0.0,
+            'error': None,
+            'manual_entry': manual_entry,
+        }
+        flash(str(exc), "warning")
+        return redirect(url_for('producao.registo_producao_confirmar'))
+    except Exception:
+        logger.exception("Erro ao guardar a submissão de produção")
+        flash("Não foi possível guardar o registo de produção. Tente novamente.", "danger")
+        return redirect(url_for('producao.registo_producao_confirmar'))
 
-        if pesagem_mat_explicit:
-            upsert_pesagem_matosinhos_inicio(data_prod, sabor, pesagem_mat)
+    if result.get('replayed'):
+        flash("Este formulário já tinha sido guardado; não foram repetidos movimentos.", "info")
+        return redirect(url_for('producao.registo_producao'))
 
-        for loja, qty in (('Bolhão', prod_bol), ('Matosinhos', prod_mat),
-                          ('Mouzinho', prod_mou), ('B2B', prod_b2b)):
-            if qty > 0:
-                add_stock_producao(data_prod, sabor, loja, qty)
-                add_producao(data_prod, loja, qty, tipo=tipo_registo, sabor=sabor)
-
-        for loja, qty in (('Bolhão', prod_bol), ('Mouzinho', prod_mou)):
-            if qty > 0:
-                sabores_para_ordens.setdefault(sabor, {})[loja] = qty
-
-        saved += 1
-
+    session['producao_last_submission'] = {
+        'id': token,
+        'sabores': list(sabores_form),
+    }
     session.pop('ocr_producao_data', None)
-
+    saved = result['saved']
     if not saved:
         flash("Nenhuma alteração guardada.", "info")
         return redirect(url_for('producao.registo_producao'))
 
-    flash(f"Produção registada: {saved} sabor(es).", "success")
+    automatic_orders = result['automatic_orders']
+    if automatic_orders:
+        flash(
+            f"Produção registada: {saved} sabor(es). "
+            f"Envio automático para Bolhão: {result['automatic_kg']} kg "
+            f"em {len(automatic_orders)} ordem(ns), por verificar pela loja.",
+            "success",
+        )
+    else:
+        flash(f"Produção registada: {saved} sabor(es).", "success")
 
+    sabores_para_ordens = {}
+    for row in clean_rows:
+        if row['prod_mouzinho'] > 0:
+            sabores_para_ordens.setdefault(row['sabor'], {})['Mouzinho'] = float(row['prod_mouzinho'])
     if sabores_para_ordens:
         session['producao_ordens_pendentes'] = {
             'data': str(data_prod),
@@ -906,6 +974,15 @@ def registo_producao_ordens():
     sabores_ordens = pendentes.get('sabores', {})
     data_prod = pendentes.get('data', str(date.today()))
     saved = pendentes.get('saved', 0)
+    # Bolhão is dispatched atomically by the production save. This also
+    # prevents an old session snapshot from rendering the former optional step.
+    sabores_ordens = {
+        sabor: {loja: qty for loja, qty in lojas.items() if loja != 'Bolhão'}
+        for sabor, lojas in sabores_ordens.items()
+    }
+    sabores_ordens = {
+        sabor: lojas for sabor, lojas in sabores_ordens.items() if lojas
+    }
 
     lojas_com_producao = sorted({
         loja
@@ -938,18 +1015,25 @@ def registo_producao_criar_ordens():
     ordens = 0
     avisos = []
     try:
+        submitted_orders = []
         for key, val in request.form.items():
             if not key.startswith('ordem_'):
                 continue
             parts = key[len('ordem_'):].split('_', 1)
             if len(parts) != 2:
-                continue
+                raise ValueError("Campo de ordem inválido.")
             loja, sabor = parts
-            qty = _parse_decimal(val)
+            qty = _parse_submission_decimal(val, sabor, 'ordem')
+            if loja == 'Bolhão' and qty > 0:
+                raise ValueError(
+                    "O envio de produção para Bolhão já é criado automaticamente ao guardar o registo."
+                )
+            if loja not in ('Bolhão', 'Mouzinho'):
+                raise ValueError("Loja de destino inválida.")
             if qty <= 0:
                 continue
-            if loja not in ('Bolhão', 'Mouzinho'):
-                continue
+            submitted_orders.append((loja, sabor, qty))
+        for loja, sabor, qty in submitted_orders:
             disponivel = get_stock_producao(data_prod, sabor, loja)
             if disponivel <= 0:
                 avisos.append(f"{sabor} ({loja}): sem stock disponível, ordem ignorada.")
@@ -1242,7 +1326,12 @@ def transferir():
                             sabor=sabor, criado_por=username,
                             data_prevista=data_prevista, batch_id=batch_id,
                             destino_tipo=destino_tipo, destino_nome=destino_nome,
-                            loja_origem=stock_loja if destino_tipo == 'b2b' else None,
+                            loja_origem=(
+                                'Matosinhos'
+                                if loja_destino == 'Bolhão'
+                                else stock_loja if destino_tipo == 'b2b' else None
+                            ),
+                            origem_registo='stock_existente',
                         )
                         ordens_count += 1
         except psycopg2.DatabaseError:

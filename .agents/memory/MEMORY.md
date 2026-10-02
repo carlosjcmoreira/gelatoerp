@@ -17,6 +17,7 @@
 - [Gelato stock rotation evidence](gelato-stock-rotation.md) — calculate from comparable weighings and audited movements; ambiguous intervals never feed averages.
 - [Gelato dose history cutoff](gelato-dose-history-cutoff.md) — current dose rules are not evidence of past grams; pre-cutoff theoretical consumption must stay unknown unless explicitly backfilled.
 - [Gelato sales dose identity](gelato-sales-dose-identity.md) — dose KPIs use stable product IDs and dated explicit rule IDs; names are migration suggestions only.
+- [Gelado production dispatch](gelado-production-dispatch.md) — Bolhão allocation at production confirmation is same-day dispatch; existing-stock sends from Matosinhos are additional.
 - [Multi-worker cache invalidation](multi-worker-cache-invalidation.md) — mutable DB config caches must publish a shared generation so every Gunicorn worker rejects stale local entries.
 - [Photon language parameter](photon-language-parameter.md) — Photon rejects `lang=pt`; omit the language parameter for Portuguese address suggestions.
 - [Event location consolidation](event-location-consolidation.md) — only exact name-and-address matches auto-link; ambiguous historic locations require audited human confirmation.

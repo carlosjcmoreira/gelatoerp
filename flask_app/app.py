@@ -101,6 +101,7 @@ from db.schema import (
     run_migrations_compras_pedidos_envios,
 )
 from db.schema import run_migrations_doseamento_gelado
+from db.schema import run_migrations_gelado_producao_envios
 from db.schema import (
     run_migrations_pastelaria_plano,
     run_migrations_pastelaria_count_product_id,
@@ -364,6 +365,7 @@ def create_app():
         ('run_migrations_quantidade_kg_to_numeric', run_migrations_quantidade_kg_to_numeric),
         ('run_migrations_loja_origem', run_migrations_loja_origem),
         ('run_migrations_transferencias_destino', run_migrations_transferencias_destino),
+        ('run_migrations_gelado_producao_envios', run_migrations_gelado_producao_envios),
         ('run_migrations_doseamento_gelado', run_migrations_doseamento_gelado),
         ('run_migrations_invoice_status_config', run_migrations_invoice_status_config),
         ('run_migrations_produto_aliases', run_migrations_produto_aliases),

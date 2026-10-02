@@ -117,6 +117,7 @@ def main() -> int:
     # The full application factory runs migrations and seeds the disposable
     # database.  Background integrations are not part of this test check.
     environment["EVENTOS_SYNC_ENABLED"] = "0"
+    environment["TEST_CLEAN_DATABASE"] = "1"
     # This class verifies historical production data that is intentionally not
     # copied into a new empty database. Its schema-independent checks still run
     # in the standard suite against the configured working database.
@@ -132,7 +133,9 @@ def main() -> int:
             [
                 sys.executable,
                 "-c",
-                "from flask_app.app import create_app; create_app()",
+                "from flask_app.app import create_app; "
+                "from db.schema import run_migrations_gelado_producao_envios; "
+                "create_app(); run_migrations_gelado_producao_envios()",
             ],
             environment,
             "initializing schema and migrations",

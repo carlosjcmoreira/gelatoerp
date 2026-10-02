@@ -15,6 +15,13 @@
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <span class="badge bg-{% if grupo.area_origem == 'Gelado' %}primary{% elif grupo.area_origem == 'Pastelaria' %}warning text-dark{% elif grupo.area_origem == 'Confeitaria' %}info{% elif grupo.area_origem == 'Compras' %}secondary{% else %}dark{% endif %} me-1" style="font-size:0.7rem;">{{ grupo.area_origem }}</span>
+                    {% if grupo.origem_registo == 'producao_dia' %}
+                    <span class="badge bg-success-subtle text-success-emphasis me-1">Produção do dia</span>
+                    {% elif grupo.origem_registo == 'stock_existente' %}
+                    <span class="badge bg-info-subtle text-info-emphasis me-1">Stock existente</span>
+                    {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis me-1">Origem não identificada</span>
+                    {% endif %}
                     <span class="fw-bold small">📅 {{ grupo.data_prevista.strftime('%d/%m/%Y') if grupo.data_prevista else '—' }}</span>
                     {% if grupo.criado_por %}<span class="text-muted ms-1" style="font-size:0.72rem;">por {{ grupo.criado_por }}</span>{% endif %}
                 </div>
@@ -28,6 +35,9 @@
                     <div>
                         <span class="fw-bold small">{{ o.produto }}</span>
                         {% if o.sabor and o.sabor != o.produto %}<span class="text-muted small ms-1">({{ o.sabor }})</span>{% endif %}
+                        {% if o.producao_origem_id %}
+                        <div class="text-muted" style="font-size:0.7rem;">Registo de produção #{{ o.producao_origem_id }}</div>
+                        {% endif %}
                     </div>
                     <span class="fw-bold small">{% if o.unidade == 'und' and o.quantidade == o.quantidade|int %}{{ o.quantidade|int }}{% else %}{{ "%.1f"|format(o.quantidade) }}{% endif %} {{ o.unidade }}</span>
                 </div>
@@ -77,6 +87,7 @@
                     <th>Data</th>
                     <th>Área</th>
                     <th>Produto</th>
+                    <th>Origem</th>
                     <th class="text-center">Qty</th>
                     <th class="text-center">Estado</th>
                     <th>Motivo</th>
@@ -88,6 +99,15 @@
                     <td>{{ o.data.strftime('%d/%m') }}</td>
                     <td><span class="badge bg-{% if o.area_origem == 'Gelado' %}primary{% elif o.area_origem == 'Pastelaria' %}warning text-dark{% elif o.area_origem == 'Confeitaria' %}info{% elif o.area_origem == 'Compras' %}secondary{% else %}dark{% endif %}" style="font-size:0.65rem;">{{ o.area_origem }}</span></td>
                     <td>{{ o.produto }}{% if o.sabor and o.sabor != o.produto %} <span class="text-muted">({{ o.sabor }})</span>{% endif %}</td>
+                    <td>
+                        {% if o.origem_registo == 'producao_dia' %}
+                        Produção do dia{% if o.producao_origem_id %} · #{{ o.producao_origem_id }}{% endif %}
+                        {% elif o.origem_registo == 'stock_existente' %}
+                        Stock existente
+                        {% else %}
+                        Não identificada
+                        {% endif %}
+                    </td>
                     <td class="text-center">{% if o.unidade == 'und' and o.quantidade == o.quantidade|int %}{{ o.quantidade|int }}{% else %}{{ "%.1f"|format(o.quantidade) }}{% endif %} {{ o.unidade }}</td>
                     <td class="text-center">
                         {% if o.rececao_estado == 'aceite' %}

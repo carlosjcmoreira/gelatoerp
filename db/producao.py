@@ -1397,6 +1397,18 @@ def import_producao_calybrabox(df: pd.DataFrame, loja: str, unit_is_grams: bool 
 def delete_producao_by_date_range(data_inicio: date, data_fim: date, loja: str):
     with db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM producao p
+            JOIN ordens_transferencia o ON o.producao_origem_id = p.id
+            WHERE p.data >= %s AND p.data <= %s AND p.loja = %s
+        """, (data_inicio, data_fim, loja))
+        linked_count = cursor.fetchone()[0]
+        if linked_count:
+            raise ValueError(
+                f'{linked_count} registo(s) de produção estão ligados a envios executados '
+                'e não podem ser apagados.'
+            )
         cursor.execute(
             "DELETE FROM producao WHERE data >= %s AND data <= %s AND loja = %s",
             (data_inicio, data_fim, loja)
@@ -1711,6 +1723,17 @@ def delete_producao_record(record_id: int) -> bool:
     """Delete a single production record by its ID. Returns True if a row was deleted."""
     with db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 1
+            FROM ordens_transferencia
+            WHERE producao_origem_id=%s
+            LIMIT 1
+        """, (record_id,))
+        if cursor.fetchone():
+            raise ValueError(
+                'Este registo de produção está ligado a um envio executado; '
+                'não pode ser apagado.'
+            )
         cursor.execute("DELETE FROM producao WHERE id = %s", (record_id,))
         deleted = cursor.rowcount
         conn.commit()

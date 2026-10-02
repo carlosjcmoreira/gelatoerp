@@ -94,15 +94,16 @@ def transferencias():
                 if o.get('destino_tipo') == 'b2b'
                 else o['loja_destino']
             )
-            key = (dp, destino_label)
+            key = (dp, destino_label, o.get('origem_registo', 'nao_identificada'))
             grupos[key].append(o)
 
-        for (dp, loja), ordens in sorted(grupos.items(), key=lambda x: x[0][0], reverse=True):
+        for (dp, loja, origem_registo), ordens in sorted(grupos.items(), key=lambda x: x[0][0], reverse=True):
             n_pendentes = sum(1 for o in ordens if o['status'] == 'pendente')
             areas = sorted(set(o['area_origem'] for o in ordens))
             transferencias_data.append({
                 'data_prevista': dp,
                 'loja_destino': loja,
+                'origem_registo': origem_registo,
                 'ordens': ordens,
                 'n_total': len(ordens),
                 'n_pendentes': n_pendentes,
@@ -128,6 +129,7 @@ def transferencias():
     filtro_status = ''
     filtro_loja = ''
     filtro_rececao = ''
+    filtro_origem = ''
     filtro_data_inicio = ''
     filtro_data_fim = ''
 
@@ -138,6 +140,12 @@ def transferencias():
         rececao_estado = request.args.get('rececao_estado', '').strip()
         if rececao_estado not in {value for value, _ in estados_rececao}:
             rececao_estado = ''
+        origem_registo = request.args.get('origem_registo', '').strip()
+        origens_registo = {
+            'producao_dia', 'stock_existente', 'nao_identificada',
+        }
+        if origem_registo not in origens_registo:
+            origem_registo = ''
         data_inicio_str = request.args.get('data_inicio', '').strip()
         data_fim_str = request.args.get('data_fim', '').strip()
 
@@ -145,6 +153,7 @@ def transferencias():
         filtro_status = status or ''
         filtro_loja = loja_destino or ''
         filtro_rececao = rececao_estado
+        filtro_origem = origem_registo
         filtro_data_inicio = data_inicio_str
         filtro_data_fim = data_fim_str
 
@@ -171,6 +180,7 @@ def transferencias():
             status=status,
             loja_destino=loja_destino,
             area_origem=area_origem,
+            origem_registo=origem_registo or None,
             rececao_estado=rececao_estado or None,
             data_inicio=data_inicio,
             data_fim=data_fim,
@@ -210,6 +220,7 @@ def transferencias():
         filtro_status=filtro_status,
         filtro_loja=filtro_loja,
         filtro_rececao=filtro_rececao,
+        filtro_origem=filtro_origem,
         filtro_data_inicio=filtro_data_inicio,
         filtro_data_fim=filtro_data_fim,
         is_gestor=is_gestor,

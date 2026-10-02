@@ -6898,6 +6898,194 @@ def run_migrations_transferencias_destino():
                 pass
 
 
+def run_migrations_gelado_producao_envios():
+    """Add explicit transfer provenance and idempotent production submissions."""
+    lock_id = 202799
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (lock_id,))
+            if not cursor.fetchone()[0]:
+                logger.info("run_migrations_gelado_producao_envios: lock held, skipping")
+                return
+            cursor.execute("""
+                ALTER TABLE ordens_transferencia
+                    ADD COLUMN IF NOT EXISTS origem_registo VARCHAR(30)
+                        NOT NULL DEFAULT 'nao_identificada',
+                    ADD COLUMN IF NOT EXISTS producao_origem_id INTEGER,
+                    ADD COLUMN IF NOT EXISTS rececao_estado VARCHAR(30),
+                    ADD COLUMN IF NOT EXISTS aceite_por VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS aceite_em TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS problema_por VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS problema_em TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS motivo_problema TEXT
+            """)
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET rececao_estado = CASE
+                    WHEN destino_tipo='b2b' THEN 'nao_aplicavel'
+                    WHEN status='confirmada' THEN 'aceite'
+                    WHEN status='rejeitada' THEN 'problema'
+                    ELSE 'por_verificar'
+                END
+                WHERE rececao_estado IS NULL
+            """)
+            cursor.execute("""
+                ALTER TABLE ordens_transferencia
+                    ALTER COLUMN rececao_estado SET DEFAULT 'por_verificar',
+                    ALTER COLUMN rececao_estado SET NOT NULL
+            """)
+            cursor.execute("""
+                ALTER TABLE rececao_mercadoria
+                    ADD COLUMN IF NOT EXISTS ordem_transferencia_id INTEGER
+            """)
+            cursor.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname=
+                            'rececao_mercadoria_ordem_transferencia_id_fkey'
+                          AND conrelid='rececao_mercadoria'::regclass
+                    ) THEN
+                        ALTER TABLE rececao_mercadoria
+                            ADD CONSTRAINT
+                                rececao_mercadoria_ordem_transferencia_id_fkey
+                            FOREIGN KEY (ordem_transferencia_id)
+                            REFERENCES ordens_transferencia(id) ON DELETE SET NULL;
+                    END IF;
+                END $$;
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_rececao_transfer_order
+                ON rececao_mercadoria(ordem_transferencia_id)
+                WHERE ordem_transferencia_id IS NOT NULL
+            """)
+            cursor.execute("""
+                DO $$
+                DECLARE
+                    current_event_check TEXT;
+                BEGIN
+                    SELECT pg_get_constraintdef(oid)
+                    INTO current_event_check
+                    FROM pg_constraint
+                    WHERE conname='transferencias_eventos_event_type_check'
+                      AND conrelid='transferencias_eventos'::regclass;
+                    IF current_event_check IS NULL THEN
+                        ALTER TABLE transferencias_eventos
+                            ADD CONSTRAINT
+                                transferencias_eventos_event_type_check
+                            CHECK (event_type IN (
+                                'criado', 'confirmado', 'rejeitado', 'executado',
+                                'aceite', 'problema_reportado'
+                            ));
+                    ELSIF POSITION('executado' IN current_event_check)=0
+                       OR POSITION('aceite' IN current_event_check)=0 THEN
+                        ALTER TABLE transferencias_eventos
+                            DROP CONSTRAINT
+                                transferencias_eventos_event_type_check;
+                        ALTER TABLE transferencias_eventos
+                            ADD CONSTRAINT
+                                transferencias_eventos_event_type_check
+                            CHECK (event_type IN (
+                                'criado', 'confirmado', 'rejeitado', 'executado',
+                                'aceite', 'problema_reportado'
+                            ));
+                    END IF;
+                END $$;
+            """)
+            cursor.execute("""
+                UPDATE ordens_transferencia
+                SET origem_registo='nao_identificada'
+                WHERE origem_registo IS NULL
+                   OR origem_registo NOT IN (
+                       'producao_dia', 'stock_existente', 'nao_identificada'
+                   )
+            """)
+            cursor.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname='ordens_transferencia_producao_origem_fk'
+                          AND conrelid='ordens_transferencia'::regclass
+                    ) THEN
+                        ALTER TABLE ordens_transferencia
+                            ADD CONSTRAINT ordens_transferencia_producao_origem_fk
+                            FOREIGN KEY (producao_origem_id)
+                            REFERENCES producao(id) ON DELETE RESTRICT;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname='ordens_transferencia_origem_registo_check'
+                          AND conrelid='ordens_transferencia'::regclass
+                    ) THEN
+                        ALTER TABLE ordens_transferencia
+                            ADD CONSTRAINT ordens_transferencia_origem_registo_check
+                            CHECK (origem_registo IN (
+                                'producao_dia', 'stock_existente', 'nao_identificada'
+                            ));
+                    END IF;
+                END $$;
+            """)
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    uq_ordens_transferencia_producao_origem
+                ON ordens_transferencia (producao_origem_id)
+                WHERE producao_origem_id IS NOT NULL
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS producao_submissoes (
+                    submission_id UUID PRIMARY KEY,
+                    content_hash CHAR(64) NOT NULL,
+                    autor VARCHAR(100),
+                    data DATE NOT NULL,
+                    resultado JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """)
+            cursor.execute("""
+                CREATE OR REPLACE FUNCTION impedir_alteracao_producao_enviada()
+                RETURNS trigger AS $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM ordens_transferencia
+                        WHERE producao_origem_id = OLD.id
+                    ) THEN
+                        RAISE EXCEPTION
+                            'Este registo de produção está ligado a um envio executado; não pode ser alterado ou apagado.'
+                            USING ERRCODE = '23503';
+                    END IF;
+                    IF TG_OP = 'DELETE' THEN
+                        RETURN OLD;
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+            """)
+            cursor.execute("""
+                DROP TRIGGER IF EXISTS producao_envio_immutable
+                    ON producao
+            """)
+            cursor.execute("""
+                CREATE TRIGGER producao_envio_immutable
+                BEFORE UPDATE OR DELETE ON producao
+                FOR EACH ROW EXECUTE FUNCTION impedir_alteracao_producao_enviada()
+            """)
+            conn.commit()
+            logger.info("run_migrations_gelado_producao_envios: schema ready")
+        except Exception:
+            conn.rollback()
+            logger.exception("run_migrations_gelado_producao_envios failed")
+            raise
+        finally:
+            try:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
+                conn.commit()
+            except Exception:
+                pass
+
+
 def run_migrations_invoice_installments():
     """Idempotent: create invoice_installments table and add installment_total to invoices.
 

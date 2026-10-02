@@ -44,7 +44,9 @@ class OptionalAcceptanceMigrationTests(unittest.TestCase):
                     destino_tipo VARCHAR(20) NOT NULL DEFAULT 'loja',
                     destino_nome VARCHAR(255),
                     produto_pastelaria_id INTEGER,
-                    motivo_rejeicao TEXT
+                    motivo_rejeicao TEXT,
+                    origem_registo VARCHAR(30) NOT NULL DEFAULT 'nao_identificada',
+                    producao_origem_id INTEGER
                 );
                 CREATE TABLE rececao_mercadoria (
                     id SERIAL PRIMARY KEY,

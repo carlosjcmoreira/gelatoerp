@@ -738,6 +738,90 @@ def get_or_create_pending_batch(
     return str(_uuid.uuid4())
 
 
+def criar_ordem_transferencia_cursor(
+    cursor,
+    data: date,
+    area_origem: str,
+    produto: str,
+    quantidade,
+    unidade: str = 'kg',
+    loja_destino: str = 'Bolhão',
+    sabor: str = None,
+    criado_por: str = None,
+    data_prevista: date = None,
+    batch_id: str = None,
+    destino_tipo: str = 'loja',
+    destino_nome: str = None,
+    loja_origem: str = None,
+    origem_registo: str = 'nao_identificada',
+    producao_origem_id: int = None,
+):
+    """Create an executed order and its evidence using the caller's transaction."""
+    if destino_tipo not in ('loja', 'b2b'):
+        raise ValueError("Tipo de destino inválido")
+    if origem_registo not in ('producao_dia', 'stock_existente', 'nao_identificada'):
+        raise ValueError("Origem do registo de transferência inválida")
+    if origem_registo == 'producao_dia' and producao_origem_id is None:
+        raise ValueError("A ordem de produção do dia precisa do registo de produção de origem")
+    if origem_registo != 'producao_dia' and producao_origem_id is not None:
+        raise ValueError("Só ordens de produção do dia podem ligar-se a um registo de produção")
+    if quantidade <= 0:
+        raise ValueError("A quantidade da transferência tem de ser positiva")
+    destino_nome = (destino_nome or '').strip() or None
+    if destino_tipo == 'b2b':
+        if not destino_nome:
+            raise ValueError("A entidade destinatária é obrigatória para destinos B2B")
+        loja_destino = 'B2B'
+    else:
+        destino_nome = None
+    produto_pastelaria_id = None
+    if area_origem == 'Pastelaria':
+        cursor.execute("""
+            SELECT MIN(id)
+            FROM produtos_pastelaria
+            WHERE CONCAT_WS(', ',
+                NULLIF(BTRIM(tipologia), ''),
+                NULLIF(BTRIM(sabor), ''),
+                NULLIF(BTRIM(cobertura), '')
+            ) = %s
+            HAVING COUNT(*) = 1
+        """, (produto,))
+        identity_row = cursor.fetchone()
+        produto_pastelaria_id = identity_row[0] if identity_row else None
+        if produto_pastelaria_id is None and not produto.startswith('Bolo — '):
+            raise ValueError(f'Produto de Pastelaria sem identidade única: {produto}')
+    cursor.execute("""
+        INSERT INTO ordens_transferencia (
+            data, area_origem, produto, sabor, quantidade, unidade,
+            loja_destino, criado_por, data_prevista, batch_id,
+            destino_tipo, destino_nome, produto_pastelaria_id,
+            status, confirmado_por, confirmado_em, rececao_estado,
+            loja_origem, origem_registo, producao_origem_id
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, 'confirmada', %s, NOW(),
+            CASE WHEN %s = 'b2b' THEN 'nao_aplicavel' ELSE 'por_verificar' END,
+            %s, %s, %s
+        )
+        RETURNING id
+    """, (
+        data, area_origem, produto, sabor, quantidade, unidade,
+        loja_destino, criado_por, data_prevista or data, batch_id,
+        destino_tipo, destino_nome, produto_pastelaria_id, criado_por,
+        destino_tipo, loja_origem, origem_registo, producao_origem_id,
+    ))
+    order_id = cursor.fetchone()[0]
+    _insert_evento(cursor, order_id, 'criado', criado_por)
+    _insert_evento(cursor, order_id, 'executado', criado_por)
+    if destino_tipo == 'loja':
+        _insert_transfer_receipt(
+            cursor, order_id, data, area_origem, produto, sabor,
+            quantidade, loja_destino, produto_pastelaria_id,
+        )
+    return order_id
+
+
 def criar_ordem_transferencia(
     data: date,
     area_origem: str,
@@ -752,70 +836,17 @@ def criar_ordem_transferencia(
     destino_tipo: str = 'loja',
     destino_nome: str = None,
     loja_origem: str = None,
+    origem_registo: str = 'nao_identificada',
+    producao_origem_id: int = None,
 ):
-    if destino_tipo not in ('loja', 'b2b'):
-        raise ValueError("Tipo de destino inválido")
-    destino_nome = (destino_nome or '').strip() or None
-    if destino_tipo == 'b2b':
-        if not destino_nome:
-            raise ValueError("A entidade destinatária é obrigatória para destinos B2B")
-        loja_destino = 'B2B'
-    else:
-        destino_nome = None
     with db_connection() as conn:
         cursor = conn.cursor()
-        produto_pastelaria_id = None
-        if area_origem == 'Pastelaria':
-            cursor.execute("""
-                SELECT MIN(id)
-                FROM produtos_pastelaria
-                WHERE CONCAT_WS(', ',
-                    NULLIF(BTRIM(tipologia), ''),
-                    NULLIF(BTRIM(sabor), ''),
-                    NULLIF(BTRIM(cobertura), '')
-                ) = %s
-                HAVING COUNT(*) = 1
-            """, (produto,))
-            identity_row = cursor.fetchone()
-            produto_pastelaria_id = (
-                identity_row[0] if identity_row else None
-            )
-            if (
-                produto_pastelaria_id is None
-                and not produto.startswith('Bolo — ')
-            ):
-                raise ValueError(
-                    f'Produto de Pastelaria sem identidade única: {produto}'
-                )
-        cursor.execute("""
-            INSERT INTO ordens_transferencia (
-                data, area_origem, produto, sabor, quantidade, unidade,
-                loja_destino, criado_por, data_prevista, batch_id,
-                destino_tipo, destino_nome, produto_pastelaria_id,
-                status, confirmado_por, confirmado_em, rececao_estado,
-                loja_origem
-            )
-            VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                %s, 'confirmada', %s, NOW(),
-                CASE WHEN %s = 'b2b' THEN 'nao_aplicavel' ELSE 'por_verificar' END,
-                %s
-            )
-            RETURNING id
-        """, (
-            data, area_origem, produto, sabor, quantidade, unidade,
-            loja_destino, criado_por, data_prevista or data, batch_id,
-            destino_tipo, destino_nome, produto_pastelaria_id, criado_por,
-            destino_tipo, loja_origem,
-        ))
-        order_id = cursor.fetchone()[0]
-        _insert_evento(cursor, order_id, 'criado', criado_por)
-        _insert_evento(cursor, order_id, 'executado', criado_por)
-        if destino_tipo == 'loja':
-            _insert_transfer_receipt(
-                cursor, order_id, data, area_origem, produto, sabor,
-                quantidade, loja_destino, produto_pastelaria_id,
-            )
+        order_id = criar_ordem_transferencia_cursor(
+            cursor, data, area_origem, produto, quantidade, unidade,
+            loja_destino, sabor, criado_por, data_prevista, batch_id,
+            destino_tipo, destino_nome, loja_origem, origem_registo,
+            producao_origem_id,
+        )
         conn.commit()
     return order_id
 
@@ -837,7 +868,8 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
                    confirmado_em, created_at, data_prevista, motivo_rejeicao,
                    batch_id, loja_origem, destino_tipo, destino_nome,
                    rececao_estado, aceite_por, aceite_em, problema_por,
-                   problema_em, motivo_problema,
+                    problema_em, motivo_problema, origem_registo,
+                    producao_origem_id,
                    EXISTS (
                        SELECT 1
                        FROM transferencias_eventos audit_event
@@ -881,7 +913,9 @@ def get_ordens_transferencia(status: str = None, loja_destino: str = None, area_
         'rececao_estado': r[19] or 'por_verificar', 'aceite_por': r[20],
         'aceite_em': r[21], 'problema_por': r[22], 'problema_em': r[23],
         'motivo_problema': r[24],
-        'rececao_regularizada_admin': bool(r[25]) if len(r) > 25 else False,
+        'origem_registo': r[25] or 'nao_identificada',
+        'producao_origem_id': r[26],
+        'rececao_regularizada_admin': bool(r[27]) if len(r) > 27 else False,
     } for r in rows]
 
 
@@ -894,6 +928,7 @@ def get_ordens_transferencia_with_events(
     page: int = 1,
     per_page: int = 50,
     rececao_estado: str = None,
+    origem_registo: str = None,
 ) -> dict:
     """Return paginated orders with their audit events embedded, newest first.
 
@@ -923,6 +958,9 @@ def get_ordens_transferencia_with_events(
         if area_origem:
             where += " AND o.area_origem = %s"
             params.append(area_origem)
+        if origem_registo:
+            where += " AND o.origem_registo = %s"
+            params.append(origem_registo)
         if rececao_estado == 'por_verificar':
             where += (
                 " AND COALESCE(o.destino_tipo, 'loja') <> 'b2b'"
@@ -987,7 +1025,7 @@ def get_ordens_transferencia_with_events(
             " o.created_at, o.data_prevista, o.motivo_rejeicao,"
             " o.destino_tipo, o.destino_nome, o.rececao_estado,"
             " o.aceite_por, o.aceite_em, o.problema_por, o.problema_em,"
-            " o.motivo_problema"
+            " o.motivo_problema, o.origem_registo, o.producao_origem_id"
             f" FROM ordens_transferencia o{where}"
             " ORDER BY o.created_at DESC LIMIT %s OFFSET %s"
         )
@@ -1003,6 +1041,8 @@ def get_ordens_transferencia_with_events(
             'aceite_por': r[18], 'aceite_em': r[19],
             'problema_por': r[20], 'problema_em': r[21],
             'motivo_problema': r[22],
+            'origem_registo': r[23] or 'nao_identificada',
+            'producao_origem_id': r[24],
             'eventos': [],
         } for r in rows]
 
@@ -1074,7 +1114,7 @@ def _insert_transfer_receipt(
                 WHERE ordem_transferencia_id IS NOT NULL DO NOTHING
         """, (
             movement_date, loja_destino, produto, sabor or produto,
-            float(quantidade), ordem_id,
+            quantidade, ordem_id,
         ))
     elif area_origem in ('Pastelaria', 'Confeitaria'):
         if area_origem == 'Pastelaria' and movement_date.weekday() == 6:

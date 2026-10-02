@@ -1835,7 +1835,10 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     aceite_em TIMESTAMPTZ,
                     problema_por VARCHAR(100),
                     problema_em TIMESTAMPTZ,
-                    motivo_problema TEXT
+                    motivo_problema TEXT,
+                    origem_registo VARCHAR(30) NOT NULL
+                        DEFAULT 'nao_identificada',
+                    producao_origem_id INTEGER
                 );
                 CREATE UNIQUE INDEX uq_test_contagem_transfer_order
                     ON contagem_stock(ordem_transferencia_id)
@@ -2079,6 +2082,15 @@ class PastelariaSundayConcurrencyPostgresTests(unittest.TestCase):
                     connection.commit()
 
     def test_pre_rename_plan_records_first_stock_under_same_product_id(self):
+        # This class shares one isolated schema across tests. Start from an
+        # empty product ledger so earlier history cannot inflate this assertion.
+        with self.isolated_connection() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM plano_producao_pastelaria")
+                cursor.execute("DELETE FROM stock_producao_pastelaria")
+                cursor.execute("DELETE FROM producao_pastelaria")
+                connection.commit()
+
         with patch('db.area.db_connection', self.isolated_connection):
             area.upsert_plano_area(
                 'pastelaria', date(2026, 10, 1), 'Palito', 4
