@@ -28,3 +28,17 @@ mtime_ms = 1790872726831
 storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:93e1c805-9bb1-46a0-853e-48fde7f7f7ad/fa50f11a-aa17-4d85-994f-aca02766f2d2/b0b4169f-c2d6-4541-8907-659a41caf7d3"
 storage_version_token = "1790872731100363"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "mb7XjKY9Pc_vY8zPWHSHJ"
+uri = "file://outputs/decisao_fornecedores_alternativos.pdf"
+type = "pdf"
+title = "Fornecedores alternativos — opções para decisão"
+description = "Nota de uma página com o estado atual, três exemplos de reconciliação, comparação das duas opções e uma recomendação provisória. O Markdown editável está em outputs/decisao_fornecedores_alternativos.md."
+logical_id = "35d97ead-f431-49da-b98e-466a39b14138"
+content_hash = "sha256:442ab3f473f66cfd5cecaa6ad04a330f0bd9798069eb9019a223d294fe2a2506"
+size = 5614
+mtime_ms = 1790929099465
+storage_uri = "gcs://replit-rams-assets-riker/rams/assets/repl:93e1c805-9bb1-46a0-853e-48fde7f7f7ad/35d97ead-f431-49da-b98e-466a39b14138/8ada460b-2b9f-4471-945a-07e23444b334"
+storage_version_token = "1790929171924778"
+content_type = "application/pdf"
