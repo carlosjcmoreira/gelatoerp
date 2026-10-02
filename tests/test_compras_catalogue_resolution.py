@@ -333,7 +333,7 @@ class TestArticleCatalogueNoopUpdates(unittest.TestCase):
         self.assertEqual(
             article_update.args[1],
             ('CAFÉ ILLY', 'Café Clássico Descafeinado', None, None,
-             'Por classificar', 'CAFÉ ILLY', 'Café Clássico Descafeinado',
+             'Por classificar', True, 'CAFÉ ILLY', 'Café Clássico Descafeinado',
              None, None, 18),
         )
         self.assertFalse(any(

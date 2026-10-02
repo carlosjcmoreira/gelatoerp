@@ -14,6 +14,9 @@
         <span class="badge {{ 'text-bg-success' if artigo.ativo else 'text-bg-secondary' }}">
             {{ 'Ativo' if artigo.ativo else 'Inativo' }}
         </span>
+        <span class="badge {{ 'text-bg-primary' if artigo.encomendavel else 'text-bg-secondary' }}">
+            {{ 'Encomendável' if artigo.encomendavel else 'Não encomendável' }}
+        </span>
     </div>
 
     <div class="row g-3 mb-3">
@@ -45,6 +48,33 @@
                     <div class="small text-muted">Apenas faturas agendadas/pagas e confirmadas</div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header fw-semibold">Histórico da elegibilidade para encomenda</div>
+        <div class="card-body p-0">
+            {% if encomendavel_history %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="table-light">
+                        <tr><th>Data</th><th>Alteração</th><th>Registado por</th></tr>
+                    </thead>
+                    <tbody>
+                    {% for row in encomendavel_history %}
+                    <tr>
+                        <td>{{ row.created_at.strftime('%d/%m/%Y %H:%M') if row.created_at else '—' }}</td>
+                        <td>{{ 'Encomendável' if row.encomendavel_anterior else 'Não encomendável' }}
+                            → {{ 'Encomendável' if row.encomendavel_novo else 'Não encomendável' }}</td>
+                        <td>{{ row.actor }}</td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-3 text-muted">Ainda não há alterações de elegibilidade registadas.</div>
+            {% endif %}
         </div>
     </div>
 

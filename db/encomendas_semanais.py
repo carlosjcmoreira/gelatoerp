@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from psycopg2.extras import RealDictCursor
 
+from db.artigos import ensure_artigo_encomendavel
 from db.connection import db_connection
 
 
@@ -187,10 +188,13 @@ def _article_catalog_rows(cursor, article_ids: list[int]) -> dict[int, dict]:
     cursor.execute(
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
-               a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
+               a.encomendavel, a.fornecedor_oficial_id,
+               official_s.name AS fornecedor_oficial_nome
         FROM artigos_administrativos a
         LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
         WHERE a.id = ANY(%s)
+        ORDER BY a.id
+        FOR UPDATE OF a
         """,
         (article_ids,),
     )
@@ -205,10 +209,11 @@ def get_available_weekly_articles() -> list[dict]:
             """
             SELECT a.id, a.produto, a.unidade, a.fornecedor,
                    a.categoria_artigo,
-                   a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
+                   a.encomendavel, a.fornecedor_oficial_id,
+                   official_s.name AS fornecedor_oficial_nome
             FROM artigos_administrativos a
             LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
-            WHERE a.ativo = TRUE
+            WHERE a.ativo = TRUE AND a.encomendavel = TRUE
              ORDER BY a.categoria_artigo, a.produto, a.id
             """
         )
@@ -305,10 +310,7 @@ def save_weekly_draft(
         if len(catalogue) != len(requested):
             raise ValueError("Um dos artigos selecionados já não existe.")
         for article_id, article in catalogue.items():
-            if not article["ativo"]:
-                raise ValueError(
-                    f'O artigo "{article["produto"]}" deixou de estar disponível.'
-                )
+            ensure_artigo_encomendavel(article)
 
         cursor.execute(
             "DELETE FROM compras_encomendas_semanais_linhas WHERE encomenda_id = %s",
@@ -380,6 +382,18 @@ def submit_weekly_order(
         lines = _fetch_lines(cursor, order_id)
         if not lines:
             raise ValueError("Adicione pelo menos um artigo antes de submeter.")
+        article_ids = [
+            int(line["artigo_id"])
+            for line in lines
+            if line.get("artigo_id") is not None
+        ]
+        catalogue = _article_catalog_rows(cursor, article_ids)
+        if len(catalogue) != len(lines):
+            raise ValueError(
+                "Um artigo do rascunho deixou de estar disponível para encomenda."
+            )
+        for item in catalogue.values():
+            ensure_artigo_encomendavel(item)
         payload = _snapshot(order, lines)
         cursor.execute(
             """
@@ -513,14 +527,15 @@ def amend_weekly_order(
             # A previously submitted line may remain editable even if the
             # catalogue entry was later deactivated.  Its original snapshot
             # is reused below; new additions still require an active article.
-            if article_id not in old_by_article and not item["ativo"]:
-                raise ValueError(f'O artigo "{item["produto"]}" deixou de estar disponível.')
+            if article_id not in old_by_article:
+                ensure_artigo_encomendavel(item)
         for old_line in old_lines:
             article_id = old_line.get("artigo_id")
             if article_id is None:
                 cursor.execute(
                     """
                     SELECT COALESCE(SUM(sl.quantidade_enviada), 0)
+                           AS quantidade_enviada
                     FROM compras_pedidos_envios e
                     JOIN compras_pedidos_envios_linhas sl ON sl.envio_id = e.id
                     WHERE e.tipo_pedido = 'semanal' AND e.pedido_id = %s
@@ -528,7 +543,9 @@ def amend_weekly_order(
                     """,
                     (order_id, old_line["id"]),
                 )
-                already_sent = Decimal(str(cursor.fetchone()[0] or "0"))
+                already_sent = Decimal(
+                    str(cursor.fetchone()["quantidade_enviada"] or "0")
+                )
                 if already_sent > 0:
                     raise ValueError(
                         f'A alteração de "{old_line["produto_snapshot"]}" '
@@ -540,6 +557,7 @@ def amend_weekly_order(
             cursor.execute(
                 """
                 SELECT COALESCE(SUM(sl.quantidade_enviada), 0)
+                       AS quantidade_enviada
                 FROM compras_pedidos_envios e
                 JOIN compras_pedidos_envios_linhas sl ON sl.envio_id = e.id
                 WHERE e.tipo_pedido = 'semanal' AND e.pedido_id = %s
@@ -547,7 +565,9 @@ def amend_weekly_order(
                 """,
                 (order_id, article_id),
             )
-            already_sent = Decimal(str(cursor.fetchone()[0] or "0"))
+            already_sent = Decimal(
+                str(cursor.fetchone()["quantidade_enviada"] or "0")
+            )
             next_quantity = requested.get(article_id, {}).get("quantidade")
             if already_sent > 0 and (
                 next_quantity is None or next_quantity < already_sent
@@ -563,7 +583,10 @@ def amend_weekly_order(
             item = (
                 old_by_article.get(article_id)
                 if article_id in old_by_article
-                and not current_item["ativo"]
+                and (
+                    not current_item["ativo"]
+                    or not current_item["encomendavel"]
+                )
                 else current_item
             )
             cursor.execute(

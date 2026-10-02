@@ -34,6 +34,7 @@ from database import (
 )
 from db.artigos import (
     get_artigo_origem_revisao_history,
+    get_artigo_encomendavel_history,
     review_artigo_origem,
 )
 from db.faturas import (
@@ -140,6 +141,20 @@ TABS = [
 
 def _get_username():
     return session.get('user', {}).get('username', 'sistema')
+
+
+def _parse_optional_form_boolean(form, name: str) -> bool | None:
+    """Parse an optional HTML boolean without treating the string '0' as true."""
+    if name not in form:
+        return None
+    raw = str(form.get(name, '')).strip().casefold()
+    if raw in ('1', 'true', 'on', 'yes'):
+        return True
+    if raw in ('0', 'false', 'off', 'no'):
+        return False
+    if raw == '':
+        return None
+    raise ValueError('O valor da elegibilidade para encomenda é inválido.')
 
 
 @compras_bp.route('/')
@@ -1268,6 +1283,9 @@ def artigos():
             unidade = request.form.get('unidade', '').strip() or None
             if supplier_id is not None and supplier_id > 0 and produto:
                 try:
+                    encomendavel = _parse_optional_form_boolean(
+                        request.form, 'encomendavel'
+                    )
                     categoria_artigo = validate_article_category(
                         request.form.get(
                             'categoria_artigo', UNCATEGORIZED
@@ -1277,6 +1295,7 @@ def artigos():
                         produto, supplier_id=supplier_id,
                         marca=marca, unidade=unidade, actor=_get_username(),
                         categoria_artigo=categoria_artigo,
+                        encomendavel=encomendavel,
                     )
                     if success:
                         flash(f'Artigo "{produto}" adicionado!', 'success')
@@ -1302,11 +1321,15 @@ def artigos():
                         None if category_raw is None
                         else validate_article_category(category_raw)
                     )
+                    encomendavel = _parse_optional_form_boolean(
+                        request.form, 'encomendavel'
+                    )
                     result = update_artigo_administrativo(
                         artigo_id, None, produto, marca=marca,
                         unidade=unidade, origem_id=None,
                         actor=_get_username(),
                         categoria_artigo=categoria_artigo,
+                        encomendavel=encomendavel,
                     )
                     if not result:
                         flash('Artigo não encontrado.', 'warning')
@@ -1337,7 +1360,7 @@ def artigos():
                         raise ValueError('Um dos artigos selecionados é inválido.')
                     article_id = int(raw_id)
                     article_ids.append(article_id)
-                    bulk_form_state[article_id] = {
+                    values = {
                         'produto': request.form.get(
                             f'produto_{article_id}', ''
                         ).strip(),
@@ -1351,6 +1374,12 @@ def artigos():
                             f'categoria_artigo_{article_id}', ''
                         ).strip(),
                     }
+                    field_name = f'encomendavel_{article_id}'
+                    if field_name in request.form:
+                        values['encomendavel'] = _parse_optional_form_boolean(
+                            request.form, field_name
+                        )
+                    bulk_form_state[article_id] = values
                 if len(article_ids) != len(set(article_ids)):
                     raise ValueError('A lista contém artigos repetidos.')
 
@@ -1370,13 +1399,16 @@ def artigos():
                             f'Artigo #{article_id}: {exc}'
                         ) from exc
 
-                    changes.append({
+                    change = {
                         'artigo_id': article_id,
                         'produto': values['produto'],
                         'marca': values['marca'] or None,
                         'unidade': values['unidade'] or None,
                         'categoria_artigo': category,
-                    })
+                    }
+                    if 'encomendavel' in values:
+                        change['encomendavel'] = values['encomendavel']
+                    changes.append(change)
 
                 result = update_artigos_administrativos_bulk(
                     changes, actor=_get_username()
@@ -1582,12 +1614,14 @@ def artigo_detalhe(artigo_id: int):
         return redirect(url_for('compras.artigos'))
     comercial = get_artigo_comercial_history(artigo_id)
     origin_review_history = get_artigo_origem_revisao_history(artigo_id)
+    encomendavel_history = get_artigo_encomendavel_history(artigo_id)
     return render_template(
         'compras/artigo_detalhe.html',
         artigo=artigo,
         comercial=comercial,
         origem_history=[],
         origin_review_history=origin_review_history,
+        encomendavel_history=encomendavel_history,
     )
 
 

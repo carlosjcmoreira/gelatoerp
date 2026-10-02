@@ -243,7 +243,7 @@ class TestComprasAccess(unittest.TestCase):
             html,
         )
         self.assertIn(
-            'Artigos sem uma ligação direta a fornecedor continuam disponíveis para contagens e pedidos.',
+            'A falta de fornecedor confirmado não bloqueia contagens nem encomendas.',
             html,
         )
         self.assertIn(
@@ -335,6 +335,7 @@ class TestComprasAccess(unittest.TestCase):
             unidade='kg',
             actor='testuser',
             categoria_artigo='Bebidas e café',
+            encomendavel=None,
         )
 
     def test_new_article_preserves_catalogue_filters_and_scroll_context(self):

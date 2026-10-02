@@ -358,7 +358,9 @@ def run_migrations_compras_catalogo():
                     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP
                         NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     ADD COLUMN IF NOT EXISTS human_modified_at TIMESTAMP,
-                    ADD COLUMN IF NOT EXISTS categoria_artigo VARCHAR(100)
+                    ADD COLUMN IF NOT EXISTS categoria_artigo VARCHAR(100),
+                    ADD COLUMN IF NOT EXISTS encomendavel BOOLEAN
+                        NOT NULL DEFAULT TRUE
                 """
             )
             category_rows = [
@@ -462,6 +464,25 @@ def run_migrations_compras_catalogo():
                 """
                 CREATE INDEX IF NOT EXISTS idx_artigos_categoria_audit_article
                     ON artigos_administrativos_categoria_audit(artigo_id, alterado_em DESC)
+                """
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS artigos_administrativos_encomendavel_audit (
+                    id BIGSERIAL PRIMARY KEY,
+                    artigo_id INTEGER NOT NULL
+                        REFERENCES artigos_administrativos(id) ON DELETE CASCADE,
+                    encomendavel_anterior BOOLEAN NOT NULL,
+                    encomendavel_novo BOOLEAN NOT NULL,
+                    actor VARCHAR(100) NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_artigos_encomendavel_audit_article
+                    ON artigos_administrativos_encomendavel_audit(artigo_id, created_at DESC)
                 """
             )
 

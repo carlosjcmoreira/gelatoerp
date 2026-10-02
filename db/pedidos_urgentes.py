@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from psycopg2.extras import RealDictCursor
 
+from db.artigos import ensure_artigo_encomendavel
 from db.connection import db_connection
 from db.encomendas_semanais import normalise_planning_sunday
 
@@ -204,11 +205,13 @@ def _article_catalog_rows(cursor, article_ids: list[int]) -> dict[int, dict]:
     cursor.execute(
         """
         SELECT a.id, a.produto, a.unidade, a.ativo,
-               a.categoria_artigo,
+               a.encomendavel, a.categoria_artigo,
                a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
         FROM artigos_administrativos a
         LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
         WHERE a.id = ANY(%s)
+        ORDER BY a.id
+        FOR UPDATE OF a
         """,
         (article_ids,),
     )
@@ -223,17 +226,18 @@ def get_available_urgent_articles() -> list[dict]:
             """
             SELECT a.id, a.produto, a.unidade, a.ativo,
                    a.categoria_artigo,
-                   a.fornecedor_oficial_id, official_s.name AS fornecedor_oficial_nome
+                   a.encomendavel, a.fornecedor_oficial_id,
+                   official_s.name AS fornecedor_oficial_nome
             FROM artigos_administrativos a
             LEFT JOIN suppliers official_s ON official_s.id = a.fornecedor_oficial_id
-            WHERE a.ativo = TRUE
+            WHERE a.ativo = TRUE AND a.encomendavel = TRUE
              ORDER BY a.categoria_artigo, a.produto, a.id
             """
         )
         return [dict(row) for row in cursor.fetchall()]
 
 
-def _normalise_lines(cursor, lines: list[dict]) -> tuple[dict[int, dict], dict[int, dict]]:
+def _parse_requested_lines(lines: list[dict]) -> dict[int, dict]:
     requested: dict[int, dict] = {}
     for raw in lines or []:
         try:
@@ -248,12 +252,23 @@ def _normalise_lines(cursor, lines: list[dict]) -> tuple[dict[int, dict], dict[i
         }
     if not requested:
         raise ValueError("Adicione pelo menos um artigo ao pedido urgente.")
+    return requested
+
+
+def _validate_orderable_articles(
+    cursor, requested: dict[int, dict]
+) -> dict[int, dict]:
     catalogue = _article_catalog_rows(cursor, list(requested))
     if len(catalogue) != len(requested):
         raise ValueError("Um dos artigos selecionados não está disponível.")
     for item in catalogue.values():
-        if not item["ativo"]:
-            raise ValueError(f'O artigo "{item["produto"]}" deixou de estar disponível.')
+        ensure_artigo_encomendavel(item)
+    return catalogue
+
+
+def _normalise_lines(cursor, lines: list[dict]) -> tuple[dict[int, dict], dict[int, dict]]:
+    requested = _parse_requested_lines(lines)
+    catalogue = _validate_orderable_articles(cursor, requested)
     return requested, catalogue
 
 
@@ -283,7 +298,7 @@ def create_urgent_order(
 
     with db_connection() as conn:
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        requested, catalogue = _normalise_lines(cursor, lines)
+        requested = _parse_requested_lines(lines)
         weekly_cycle_value = None
         if weekly_order_id is not None:
             try:
@@ -360,6 +375,7 @@ def create_urgent_order(
         inserted = cursor.fetchone()
         if inserted:
             order_id = int(inserted["id"])
+            catalogue = _validate_orderable_articles(cursor, requested)
             for article_id, values in requested.items():
                 item = catalogue[article_id]
                 cursor.execute(

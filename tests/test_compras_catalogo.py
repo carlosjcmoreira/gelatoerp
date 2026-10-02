@@ -98,7 +98,7 @@ class TestComprasCatalogBulkEdit(unittest.TestCase):
         self.assertEqual(
             insert_call.args[1],
             ('GARCIAS, S.A.', 'Café em grão', 'Garcias', 'kg', 42,
-             'Bebidas e café'),
+             'Bebidas e café', True),
         )
         self.assertFalse(any(
             'compras_origens' in call.args[0]

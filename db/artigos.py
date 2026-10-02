@@ -27,6 +27,17 @@ def normalise_compras_origin_label(value: str) -> str:
     )
 
 
+def ensure_artigo_encomendavel(article: dict) -> None:
+    """Reject new purchases unless the article is both active and orderable."""
+    product = article.get('produto') or 'Artigo'
+    if not article.get('ativo'):
+        raise ValueError(f'O artigo "{product}" deixou de estar disponível.')
+    if not article.get('encomendavel'):
+        raise ValueError(
+            f'O artigo "{product}" não está disponível para novas encomendas.'
+        )
+
+
 def classify_compras_origin_label(label: str) -> dict:
     """Classify a spreadsheet label without inventing a supplier identity.
 
@@ -236,7 +247,8 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
                    a.marca, a.unidade, a.catalog_key, a.source_dataset,
                    a.source_version, a.source_row, o.ativo,
                     a.fornecedor_oficial_id, official_s.name,
-                    a.categoria_artigo, a.origem_revisao_estado
+                    a.categoria_artigo, a.origem_revisao_estado,
+                    a.encomendavel
             FROM artigos_administrativos a
             LEFT JOIN compras_origens o ON o.id = a.origem_id
             LEFT JOIN suppliers official_s
@@ -261,6 +273,7 @@ def get_artigos_administrativos(apenas_ativos: bool = True) -> list:
             'fornecedor_oficial_nome': r[19],
             'categoria_artigo': r[20],
             'origem_revisao_estado': r[21],
+            'encomendavel': r[22],
         }
         for r in rows
     ]
@@ -593,12 +606,15 @@ def get_artigo_comercial_history(artigo_id: int) -> dict:
 def add_artigo_administrativo(produto: str, supplier_id: int,
                               marca: str = None, unidade: str = None,
                               actor: str = 'sistema',
-                              categoria_artigo: str = 'Por classificar') -> bool:
+                              categoria_artigo: str = 'Por classificar',
+                              encomendavel: bool | None = None) -> bool:
     from db.compras_article_categories import validate_article_category
 
     categoria_artigo = validate_article_category(categoria_artigo)
     if not isinstance(supplier_id, int) or isinstance(supplier_id, bool) or supplier_id <= 0:
         raise ValueError('Selecione um fornecedor válido.')
+    if encomendavel is not None and not isinstance(encomendavel, bool):
+        raise ValueError('A elegibilidade para encomenda é inválida.')
     produto = str(produto or '').strip()
     if not produto:
         raise ValueError('Indique o nome do artigo.')
@@ -619,12 +635,13 @@ def add_artigo_administrativo(produto: str, supplier_id: int,
                 """
                 INSERT INTO artigos_administrativos
                     (fornecedor, produto, marca, unidade,
-                     fornecedor_oficial_id, categoria_artigo,
+                     fornecedor_oficial_id, categoria_artigo, encomendavel,
                      human_modified_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 """,
                 (supplier_name, produto, marca or None, unidade or None,
-                 supplier_id, categoria_artigo),
+                 supplier_id, categoria_artigo,
+                 True if encomendavel is None else encomendavel),
             )
             conn.commit()
             success = True
@@ -638,7 +655,8 @@ def add_artigo_administrativo(produto: str, supplier_id: int,
 def _update_artigo_administrativo_in_transaction(
         cursor, artigo_id: int, fornecedor: str | None, produto: str,
         marca: str = None, unidade: str = None, origem_id: int = None,
-        actor: str = 'sistema', categoria_artigo: str | None = None):
+        actor: str = 'sistema', categoria_artigo: str | None = None,
+        encomendavel: bool | None = None):
     from db.compras_article_categories import (
         UNCATEGORIZED,
         validate_article_category,
@@ -646,6 +664,8 @@ def _update_artigo_administrativo_in_transaction(
 
     if categoria_artigo is not None:
         categoria_artigo = validate_article_category(categoria_artigo)
+    if encomendavel is not None and not isinstance(encomendavel, bool):
+        raise ValueError('A elegibilidade para encomenda é inválida.')
     if origem_id is not None:
         raise ValueError(
             'A origem histórica não pode ser alterada na edição do catálogo.'
@@ -655,7 +675,7 @@ def _update_artigo_administrativo_in_transaction(
         SELECT a.fornecedor, a.produto, a.marca, a.unidade,
                a.origem_id, a.origem_original, o.tipo, o.supplier_id,
                 a.fornecedor_oficial_id, official_s.name,
-                a.categoria_artigo
+                a.categoria_artigo, a.encomendavel
         FROM artigos_administrativos a
         LEFT JOIN compras_origens o ON o.id = a.origem_id
         LEFT JOIN suppliers official_s
@@ -677,6 +697,10 @@ def _update_artigo_administrativo_in_transaction(
         if categoria_artigo is None
         else categoria_artigo
     )
+    current_encomendavel = current[11] if len(current) > 11 else True
+    next_encomendavel = (
+        current_encomendavel if encomendavel is None else encomendavel
+    )
     next_origin_id = current[4]
     next_origin_type = current[6]
     next_official_supplier_id = current[8]
@@ -689,6 +713,7 @@ def _update_artigo_administrativo_in_transaction(
         and current[4] == next_origin_id
         and current[8] == next_official_supplier_id
         and current_category == next_category
+        and current_encomendavel == next_encomendavel
     )
     if unchanged:
         return {
@@ -701,7 +726,7 @@ def _update_artigo_administrativo_in_transaction(
         """
         UPDATE artigos_administrativos
            SET fornecedor = %s, produto = %s, marca = %s, unidade = %s,
-               categoria_artigo = %s,
+               categoria_artigo = %s, encomendavel = %s,
                human_modified_at = CASE
                    WHEN fornecedor IS DISTINCT FROM %s
                      OR produto IS DISTINCT FROM %s
@@ -712,6 +737,7 @@ def _update_artigo_administrativo_in_transaction(
          WHERE id = %s
         """,
         (next_fornecedor, produto, marca or None, unidade or None, next_category,
+         next_encomendavel,
          next_fornecedor, produto, marca or None, unidade or None, artigo_id),
     )
     if current_category != next_category:
@@ -723,6 +749,15 @@ def _update_artigo_administrativo_in_transaction(
             """,
             (artigo_id, current_category, next_category, actor),
         )
+    if current_encomendavel != next_encomendavel:
+        cursor.execute(
+            """
+            INSERT INTO artigos_administrativos_encomendavel_audit
+                (artigo_id, encomendavel_anterior, encomendavel_novo, actor)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (artigo_id, current_encomendavel, next_encomendavel, actor),
+        )
     return {
         'found': True,
         'changed': True,
@@ -733,11 +768,12 @@ def _update_artigo_administrativo_in_transaction(
 def update_artigo_administrativo(artigo_id: int, fornecedor: str | None, produto: str,
                                  marca: str = None, unidade: str = None,
                                  origem_id: int = None, actor: str = 'sistema',
-                                 categoria_artigo: str | None = None):
+                                 categoria_artigo: str | None = None,
+                                 encomendavel: bool | None = None):
     with db_connection() as conn:
         result = _update_artigo_administrativo_in_transaction(
             conn.cursor(), artigo_id, fornecedor, produto, marca, unidade,
-            origem_id, actor, categoria_artigo,
+            origem_id, actor, categoria_artigo, encomendavel,
         )
         if result and result['changed']:
             conn.commit()
@@ -777,6 +813,7 @@ def update_artigos_administrativos_bulk(changes: list[dict],
                     origem_id=change.get('origem_id'),
                     actor=actor,
                     categoria_artigo=change.get('categoria_artigo'),
+                    encomendavel=change.get('encomendavel'),
                 )
             except ValueError as exc:
                 raise ValueError(
@@ -802,6 +839,31 @@ def update_artigos_administrativos_bulk(changes: list[dict],
             for result in results
         ),
     }
+
+
+def get_artigo_encomendavel_history(artigo_id: int) -> list:
+    with db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id, encomendavel_anterior, encomendavel_novo, actor, created_at
+            FROM artigos_administrativos_encomendavel_audit
+            WHERE artigo_id = %s
+            ORDER BY created_at DESC, id DESC
+            """,
+            (artigo_id,),
+        )
+        rows = cursor.fetchall()
+    return [
+        {
+            'id': row[0],
+            'encomendavel_anterior': row[1],
+            'encomendavel_novo': row[2],
+            'actor': row[3],
+            'created_at': row[4],
+        }
+        for row in rows
+    ]
 
 
 def confirm_artigo_fornecedor(artigo_id: int, supplier_id: int,
