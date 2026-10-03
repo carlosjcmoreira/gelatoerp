@@ -14,11 +14,8 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 
 logger = logging.getLogger(__name__)
-
-_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 _PROMPT = r"""Analisa esta fotografia de uma folha de rastreabilidade NIVA' intitulada
 "RASTREABILIDADE DO PRODUTO PRONTO: GELADO/OUTRO".
@@ -73,12 +70,7 @@ A folha é preenchida à mão. Lê com extremo cuidado:
 Devolve APENAS o JSON, sem qualquer texto adicional."""
 
 
-def _get_client():
-    try:
-        from anthropic import Anthropic
-        return Anthropic(api_key=_API_KEY)
-    except ImportError:
-        return None
+from flask_app.ai_clients import anthropic_client as _get_client
 
 
 def ocr_pesagem(image_bytes: bytes, filename: str = '') -> dict:
@@ -99,8 +91,6 @@ def ocr_pesagem(image_bytes: bytes, filename: str = '') -> dict:
     """
     client = _get_client()
     if not client:
-        return _err("Serviço OCR Anthropic não disponível")
-    if not _API_KEY:
         return _err("Serviço OCR não configurado (ANTHROPIC_API_KEY em falta)")
 
     ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else 'jpeg'

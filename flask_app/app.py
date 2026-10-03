@@ -183,11 +183,14 @@ def create_app():
         return 'OK', 200
 
     DEV_TOKEN = os.environ.get('DEV_AUTO_LOGIN_TOKEN', '')
+    DEV_USER = os.environ.get('DEV_AUTO_LOGIN_USER', '')
+    DEV_PASSWORD = os.environ.get('DEV_AUTO_LOGIN_PASSWORD', '')
 
     @app.route('/dev-login/<token>')
     def dev_auto_login(token):
-        if DEV_TOKEN and token == DEV_TOKEN:
-            user = authenticate_user('carlosjcmoreira', 'itinerantaroma')
+        import hmac
+        if DEV_TOKEN and DEV_USER and DEV_PASSWORD and hmac.compare_digest(token.encode(), DEV_TOKEN.encode()):
+            user = authenticate_user(DEV_USER, DEV_PASSWORD)
             if user:
                 tok = create_session(user['id'])
                 session.permanent = True

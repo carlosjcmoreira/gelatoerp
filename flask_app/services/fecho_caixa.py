@@ -1,4 +1,3 @@
-import os
 import base64
 import json
 import logging
@@ -7,12 +6,7 @@ from io import BytesIO
 logger = logging.getLogger(__name__)
 
 
-def _get_openai_client():
-    try:
-        from openai import OpenAI
-        return OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-    except Exception:
-        return None
+from flask_app.ai_clients import openai_client as _get_openai_client
 
 
 _PROMPT = """Analisa esta imagem que pode ser um relatório de fecho de caixa, talão POS ou talão TPA de um ponto de venda.

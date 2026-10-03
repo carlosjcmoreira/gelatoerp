@@ -6,15 +6,7 @@ from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-
-
-def _get_anthropic_client():
-    try:
-        from anthropic import Anthropic
-        return Anthropic(api_key=ANTHROPIC_API_KEY)
-    except ImportError:
-        return None
+from flask_app.ai_clients import anthropic_client as _get_anthropic_client
 
 
 def _pdf_bytes_to_base64_images(pdf_bytes: bytes) -> list:
@@ -51,9 +43,6 @@ def extract_invoice_fields(pdf_bytes: bytes, pdf_filename: str = '') -> dict:
     client = _get_anthropic_client()
 
     if not client:
-        return _empty_extraction("Anthropic client not available")
-
-    if not ANTHROPIC_API_KEY:
         return _empty_extraction("OCR service not configured (ANTHROPIC_API_KEY missing)")
 
     try:
@@ -177,9 +166,6 @@ def extract_invoice_fields_from_image(image_bytes: bytes, filename: str = '') ->
     client = _get_anthropic_client()
 
     if not client:
-        return _empty_extraction("Anthropic client not available")
-
-    if not ANTHROPIC_API_KEY:
         return _empty_extraction("OCR service not configured (ANTHROPIC_API_KEY missing)")
 
     try:

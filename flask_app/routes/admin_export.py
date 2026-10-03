@@ -39,7 +39,7 @@ def export_db():
 
     provided = request.args.get("token", "")
     import hmac
-    if not hmac.compare_digest(provided, _EXPORT_TOKEN):
+    if not hmac.compare_digest(provided.encode(), _EXPORT_TOKEN.encode()):
         logger.warning("Tentativa de export com token inválido (IP: %s)", request.remote_addr)
         abort(403)
 

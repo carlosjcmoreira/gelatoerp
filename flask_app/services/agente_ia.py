@@ -17,14 +17,11 @@ import base64
 import io
 import json
 import logging
-import os
 import re
 from datetime import date, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-_API_KEY  = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_API_KEY")
-_BASE_URL = os.environ.get("AI_INTEGRATIONS_ANTHROPIC_BASE_URL")
 _MODEL    = "claude-sonnet-4-5"
 _MAX_TOKENS = 8192
 _MAX_LOOP   = 6
@@ -141,12 +138,7 @@ sales_forecasts(id, store_id INT, loja VARCHAR, data DATE,
 """
 
 
-def _get_client():
-    try:
-        from anthropic import Anthropic
-        return Anthropic(api_key=_API_KEY, base_url=_BASE_URL)
-    except ImportError:
-        return None
+from flask_app.ai_clients import anthropic_client as _get_client
 
 
 def _build_system_prompt(memoria: list) -> str:

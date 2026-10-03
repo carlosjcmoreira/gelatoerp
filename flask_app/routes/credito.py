@@ -86,11 +86,11 @@ def _extract_text_from_pdf(file_bytes):
 
 def _parse_document_with_ai(text=None, image_b64=None, mime_type=None):
     """Send document content to GPT for structured extraction."""
-    from openai import OpenAI
+    from flask_app.ai_clients import openai_client
 
-    client = OpenAI(
-        api_key=os.environ.get("OPENAI_API_KEY"),
-    )
+    client = openai_client()
+    if client is None:
+        raise RuntimeError("OpenAI não configurado (OPENAI_API_KEY em falta)")
 
     messages = [{"role": "system", "content": EXTRACTION_PROMPT}]
 

@@ -1,4 +1,3 @@
-import os
 import base64
 import json
 import logging
@@ -6,15 +5,7 @@ from datetime import date
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-
-
-def _get_anthropic_client():
-    try:
-        from anthropic import Anthropic
-        return Anthropic(api_key=ANTHROPIC_API_KEY)
-    except ImportError:
-        return None
+from flask_app.ai_clients import anthropic_client as _get_anthropic_client
 
 
 def extract_producao_sheet(image_bytes: bytes, filename: str = '') -> dict:
@@ -45,8 +36,6 @@ def extract_producao_sheet(image_bytes: bytes, filename: str = '') -> dict:
     """
     client = _get_anthropic_client()
     if not client:
-        return _empty_result("Serviço OCR não disponível")
-    if not ANTHROPIC_API_KEY:
         return _empty_result("Serviço OCR não configurado (ANTHROPIC_API_KEY em falta)")
 
     try:
